@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(C:/Users/jkw88/miniconda3/envs/volumequant/python.exe -c \"import sys; sys.path.insert\\(0, ''C:/dev/claude-code/eps-momentum-us''\\); from daily_runner import analyze_technical; print\\(analyze_technical\\(''AAPL''\\)\\)\")",
+      "Bash(set PYTHONIOENCODING=utf-8)",
+      "Bash(C:/Users/jkw88/miniconda3/envs/volumequant/python.exe -c \"import sys; sys.path.insert\\(0, ''C:/dev/claude-code/eps-momentum-us''\\); from daily_runner import analyze_technical; result = analyze_technical\\(''AAPL''\\); print\\(result\\)\")",
+      "Bash(C:/Users/jkw88/miniconda3/envs/volumequant/python.exe:*)"
+    ]
+  }
+}

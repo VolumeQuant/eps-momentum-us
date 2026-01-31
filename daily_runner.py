@@ -14,6 +14,7 @@ EPS Momentum Daily Runner - 자동화 시스템
 
 import os
 import sys
+import io
 import json
 import sqlite3
 import subprocess
@@ -21,6 +22,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
+
+# Windows에서 UTF-8 인코딩 강제 적용 (이모지 지원)
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # 프로젝트 루트
 PROJECT_ROOT = Path(__file__).parent
@@ -903,22 +909,34 @@ def get_earnings_warning(screening_df, config):
     return warnings
 
 
+def format_dollar_volume(dollar_vol_m):
+    """거래대금을 M/B 단위로 포맷"""
+    if dollar_vol_m is None:
+        return "N/A"
+    if dollar_vol_m >= 1000:
+        return f"${dollar_vol_m/1000:.1f}B"
+    else:
+        return f"${dollar_vol_m:.0f}M"
+
+
 def create_telegram_message(screening_df, stats, changes=None, config=None):
     """
-    텔레그램 메시지 생성 함수 (요구사항 2)
+    텔레그램 메시지 생성 함수 - 상세 카드형 포맷
 
-    목표: 모바일 가독성을 위해 HTML 태그를 사용하고, 스크리닝된 모든 종목을 리스트업 (개수 제한 없음)
+    각 종목마다 3줄의 상세 정보 표시:
+    1번째 줄: 순위, 티커(볼드), 회사명(풀네임), 현재가
+    2번째 줄 (펀더멘털): 모멘텀 점수, EPS변화율(60일), PEG, 섹터
+    3번째 줄 (기술적/수급): 매매 액션(한국어), RSI 수치, 거래대금($Vol)
 
-    포맷 가이드:
-    - 헤더: 🚀 <b>[MM/DD] EPS 모멘텀 브리핑</b> (총 N건)
-    - 본문 (종목별 루프):
-      - 첫 줄: 순위. <b>티커</b> 회사명(15자로 자름)
-      - 둘째 줄: └ 점수 | 섹터 | 액션
-    - 하단: 시장 요약(Narrow/Broad 테마) 및 리스크 알림
+    예시:
+    1. <b>MU</b> Micron Technology ($110.5)
+       ├ 📊 점수 28.8 | EPS +114% | PEG 0.1 | 반도체
+       └ 🎯 <b>✋ 진입금지 (과열)</b> (RSI 72 | Vol $15.1B)
     """
     import yfinance as yf
 
     today = datetime.now().strftime('%m/%d')
+    today_full = datetime.now().strftime('%Y-%m-%d %H:%M')
     config = config or {}
     total_count = len(screening_df)
 
@@ -926,87 +944,131 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     sector_map = {
         'Semiconductor': '반도체', 'Tech': '기술', 'Technology': '기술',
         'Industrials': '산업재', 'Financial Services': '금융', 'Financial': '금융',
-        'Healthcare': '헬스케어', 'Consumer Cyclical': '소비재',
-        'Consumer Defensive': '필수소비', 'Energy': '에너지',
+        'Healthcare': '헬스케어', 'Consumer Cyclical': '경기소비재',
+        'Consumer Defensive': '필수소비재', 'Energy': '에너지',
         'Basic Materials': '소재', 'Real Estate': '부동산', 'Utilities': '유틸리티',
-        'Communication Services': '통신', 'Consumer': '소비재', 'Other': '기타'
+        'Communication Services': '통신서비스', 'Consumer': '소비재', 'Other': '기타'
     }
 
     # ========================================
     # 헤더
     # ========================================
-    msg = f"🚀 <b>[{today}] EPS 모멘텀 브리핑</b> (총 {total_count}건)\n\n"
+    msg = f"🚀 <b>[{today}] EPS 모멘텀 일일 브리핑</b>\n"
+    msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"📅 {today_full} | 총 <b>{total_count}</b>개 종목 통과\n\n"
 
     # ========================================
-    # 모든 종목 리스트업 (개수 제한 없음)
+    # 모든 종목 상세 카드 (개수 제한 없음)
     # ========================================
     for idx, (_, row) in enumerate(screening_df.iterrows(), 1):
         ticker = row['ticker']
-        score = row['score_321']
+        score = row.get('score_321', 0)
+        eps_chg = row.get('eps_chg_60d', 0)
+        peg = row.get('peg', None)
+        price = row.get('price', 0)
         sector = row.get('sector', 'Other')
-        sector_kr = sector_map.get(sector, sector[:4] if len(sector) > 4 else sector)
+        dollar_vol_m = row.get('dollar_vol_M', 0)
 
-        # 회사명 가져오기 (캐싱 없이 간단히)
+        sector_kr = sector_map.get(sector, sector[:6] if len(sector) > 6 else sector)
+
+        # 회사명 가져오기
         try:
             stock = yf.Ticker(ticker)
-            company_name = stock.info.get('shortName', ticker)
-            # 15자로 자름
-            if len(company_name) > 15:
-                company_name = company_name[:13] + '..'
+            company_name = stock.info.get('shortName', '') or stock.info.get('longName', ticker)
+            # 20자로 자름
+            if len(company_name) > 20:
+                company_name = company_name[:18] + '..'
         except:
             company_name = ticker
 
-        # 기술적 분석으로 액션 결정
+        # 기술적 분석으로 액션 및 RSI 결정
         tech_result = analyze_technical(ticker)
         action = tech_result.get('Action', '🟢 매수적기 (추세)')
+        rsi = tech_result.get('RSI', None)
 
-        # 메시지 포맷
-        # 첫 줄: 순위. <b>티커</b> 회사명
-        msg += f"{idx}. <b>{ticker}</b> {company_name}\n"
-        # 둘째 줄: └ 점수 | 섹터 | 액션
-        msg += f"   └ {score:.1f} | {sector_kr} | {action}\n"
+        # PEG 포맷
+        peg_str = f"{peg:.1f}" if peg else "N/A"
+
+        # RSI 포맷
+        rsi_str = f"{rsi:.0f}" if rsi else "N/A"
+
+        # 거래대금 포맷 (M/B 단위)
+        vol_str = format_dollar_volume(dollar_vol_m)
+
+        # EPS 변화율 포맷 (+/- 기호)
+        eps_str = f"+{eps_chg:.0f}%" if eps_chg >= 0 else f"{eps_chg:.0f}%"
+
+        # ========================================
+        # 3줄 카드형 포맷
+        # ========================================
+        # 1번째 줄: 순위, 티커, 회사명, 현재가
+        msg += f"{idx}. <b>{ticker}</b> {company_name} (${price:.1f})\n"
+
+        # 2번째 줄: 펀더멘털 지표
+        msg += f"   ├ 📊 점수 {score:.1f} | EPS {eps_str} | PEG {peg_str} | {sector_kr}\n"
+
+        # 3번째 줄: 기술적/수급 지표 + 액션
+        msg += f"   └ 🎯 <b>{action}</b> (RSI {rsi_str} | {vol_str})\n"
+
+        # 종목 간 구분선 (5개마다)
+        if idx % 5 == 0 and idx < total_count:
+            msg += "\n"
 
     # ========================================
-    # 시장 요약 (Narrow/Broad 테마)
+    # 시장 테마 분석 (Narrow/Broad)
     # ========================================
     sector_signals = analyze_sector_signal(screening_df)
     if sector_signals:
-        msg += "\n<b>📊 시장 테마</b>\n"
+        msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        msg += "<b>📊 시장 테마 분석</b>\n"
         for sig in sector_signals:
-            theme_type = "Narrow" if sig['type'] == 'Narrow' else "Broad"
-            msg += f"• {sig['sector']} ({theme_type}): {sig['count']}종목\n"
-            msg += f"  ETF: {sig['etf_1x']} / {sig['etf_3x']}\n"
+            theme_type = "🎯Narrow" if sig['type'] == 'Narrow' else "📈Broad"
+            msg += f"• <b>{sig['sector']}</b> ({theme_type}): {sig['count']}종목\n"
+            msg += f"  └ ETF 추천: {sig['etf_1x']} (1x) / {sig['etf_3x']} (3x)\n"
 
     # ========================================
     # 리스크 알림
     # ========================================
     earnings_warnings = get_earnings_warning(screening_df, config) if config else []
     if earnings_warnings:
-        msg += "\n<b>⚠️ 실적발표 임박</b>\n"
-        msg += f"{', '.join(earnings_warnings)}\n"
+        msg += "\n<b>⚠️ 실적발표 임박 종목</b>\n"
+        msg += f"  {', '.join(earnings_warnings)}\n"
 
     # ========================================
-    # 편입/편출 변경 사항
+    # 포트폴리오 변경 사항
     # ========================================
     added_list = changes.get('added', []) if changes else []
     removed_list = changes.get('removed', []) if changes else []
 
     if added_list or removed_list:
-        msg += "\n<b>📋 포트폴리오 변경</b>\n"
+        msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        msg += "<b>📋 전일 대비 변동</b>\n"
         if added_list:
-            msg += f"+ 신규: {', '.join(added_list)}\n"
+            msg += f"🆕 신규편입 ({len(added_list)}): {', '.join(added_list)}\n"
         if removed_list:
-            msg += f"- 편출: {', '.join(removed_list)}\n"
+            msg += f"🚫 편출 ({len(removed_list)}): {', '.join(removed_list)}\n"
 
     # ========================================
-    # 시스템 상태
+    # 필터링 통계 요약
     # ========================================
+    msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "<b>📈 스크리닝 통계</b>\n"
+    msg += f"• 총 스캔: {stats.get('total', 0)}개\n"
+    msg += f"• Kill Switch 제외: {stats.get('killed', 0)}개\n"
+    msg += f"• 거래량 부족: {stats.get('low_volume', 0)}개\n"
+    msg += f"• MA20 하회: {stats.get('below_ma', 0)}개\n"
+    msg += f"• 실적 블랙아웃: {stats.get('earnings_blackout', 0)}개\n"
+    msg += f"• <b>최종 통과: {stats.get('passed', 0)}개</b>\n"
+
+    # DB 상태
     db_size = 0
     if DB_PATH.exists():
         db_size = DB_PATH.stat().st_size / (1024 * 1024)  # MB
+    msg += f"\n💾 DB 용량: {db_size:.1f}MB\n"
 
-    msg += f"\n<b>📈 통계</b>\n"
-    msg += f"스캔: {stats.get('total', 0)} | 통과: {stats.get('passed', 0)} | DB: {db_size:.1f}MB\n"
+    # 푸터
+    msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "<i>🤖 EPS Momentum Strategy v3</i>\n"
 
     return msg
 
