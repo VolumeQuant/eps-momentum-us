@@ -25,7 +25,21 @@
    - EPS변화율/5:    보너스
 4. Dollar Volume:    $20M 이상 (유동성)
 5. Technical:        Price > 20-day MA (추세)
+6. Earnings Blackout: 실적 발표 D-5 ~ D+1 진입 금지
 ```
+
+## 기술적 분석 신호 (v3 신규)
+
+RSI(14)와 이동평균선(20일/200일)을 활용한 진입 타이밍 분석:
+
+| 우선순위 | 조건 | 액션 |
+|---------|------|------|
+| 1 | 현재가 < 200일선 | 📉 추세이탈 (200일선↓) |
+| 2 | RSI ≥ 70 | ✋ 진입금지 (과열) |
+| 3 | RSI 50~65 & 20일선 근처(-2%~+3%) | 🚀 강력매수 (눌림목) |
+| 4 | RSI < 40 & 현재가 > 200일선 | 🟢 저점매수 (반등) |
+| 5 | 현재가 > 20일선 | 🟢 매수적기 (추세) |
+| 6 | 기타 | 👀 관망 (20일선 이탈) |
 
 ## 지수별 검증 결과
 
@@ -56,23 +70,93 @@
 
 ```
 eps-momentum-us/
+├── daily_runner.py          # 자동화 시스템 (스크리닝 + 텔레그램 + Git)
 ├── eps_momentum_system.py   # 메인 시스템 (Track 1 + Track 2)
 ├── sector_analysis.py       # 섹터 분석 + Broad/Narrow + ETF 추천
 ├── daily_eps_screener.py    # 일일 스크리닝 (편입/편출 추적)
+├── run_daily.bat            # Windows 작업 스케줄러용 배치 파일
+├── config.json              # 설정 (텔레그램, Git 등)
+├── eps_momentum_data.db     # SQLite DB (백테스트용 데이터)
 ├── eps_data/                # 데이터 저장
-│   ├── screening_*.csv      # 일일 스크리닝 결과
-│   └── track2_*.csv         # 백테스트용 전체 데이터
-└── README.md
+│   └── screening_*.csv      # 일일 스크리닝 결과
+├── reports/                 # 리포트 저장
+│   ├── report_*.md          # Markdown 리포트
+│   └── report_*.html        # HTML 리포트
+└── logs/                    # 실행 로그
 ```
 
 ## 사용법
 
 ```bash
+# 전체 자동 실행 (스크리닝 + 데이터 축적 + 리포트 + 텔레그램)
+python daily_runner.py
+
 # 일일 스크리닝 (개별 종목)
-python eps_momentum_system.py
+python eps_momentum_system.py screen
+
+# 데이터 축적
+python eps_momentum_system.py collect
 
 # 섹터 분석 + ETF 추천
 python sector_analysis.py
+```
+
+## 자동화 설정
+
+### Windows 작업 스케줄러
+
+1. `작업 스케줄러` 열기
+2. 새 작업 생성:
+   - 트리거: 매일 07:00 (미국 장 마감 후, 한국 시간)
+   - 동작: `C:\dev\claude-code\eps-momentum-us\run_daily.bat`
+   - 시작 위치: `C:\dev\claude-code\eps-momentum-us`
+
+### 텔레그램 알림 설정
+
+`config.json`:
+```json
+{
+  "telegram_enabled": true,
+  "telegram_bot_token": "YOUR_BOT_TOKEN",
+  "telegram_chat_id": "YOUR_CHAT_ID"
+}
+```
+
+## 텔레그램 메시지 포맷 (v3)
+
+```
+🚀 [01/31] EPS 모멘텀 일일 브리핑
+━━━━━━━━━━━━━━━━━━━━━━
+📅 2026-01-31 07:00 | 총 74개 종목 통과
+
+1. MU Micron Technology ($414.9)
+   ├ 📊 점수 28.8 | EPS +114% | PEG 0.1 | 반도체
+   └ 🎯 ✋ 진입금지 (과열) (RSI 72 | $15.2B)
+
+2. LUV Southwest Airlines ($47.5)
+   ├ 📊 점수 11.0 | EPS +25% | PEG 0.2 | 산업재
+   └ 🎯 🟢 매수적기 (추세) (RSI 60 | $478M)
+
+3. FCX Freeport-McMoRan ($60.2)
+   ├ 📊 점수 10.8 | EPS +24% | PEG 0.4 | 소재
+   └ 🎯 🚀 강력매수 (눌림목) (RSI 60 | $1.5B)
+...
+
+━━━━━━━━━━━━━━━━━━━━━━
+📊 시장 테마 분석
+• Semiconductor (🎯Narrow): 10종목
+  └ ETF 추천: SMH (1x) / SOXL (3x)
+• Industrials (📈Broad): 8종목
+  └ ETF 추천: XLI (1x) / DUSL (3x)
+
+━━━━━━━━━━━━━━━━━━━━━━
+📈 스크리닝 통계
+• 총 스캔: 433개
+• Kill Switch 제외: 45개
+• 거래량 부족: 12개
+• MA20 하회: 85개
+• 실적 블랙아웃: 3개
+• 최종 통과: 74개
 ```
 
 ## 투 트랙 시스템
@@ -90,6 +174,15 @@ Track 2 (백테스트 데이터 축적)
 └── Survivorship Bias 방지
 ```
 
+## A/B 테스팅 (스코어링 방식 비교)
+
+| 방식 | 설명 | 특징 |
+|------|------|------|
+| **Score_321** | 가중치 기반 (3-2-1) | 현재 사용 중, 안정적 |
+| **Score_Slope** | 변화율 가중 평균 | 가속도 측정, 테스트 중 |
+
+3개월 후 어떤 방식이 더 효과적인지 검증 예정
+
 ## 핵심 발견 및 수정사항
 
 | 이슈 | 문제 | 해결 |
@@ -98,6 +191,7 @@ Track 2 (백테스트 데이터 축적)
 | **Volume 필터** | 주당 거래량은 고가주 불리 | Dollar Volume($20M)으로 변경 |
 | **동일 가중치** | 모든 기간 동일 가중치 | 최신 변화에 높은 가중치 부여 |
 | **Broad ETF 오류** | 반도체 신호에 TECL 추천 | Narrow 감지 → SOXL 추천 |
+| **진입 타이밍** | EPS 좋아도 과열 상태 진입 | RSI + 이평선 기술적 분석 추가 |
 
 ## 의존성
 
@@ -111,8 +205,14 @@ pip install yfinance pandas numpy
 2. **리밸런싱 주기 최적화**: 주간 vs 월간
 3. **포지션 사이징**: 점수 기반 비중 배분
 4. **리스크 관리**: 섹터 집중도 제한, 손절 규칙
+5. **A/B 테스트 결과 분석**: Score_321 vs Score_Slope 비교
 
 ## 데이터 소스
 
 - Yahoo Finance API (`yfinance`)
 - EPS Trend: `stock.eps_trend` (Forward 1 Year)
+
+## 최근 업데이트
+
+- **2026-01-31**: 기술적 분석 함수 추가 (RSI, 200일선), 텔레그램 상세 카드형 포맷 적용
+- **2026-01-30**: 초기 버전 배포
