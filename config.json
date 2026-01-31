@@ -3,9 +3,9 @@
   "git_enabled": true,
   "git_remote": "origin",
   "git_branch": "main",
-  "telegram_enabled": false,
-  "telegram_bot_token": "",
-  "telegram_chat_id": "",
+  "telegram_enabled": true,
+  "telegram_bot_token": "7948087946:AAGVHj7FdBxr0LRJzQTzfEp0HadzAtoXs-8",
+  "telegram_chat_id": "7580571403",
   "run_time": "07:00",
   "indices": [
     "NASDAQ_100",

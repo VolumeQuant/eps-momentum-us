@@ -6,6 +6,8 @@ __pycache__/
 .Python
 venv/
 .venv/
+.eggs/
+*.egg-info/
 
 # IDE
 .idea/
@@ -17,5 +19,10 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Data files (optional - uncomment to ignore)
-# eps_data/*.csv
+# Logs (일일 로그는 Git에 올림)
+# logs/  <- 주석처리: 로그도 올림
+
+# 모든 데이터 파일 Git에 포함 (여러 PC 동기화용)
+# eps_data/  <- 주석처리: CSV 올림
+# *.db       <- 주석처리: DB 올림
+# reports/   <- 주석처리: 리포트 올림

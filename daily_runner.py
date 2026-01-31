@@ -364,9 +364,56 @@ def run_data_collection(config):
 # 리포트 생성
 # ============================================================
 
+def get_portfolio_changes(screening_df, config):
+    """전일 대비 편입/편출 종목 계산"""
+    today = datetime.now().strftime('%Y-%m-%d')
+    yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+
+    today_tickers = set(screening_df['ticker'].tolist()) if not screening_df.empty else set()
+
+    # 전일 데이터 조회
+    yesterday_tickers = set()
+    yesterday_file = DATA_DIR / f'screening_{yesterday}.csv'
+
+    if yesterday_file.exists():
+        try:
+            import pandas as pd
+            yesterday_df = pd.read_csv(yesterday_file)
+            yesterday_tickers = set(yesterday_df['ticker'].tolist())
+        except:
+            pass
+
+    # DB에서 전일 데이터 조회 (파일 없으면)
+    if not yesterday_tickers and DB_PATH.exists():
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            query = f"SELECT DISTINCT ticker FROM eps_snapshots WHERE date = '{yesterday}' AND passed_screen = 1"
+            result = pd.read_sql(query, conn)
+            yesterday_tickers = set(result['ticker'].tolist())
+            conn.close()
+        except:
+            pass
+
+    # 편입/편출 계산
+    added = today_tickers - yesterday_tickers  # 신규 편입
+    removed = yesterday_tickers - today_tickers  # 편출
+    maintained = today_tickers & yesterday_tickers  # 유지
+
+    return {
+        'added': sorted(list(added)),
+        'removed': sorted(list(removed)),
+        'maintained': sorted(list(maintained)),
+        'today_count': len(today_tickers),
+        'yesterday_count': len(yesterday_tickers)
+    }
+
+
 def generate_report(screening_df, stats, config):
     """일일 리포트 생성 (HTML + Markdown)"""
     log("리포트 생성 중...")
+
+    # 편입/편출 계산
+    changes = get_portfolio_changes(screening_df, config)
 
     today = datetime.now().strftime('%Y-%m-%d')
     today_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -398,6 +445,13 @@ def generate_report(screening_df, stats, config):
 | Low Volume | {stats.get('low_volume', 0)} |
 | Below MA20 | {stats.get('below_ma', 0)} |
 | Earnings Blackout | {stats.get('earnings_blackout', 0)} |
+
+## Portfolio Changes (vs Yesterday)
+| Type | Count | Tickers |
+|------|-------|---------|
+| Added (New) | {len(changes['added'])} | {', '.join(changes['added'][:10])}{'...' if len(changes['added']) > 10 else ''} |
+| Removed | {len(changes['removed'])} | {', '.join(changes['removed'][:10])}{'...' if len(changes['removed']) > 10 else ''} |
+| Maintained | {len(changes['maintained'])} | - |
 
 ## Sector Distribution
 | Sector | Count |
@@ -472,6 +526,33 @@ def generate_report(screening_df, stats, config):
             <div class="stat-card">
                 <div class="stat-value">{stats.get('earnings_blackout', 0)}</div>
                 <div class="stat-label">Earnings Blackout</div>
+            </div>
+        </div>
+
+        <h2>Portfolio Changes (vs Yesterday)</h2>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" style="color: #28a745;">{len(changes['added'])}</div>
+                <div class="stat-label">Added (New)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="color: #dc3545;">{len(changes['removed'])}</div>
+                <div class="stat-label">Removed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{len(changes['maintained'])}</div>
+                <div class="stat-label">Maintained</div>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 20px; margin: 20px 0;">
+            <div style="flex: 1;">
+                <h4 style="color: #28a745;">+ Added</h4>
+                <p>{', '.join(changes['added']) if changes['added'] else 'None'}</p>
+            </div>
+            <div style="flex: 1;">
+                <h4 style="color: #dc3545;">- Removed</h4>
+                <p>{', '.join(changes['removed']) if changes['removed'] else 'None'}</p>
             </div>
         </div>
 
@@ -609,25 +690,382 @@ def send_telegram(message, config):
         return False
 
 
-def format_telegram_message(screening_df, stats):
-    """텔레그램용 메시지 포맷"""
-    today = datetime.now().strftime('%Y-%m-%d')
+def calculate_rsi(prices, period=14):
+    """RSI 계산"""
+    import pandas as pd
+    if len(prices) < period + 1:
+        return None
 
-    msg = f"""*EPS Momentum Report - {today}*
+    delta = prices.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
 
-*Summary:*
-- Scanned: {stats.get('total', 0)}
-- Passed: {stats.get('passed', 0)}
-- Kill Switch: {stats.get('killed', 0)}
-- Earnings Blackout: {stats.get('earnings_blackout', 0)}
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi.iloc[-1] if not pd.isna(rsi.iloc[-1]) else None
 
-*Top 10 Candidates:*
-"""
 
-    for i, (_, row) in enumerate(screening_df.head(10).iterrows()):
-        msg += f"`{i+1}. {row['ticker']:<6} {row['score_321']:>+5.1f} {row['eps_chg_60d']:>+6.1f}%`\n"
+def analyze_technical(ticker):
+    """
+    기술적 분석 함수 (요구사항 1)
+
+    yfinance로 최근 6개월 일봉 데이터를 받아 RSI(14), 20일/200일 이동평균선을 계산하고,
+    아래 조건에 따라 직관적인 한국어 매수 신호를 반환.
+
+    로직 (우선순위 순):
+    1. 현재가 < 200일 이평선: "📉 추세이탈 (200일선↓)"
+    2. RSI ≥ 70: "✋ 진입금지 (과열)"
+    3. RSI 50~65 & 현재가가 20일선 근처(-2% ~ +3%): "🚀 강력매수 (눌림목)"
+    4. RSI < 40 & 현재가 > 200일선: "🟢 저점매수 (반등)"
+    5. 현재가 > 20일선: "🟢 매수적기 (추세)"
+    6. 그 외: "👀 관망 (20일선 이탈)"
+
+    Returns:
+        dict: {Ticker, Price, RSI, MA20, MA200, Action}
+    """
+    import yfinance as yf
+    import pandas as pd
+
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period='6mo')
+
+        if len(hist) < 20:
+            return {
+                'Ticker': ticker,
+                'Price': None,
+                'RSI': None,
+                'MA20': None,
+                'MA200': None,
+                'Action': "⚠️ 데이터 부족"
+            }
+
+        # 현재가
+        price = hist['Close'].iloc[-1]
+
+        # RSI(14) 계산
+        rsi = calculate_rsi(hist['Close'], 14)
+
+        # 20일 이동평균선
+        ma_20 = hist['Close'].tail(20).mean()
+
+        # 200일 이동평균선 (6개월 데이터로는 ~126일이므로 있는 데이터로 계산)
+        if len(hist) >= 200:
+            ma_200 = hist['Close'].tail(200).mean()
+        else:
+            # 200일 데이터가 없으면 1년치 다시 가져오기
+            hist_1y = stock.history(period='1y')
+            if len(hist_1y) >= 200:
+                ma_200 = hist_1y['Close'].tail(200).mean()
+            else:
+                ma_200 = hist_1y['Close'].mean()  # 있는 데이터로 계산
+
+        # 20일선 대비 이격도 계산
+        ma20_distance = ((price - ma_20) / ma_20) * 100
+
+        # 매수 신호 결정 (우선순위 순)
+        action = ""
+
+        # 1. 현재가 < 200일 이평선
+        if price < ma_200:
+            action = "📉 추세이탈 (200일선↓)"
+        # 2. RSI ≥ 70 (과열)
+        elif rsi is not None and rsi >= 70:
+            action = "✋ 진입금지 (과열)"
+        # 3. RSI 50~65 & 20일선 근처(-2% ~ +3%) - 눌림목
+        elif rsi is not None and 50 <= rsi <= 65 and -2 <= ma20_distance <= 3:
+            action = "🚀 강력매수 (눌림목)"
+        # 4. RSI < 40 & 현재가 > 200일선 - 저점 반등
+        elif rsi is not None and rsi < 40 and price > ma_200:
+            action = "🟢 저점매수 (반등)"
+        # 5. 현재가 > 20일선 - 추세 매수
+        elif price > ma_20:
+            action = "🟢 매수적기 (추세)"
+        # 6. 그 외
+        else:
+            action = "👀 관망 (20일선 이탈)"
+
+        return {
+            'Ticker': ticker,
+            'Price': round(price, 2),
+            'RSI': round(rsi, 1) if rsi else None,
+            'MA20': round(ma_20, 2),
+            'MA200': round(ma_200, 2),
+            'Action': action
+        }
+
+    except Exception as e:
+        return {
+            'Ticker': ticker,
+            'Price': None,
+            'RSI': None,
+            'MA20': None,
+            'MA200': None,
+            'Action': f"⚠️ 오류"
+        }
+
+
+def get_technical_action(ticker, price, ma_20, rsi=None):
+    """
+    기술적 액션 결정 (레거시 호환용)
+    """
+    if rsi is None:
+        return "BUY", "Trend"
+
+    # MA20 대비 위치
+    ma_distance = (price - ma_20) / ma_20 * 100
+
+    if rsi > 70:
+        return "WAIT", "RSI High"
+    elif rsi < 30 and ma_distance > 0:
+        return "STRONG", "Oversold"
+    elif rsi < 40 and ma_distance > 0:
+        return "BUY", "Dip"
+    elif 40 <= rsi <= 60 and ma_distance > 0:
+        return "BUY", "Trend"
+    elif rsi > 60 and ma_distance > 3:
+        return "HOLD", "Extended"
+    else:
+        return "BUY", "Trend"
+
+
+def analyze_sector_signal(screening_df):
+    """
+    섹터별 Broad/Narrow 분석 + ETF 추천
+    """
+    if screening_df.empty:
+        return []
+
+    # 섹터별 집계
+    sector_stats = screening_df.groupby('sector').agg({
+        'ticker': 'count',
+        'score_321': 'sum'
+    }).rename(columns={'ticker': 'count'})
+
+    sector_stats = sector_stats.sort_values('score_321', ascending=False)
+
+    # ETF 매핑
+    SECTOR_ETF = {
+        'Semiconductor': {'type': 'Narrow', 'etf_1x': 'SMH', 'etf_3x': 'SOXL'},
+        'Tech': {'type': 'Broad', 'etf_1x': 'XLK', 'etf_3x': 'TECL'},
+        'Technology': {'type': 'Broad', 'etf_1x': 'XLK', 'etf_3x': 'TECL'},
+        'Financial Services': {'type': 'Broad', 'etf_1x': 'XLF', 'etf_3x': 'FAS'},
+        'Financial': {'type': 'Broad', 'etf_1x': 'XLF', 'etf_3x': 'FAS'},
+        'Industrials': {'type': 'Broad', 'etf_1x': 'XLI', 'etf_3x': 'DUSL'},
+        'Healthcare': {'type': 'Broad', 'etf_1x': 'XLV', 'etf_3x': 'CURE'},
+        'Consumer Cyclical': {'type': 'Broad', 'etf_1x': 'XLY', 'etf_3x': 'WANT'},
+        'Consumer Defensive': {'type': 'Broad', 'etf_1x': 'XLP', 'etf_3x': 'None'},
+        'Energy': {'type': 'Broad', 'etf_1x': 'XLE', 'etf_3x': 'ERX'},
+        'Basic Materials': {'type': 'Narrow', 'etf_1x': 'XLB', 'etf_3x': 'MATL'},
+        'Real Estate': {'type': 'Broad', 'etf_1x': 'XLRE', 'etf_3x': 'DRN'},
+        'Utilities': {'type': 'Broad', 'etf_1x': 'XLU', 'etf_3x': 'UTSL'},
+    }
+
+    results = []
+    for sector in sector_stats.head(2).index:
+        info = SECTOR_ETF.get(sector, {'type': 'Broad', 'etf_1x': 'SPY', 'etf_3x': 'UPRO'})
+        count = int(sector_stats.loc[sector, 'count'])
+        results.append({
+            'sector': sector,
+            'type': info['type'],
+            'etf_1x': info['etf_1x'],
+            'etf_3x': info['etf_3x'],
+            'count': count
+        })
+
+    return results
+
+
+def get_earnings_warning(screening_df, config):
+    """실적발표 임박 종목 체크"""
+    import yfinance as yf
+
+    warnings = []
+    blackout_days = config.get('earnings_blackout_days', 5)
+
+    # Top 10 종목만 체크 (API 호출 최소화)
+    for ticker in screening_df.head(10)['ticker'].tolist():
+        try:
+            stock = yf.Ticker(ticker)
+            calendar = stock.calendar
+
+            if calendar is not None and 'Earnings Date' in calendar:
+                earnings_date = calendar['Earnings Date']
+                if isinstance(earnings_date, (list, tuple)):
+                    earnings_date = earnings_date[0]
+                if earnings_date:
+                    days_to = (earnings_date.date() - datetime.now().date()).days
+                    if 0 <= days_to <= blackout_days:
+                        warnings.append(f"{ticker} (D-{days_to})")
+        except:
+            continue
+
+    return warnings
+
+
+def create_telegram_message(screening_df, stats, changes=None, config=None):
+    """
+    텔레그램 메시지 생성 함수 (요구사항 2)
+
+    목표: 모바일 가독성을 위해 HTML 태그를 사용하고, 스크리닝된 모든 종목을 리스트업 (개수 제한 없음)
+
+    포맷 가이드:
+    - 헤더: 🚀 <b>[MM/DD] EPS 모멘텀 브리핑</b> (총 N건)
+    - 본문 (종목별 루프):
+      - 첫 줄: 순위. <b>티커</b> 회사명(15자로 자름)
+      - 둘째 줄: └ 점수 | 섹터 | 액션
+    - 하단: 시장 요약(Narrow/Broad 테마) 및 리스크 알림
+    """
+    import yfinance as yf
+
+    today = datetime.now().strftime('%m/%d')
+    config = config or {}
+    total_count = len(screening_df)
+
+    # 섹터 한국어 매핑
+    sector_map = {
+        'Semiconductor': '반도체', 'Tech': '기술', 'Technology': '기술',
+        'Industrials': '산업재', 'Financial Services': '금융', 'Financial': '금융',
+        'Healthcare': '헬스케어', 'Consumer Cyclical': '소비재',
+        'Consumer Defensive': '필수소비', 'Energy': '에너지',
+        'Basic Materials': '소재', 'Real Estate': '부동산', 'Utilities': '유틸리티',
+        'Communication Services': '통신', 'Consumer': '소비재', 'Other': '기타'
+    }
+
+    # ========================================
+    # 헤더
+    # ========================================
+    msg = f"🚀 <b>[{today}] EPS 모멘텀 브리핑</b> (총 {total_count}건)\n\n"
+
+    # ========================================
+    # 모든 종목 리스트업 (개수 제한 없음)
+    # ========================================
+    for idx, (_, row) in enumerate(screening_df.iterrows(), 1):
+        ticker = row['ticker']
+        score = row['score_321']
+        sector = row.get('sector', 'Other')
+        sector_kr = sector_map.get(sector, sector[:4] if len(sector) > 4 else sector)
+
+        # 회사명 가져오기 (캐싱 없이 간단히)
+        try:
+            stock = yf.Ticker(ticker)
+            company_name = stock.info.get('shortName', ticker)
+            # 15자로 자름
+            if len(company_name) > 15:
+                company_name = company_name[:13] + '..'
+        except:
+            company_name = ticker
+
+        # 기술적 분석으로 액션 결정
+        tech_result = analyze_technical(ticker)
+        action = tech_result.get('Action', '🟢 매수적기 (추세)')
+
+        # 메시지 포맷
+        # 첫 줄: 순위. <b>티커</b> 회사명
+        msg += f"{idx}. <b>{ticker}</b> {company_name}\n"
+        # 둘째 줄: └ 점수 | 섹터 | 액션
+        msg += f"   └ {score:.1f} | {sector_kr} | {action}\n"
+
+    # ========================================
+    # 시장 요약 (Narrow/Broad 테마)
+    # ========================================
+    sector_signals = analyze_sector_signal(screening_df)
+    if sector_signals:
+        msg += "\n<b>📊 시장 테마</b>\n"
+        for sig in sector_signals:
+            theme_type = "Narrow" if sig['type'] == 'Narrow' else "Broad"
+            msg += f"• {sig['sector']} ({theme_type}): {sig['count']}종목\n"
+            msg += f"  ETF: {sig['etf_1x']} / {sig['etf_3x']}\n"
+
+    # ========================================
+    # 리스크 알림
+    # ========================================
+    earnings_warnings = get_earnings_warning(screening_df, config) if config else []
+    if earnings_warnings:
+        msg += "\n<b>⚠️ 실적발표 임박</b>\n"
+        msg += f"{', '.join(earnings_warnings)}\n"
+
+    # ========================================
+    # 편입/편출 변경 사항
+    # ========================================
+    added_list = changes.get('added', []) if changes else []
+    removed_list = changes.get('removed', []) if changes else []
+
+    if added_list or removed_list:
+        msg += "\n<b>📋 포트폴리오 변경</b>\n"
+        if added_list:
+            msg += f"+ 신규: {', '.join(added_list)}\n"
+        if removed_list:
+            msg += f"- 편출: {', '.join(removed_list)}\n"
+
+    # ========================================
+    # 시스템 상태
+    # ========================================
+    db_size = 0
+    if DB_PATH.exists():
+        db_size = DB_PATH.stat().st_size / (1024 * 1024)  # MB
+
+    msg += f"\n<b>📈 통계</b>\n"
+    msg += f"스캔: {stats.get('total', 0)} | 통과: {stats.get('passed', 0)} | DB: {db_size:.1f}MB\n"
 
     return msg
+
+
+def format_telegram_message(screening_df, stats, changes=None, config=None):
+    """
+    텔레그램 메시지 (레거시 호환용 - create_telegram_message로 대체)
+    """
+    return create_telegram_message(screening_df, stats, changes, config)
+
+
+def send_telegram_long(message, config):
+    """긴 메시지를 여러 개로 분할해서 전송"""
+    if not config.get('telegram_enabled', False):
+        return False
+
+    bot_token = config.get('telegram_bot_token', '')
+    chat_id = config.get('telegram_chat_id', '')
+
+    if not bot_token or not chat_id:
+        log("텔레그램 설정 불완전", "WARN")
+        return False
+
+    try:
+        import urllib.request
+        import urllib.parse
+
+        # 4000자씩 분할
+        chunks = []
+        remaining = message
+        while remaining:
+            if len(remaining) <= 4000:
+                chunks.append(remaining)
+                break
+            else:
+                split_point = remaining[:4000].rfind('\n')
+                if split_point == -1:
+                    split_point = 4000
+                chunks.append(remaining[:split_point])
+                remaining = remaining[split_point:].lstrip('\n')
+
+        for i, chunk in enumerate(chunks):
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+
+            data = urllib.parse.urlencode({
+                'chat_id': chat_id,
+                'text': chunk,
+                'parse_mode': 'HTML'
+            }).encode()
+
+            req = urllib.request.Request(url, data=data)
+            urllib.request.urlopen(req, timeout=10)
+
+        log(f"텔레그램 전송 완료 ({len(chunks)}개 메시지)")
+        return True
+
+    except Exception as e:
+        log(f"텔레그램 전송 실패: {e}", "ERROR")
+        return False
 
 
 # ============================================================
@@ -653,16 +1091,19 @@ def main():
     collected, errors = run_data_collection(config)
 
     # 리포트 생성
+    changes = None
     if not screening_df.empty:
         md_path, html_path = generate_report(screening_df, stats, config)
+        changes = get_portfolio_changes(screening_df, config)
+        log(f"편입: {len(changes['added'])}개, 편출: {len(changes['removed'])}개")
 
     # Git commit/push
     git_commit_push(config)
 
     # 텔레그램 알림
     if config.get('telegram_enabled', False) and not screening_df.empty:
-        msg = format_telegram_message(screening_df, stats)
-        send_telegram(msg, config)
+        msg = format_telegram_message(screening_df, stats, changes, config)
+        send_telegram_long(msg, config)
 
     # 완료
     elapsed = (datetime.now() - start_time).total_seconds()
