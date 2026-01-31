@@ -1,7 +1,13 @@
 """
-EPS Momentum System - Two Track Design (v2)
+EPS Momentum System - Two Track Design (v3)
 Track 1: 실시간 스크리닝 (모멘텀 기반 종목 선정)
 Track 2: 데이터 축적 (백테스팅용 Point-in-Time 저장)
+
+v3 개선사항:
+- A/B 테스팅: 두 가지 스코어링 동시 저장
+  - Score_321: 가중치 기반 (3-2-1)
+  - Score_Slope: 변화율 가중 평균 (Gemini 제안)
+- 3개월 후 어떤 로직이 더 효과적인지 검증 가능
 
 v2 개선사항:
 - 거래량 → 거래대금 필터 ($20M+)
@@ -153,7 +159,7 @@ def init_database():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # EPS Trend 스냅샷 테이블 (v2: 추가 필드)
+    # EPS Trend 스냅샷 테이블 (v3: A/B 테스팅용 필드 추가)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS eps_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,6 +180,8 @@ def init_database():
             ma_20 REAL,
             above_ma20 INTEGER,
             momentum_score REAL,
+            score_321 REAL,
+            score_slope REAL,
             eps_chg_60d REAL,
             passed_screen INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -261,14 +269,18 @@ def collect_and_store_snapshot(index_filter=None):
             eps_60d = eps_row.get('60daysAgo')
             eps_90d = eps_row.get('90daysAgo')
 
-            # 모멘텀 점수 계산
-            momentum_score, eps_chg_60d, passed = calculate_momentum_score_v2(
+            # A/B 테스팅: 두 가지 스코어링 방식 계산
+            # Score_321: 가중치 기반 (기존 방식)
+            score_321, eps_chg_60d, passed = calculate_momentum_score_v2(
                 eps_current, eps_7d, eps_30d, eps_60d
             )
 
-            # 스크리닝 통과 여부 (참고용)
+            # Score_Slope: 변화율 가중 평균 (Gemini 제안)
+            score_slope = calculate_slope_score(eps_current, eps_7d, eps_30d, eps_60d)
+
+            # 스크리닝 통과 여부 (Score_321 기준, 참고용)
             passed_screen = 0
-            if passed and momentum_score and momentum_score >= 4.0:
+            if passed and score_321 and score_321 >= 4.0:
                 if dollar_volume >= MIN_DOLLAR_VOLUME and above_ma20:
                     passed_screen = 1
 
@@ -277,12 +289,12 @@ def collect_and_store_snapshot(index_filter=None):
                 INSERT OR REPLACE INTO eps_snapshots
                 (date, ticker, index_name, period, eps_current, eps_7d, eps_30d, eps_60d, eps_90d,
                  price, volume, dollar_volume, market_cap, sector, ma_20, above_ma20,
-                 momentum_score, eps_chg_60d, passed_screen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 momentum_score, score_321, score_slope, eps_chg_60d, passed_screen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (today, ticker, idx_name, '+1y',
                   eps_current, eps_7d, eps_30d, eps_60d, eps_90d,
                   price, avg_volume, dollar_volume, market_cap, sector,
-                  ma_20, above_ma20, momentum_score, eps_chg_60d, passed_screen))
+                  ma_20, above_ma20, score_321, score_321, score_slope, eps_chg_60d, passed_screen))
 
             collected += 1
 
@@ -349,9 +361,46 @@ def get_data_stats():
 # Track 1: 실시간 스크리닝 (v2 개선)
 # ============================================================
 
+def calculate_slope_score(current, d7, d30, d60):
+    """
+    Score_Slope: 변화율 가중 평균 (Gemini 제안 방식)
+
+    공식: Score = (W1 × Δ7d) + (W2 × Δ30d) + (W3 × Δ60d)
+    - W1 = 0.5 (최신 변화에 50% 비중)
+    - W2 = 0.3 (한 달 변화에 30% 비중)
+    - W3 = 0.2 (두 달 변화에 20% 비중)
+
+    "얼마나 가파르게 오르고 있는가(Acceleration)"를 수치화
+    """
+    if pd.isna(current) or pd.isna(d60) or d60 == 0:
+        return None
+
+    # 각 구간 변화율 계산
+    delta_7d = 0
+    delta_30d = 0
+    delta_60d = 0
+
+    # 7일 변화율: (Current - 7d) / 7d
+    if pd.notna(d7) and d7 != 0:
+        delta_7d = (current - d7) / abs(d7)
+
+    # 30일 변화율: (Current - 30d) / 30d
+    if pd.notna(d30) and d30 != 0:
+        delta_30d = (current - d30) / abs(d30)
+
+    # 60일 변화율: (Current - 60d) / 60d
+    if pd.notna(d60) and d60 != 0:
+        delta_60d = (current - d60) / abs(d60)
+
+    # 가중 평균 (W1=0.5, W2=0.3, W3=0.2)
+    score = (0.5 * delta_7d) + (0.3 * delta_30d) + (0.2 * delta_60d)
+
+    return round(score, 4)
+
+
 def calculate_momentum_score_v2(current, d7, d30, d60):
     """
-    모멘텀 점수 계산 v2 (가중치 적용 + Kill Switch)
+    Score_321: 모멘텀 점수 계산 v2 (가중치 적용 + Kill Switch)
 
     가중치:
     - Current > 7d: +3점 (최신, 가장 중요)
@@ -485,8 +534,16 @@ def run_screening(index_filter=None, min_score=4.0):
 
             eps_row = trend.loc['+1y']
 
-            # 1. 모멘텀 점수 + Kill Switch
-            momentum_score, eps_chg, passed = calculate_momentum_score_v2(
+            # 1. 모멘텀 점수 + Kill Switch (Score_321)
+            score_321, eps_chg, passed = calculate_momentum_score_v2(
+                eps_row.get('current'),
+                eps_row.get('7daysAgo'),
+                eps_row.get('30daysAgo'),
+                eps_row.get('60daysAgo')
+            )
+
+            # Score_Slope 계산 (A/B 테스팅용)
+            score_slope = calculate_slope_score(
                 eps_row.get('current'),
                 eps_row.get('7daysAgo'),
                 eps_row.get('30daysAgo'),
@@ -497,7 +554,7 @@ def run_screening(index_filter=None, min_score=4.0):
                 killed += 1
                 continue
 
-            if momentum_score is None or momentum_score < min_score:
+            if score_321 is None or score_321 < min_score:
                 continue
 
             # 2. 가격/거래량
@@ -532,7 +589,9 @@ def run_screening(index_filter=None, min_score=4.0):
             candidates.append({
                 'ticker': ticker,
                 'index': idx_name,
-                'momentum': momentum_score,
+                'momentum': score_321,  # 현재 스크리닝 기준
+                'score_321': score_321,
+                'score_slope': score_slope,
                 'eps_chg_60d': eps_chg,
                 'peg': peg,
                 'price': round(price, 2),

@@ -1,0 +1,18 @@
+{
+  "python_path": "C:\\Users\\jkw88\\miniconda3\\envs\\volumequant\\python.exe",
+  "git_enabled": true,
+  "git_remote": "origin",
+  "git_branch": "main",
+  "telegram_enabled": false,
+  "telegram_bot_token": "",
+  "telegram_chat_id": "",
+  "run_time": "07:00",
+  "indices": [
+    "NASDAQ_100",
+    "SP500",
+    "SP400_MidCap"
+  ],
+  "min_score": 4.0,
+  "kill_switch_threshold": -0.005,
+  "earnings_blackout_days": 5
+}
