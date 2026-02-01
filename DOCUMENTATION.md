@@ -198,29 +198,41 @@ if current < d7 * 0.99:
 - 너무 느슨하면 (-5%): 하락 추세 포착 못함
 - **-1%**: 균형점
 
-### 4.3 시장 국면 (Market Regime) 필터 v5.3
+### 4.3 시장 국면 3단계 진단 시스템 v5.4
 
 **문제**: 개별 종목이 완벽해도 시장 전체가 폭락장이면 성공 확률 급락
 
 ```python
 def check_market_regime():
     """
-    SPY(S&P 500 ETF)의 MA200 위치 체크
+    SPY + VIX 기반 3단계 진단
+
+    진단 기준 (우선순위 순):
+    🔴 RED: SPY < MA50 OR VIX >= 30
+    🟡 YELLOW: SPY < MA20 OR VIX >= 20
+    🟢 GREEN: 위 조건에 해당하지 않음
 
     Returns:
-        'BULL': SPY > MA200 (상승장)
-        'BEAR': SPY < MA200 (하락장)
+        dict: {
+            'regime': 'RED' | 'YELLOW' | 'GREEN',
+            'reason': str,
+            'spy_price': float,
+            'spy_ma20': float,
+            'spy_ma50': float,
+            'vix': float
+        }
     """
 ```
 
-**하락장 대응**:
+**3단계 대응**:
 
-| 항목 | 상승장 (BULL) | 하락장 (BEAR) |
-|------|---------------|---------------|
-| Score 기준 | >= 4.0 | >= 6.0 (강화) |
-| PEG 기준 | < 2.0 | < 1.5 (강화) |
-| 텔레그램 | 🟢 상승 추세 | 🚨 시장 경보 |
-| 권장 | 정상 매매 | 현금 비중 확대 |
+| 항목 | 🟢 GREEN | 🟡 YELLOW | 🔴 RED |
+|------|----------|-----------|--------|
+| 조건 | 정상 | SPY<MA20 OR VIX>=20 | SPY<MA50 OR VIX>=30 |
+| Score | >= 4.0 | >= 6.0 | 스크리닝 중단 |
+| PEG | < 2.0 | < 1.5 | - |
+| 액션 | 적극 매매 | 신중 매매 | Cash is King |
+| 텔레그램 | 상승장 | 경계 모드 | 경고만 전송 |
 
 ### 4.4 v5.3 스크리닝 필터 파이프라인
 

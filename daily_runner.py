@@ -80,64 +80,101 @@ def log(message, level="INFO"):
 
 
 # ============================================================
-# 시장 국면 (Market Regime) 체크
+# 시장 국면 (Market Regime) 진단 시스템 v5.4
 # ============================================================
 
 def check_market_regime():
     """
-    시장 국면 체크 - SPY(S&P 500 ETF) 기준
+    시장 국면 3단계 진단 - SPY + VIX 기반
+
+    진단 기준 (우선순위 순):
+    🔴 RED (위험/매매중단): SPY < MA50 OR VIX >= 30
+    🟡 YELLOW (경계/기준강화): SPY < MA20 OR VIX >= 20
+    🟢 GREEN (정상/적극매매): 위 조건에 해당하지 않음
 
     Returns:
         dict: {
-            'regime': 'BULL' | 'BEAR',
+            'regime': 'RED' | 'YELLOW' | 'GREEN',
+            'reason': str,
             'spy_price': float,
-            'spy_ma200': float,
-            'spy_above_ma200': bool,
-            'spy_distance': float (MA200 대비 %)
+            'spy_ma20': float,
+            'spy_ma50': float,
+            'vix': float
         }
     """
     import yfinance as yf
 
+    # 기본값 (데이터 실패시 보수적으로 YELLOW)
+    default_result = {
+        'regime': 'YELLOW',
+        'reason': '데이터 로드 실패 - 보수적 접근',
+        'spy_price': None,
+        'spy_ma20': None,
+        'spy_ma50': None,
+        'vix': None
+    }
+
     try:
+        # SPY 데이터
         spy = yf.Ticker('SPY')
-        hist = spy.history(period='1y')
+        spy_hist = spy.history(period='3mo')
 
-        if len(hist) < 200:
-            log("SPY 데이터 부족, 기본값(BULL) 사용", "WARN")
-            return {
-                'regime': 'BULL',
-                'spy_price': None,
-                'spy_ma200': None,
-                'spy_above_ma200': True,
-                'spy_distance': 0
-            }
+        if len(spy_hist) < 50:
+            log("SPY 데이터 부족, 보수적으로 YELLOW 적용", "WARN")
+            return default_result
 
-        spy_price = hist['Close'].iloc[-1]
-        spy_ma200 = hist['Close'].tail(200).mean()
-        spy_above_ma200 = spy_price > spy_ma200
-        spy_distance = ((spy_price - spy_ma200) / spy_ma200) * 100
+        spy_price = spy_hist['Close'].iloc[-1]
+        spy_ma20 = spy_hist['Close'].tail(20).mean()
+        spy_ma50 = spy_hist['Close'].tail(50).mean()
 
-        regime = 'BULL' if spy_above_ma200 else 'BEAR'
+        # VIX 데이터
+        vix = None
+        try:
+            vix_ticker = yf.Ticker('^VIX')
+            vix_hist = vix_ticker.history(period='5d')
+            if len(vix_hist) > 0:
+                vix = vix_hist['Close'].iloc[-1]
+        except:
+            log("VIX 데이터 로드 실패, SPY만으로 판단", "WARN")
 
-        log(f"시장 국면: {regime} (SPY ${spy_price:.2f}, MA200 ${spy_ma200:.2f}, {spy_distance:+.1f}%)")
+        # === 진단 로직 (우선순위 순) ===
+
+        # 🔴 RED: SPY < MA50 OR VIX >= 30
+        if spy_price < spy_ma50:
+            regime = 'RED'
+            reason = f'SPY ${spy_price:.0f} < MA50 ${spy_ma50:.0f}'
+        elif vix is not None and vix >= 30:
+            regime = 'RED'
+            reason = f'VIX {vix:.1f} >= 30 (공포)'
+        # 🟡 YELLOW: SPY < MA20 OR VIX >= 20
+        elif spy_price < spy_ma20:
+            regime = 'YELLOW'
+            reason = f'SPY ${spy_price:.0f} < MA20 ${spy_ma20:.0f}'
+        elif vix is not None and vix >= 20:
+            regime = 'YELLOW'
+            reason = f'VIX {vix:.1f} >= 20 (경계)'
+        # 🟢 GREEN: 정상
+        else:
+            regime = 'GREEN'
+            vix_str = f', VIX {vix:.1f}' if vix else ''
+            reason = f'SPY ${spy_price:.0f} > MA20/MA50{vix_str}'
+
+        # 로그
+        emoji = {'RED': '🔴', 'YELLOW': '🟡', 'GREEN': '🟢'}[regime]
+        log(f"시장 국면: {emoji} {regime} - {reason}")
 
         return {
             'regime': regime,
+            'reason': reason,
             'spy_price': round(spy_price, 2),
-            'spy_ma200': round(spy_ma200, 2),
-            'spy_above_ma200': spy_above_ma200,
-            'spy_distance': round(spy_distance, 1)
+            'spy_ma20': round(spy_ma20, 2),
+            'spy_ma50': round(spy_ma50, 2),
+            'vix': round(vix, 1) if vix else None
         }
 
     except Exception as e:
         log(f"시장 국면 체크 실패: {e}", "ERROR")
-        return {
-            'regime': 'BULL',
-            'spy_price': None,
-            'spy_ma200': None,
-            'spy_above_ma200': True,
-            'spy_distance': 0
-        }
+        return default_result
 
 
 # ============================================================
@@ -146,14 +183,14 @@ def check_market_regime():
 
 def run_screening(config, market_regime=None):
     """
-    Track 1: 실시간 스크리닝 v5.3
+    Track 1: 실시간 스크리닝 v5.4
 
     === 필터 구조 ===
 
-    0. Market Regime Check (v5.3):
-       - SPY < MA200 (하락장): 필터 2배 강화
-         - Score 4.0 → 6.0
-         - PEG 2.0 → 1.5
+    0. Market Regime Check (v5.4):
+       🔴 RED: 스크리닝 즉시 중단 (SPY < MA50 OR VIX >= 30)
+       🟡 YELLOW: 필터 강화 (Score 6.0, PEG 1.5)
+       🟢 GREEN: 기본 필터 (Score 4.0, PEG 2.0)
 
     1. Fundamental Filters (필수 조건):
        - Score >= 4.0 (가중치 3-2-1 + 정배열 보너스)
@@ -167,11 +204,40 @@ def run_screening(config, market_regime=None):
        B. Reasonable Value: PEG < 2.0
        C. Technical Rescue: 재무 데이터 없으면 Price > MA60
     """
-    log("Track 1: 실시간 스크리닝 v5.3 시작")
+    import pandas as pd
+
+    log("Track 1: 실시간 스크리닝 v5.4 시작")
+
+    # === 시장 국면에 따른 동적 필터링 ===
+    regime = market_regime.get('regime', 'GREEN') if market_regime else 'GREEN'
+    reason = market_regime.get('reason', '') if market_regime else ''
+
+    # 🔴 RED: 스크리닝 즉시 중단
+    if regime == 'RED':
+        log(f"🔴 시장 위험으로 스크리닝 건너뜀: {reason}", "WARN")
+        empty_stats = {
+            'total': 0, 'no_eps': 0, 'killed': 0, 'low_score': 0,
+            'low_volume': 0, 'below_ma200': 0, 'earnings_blackout': 0,
+            'no_quality_value': 0, 'data_error': 0, 'passed': 0,
+            'aligned': 0, 'quality_growth': 0, 'reasonable_value': 0,
+            'technical_rescue': 0, 'market_regime': market_regime,
+            'min_score_used': None, 'max_peg_used': None, 'skipped': True
+        }
+        return pd.DataFrame(), empty_stats
+
+    # 🟡 YELLOW: 필터 강화
+    if regime == 'YELLOW':
+        min_score = 6.0  # 4.0 → 6.0 (강화)
+        max_peg = 1.5    # 2.0 → 1.5 (강화)
+        log(f"🟡 경계 모드! 필터 강화: Score >= {min_score}, PEG < {max_peg}")
+    # 🟢 GREEN: 기본 필터
+    else:
+        min_score = config.get('min_score', 4.0)
+        max_peg = 2.0
+        log(f"🟢 정상 모드: Score >= {min_score}, PEG < {max_peg}")
 
     try:
         import yfinance as yf
-        import pandas as pd
         import numpy as np
 
         from eps_momentum_system import (
@@ -181,15 +247,6 @@ def run_screening(config, market_regime=None):
         )
 
         today = datetime.now().strftime('%Y-%m-%d')
-
-        # 시장 국면에 따른 필터 강화
-        if market_regime and market_regime.get('regime') == 'BEAR':
-            min_score = 6.0  # 4.0 → 6.0 (강화)
-            max_peg = 1.5    # 2.0 → 1.5 (강화)
-            log(f"🚨 하락장 감지! 필터 강화: Score >= {min_score}, PEG < {max_peg}")
-        else:
-            min_score = config.get('min_score', 4.0)
-            max_peg = 2.0
 
         earnings_blackout = config.get('earnings_blackout_days', 5)
 
@@ -1408,35 +1465,74 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     }
 
     # ========================================
-    # 시장 국면 (Market Regime) 체크
+    # 시장 국면 (Market Regime) 체크 v5.4
     # ========================================
     market_regime = stats.get('market_regime', {})
-    regime = market_regime.get('regime', 'BULL') if market_regime else 'BULL'
+    regime = market_regime.get('regime', 'GREEN') if market_regime else 'GREEN'
+    reason = market_regime.get('reason', '') if market_regime else ''
     spy_price = market_regime.get('spy_price') if market_regime else None
-    spy_ma200 = market_regime.get('spy_ma200') if market_regime else None
-    spy_distance = market_regime.get('spy_distance', 0) if market_regime else 0
+    spy_ma20 = market_regime.get('spy_ma20') if market_regime else None
+    spy_ma50 = market_regime.get('spy_ma50') if market_regime else None
+    vix = market_regime.get('vix') if market_regime else None
     min_score_used = stats.get('min_score_used', 4.0)
     max_peg_used = stats.get('max_peg_used', 2.0)
+    skipped = stats.get('skipped', False)
 
     # ========================================
-    # 헤더 + 시장 상태
+    # 🔴 RED: 경고 메시지만 전송
     # ========================================
-    if regime == 'BEAR':
-        msg = f"🚨 <b>[{today}] EPS 모멘텀 v5.3 브리핑</b>\n"
+    if regime == 'RED' or skipped:
+        msg = f"🚨 <b>[{today}] EPS 모멘텀 v5.4 - 시장 경고</b>\n"
         msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        msg += f"⚠️ <b>시장 경보: 하락장 진입</b> ⚠️\n"
-        msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        if spy_price and spy_ma200:
-            msg += f"🔴 SPY ${spy_price} &lt; MA200 ${spy_ma200} ({spy_distance:+.1f}%)\n"
-        msg += f"📉 필터 강화: Score>={min_score_used:.0f}, PEG&lt;{max_peg_used:.1f}\n"
-        msg += f"💡 <b>현금 비중 확대 권장</b>\n\n"
-    else:
-        msg = f"🚀 <b>[{today}] EPS 모멘텀 v5.3 브리핑</b>\n"
-        msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        if spy_price and spy_ma200:
-            msg += f"🟢 SPY ${spy_price} &gt; MA200 ${spy_ma200} ({spy_distance:+.1f}%)\n"
-        msg += f"📈 시장 상승 추세 유지\n\n"
+        msg += f"🚦 <b>시장 상태: 🔴 RED (위험)</b>\n"
+        msg += f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
+        msg += f"🚨 <b>[경고] 시장 위험 감지</b>\n"
+        msg += f"📍 사유: {reason}\n\n"
+
+        if spy_price and spy_ma50:
+            msg += f"📊 SPY: ${spy_price:.0f}\n"
+            msg += f"   • MA20: ${spy_ma20:.0f}\n"
+            msg += f"   • MA50: ${spy_ma50:.0f}\n"
+        if vix:
+            msg += f"   • VIX: {vix:.1f}\n"
+
+        msg += f"\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        msg += f"⛔ <b>오늘의 추천 종목 없음</b>\n"
+        msg += f"💵 <b>Cash is King</b>\n"
+        msg += f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+        msg += f"💡 <b>권장 액션</b>\n"
+        msg += f"• 신규 매수 중단\n"
+        msg += f"• 기존 포지션 점검\n"
+        msg += f"• 현금 비중 확대\n\n"
+
+        msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        msg += f"<i>🤖 EPS Momentum v5.4</i>\n"
+        msg += f"<i>🔴 Market Regime: RED</i>\n"
+
+        return msg
+
+    # ========================================
+    # 🟡 YELLOW / 🟢 GREEN 헤더
+    # ========================================
+    regime_emoji = {'YELLOW': '🟡', 'GREEN': '🟢'}[regime]
+    regime_text = {'YELLOW': 'YELLOW (경계)', 'GREEN': 'GREEN (상승장)'}[regime]
+
+    msg = f"🚀 <b>[{today}] EPS 모멘텀 v5.4 브리핑</b>\n"
+    msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"🚦 <b>시장 상태: {regime_emoji} {regime_text}</b>\n"
+
+    if spy_price:
+        msg += f"📍 SPY ${spy_price:.0f} | MA20 ${spy_ma20:.0f} | MA50 ${spy_ma50:.0f}"
+        if vix:
+            msg += f" | VIX {vix:.1f}"
+        msg += "\n"
+
+    if regime == 'YELLOW':
+        msg += f"⚠️ <b>경계 모드: 필터 강화 적용중</b>\n"
+
+    msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
     msg += f"📅 {today_full} | 총 {total_count}개 통과\n\n"
 
     # 전략 설명 섹션
@@ -1449,9 +1545,9 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     msg += "• 분기 재무제표 (매출/영업이익)\n"
     msg += f"• 유니버스: NASDAQ100 + S&P500 + S&P400\n\n"
 
-    msg += "<b>⚙️ 필터 기준 (v5.3)</b>\n"
-    if regime == 'BEAR':
-        msg += "🚨 <b>하락장 강화 필터 적용중</b>\n"
+    msg += "<b>⚙️ 필터 기준 (v5.4)</b>\n"
+    if regime == 'YELLOW':
+        msg += "🟡 <b>경계 모드 필터 적용중</b>\n"
     msg += "1️⃣ <b>필수 조건</b>\n"
     msg += f"   • EPS 모멘텀 점수 >= {min_score_used:.0f}\n"
     msg += "   • Kill Switch: 7일내 1%↓ 시 제외\n"
@@ -1605,11 +1701,11 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
 
     # 푸터
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "<i>🤖 EPS Momentum Strategy v5.3</i>\n"
-    if regime == 'BEAR':
-        msg += "<i>🚨 Bear Market Filter Active</i>\n"
+    msg += "<i>🤖 EPS Momentum Strategy v5.4</i>\n"
+    if regime == 'YELLOW':
+        msg += "<i>🟡 Caution Mode Active</i>\n"
     else:
-        msg += "<i>🟢 Bull Market + Quality/Value</i>\n"
+        msg += "<i>🟢 Normal Mode</i>\n"
 
     return msg
 
