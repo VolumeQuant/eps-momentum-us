@@ -398,36 +398,43 @@ def calculate_slope_score(current, d7, d30, d60):
     return round(score, 4)
 
 
-def calculate_momentum_score_v2(current, d7, d30, d60):
+def calculate_momentum_score_v3(current, d7, d30, d60, d90=None):
     """
-    Score_321: 모멘텀 점수 계산 v2 (가중치 적용 + Kill Switch)
+    Score v3: 모멘텀 점수 계산 (가중치 + Kill Switch + 정배열 보너스)
 
     가중치:
     - Current > 7d: +3점 (최신, 가장 중요)
     - 7d > 30d: +2점
     - 30d > 60d: +1점
 
+    정배열 보너스:
+    - 완전 정배열 (C>7d>30d>60d): +3점
+    - 부분 정배열 (C>7d>30d): +1점
+
     Kill Switch:
-    - Current < 7d (최근 하향)이면 제외
+    - 7일 대비 -1% 이상 하락시 제외
 
     Returns:
     - momentum_score: 점수 (None이면 Kill Switch 발동)
     - eps_chg_60d: 60일 변화율
     - passed: Kill Switch 통과 여부
+    - is_aligned: 정배열 여부
     """
     if pd.isna(current) or pd.isna(d60) or d60 == 0:
-        return None, None, False
+        return None, None, False, False
 
     # 60일 변화율 (핵심 지표)
     eps_chg_60d = (current - d60) / abs(d60) * 100
 
     # 이상치 필터
     if eps_chg_60d > 200 or eps_chg_60d < -80:
-        return None, None, False
+        return None, None, False, False
 
-    # Kill Switch: Current < 7d면 제외 (최근 하향 조정)
-    if pd.notna(d7) and current < d7:
-        return None, eps_chg_60d, False  # Kill Switch 발동
+    # Kill Switch: 7일 대비 -1% 이상 하락시 제외 (일시적 변동 허용)
+    if pd.notna(d7) and d7 != 0:
+        chg_7d = (current - d7) / abs(d7)
+        if chg_7d < -0.01:  # -1% 이상 하락시 제외
+            return None, eps_chg_60d, False, False
 
     # 가중치 기반 점수 계산
     score = 0
@@ -454,7 +461,27 @@ def calculate_momentum_score_v2(current, d7, d30, d60):
     # 변화율 보너스 (5%당 1점)
     score += eps_chg_60d / 5
 
-    return round(score, 2), round(eps_chg_60d, 2), True
+    # 정배열 보너스
+    is_full_aligned = False
+    is_partial_aligned = False
+
+    if pd.notna(d7) and pd.notna(d30) and pd.notna(d60):
+        # 완전 정배열: current > 7d > 30d > 60d
+        if current > d7 > d30 > d60:
+            score += 3  # 완전 정배열 보너스
+            is_full_aligned = True
+        # 부분 정배열: current > 7d > 30d
+        elif current > d7 > d30:
+            score += 1  # 부분 정배열 보너스
+            is_partial_aligned = True
+
+    return round(score, 2), round(eps_chg_60d, 2), True, is_full_aligned
+
+
+def calculate_momentum_score_v2(current, d7, d30, d60):
+    """레거시 호환용 - v3 호출"""
+    score, eps_chg, passed, _ = calculate_momentum_score_v3(current, d7, d30, d60)
+    return score, eps_chg, passed
 
 
 def check_technical_filter(hist):

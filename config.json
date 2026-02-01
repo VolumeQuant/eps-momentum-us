@@ -13,6 +13,6 @@
     "SP400_MidCap"
   ],
   "min_score": 4.0,
-  "kill_switch_threshold": -0.005,
+  "kill_switch_threshold": -0.01,
   "earnings_blackout_days": 5
 }

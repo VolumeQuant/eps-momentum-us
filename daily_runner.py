@@ -51,7 +51,7 @@ DEFAULT_CONFIG = {
     "run_time": "07:00",  # 미국 장 마감 후 (한국 시간 07:00)
     "indices": ["NASDAQ_100", "SP500", "SP400_MidCap"],
     "min_score": 4.0,
-    "kill_switch_threshold": -0.005,  # -0.5% (Hysteresis)
+    "kill_switch_threshold": -0.01,  # -1% (일시적 변동 허용)
     "earnings_blackout_days": 5,  # 실적 발표 D-5 ~ D+1 진입 금지
 }
 
@@ -84,7 +84,7 @@ def log(message, level="INFO"):
 # ============================================================
 
 def run_screening(config):
-    """Track 1: 실시간 스크리닝"""
+    """Track 1: 실시간 스크리닝 v3 (정배열 보너스 + 저평가/성장 필터)"""
     log("Track 1: 실시간 스크리닝 시작")
 
     try:
@@ -94,13 +94,13 @@ def run_screening(config):
 
         from eps_momentum_system import (
             INDICES, SECTOR_MAP,
-            calculate_momentum_score_v2, calculate_slope_score,
+            calculate_momentum_score_v3, calculate_slope_score,
             check_technical_filter, get_peg_ratio
         )
 
         today = datetime.now().strftime('%Y-%m-%d')
         min_score = config.get('min_score', 4.0)
-        kill_threshold = config.get('kill_switch_threshold', -0.005)
+        kill_threshold = config.get('kill_switch_threshold', -0.01)
         earnings_blackout = config.get('earnings_blackout_days', 5)
 
         # 종목 수집
@@ -120,7 +120,10 @@ def run_screening(config):
             'below_ma': 0,
             'earnings_blackout': 0,
             'data_error': 0,
-            'passed': 0
+            'passed': 0,
+            'aligned': 0,
+            'undervalued': 0,
+            'growth': 0
         }
 
         for ticker, idx_name in all_tickers.items():
@@ -138,6 +141,7 @@ def run_screening(config):
                 d7 = eps_row.get('7daysAgo')
                 d30 = eps_row.get('30daysAgo')
                 d60 = eps_row.get('60daysAgo')
+                d90 = eps_row.get('90daysAgo')
 
                 # Kill Switch with Hysteresis
                 if pd.notna(current) and pd.notna(d7) and d7 != 0:
@@ -146,8 +150,8 @@ def run_screening(config):
                         stats['killed'] += 1
                         continue
 
-                # 스코어 계산
-                score_321, eps_chg, passed = calculate_momentum_score_v2(current, d7, d30, d60)
+                # 스코어 계산 v3 (정배열 보너스 포함)
+                score_321, eps_chg, passed, is_aligned = calculate_momentum_score_v3(current, d7, d30, d60, d90)
                 score_slope = calculate_slope_score(current, d7, d30, d60)
 
                 if not passed or score_321 is None or score_321 < min_score:
@@ -167,11 +171,9 @@ def run_screening(config):
                     stats['low_volume'] += 1
                     continue
 
-                # MA20 필터
-                above_ma, current_price, ma_20 = check_technical_filter(hist)
-                if not above_ma:
-                    stats['below_ma'] += 1
-                    continue
+                # MA20 계산 (필터는 제거, 정보만 저장)
+                ma_20 = hist['Close'].tail(20).mean() if len(hist) >= 20 else hist['Close'].mean()
+                above_ma = price > ma_20
 
                 # 실적 발표일 필터 (Earnings Blackout)
                 try:
@@ -191,6 +193,30 @@ def run_screening(config):
                 sector = SECTOR_MAP.get(ticker, info.get('sector', 'Other'))
                 peg = get_peg_ratio(info)
 
+                # 정배열 통계
+                if is_aligned:
+                    stats['aligned'] += 1
+
+                # 펀더멘털 분석 (저평가/성장) - 엄격 필터 적용
+                fund_result = analyze_fundamentals(ticker)
+                is_undervalued = fund_result.get('is_undervalued', False)
+                is_growth = fund_result.get('is_growth', False)
+
+                # 엄격 필터: 저평가 OR 성장 중 하나는 충족해야 함
+                # 단, 데이터가 없는 경우(중소형주)는 통과시킴
+                has_fund_data = (fund_result.get('peg') is not None or
+                                fund_result.get('from_52w_high') is not None or
+                                fund_result.get('rev_growth_yoy') is not None)
+
+                if has_fund_data and not (is_undervalued or is_growth):
+                    stats['no_value_growth'] = stats.get('no_value_growth', 0) + 1
+                    continue
+
+                if is_undervalued:
+                    stats['undervalued'] = stats.get('undervalued', 0) + 1
+                if is_growth:
+                    stats['growth'] = stats.get('growth', 0) + 1
+
                 candidates.append({
                     'ticker': ticker,
                     'index': idx_name,
@@ -200,12 +226,22 @@ def run_screening(config):
                     'peg': peg,
                     'price': round(price, 2),
                     'ma_20': round(ma_20, 2),
+                    'above_ma': above_ma,
                     'dollar_vol_M': round(dollar_volume / 1_000_000, 1),
                     'sector': sector,
                     'current': current,
                     '7d': d7,
                     '30d': d30,
                     '60d': d60,
+                    '90d': d90,
+                    'is_aligned': is_aligned,
+                    'is_undervalued': is_undervalued,
+                    'is_growth': is_growth,
+                    'undervalued_reason': fund_result.get('undervalued_reason', ''),
+                    'growth_reason': fund_result.get('growth_reason', ''),
+                    'rev_growth_yoy': fund_result.get('rev_growth_yoy'),
+                    'op_growth_yoy': fund_result.get('op_growth_yoy'),
+                    'from_52w_high': fund_result.get('from_52w_high'),
                 })
                 stats['passed'] += 1
 
@@ -249,7 +285,7 @@ def run_data_collection(config):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # 테이블 생성 (없으면)
+        # 테이블 생성 (없으면) - v4: 추가 필드 포함
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS eps_snapshots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -273,10 +309,38 @@ def run_data_collection(config):
                 score_slope REAL,
                 eps_chg_60d REAL,
                 passed_screen INTEGER DEFAULT 0,
+                is_aligned INTEGER DEFAULT 0,
+                is_undervalued INTEGER DEFAULT 0,
+                is_growth INTEGER DEFAULT 0,
+                peg REAL,
+                forward_pe REAL,
+                from_52w_high REAL,
+                rsi REAL,
+                rev_growth_yoy REAL,
+                op_growth_yoy REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(date, ticker, period)
             )
         ''')
+
+        # 새 컬럼 추가 (기존 테이블에)
+        new_columns = [
+            ('is_aligned', 'INTEGER DEFAULT 0'),
+            ('is_undervalued', 'INTEGER DEFAULT 0'),
+            ('is_growth', 'INTEGER DEFAULT 0'),
+            ('peg', 'REAL'),
+            ('forward_pe', 'REAL'),
+            ('from_52w_high', 'REAL'),
+            ('rsi', 'REAL'),
+            ('rev_growth_yoy', 'REAL'),
+            ('op_growth_yoy', 'REAL'),
+        ]
+        for col_name, col_type in new_columns:
+            try:
+                cursor.execute(f'ALTER TABLE eps_snapshots ADD COLUMN {col_name} {col_type}')
+            except:
+                pass  # 이미 존재하면 무시
+
         conn.commit()
 
         # 종목 수집
@@ -314,6 +378,7 @@ def run_data_collection(config):
                 eps_current = eps_7d = eps_30d = eps_60d = eps_90d = None
                 score_321 = score_slope = eps_chg_60d = None
                 passed_screen = 0
+                is_aligned = 0
 
                 if trend is not None and '+1y' in trend.index:
                     eps_row = trend.loc['+1y']
@@ -329,21 +394,46 @@ def run_data_collection(config):
                     )
                     score_slope = calculate_slope_score(eps_current, eps_7d, eps_30d, eps_60d)
 
+                    # 정배열 체크
+                    if (pd.notna(eps_current) and pd.notna(eps_7d) and
+                        pd.notna(eps_30d) and pd.notna(eps_60d)):
+                        if eps_current > eps_7d > eps_30d > eps_60d:
+                            is_aligned = 1
+
                     if passed and score_321 and score_321 >= 4.0:
-                        if dollar_volume >= 20_000_000 and above_ma20:
+                        if dollar_volume >= 20_000_000:
                             passed_screen = 1
 
-                # DB 저장
+                # 펀더멘털 분석 (백테스트용)
+                fund_result = analyze_fundamentals(ticker)
+                peg = fund_result.get('peg')
+                forward_pe = fund_result.get('forward_pe')
+                from_52w_high = fund_result.get('from_52w_high')
+                rev_growth_yoy = fund_result.get('rev_growth_yoy')
+                op_growth_yoy = fund_result.get('op_growth_yoy')
+                is_undervalued = 1 if fund_result.get('is_undervalued') else 0
+                is_growth = 1 if fund_result.get('is_growth') else 0
+
+                # RSI 계산
+                rsi = None
+                if len(hist) >= 15:
+                    rsi = calculate_rsi(hist['Close'])
+
+                # DB 저장 (확장된 필드)
                 cursor.execute('''
                     INSERT OR REPLACE INTO eps_snapshots
                     (date, ticker, index_name, period, eps_current, eps_7d, eps_30d, eps_60d, eps_90d,
                      price, volume, dollar_volume, market_cap, sector, ma_20, above_ma20,
-                     score_321, score_slope, eps_chg_60d, passed_screen)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     score_321, score_slope, eps_chg_60d, passed_screen,
+                     is_aligned, is_undervalued, is_growth, peg, forward_pe, from_52w_high, rsi,
+                     rev_growth_yoy, op_growth_yoy)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (today, ticker, idx_name, '+1y',
                       eps_current, eps_7d, eps_30d, eps_60d, eps_90d,
                       price, avg_volume, dollar_volume, market_cap, sector,
-                      ma_20, above_ma20, score_321, score_slope, eps_chg_60d, passed_screen))
+                      ma_20, above_ma20, score_321, score_slope, eps_chg_60d, passed_screen,
+                      is_aligned, is_undervalued, is_growth, peg, forward_pe, from_52w_high, rsi,
+                      rev_growth_yoy, op_growth_yoy))
 
                 collected += 1
 
@@ -811,6 +901,112 @@ def analyze_technical(ticker):
         }
 
 
+def analyze_fundamentals(ticker):
+    """
+    펀더멘털 분석: 저평가 + 매출/영업이익 성장률
+
+    저평가 조건 (OR):
+    - PEG < 1
+    - 52주 고점 대비 -10% 이상 조정
+
+    성장 조건 (YoY 또는 QoQ):
+    - 매출 >= +10% AND 영업이익 >= +5%
+
+    Returns:
+        dict: 펀더멘털 지표들
+    """
+    import yfinance as yf
+
+    result = {
+        'ticker': ticker,
+        'peg': None,
+        'forward_pe': None,
+        'from_52w_high': None,
+        'rev_growth_qoq': None,
+        'rev_growth_yoy': None,
+        'op_growth_qoq': None,
+        'op_growth_yoy': None,
+        'is_undervalued': False,
+        'is_growth': False,
+        'undervalued_reason': None,
+        'growth_reason': None
+    }
+
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+
+        # PEG, Forward P/E
+        peg = info.get('pegRatio')
+        forward_pe = info.get('forwardPE')
+        result['peg'] = round(peg, 2) if peg else None
+        result['forward_pe'] = round(forward_pe, 2) if forward_pe else None
+
+        # 52주 고점 대비
+        hist_1y = stock.history(period='1y')
+        if len(hist_1y) > 50:
+            high_52w = hist_1y['High'].max()
+            current_price = hist_1y['Close'].iloc[-1]
+            from_high = ((current_price - high_52w) / high_52w) * 100
+            result['from_52w_high'] = round(from_high, 1)
+
+        # 매출/영업이익 성장률
+        q_fin = stock.quarterly_financials
+        if q_fin is not None and not q_fin.empty and q_fin.shape[1] >= 2:
+            # QoQ (전분기 대비)
+            if 'Total Revenue' in q_fin.index:
+                rev_curr = q_fin.loc['Total Revenue'].iloc[0]
+                rev_prev = q_fin.loc['Total Revenue'].iloc[1]
+                if rev_prev and rev_prev != 0:
+                    result['rev_growth_qoq'] = round(((rev_curr - rev_prev) / abs(rev_prev)) * 100, 1)
+
+            if 'Operating Income' in q_fin.index:
+                op_curr = q_fin.loc['Operating Income'].iloc[0]
+                op_prev = q_fin.loc['Operating Income'].iloc[1]
+                if op_prev and op_prev != 0:
+                    result['op_growth_qoq'] = round(((op_curr - op_prev) / abs(op_prev)) * 100, 1)
+
+            # YoY (전년 동기 대비)
+            if q_fin.shape[1] >= 5:
+                if 'Total Revenue' in q_fin.index:
+                    rev_curr = q_fin.loc['Total Revenue'].iloc[0]
+                    rev_yoy_prev = q_fin.loc['Total Revenue'].iloc[4]
+                    if rev_yoy_prev and rev_yoy_prev != 0:
+                        result['rev_growth_yoy'] = round(((rev_curr - rev_yoy_prev) / abs(rev_yoy_prev)) * 100, 1)
+
+                if 'Operating Income' in q_fin.index:
+                    op_curr = q_fin.loc['Operating Income'].iloc[0]
+                    op_yoy_prev = q_fin.loc['Operating Income'].iloc[4]
+                    if op_yoy_prev and op_yoy_prev != 0:
+                        result['op_growth_yoy'] = round(((op_curr - op_yoy_prev) / abs(op_yoy_prev)) * 100, 1)
+
+        # 저평가 판단 (OR 조건)
+        if peg and peg < 1:
+            result['is_undervalued'] = True
+            result['undervalued_reason'] = f'PEG {peg:.1f}'
+        elif result['from_52w_high'] and result['from_52w_high'] <= -10:
+            result['is_undervalued'] = True
+            result['undervalued_reason'] = f'52주高{result["from_52w_high"]:.0f}%'
+
+        # 성장 판단 (QoQ 또는 YoY에서 조건 충족)
+        rev_qoq = result['rev_growth_qoq'] or 0
+        rev_yoy = result['rev_growth_yoy'] or 0
+        op_qoq = result['op_growth_qoq'] or 0
+        op_yoy = result['op_growth_yoy'] or 0
+
+        # 매출 >= +10% AND 영업이익 >= +5%
+        if (rev_qoq >= 10 or rev_yoy >= 10) and (op_qoq >= 5 or op_yoy >= 5):
+            result['is_growth'] = True
+            best_rev = max(rev_qoq, rev_yoy)
+            best_op = max(op_qoq, op_yoy)
+            result['growth_reason'] = f'매출+{best_rev:.0f}%,영업+{best_op:.0f}%'
+
+    except Exception as e:
+        pass
+
+    return result
+
+
 def get_technical_action(ticker, price, ma_20, rsi=None):
     """
     기술적 액션 결정 (레거시 호환용)
@@ -960,6 +1156,10 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     # ========================================
     # 모든 종목 상세 카드 (개수 제한 없음)
     # ========================================
+    aligned_count = 0
+    undervalued_count = 0
+    growth_count = 0
+
     for idx, (_, row) in enumerate(screening_df.iterrows(), 1):
         ticker = row['ticker']
         score = row.get('score_321', 0)
@@ -968,16 +1168,19 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
         price = row.get('price', 0)
         sector = row.get('sector', 'Other')
         dollar_vol_m = row.get('dollar_vol_M', 0)
+        is_aligned = row.get('is_aligned', False)
 
         sector_kr = sector_map.get(sector, sector[:6] if len(sector) > 6 else sector)
 
-        # 회사명 가져오기
+        # 회사명 가져오기 (풀네임)
         try:
             stock = yf.Ticker(ticker)
             company_name = stock.info.get('shortName', '') or stock.info.get('longName', ticker)
-            # 20자로 자름
-            if len(company_name) > 20:
-                company_name = company_name[:18] + '..'
+            # Inc., Corp. 등 제거하고 25자로 제한
+            for suffix in [', Inc.', ' Inc.', ', Corp.', ' Corp.', ' Corporation', ' Co.', ' Ltd.', ' Limited', ' Holdings', ' plc']:
+                company_name = company_name.replace(suffix, '')
+            if len(company_name) > 25:
+                company_name = company_name[:23] + '..'
         except:
             company_name = ticker
 
@@ -985,6 +1188,32 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
         tech_result = analyze_technical(ticker)
         action = tech_result.get('Action', '🟢 매수적기 (추세)')
         rsi = tech_result.get('RSI', None)
+
+        # 펀더멘털 분석 (저평가/성장)
+        fund_result = analyze_fundamentals(ticker)
+        is_undervalued = fund_result.get('is_undervalued', False)
+        is_growth = fund_result.get('is_growth', False)
+        undervalued_reason = fund_result.get('undervalued_reason', '')
+        growth_reason = fund_result.get('growth_reason', '')
+        rev_yoy = fund_result.get('rev_growth_yoy')
+        op_yoy = fund_result.get('op_growth_yoy')
+
+        # 통계
+        if is_aligned:
+            aligned_count += 1
+        if is_undervalued:
+            undervalued_count += 1
+        if is_growth:
+            growth_count += 1
+
+        # 태그 생성
+        tags = []
+        if is_aligned:
+            tags.append("📈정배열")
+        if is_undervalued:
+            tags.append(f"💎{undervalued_reason}")
+        if is_growth:
+            tags.append("🌱고성장")
 
         # PEG 포맷
         peg_str = f"{peg:.1f}" if peg else "N/A"
@@ -998,21 +1227,45 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
         # EPS 변화율 포맷 (+/- 기호)
         eps_str = f"+{eps_chg:.0f}%" if eps_chg >= 0 else f"{eps_chg:.0f}%"
 
+        # 매출/영업이익 포맷 (None/NaN 처리)
+        import math
+        rev_str = ""
+        op_str = ""
+        if rev_yoy is not None and not (isinstance(rev_yoy, float) and math.isnan(rev_yoy)):
+            rev_str = f"+{rev_yoy:.0f}%" if rev_yoy > 0 else f"{rev_yoy:.0f}%"
+        if op_yoy is not None and not (isinstance(op_yoy, float) and math.isnan(op_yoy)):
+            op_str = f"+{op_yoy:.0f}%" if op_yoy > 0 else f"{op_yoy:.0f}%"
+
         # ========================================
-        # 3줄 카드형 포맷
+        # 4줄 카드형 포맷 (태그 포함)
         # ========================================
         # 1번째 줄: 순위, 티커, 회사명, 현재가
         msg += f"{idx}. <b>{ticker}</b> {company_name} (${price:.1f})\n"
 
-        # 2번째 줄: 펀더멘털 지표
-        msg += f"   ├ 📊 점수 {score:.1f} | EPS {eps_str} | PEG {peg_str} | {sector_kr}\n"
+        # 2번째 줄: EPS 모멘텀 + 정배열
+        align_mark = "⬆" if is_aligned else ""
+        msg += f"   ├ 📊 점수 {score:.1f}{align_mark} | EPS {eps_str} | PEG {peg_str} | {sector_kr}\n"
 
-        # 3번째 줄: 기술적/수급 지표 + 액션
+        # 3번째 줄: 매출/영업이익 + 태그
+        if rev_str or op_str:
+            msg += f"   ├ 💰 매출{rev_str} 영업{op_str}"
+            if tags:
+                msg += f" | {' '.join(tags)}"
+            msg += "\n"
+        elif tags:
+            msg += f"   ├ {' '.join(tags)}\n"
+
+        # 4번째 줄: 기술적/수급 지표 + 액션
         msg += f"   └ 🎯 <b>{action}</b> (RSI {rsi_str} | {vol_str})\n"
 
         # 종목 간 구분선 (5개마다)
         if idx % 5 == 0 and idx < total_count:
             msg += "\n"
+
+    # 통계 저장
+    stats['aligned'] = aligned_count
+    stats['undervalued'] = undervalued_count
+    stats['growth'] = growth_count
 
     # ========================================
     # 시장 테마 분석 (Narrow/Broad)
@@ -1056,9 +1309,20 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     msg += f"• 총 스캔: {stats.get('total', 0)}개\n"
     msg += f"• Kill Switch 제외: {stats.get('killed', 0)}개\n"
     msg += f"• 거래량 부족: {stats.get('low_volume', 0)}개\n"
-    msg += f"• MA20 하회: {stats.get('below_ma', 0)}개\n"
     msg += f"• 실적 블랙아웃: {stats.get('earnings_blackout', 0)}개\n"
     msg += f"• <b>최종 통과: {stats.get('passed', 0)}개</b>\n"
+
+    # 품질 통계 (정배열, 저평가, 성장)
+    msg += "\n<b>✨ 품질 지표</b>\n"
+    msg += f"• 📈 정배열: {aligned_count}개 ({aligned_count/total_count*100:.0f}%)\n" if total_count > 0 else ""
+    msg += f"• 💎 저평가: {undervalued_count}개\n"
+    msg += f"• 🌱 고성장: {growth_count}개\n"
+
+    # 최고 품질 종목 (정배열 + 저평가 + 성장)
+    premium_count = sum(1 for _, r in screening_df.iterrows()
+                        if r.get('is_aligned', False))
+    if premium_count > 0:
+        msg += f"• ⭐ 정배열 종목: {premium_count}개\n"
 
     # DB 상태
     db_size = 0
@@ -1068,7 +1332,7 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
 
     # 푸터
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "<i>🤖 EPS Momentum Strategy v3</i>\n"
+    msg += "<i>🤖 EPS Momentum Strategy v4</i>\n"
 
     return msg
 
