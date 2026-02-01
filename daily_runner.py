@@ -290,8 +290,8 @@ def run_screening(config):
                     rsi_series = 100 - (100 / (1 + rs))
                     rsi = rsi_series.iloc[-1] if not pd.isna(rsi_series.iloc[-1]) else None
 
-                # Action 결정
-                action = get_action_label(price, ma_20, ma_200, rsi)
+                # Action 결정 (52주 고점 대비 위치 포함)
+                action = get_action_label(price, ma_20, ma_200, rsi, from_52w_high)
 
                 candidates.append({
                     'ticker': ticker,
@@ -347,34 +347,104 @@ def run_screening(config):
         return pd.DataFrame(), {}
 
 
-def get_action_label(price, ma_20, ma_200, rsi):
+def get_action_label(price, ma_20, ma_200, rsi, from_52w_high=None):
     """
-    기술적 분석 기반 한국어 액션 레이블
+    실전 매매용 액션 레이블 v2
 
-    우선순위:
-    1. RSI >= 70: 진입금지 (과열)
-    2. RSI 50-65 & Price 근처 MA20: 강력매수 (눌림목)
-    3. RSI < 40 & Price > MA200: 저점매수 (반등)
-    4. Price > MA20: 매수적기 (추세)
-    5. 기타: 관망
+    핵심 원칙:
+    - 52주 고점 근처는 상승여력 제한 → 진입 금지
+    - 진짜 눌림목 = 고점 대비 충분히 조정 + 추세 유지
+    - RSI만으로 판단하지 않고 가격 위치 종합 고려
+
+    === 액션 정의 ===
+
+    1. 진입금지: 지금 사면 물릴 확률 높음
+       - RSI >= 70 (과열)
+       - 52주 고점 -5% 이내 (천장 근처)
+       - MA20 대비 +8% 이상 (단기 과열)
+
+    2. 적극매수 (눌림목): 좋은 진입 기회
+       - 52주 고점 -10% ~ -25% (의미있는 조정)
+       - RSI 35-55 (과매도~중립)
+       - Price > MA200 (장기 추세 유지)
+       - Price <= MA20*1.03 (MA20 근처 또는 아래)
+
+    3. 저점매수 (반등): 공포에 매수
+       - RSI < 35 (과매도)
+       - 52주 고점 -20% 이상 (큰 조정)
+       - Price > MA200 (장기 추세 유지)
+
+    4. 매수적기 (추세): 정상적인 상승 추세
+       - Price > MA20 > MA200 (정배열)
+       - RSI 40-65 (건강한 범위)
+       - 52주 고점 -5% ~ -15% (상승 여력 있음)
+
+    5. 관망: 진입 애매
+       - 위 조건 불충족
+       - 또는 RSI 65-70 (과열 경계)
+
+    6. 추세이탈: 매수 금지
+       - Price < MA200 (장기 하락 추세)
     """
+    # 기본값 처리
     if rsi is None:
-        return "매수적기"
+        rsi = 50  # 중립 가정
+    if from_52w_high is None:
+        from_52w_high = -10  # 모르면 중간값 가정
 
+    # MA 대비 거리 계산
+    ma20_pct = ((price - ma_20) / ma_20 * 100) if ma_20 else 0
+    ma200_pct = ((price - ma_200) / ma_200 * 100) if ma_200 else 0
+
+    # === 1. 추세이탈 (최우선 체크) ===
+    if ma_200 and price < ma_200:
+        return "추세이탈 (MA200↓)"
+
+    # === 2. 진입금지 조건 ===
+    # 2a. RSI 과열
     if rsi >= 70:
-        return "진입금지 (과열)"
+        return "진입금지 (RSI과열)"
 
-    # 눌림목: RSI 50-65이고 MA20 근처 (3% 이내)
-    ma20_distance = abs((price - ma_20) / ma_20 * 100) if ma_20 else 100
-    if 50 <= rsi <= 65 and ma20_distance <= 3:
-        return "강력매수 (눌림목)"
+    # 2b. 52주 고점 근처 (-5% 이내)
+    if from_52w_high > -5:
+        return "진입금지 (고점근처)"
 
-    if rsi < 40 and ma_200 and price > ma_200:
-        return "저점매수 (반등)"
+    # 2c. MA20 대비 +8% 이상 급등
+    if ma20_pct >= 8:
+        return "진입금지 (단기급등)"
 
-    if price > ma_20:
+    # === 3. 저점매수 (과매도 반등) ===
+    if rsi <= 35 and from_52w_high <= -20:
+        return "저점매수 (과매도)"
+
+    # === 4. 적극매수 (진짜 눌림목) ===
+    # 조건: 고점대비 조정폭 + RSI 중립 이하 + MA20 근처/아래
+    is_meaningful_correction = -25 <= from_52w_high <= -10
+    is_rsi_neutral = 35 <= rsi <= 55
+    is_near_ma20 = ma20_pct <= 3  # MA20 근처 또는 아래
+
+    if is_meaningful_correction and is_rsi_neutral and is_near_ma20:
+        return "적극매수 (눌림목)"
+
+    # === 5. 매수적기 (건강한 추세) ===
+    # 조건: 정배열 + RSI 건강 + 상승 여력 있음
+    is_aligned = ma_20 and ma_200 and price > ma_20 > ma_200
+    is_rsi_healthy = 40 <= rsi <= 65
+    has_upside = -15 <= from_52w_high <= -5
+
+    if is_aligned and is_rsi_healthy and has_upside:
         return "매수적기 (추세)"
 
+    # === 6. 관망 (진입 애매) ===
+    # RSI 65-70 경계 구간
+    if 65 <= rsi < 70:
+        return "관망 (과열경계)"
+
+    # 고점 대비 조정 부족 (-5% ~ -10%)
+    if -10 < from_52w_high <= -5:
+        return "관망 (조정부족)"
+
+    # 기타
     return "관망"
 
 
@@ -1378,18 +1448,22 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
         if is_technical_rescue:
             tags.append("🔧Rescue")
 
-        # 액션 아이콘
+        # 액션별 아이콘 (v2)
         action_icon = ""
         if "진입금지" in action:
-            action_icon = "✋"
-        elif "강력매수" in action:
+            action_icon = "🚫"
+        elif "추세이탈" in action:
+            action_icon = "⛔"
+        elif "적극매수" in action:
             action_icon = "🚀"
         elif "저점매수" in action:
-            action_icon = "🟢"
+            action_icon = "💎"
         elif "매수적기" in action:
             action_icon = "🟢"
-        else:
+        elif "관망" in action:
             action_icon = "👀"
+        else:
+            action_icon = "❓"
 
         # 4줄 카드형 포맷
         # 1번째 줄: 순위, 티커, 회사명, 현재가
