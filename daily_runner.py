@@ -80,14 +80,80 @@ def log(message, level="INFO"):
 
 
 # ============================================================
+# 시장 국면 (Market Regime) 체크
+# ============================================================
+
+def check_market_regime():
+    """
+    시장 국면 체크 - SPY(S&P 500 ETF) 기준
+
+    Returns:
+        dict: {
+            'regime': 'BULL' | 'BEAR',
+            'spy_price': float,
+            'spy_ma200': float,
+            'spy_above_ma200': bool,
+            'spy_distance': float (MA200 대비 %)
+        }
+    """
+    import yfinance as yf
+
+    try:
+        spy = yf.Ticker('SPY')
+        hist = spy.history(period='1y')
+
+        if len(hist) < 200:
+            log("SPY 데이터 부족, 기본값(BULL) 사용", "WARN")
+            return {
+                'regime': 'BULL',
+                'spy_price': None,
+                'spy_ma200': None,
+                'spy_above_ma200': True,
+                'spy_distance': 0
+            }
+
+        spy_price = hist['Close'].iloc[-1]
+        spy_ma200 = hist['Close'].tail(200).mean()
+        spy_above_ma200 = spy_price > spy_ma200
+        spy_distance = ((spy_price - spy_ma200) / spy_ma200) * 100
+
+        regime = 'BULL' if spy_above_ma200 else 'BEAR'
+
+        log(f"시장 국면: {regime} (SPY ${spy_price:.2f}, MA200 ${spy_ma200:.2f}, {spy_distance:+.1f}%)")
+
+        return {
+            'regime': regime,
+            'spy_price': round(spy_price, 2),
+            'spy_ma200': round(spy_ma200, 2),
+            'spy_above_ma200': spy_above_ma200,
+            'spy_distance': round(spy_distance, 1)
+        }
+
+    except Exception as e:
+        log(f"시장 국면 체크 실패: {e}", "ERROR")
+        return {
+            'regime': 'BULL',
+            'spy_price': None,
+            'spy_ma200': None,
+            'spy_above_ma200': True,
+            'spy_distance': 0
+        }
+
+
+# ============================================================
 # Track 1 & 2 실행
 # ============================================================
 
-def run_screening(config):
+def run_screening(config, market_regime=None):
     """
-    Track 1: 실시간 스크리닝 v5
+    Track 1: 실시간 스크리닝 v5.3
 
     === 필터 구조 ===
+
+    0. Market Regime Check (v5.3):
+       - SPY < MA200 (하락장): 필터 2배 강화
+         - Score 4.0 → 6.0
+         - PEG 2.0 → 1.5
 
     1. Fundamental Filters (필수 조건):
        - Score >= 4.0 (가중치 3-2-1 + 정배열 보너스)
@@ -101,7 +167,7 @@ def run_screening(config):
        B. Reasonable Value: PEG < 2.0
        C. Technical Rescue: 재무 데이터 없으면 Price > MA60
     """
-    log("Track 1: 실시간 스크리닝 v5 시작")
+    log("Track 1: 실시간 스크리닝 v5.3 시작")
 
     try:
         import yfinance as yf
@@ -115,7 +181,16 @@ def run_screening(config):
         )
 
         today = datetime.now().strftime('%Y-%m-%d')
-        min_score = config.get('min_score', 4.0)
+
+        # 시장 국면에 따른 필터 강화
+        if market_regime and market_regime.get('regime') == 'BEAR':
+            min_score = 6.0  # 4.0 → 6.0 (강화)
+            max_peg = 1.5    # 2.0 → 1.5 (강화)
+            log(f"🚨 하락장 감지! 필터 강화: Score >= {min_score}, PEG < {max_peg}")
+        else:
+            min_score = config.get('min_score', 4.0)
+            max_peg = 2.0
+
         earnings_blackout = config.get('earnings_blackout_days', 5)
 
         # 종목 수집
@@ -141,7 +216,10 @@ def run_screening(config):
             'aligned': 0,
             'quality_growth': 0,
             'reasonable_value': 0,
-            'technical_rescue': 0
+            'technical_rescue': 0,
+            'market_regime': market_regime,
+            'min_score_used': min_score,
+            'max_peg_used': max_peg
         }
 
         for ticker, idx_name in all_tickers.items():
@@ -254,9 +332,9 @@ def run_screening(config):
                         pass_reason = f"Quality Growth (Rev+{rev_growth:.0f}%, Op+{op_growth:.0f}%)"
                         stats['quality_growth'] += 1
 
-                # B. Reasonable Value: PEG < 2.0
+                # B. Reasonable Value: PEG < max_peg (하락장시 1.5, 상승장시 2.0)
                 is_reasonable_value = False
-                if not pass_reason and peg is not None and peg < 2.0 and peg > 0:
+                if not pass_reason and peg is not None and peg < max_peg and peg > 0:
                     is_reasonable_value = True
                     pass_reason = f"Reasonable Value (PEG {peg:.1f})"
                     stats['reasonable_value'] += 1
@@ -1330,11 +1408,36 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     }
 
     # ========================================
-    # 헤더 + 전략 설명
+    # 시장 국면 (Market Regime) 체크
     # ========================================
-    msg = f"🚀 <b>[{today}] EPS 모멘텀 v5 브리핑</b>\n"
-    msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"📅 {today_full}\n\n"
+    market_regime = stats.get('market_regime', {})
+    regime = market_regime.get('regime', 'BULL') if market_regime else 'BULL'
+    spy_price = market_regime.get('spy_price') if market_regime else None
+    spy_ma200 = market_regime.get('spy_ma200') if market_regime else None
+    spy_distance = market_regime.get('spy_distance', 0) if market_regime else 0
+    min_score_used = stats.get('min_score_used', 4.0)
+    max_peg_used = stats.get('max_peg_used', 2.0)
+
+    # ========================================
+    # 헤더 + 시장 상태
+    # ========================================
+    if regime == 'BEAR':
+        msg = f"🚨 <b>[{today}] EPS 모멘텀 v5.3 브리핑</b>\n"
+        msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        msg += f"⚠️ <b>시장 경보: 하락장 진입</b> ⚠️\n"
+        msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        if spy_price and spy_ma200:
+            msg += f"🔴 SPY ${spy_price} &lt; MA200 ${spy_ma200} ({spy_distance:+.1f}%)\n"
+        msg += f"📉 필터 강화: Score>={min_score_used:.0f}, PEG&lt;{max_peg_used:.1f}\n"
+        msg += f"💡 <b>현금 비중 확대 권장</b>\n\n"
+    else:
+        msg = f"🚀 <b>[{today}] EPS 모멘텀 v5.3 브리핑</b>\n"
+        msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        if spy_price and spy_ma200:
+            msg += f"🟢 SPY ${spy_price} &gt; MA200 ${spy_ma200} ({spy_distance:+.1f}%)\n"
+        msg += f"📈 시장 상승 추세 유지\n\n"
+
+    msg += f"📅 {today_full} | 총 {total_count}개 통과\n\n"
 
     # 전략 설명 섹션
     msg += "<b>📋 전략 개요</b>\n"
@@ -1346,9 +1449,11 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     msg += "• 분기 재무제표 (매출/영업이익)\n"
     msg += f"• 유니버스: NASDAQ100 + S&P500 + S&P400\n\n"
 
-    msg += "<b>⚙️ 필터 기준 (v5)</b>\n"
+    msg += "<b>⚙️ 필터 기준 (v5.3)</b>\n"
+    if regime == 'BEAR':
+        msg += "🚨 <b>하락장 강화 필터 적용중</b>\n"
     msg += "1️⃣ <b>필수 조건</b>\n"
-    msg += "   • EPS 모멘텀 점수 >= 4.0\n"
+    msg += f"   • EPS 모멘텀 점수 >= {min_score_used:.0f}\n"
     msg += "   • Kill Switch: 7일내 1%↓ 시 제외\n"
     msg += "   • 거래대금 >= $20M\n"
     msg += "   • <b>Price > MA200</b> (장기상승추세)\n"
@@ -1356,7 +1461,7 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
 
     msg += "2️⃣ <b>품질/가치 조건</b> (하나 이상 충족)\n"
     msg += "   A. Quality Growth: 매출↑5%+ & 영업익>=매출\n"
-    msg += "   B. Reasonable Value: PEG &lt; 2.0\n"
+    msg += f"   B. Reasonable Value: PEG &lt; {max_peg_used:.1f}\n"
     msg += "   C. Technical Rescue: 데이터없으면 Price>MA60\n\n"
 
     # 필터 통계
@@ -1500,8 +1605,11 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
 
     # 푸터
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "<i>🤖 EPS Momentum Strategy v5</i>\n"
-    msg += "<i>MA200↑ + Quality/Value Filter</i>\n"
+    msg += "<i>🤖 EPS Momentum Strategy v5.3</i>\n"
+    if regime == 'BEAR':
+        msg += "<i>🚨 Bear Market Filter Active</i>\n"
+    else:
+        msg += "<i>🟢 Bull Market + Quality/Value</i>\n"
 
     return msg
 
@@ -1570,7 +1678,7 @@ def send_telegram_long(message, config):
 def main():
     """메인 실행"""
     log("=" * 60)
-    log("EPS Momentum Daily Runner 시작")
+    log("EPS Momentum Daily Runner v5.3 시작")
     log("=" * 60)
 
     start_time = datetime.now()
@@ -1579,8 +1687,11 @@ def main():
     config = load_config()
     log(f"설정 로드 완료: {CONFIG_PATH}")
 
-    # Track 1: 스크리닝
-    screening_df, stats = run_screening(config)
+    # 시장 국면 체크 (v5.3)
+    market_regime = check_market_regime()
+
+    # Track 1: 스크리닝 (시장 국면 전달)
+    screening_df, stats = run_screening(config, market_regime)
 
     # Track 2: 데이터 축적
     collected, errors = run_data_collection(config)
