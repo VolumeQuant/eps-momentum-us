@@ -1377,112 +1377,77 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     msg += f"• Technical Rescue: {stats.get('technical_rescue', 0)}개\n"
 
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"<b>🎯 선정 종목 ({total_count}개)</b>\n\n"
+    # ========================================
+    # 액션별 그룹화 (적극매수 우선)
+    # ========================================
+    action_priority = [
+        ('적극매수', '🚀', '지금 매수 적기'),
+        ('저점매수', '💎', '과매도 반등 기회'),
+        ('매수적기', '🟢', '건강한 상승 추세'),
+        ('관망', '👀', '진입 대기'),
+        ('진입금지', '🚫', '매수 금지'),
+        ('추세이탈', '⛔', '손절 검토'),
+    ]
 
-    # ========================================
-    # 종목 상세 카드
-    # ========================================
     aligned_count = 0
     quality_growth_count = 0
     reasonable_value_count = 0
     technical_rescue_count = 0
 
-    for idx, (_, row) in enumerate(screening_df.iterrows(), 1):
-        ticker = row['ticker']
-        score = row.get('score_321', 0)
-        eps_chg = row.get('eps_chg_60d', 0)
-        peg = row.get('peg', None)
-        price = row.get('price', 0)
-        sector = row.get('sector', 'Other')
-        dollar_vol_m = row.get('dollar_vol_M', 0)
-        is_aligned = row.get('is_aligned', False)
-        rsi = row.get('rsi', None)
-        action = row.get('action', '매수적기')
-        pass_reason = row.get('pass_reason', '')
-        rev_growth = row.get('rev_growth', None)
-        op_growth = row.get('op_growth', None)
-        ma_200 = row.get('ma_200', None)
-        from_52w_high = row.get('from_52w_high', None)
-
-        is_quality_growth = row.get('is_quality_growth', False)
-        is_reasonable_value = row.get('is_reasonable_value', False)
-        is_technical_rescue = row.get('is_technical_rescue', False)
-
-        sector_kr = sector_map.get(sector, sector[:6] if len(sector) > 6 else sector)
-
-        # 통계
-        if is_aligned:
+    # 통계 먼저 계산
+    for _, row in screening_df.iterrows():
+        if row.get('is_aligned', False):
             aligned_count += 1
-        if is_quality_growth:
+        if row.get('is_quality_growth', False):
             quality_growth_count += 1
-        if is_reasonable_value:
+        if row.get('is_reasonable_value', False):
             reasonable_value_count += 1
-        if is_technical_rescue:
+        if row.get('is_technical_rescue', False):
             technical_rescue_count += 1
 
-        # 회사명 가져오기
-        try:
-            stock = yf.Ticker(ticker)
-            company_name = stock.info.get('shortName', '') or stock.info.get('longName', ticker)
-            for suffix in [', Inc.', ' Inc.', ', Corp.', ' Corp.', ' Corporation', ' Co.', ' Ltd.', ' Limited', ' Holdings', ' plc']:
-                company_name = company_name.replace(suffix, '')
-            if len(company_name) > 22:
-                company_name = company_name[:20] + '..'
-        except:
-            company_name = ticker
+    # 액션별로 그룹화하여 출력
+    for action_key, action_icon, action_desc in action_priority:
+        # 해당 액션에 해당하는 종목 필터
+        action_stocks = screening_df[screening_df['action'].str.contains(action_key, na=False)]
 
-        # 포맷팅 (NaN 체크 포함)
-        peg_str = f"{peg:.1f}" if (peg and not math.isnan(peg)) else "N/A"
-        rsi_str = f"{rsi:.0f}" if (rsi and not math.isnan(rsi)) else "N/A"
-        vol_str = format_dollar_volume(dollar_vol_m)
-        eps_str = f"+{eps_chg:.0f}%" if eps_chg and eps_chg >= 0 else (f"{eps_chg:.0f}%" if eps_chg else "N/A")
+        if len(action_stocks) == 0:
+            continue
 
-        # 태그 생성
-        tags = []
-        if is_aligned:
-            tags.append("📈정배열")
-        if is_quality_growth:
-            tags.append("🌱Quality")
-        if is_reasonable_value:
-            tags.append(f"💎PEG{peg_str}")
-        if is_technical_rescue:
-            tags.append("🔧Rescue")
+        # 그룹 헤더
+        msg += f"\n{action_icon} <b>{action_key}</b> ({len(action_stocks)}개) - {action_desc}\n"
+        msg += "─" * 20 + "\n"
 
-        # 액션별 아이콘 (v2)
-        action_icon = ""
-        if "진입금지" in action:
-            action_icon = "🚫"
-        elif "추세이탈" in action:
-            action_icon = "⛔"
-        elif "적극매수" in action:
-            action_icon = "🚀"
-        elif "저점매수" in action:
-            action_icon = "💎"
-        elif "매수적기" in action:
-            action_icon = "🟢"
-        elif "관망" in action:
-            action_icon = "👀"
-        else:
-            action_icon = "❓"
+        for idx, (_, row) in enumerate(action_stocks.iterrows(), 1):
+            ticker = row['ticker']
+            score = row.get('score_321', 0)
+            eps_chg = row.get('eps_chg_60d', 0)
+            peg = row.get('peg', None)
+            price = row.get('price', 0)
+            sector = row.get('sector', 'Other')
+            dollar_vol_m = row.get('dollar_vol_M', 0)
+            is_aligned = row.get('is_aligned', False)
+            rsi = row.get('rsi', None)
+            action = row.get('action', '')
+            from_52w_high = row.get('from_52w_high', None)
 
-        # 4줄 카드형 포맷
-        # 1번째 줄: 순위, 티커, 회사명, 현재가
-        align_mark = "⬆" if is_aligned else ""
-        msg += f"<b>{idx}. {ticker}</b> {company_name} (${price:.1f})\n"
+            sector_kr = sector_map.get(sector, sector[:6] if len(sector) > 6 else sector)
 
-        # 2번째 줄: EPS 모멘텀, PEG, 섹터
-        msg += f"   ├ 📊 점수 {score:.1f}{align_mark} | EPS {eps_str} | PEG {peg_str} | {sector_kr}\n"
+            # 포맷팅 (NaN 체크 포함)
+            peg_str = f"{peg:.1f}" if (peg and not math.isnan(peg)) else "-"
+            rsi_str = f"{rsi:.0f}" if (rsi and not math.isnan(rsi)) else "-"
+            high_str = f"{from_52w_high:.0f}%" if from_52w_high else "-"
+            eps_str = f"+{eps_chg:.0f}%" if eps_chg and eps_chg >= 0 else (f"{eps_chg:.0f}%" if eps_chg else "-")
+            align_mark = "⬆" if is_aligned else ""
 
-        # 3번째 줄: 통과 사유 + 태그
-        if pass_reason:
-            msg += f"   ├ ✅ {pass_reason}\n"
+            # 간결한 2줄 포맷
+            msg += f"<b>{ticker}</b> ${price:.0f} | 점수{score:.0f}{align_mark} | RSI{rsi_str} | 고점{high_str}\n"
 
-        # 4번째 줄: 액션 + RSI + 거래대금
-        msg += f"   └ 🎯 <b>{action_icon} {action}</b> (RSI {rsi_str} | {vol_str})\n"
-
-        # 종목 간 구분선 (5개마다)
-        if idx % 5 == 0 and idx < total_count:
-            msg += "\n"
+            # 적극매수/저점매수/매수적기만 상세 사유 표시
+            if action_key in ['적극매수', '저점매수', '매수적기']:
+                # 액션 상세 사유 (괄호 안 내용)
+                if '(' in action and ')' in action:
+                    reason = action.split('(')[1].split(')')[0]
+                    msg += f"   └ {reason} | {sector_kr} | PEG {peg_str}\n"
 
     # ========================================
     # 시장 테마 분석
