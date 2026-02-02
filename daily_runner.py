@@ -149,22 +149,22 @@ def check_market_regime():
         # 🔴 RED: SPY < MA50 OR VIX >= 30
         if spy_price < spy_ma50:
             regime = 'RED'
-            reason = f'SPY ${spy_price:.0f} < MA50 ${spy_ma50:.0f}'
+            reason = f'SPY ${spy_price:.0f} MA50 ${spy_ma50:.0f} 하회'
         elif vix is not None and vix >= 30:
             regime = 'RED'
-            reason = f'VIX {vix:.1f} >= 30 (공포)'
+            reason = f'VIX {vix:.1f} (공포 구간)'
         # 🟡 YELLOW: SPY < MA20 OR VIX >= 20
         elif spy_price < spy_ma20:
             regime = 'YELLOW'
-            reason = f'SPY ${spy_price:.0f} < MA20 ${spy_ma20:.0f}'
+            reason = f'SPY ${spy_price:.0f} MA20 ${spy_ma20:.0f} 하회'
         elif vix is not None and vix >= 20:
             regime = 'YELLOW'
-            reason = f'VIX {vix:.1f} >= 20 (경계)'
+            reason = f'VIX {vix:.1f} (경계 구간)'
         # 🟢 GREEN: 정상
         else:
             regime = 'GREEN'
             vix_str = f', VIX {vix:.1f}' if vix else ''
-            reason = f'SPY ${spy_price:.0f} > MA20/MA50{vix_str}'
+            reason = f'SPY ${spy_price:.0f} 정상{vix_str}'
 
         # 로그
         emoji = {'RED': '🔴', 'YELLOW': '🟡', 'GREEN': '🟢'}[regime]
@@ -1631,8 +1631,8 @@ def create_telegram_message_admin(stats, collected, errors, execution_time):
 
     # v6 신규 통계
     msg += f"\n🆕 <b>v6.0 필터 통계</b>\n"
-    msg += f"• ROE &lt; 10%: {stats.get('low_roe', 0)}개\n"
-    msg += f"• PER &gt; 60: {stats.get('high_per', 0)}개\n"
+    msg += f"• ROE 10% 미만: {stats.get('low_roe', 0)}개\n"
+    msg += f"• PER 60 초과: {stats.get('high_per', 0)}개\n"
     msg += f"• 평균 Forward PER: {stats.get('avg_fwd_per', 0)}\n"
     msg += f"• 평균 ROE: {stats.get('avg_roe', 0)}%\n"
 
@@ -1756,19 +1756,19 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     msg += "\"<i>신선한 사과를 합리적 가격에</i>\" 🍎💰\n\n"
 
     msg += "<b>🔍 3-Layer Filtering</b>\n"
-    msg += "L1. Momentum: EPS 정배열 (C>7d>30d)\n"
-    msg += "L2. Quality: ROE > 10%\n"
-    msg += "L3. Safety: Forward PER < 60\n\n"
+    msg += "L1. Momentum: EPS 정배열\n"
+    msg += "L2. Quality: ROE 10%+\n"
+    msg += "L3. Safety: Forward PER 60 이하\n\n"
 
     msg += "<b>📊 Hybrid Ranking</b>\n"
     msg += "Score = Momentum×0.7 + Value×0.3\n"
-    msg += "→ 빠르게 성장 + 저렴한 종목 우선\n\n"
+    msg += "빠른 성장 + 저평가 종목 우선\n\n"
 
     # v6 필터 통계
     msg += "<b>📈 필터 결과</b>\n"
     msg += f"• 스캔: {stats.get('total', 0)} → 통과: {total_count}개\n"
-    msg += f"• ROE &lt; 10%: {stats.get('low_roe', 0)}개 제외\n"
-    msg += f"• PER &gt; 60: {stats.get('high_per', 0)}개 제외\n"
+    msg += f"• ROE 10% 미만: {stats.get('low_roe', 0)}개 제외\n"
+    msg += f"• PER 60 초과: {stats.get('high_per', 0)}개 제외\n"
     if stats.get('avg_fwd_per'):
         msg += f"• 평균 PER: {stats.get('avg_fwd_per')} | ROE: {stats.get('avg_roe', 0)}%\n"
 
