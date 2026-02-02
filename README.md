@@ -1,14 +1,15 @@
-# EPS Revision Momentum Strategy v6.1 (US Stocks)
+# EPS Revision Momentum Strategy v6.2 (US Stocks)
 
 미국 주식 대상 **Value-Momentum Hybrid** 전략 시스템
 
-> 🍎💰 **핵심 철학**: "좋은 사과(A등급)를 싸게 사는 것이 최고 사과(S등급)를 비싸게 사는 것보다 낫다"
+> 🍎⏰ **핵심 철학**: "좋은 사과 + 지금 살 타이밍 = 실전 매수 점수"
 
 ## 버전 히스토리
 
 | 버전 | 날짜 | 주요 변경 |
 |------|------|----------|
-| **v6.1** | 2026-02-03 | **Option A**: 가격위치(Position) 점수 추가 - 52주 고점 대비 조정폭 반영 |
+| **v6.2** | 2026-02-03 | **Action Multiplier**: RSI 과열 종목 자동 페널티, 실전 매수 랭킹 |
+| v6.1 | 2026-02-03 | Option A: 가격위치(Position) 점수 추가 - 52주 고점 대비 조정폭 반영 |
 | v6.0 | 2026-02-02 | Value-Momentum Hybrid System: 3-Layer Filtering + Hybrid Ranking |
 | v5.4 | 2026-02-02 | 시장 국면 3단계 진단 (RED/YELLOW/GREEN) + VIX 추가 |
 | v5.3 | 2026-02-02 | 시장 국면(Market Regime) 필터 추가 - SPY MA200 기반 |
@@ -45,7 +46,29 @@ Layer 3 [Safety]: Forward PER < 60
 └── 예외: 고모멘텀(Score >= 8) 시 PER 80까지 허용
 ```
 
-### Hybrid Ranking (v6.1 - Option A)
+### 실전 매수 랭킹 (v6.2 - Action Multiplier)
+
+```python
+Actionable Score = Hybrid Score × Action Multiplier
+```
+
+**Action Multiplier**: RSI, 고점 근처 등 타이밍 요소 반영
+| Action | Multiplier | 설명 |
+|--------|------------|------|
+| 적극매수/저점매수 | ×1.0 | 지금 사도 됨 |
+| 매수적기 | ×0.9 | 좋은 타이밍 |
+| 관망 | ×0.7 | 기다려 |
+| 진입금지 | ×0.3 | 사면 물림 |
+
+**예시**:
+| 종목 | Hybrid | Action | Mult | 실전점수 |
+|------|--------|--------|------|---------|
+| MU | 19.7 | 진입금지 (RSI 75) | ×0.3 | **5.9** ↓ |
+| AVGO | 12.8 | 적극매수 (RSI 36) | ×1.0 | **12.8** ✅ |
+
+→ **RSI 과열 종목(MU)은 아무리 펀더멘털이 좋아도 순위 하락**
+
+### Hybrid Score 공식 (v6.1)
 
 ```python
 Hybrid Score = (Momentum × 0.5) + ((100 / PER) × 0.2) + (Position × 0.3)
@@ -54,24 +77,6 @@ Hybrid Score = (Momentum × 0.5) + ((100 / PER) × 0.2) + (Position × 0.3)
 **Position Score**: 52주 고점 대비 가격 위치
 ```python
 Position Score = 100 - (현재가 / 52주고점 × 100)
-# 범위: 0~50
-```
-
-**목표**: "A등급 싸게 사기" - 조정받은 좋은 종목 상위 랭크
-
-**예시**:
-| 종목 | Momentum | PER | 52w고점대비 | Position | Hybrid Score |
-|------|----------|-----|-------------|----------|--------------|
-| S급비싼 | 32 | 10 | -5% | 5 | 32×0.5 + 10×0.2 + 5×0.3 = **19.5** |
-| A급싼 | 25 | 15 | -20% | 20 | 25×0.5 + 6.7×0.2 + 20×0.3 = **19.8** ✅ |
-
-→ **조정받은 A급 종목이 고점 근처 S급 종목보다 상위 랭크**
-
-### v6.0 공식 (이전)
-
-```python
-# v6.0 (참고용)
-Hybrid Score = (Momentum × 0.7) + ((100 / Forward PER) × 0.3)
 ```
 
 ### 신규 지표 (v6.1)

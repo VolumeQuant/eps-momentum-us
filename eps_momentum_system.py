@@ -614,6 +614,74 @@ def calculate_peg_from_growth(forward_per, eps_growth_rate):
     return round(peg, 2)
 
 
+def get_action_multiplier(action):
+    """
+    Action Multiplier 계산 (v6.2)
+
+    실전 매수 적합도를 반영하는 승수.
+    RSI 과열, 고점 근처 등 진입 부적합 종목에 페널티 적용.
+
+    Args:
+        action: get_action_label() 결과 문자열
+
+    Returns:
+        float: 0.1 ~ 1.0 (높을수록 매수 적합)
+    """
+    if action is None:
+        return 0.5
+
+    action = str(action)
+
+    # 적극 매수 신호: ×1.0
+    if '적극매수' in action or '저점매수' in action:
+        return 1.0
+
+    # 매수 적기: ×0.9
+    if '매수적기' in action:
+        return 0.9
+
+    # 관망: ×0.7
+    if '관망' in action:
+        return 0.7
+
+    # 진입 금지: ×0.3 (강한 페널티)
+    if '진입금지' in action:
+        return 0.3
+
+    # 추세 이탈: ×0.1 (최강 페널티)
+    if '추세이탈' in action:
+        return 0.1
+
+    return 0.5
+
+
+def calculate_actionable_score(hybrid_score, action):
+    """
+    실전 매수 점수 계산 (v6.2)
+
+    Hybrid Score에 Action Multiplier를 적용하여
+    실제 매수 가능한 종목을 상위 랭크로 올림.
+
+    공식: Actionable Score = Hybrid Score × Action Multiplier
+
+    예시:
+    - MU: 19.7 × 0.3 (진입금지) = 5.9 → 순위 하락
+    - AVGO: 12.8 × 1.0 (적극매수) = 12.8 → 순위 상승
+
+    Args:
+        hybrid_score: calculate_hybrid_score() 결과
+        action: get_action_label() 결과
+
+    Returns:
+        float: 실전 매수 점수
+    """
+    if hybrid_score is None:
+        return None
+
+    multiplier = get_action_multiplier(action)
+    return round(hybrid_score * multiplier, 2)
+
+
 def calculate_price_position_score(price, high_52w):
     """
     52주 고점 대비 가격 위치 점수 계산 (v6.1)

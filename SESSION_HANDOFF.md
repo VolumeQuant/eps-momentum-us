@@ -1,79 +1,96 @@
 # SESSION_HANDOFF.md
-## EPS Momentum System v6.1 - Option A (가격위치 반영)
+## EPS Momentum System v6.2 - Action Multiplier
 
-**Last Updated:** 2026-02-03 06:58
-**Session:** v6.0 → v6.1 업그레이드 완료
+**Last Updated:** 2026-02-03 07:30
+**Session:** v6.1 → v6.2 업그레이드 완료
 
 ---
 
 ## 1. 작업 요약
 
-### v6.1 핵심 변경사항 (Option A)
+### v6.2 핵심 변경사항 (Action Multiplier)
 
-**문제 인식 (v6.0):**
-- Hybrid Score가 Momentum과 98% 상관관계
-- Value 컴포넌트(100/PER)가 전체 점수의 19.4%만 기여
-- 결과적으로 "S등급 비싼 사과"만 선별됨 (대부분 52주 고점 근처)
+**문제 인식 (v6.1):**
+- Hybrid Score 1위 MU가 "진입금지" (RSI 75 과열)
+- TOP 3 ≠ 실전 매수 적합도
+- RSI 과열이 Hybrid Score에 미반영
 
-**해결책 - Option A:**
+**해결책 - Action Multiplier:**
 ```
-기존 (v6.0): Hybrid = Momentum × 0.7 + Value × 0.3
-신규 (v6.1): Hybrid = Momentum × 0.5 + Value × 0.2 + Position × 0.3
+실전점수 = Hybrid Score × Action Multiplier
+
+Action Multiplier:
+- 적극매수/저점매수: ×1.0
+- 매수적기: ×0.9
+- 관망: ×0.7
+- 진입금지: ×0.3
 ```
 
-**Position Score 공식:**
-```python
-Position Score = 100 - (현재가 / 52주고점 × 100)
-# 점수 범위: 0~50
-```
-- 고점 근처 (99%): 1점 (비쌈)
-- 조정 (-20%): 20점 (적당)
-- 큰 조정 (-35%): 35점 (쌈)
+**결과:**
+| 종목 | Hybrid | Action | Mult | 실전점수 | 순위변화 |
+|------|--------|--------|------|---------|---------|
+| MU | 19.7 | 진입금지 | ×0.3 | 5.9 | #1 → #14 ↓ |
+| AVGO | 12.8 | 적극매수 | ×1.0 | 12.8 | #4 → #2 ↑ |
+| G | 12.8 | 저점매수 | ×1.0 | 12.8 | #3 → #1 ↑ |
 
 **철학 변화:**
-> "S등급 비싸게 사기" → "A등급 싸게 사기"
+> "좋은 사과 + 지금 살 타이밍 = 실전 매수 점수"
+
+---
+
+### v6.1 변경사항 (Option A - 이전)
+
+**Position Score:**
+```python
+Position Score = 100 - (현재가 / 52주고점 × 100)
+```
+- 고점 근처: 낮은 점수 → 조정받은 종목 선호
 
 ---
 
 ## 2. 수정된 파일
 
-### eps_momentum_system.py
+### eps_momentum_system.py (v6.2 추가)
 
-**신규 함수 추가:**
+**v6.2 신규 함수:**
+```python
+def get_action_multiplier(action):
+    """Action Multiplier 계산"""
+    if '적극매수' in action or '저점매수' in action:
+        return 1.0
+    elif '매수적기' in action:
+        return 0.9
+    elif '관망' in action:
+        return 0.7
+    elif '진입금지' in action:
+        return 0.3
+    return 0.5
+
+def calculate_actionable_score(hybrid_score, action):
+    """실전 매수 점수 = Hybrid × Multiplier"""
+    multiplier = get_action_multiplier(action)
+    return round(hybrid_score * multiplier, 2)
+```
+
+**v6.1 함수 (기존):**
 ```python
 def calculate_price_position_score(price, high_52w):
-    """52주 고점 대비 가격 위치 점수 계산"""
-    if price is None or high_52w is None or high_52w <= 0:
-        return None
-    position_pct = (price / high_52w) * 100
-    score = 100 - position_pct
-    score = max(0, min(50, score))  # 0~50 범위 제한
-    return round(score, 2)
+    """52주 고점 대비 가격 위치 점수"""
+
+def calculate_hybrid_score(momentum_score, forward_per, price_position_score=None):
+    """Hybrid = M×0.5 + V×0.2 + P×0.3"""
 ```
 
-**수정된 함수:**
-```python
-def calculate_hybrid_score(momentum_score, forward_per, price_position_score=None,
-                           weight_momentum=0.5, weight_value=0.2, weight_position=0.3):
-    """하이브리드 점수 계산 (v6.1 - Option A)"""
-    momentum_component = momentum_score * weight_momentum
-    value_score = 100 / forward_per if forward_per and forward_per > 0 else 0
-    value_component = value_score * weight_value
-    position_component = price_position_score * weight_position if price_position_score else 0
-    return round(momentum_component + value_component + position_component, 2)
-```
+### daily_runner.py (v6.2 업데이트)
 
-### daily_runner.py
-
-1. **Import 추가:** `calculate_price_position_score`
+1. **Import 추가:** `get_action_multiplier`, `calculate_actionable_score`
 2. **run_screening():**
-   - 52주 고점에서 `high_52w` 계산
-   - `price_position_score` 계산
-   - `calculate_hybrid_score(score_321, fwd_per, price_position_score)` 호출
-3. **run_data_collection():** 동일하게 v6.1 공식 적용
-4. **텔레그램 메시지:** v6.1 공식 설명 추가
-5. **리포트:** Formula 표시 추가
-6. **버전 표기:** v6.0 → v6.1 전체 업데이트
+   - `actionable_score` 계산 추가
+   - **정렬 기준 변경:** `hybrid_score` → `actionable_score`
+3. **텔레그램 메시지:**
+   - TOP 3에 `실전점수` 표시
+   - v6.2 공식 설명 추가
+4. **버전 표기:** v6.1 → v6.2
 
 ---
 

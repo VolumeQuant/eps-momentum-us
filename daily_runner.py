@@ -1,27 +1,31 @@
 """
-EPS Momentum Daily Runner v6.1 - Value-Momentum Hybrid System (Option A)
+EPS Momentum Daily Runner v6.2 - Value-Momentum Hybrid System (Action Multiplier)
 
-핵심 철학: "좋은 사과(A등급)를 싸게 사는 것이 최고 사과(S등급)를 비싸게 사는 것보다 낫다"
+핵심 철학: "좋은 사과 + 지금 살 타이밍 = 실전 매수 점수"
 
 기능:
-1. Track 1: 실시간 스크리닝 → 3-Layer Filtering + Hybrid Ranking (Option A)
-2. Track 2: 전 종목 데이터 축적 → 백테스팅용 (fwd_per, roe, peg_calculated, price_position 포함)
+1. Track 1: 실시간 스크리닝 → 3-Layer Filtering + Actionable Ranking
+2. Track 2: 전 종목 데이터 축적 → 백테스팅용
 3. 일일 리포트 생성 (HTML + Markdown)
 4. Git 자동 commit/push (선택)
 5. 텔레그램 알림 (User Briefing + Admin Log 분리)
 
-v6.1 주요 변경 (Option A):
-- 가격위치 점수 추가: 52주 고점 대비 현재 위치
-- Hybrid Ranking 개선: Score = (Momentum × 0.5) + ((100/PER) × 0.2) + (가격위치 × 0.3)
-  - Momentum: 50% (기존 70% → 50%)
-  - Value: 20% (기존 30% → 20%)
-  - Position: 30% (신규) - 고점에서 멀수록 높은 점수
+v6.2 주요 변경 (Action Multiplier):
+- 실전 매수 점수: Actionable Score = Hybrid Score × Action Multiplier
+- Action Multiplier:
+  - 적극매수/저점매수: ×1.0 (보너스)
+  - 매수적기: ×0.9
+  - 관망: ×0.7 (페널티)
+  - 진입금지: ×0.3 (강한 페널티)
+- 결과: RSI 과열 종목(MU 등) 자동 순위 하락
+
+v6.1 (이전):
+- 가격위치 점수: 52주 고점 대비 위치
+- Hybrid Ranking: M×0.5 + V×0.2 + P×0.3
 
 v6.0 (이전):
 - Forward PER, ROE 지표 추가
-- 3-Layer Filtering: Momentum → Quality (ROE > 10%) → Safety (PER < 60)
-- Hybrid Ranking: Score = (Momentum * 0.7) + ((100/PER) * 0.3)
-- 텔레그램 User/Admin 분리 메시지
+- 3-Layer Filtering: Momentum → Quality → Safety
 
 실행: python daily_runner.py
 """
@@ -230,7 +234,7 @@ def run_screening(config, market_regime=None):
     """
     import pandas as pd
 
-    log("Track 1: 실시간 스크리닝 v6.1 (Option A - 가격위치 반영) 시작")
+    log("Track 1: 실시간 스크리닝 v6.2 (Action Multiplier) 시작")
 
     # === 시장 국면에 따른 동적 필터링 ===
     regime = market_regime.get('regime', 'GREEN') if market_regime else 'GREEN'
@@ -269,7 +273,8 @@ def run_screening(config, market_regime=None):
             calculate_momentum_score_v3, calculate_slope_score,
             check_technical_filter, get_peg_ratio,
             calculate_forward_per, get_roe, calculate_peg_from_growth,
-            calculate_hybrid_score, calculate_price_position_score
+            calculate_hybrid_score, calculate_price_position_score,
+            get_action_multiplier, calculate_actionable_score
         )
 
         today = datetime.now().strftime('%Y-%m-%d')
@@ -535,6 +540,9 @@ def run_screening(config, market_regime=None):
                     # v6.1 신규 필드 (Option A)
                     'price_position_score': round(price_position_score, 1) if price_position_score else None,
                     'high_52w': round(high_52w, 2) if high_52w else None,
+                    # v6.2 신규 필드 (Action Multiplier)
+                    'action_multiplier': get_action_multiplier(action),
+                    'actionable_score': calculate_actionable_score(hybrid_score, action),
                 })
                 stats['passed'] += 1
 
@@ -545,8 +553,8 @@ def run_screening(config, market_regime=None):
         # 결과 저장
         df = pd.DataFrame(candidates)
         if not df.empty:
-            # v6.0: Hybrid Score로 정렬 (높은 순)
-            df = df.sort_values('hybrid_score', ascending=False)
+            # v6.2: Actionable Score로 정렬 (실전 매수 적합도 순)
+            df = df.sort_values('actionable_score', ascending=False)
 
             # v6.0 통계 계산
             if 'fwd_per' in df.columns:
@@ -1786,19 +1794,20 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
     msg += f"📅 {today_full} | 총 {total_count}개 통과\n\n"
 
-    # v6.1 전략 설명 섹션 (Option A)
-    msg += "<b>📋 전략: Value-Momentum Hybrid v6.1</b>\n"
-    msg += "\"<i>좋은 사과를 싸게 사자</i>\" 🍎💰\n\n"
+    # v6.2 전략 설명 섹션 (Action Multiplier)
+    msg += "<b>📋 전략: Value-Momentum Hybrid v6.2</b>\n"
+    msg += "\"<i>좋은 사과 + 지금 살 타이밍</i>\" 🍎⏰\n\n"
 
     msg += "<b>🔍 3-Layer Filtering</b>\n"
     msg += "L1. Momentum: EPS 정배열\n"
     msg += "L2. Quality: ROE 10%+\n"
     msg += "L3. Safety: Forward PER 60 이하\n\n"
 
-    msg += "<b>📊 Hybrid Ranking (Option A)</b>\n"
-    msg += "Score = M×0.5 + V×0.2 + P×0.3\n"
-    msg += "M=모멘텀, V=100/PER, P=고점거리\n"
-    msg += "💡 S급 비싸게 &lt; A급 싸게\n\n"
+    msg += "<b>📊 실전 매수 랭킹 (v6.2)</b>\n"
+    msg += "실전점수 = Hybrid × Action배수\n"
+    msg += "• 적극/저점매수: ×1.0\n"
+    msg += "• 관망: ×0.7 | 진입금지: ×0.3\n"
+    msg += "💡 RSI 과열 종목 자동 페널티\n\n"
 
     # v6 필터 통계
     msg += "<b>📈 필터 결과</b>\n"
@@ -1824,19 +1833,22 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
             fwd_per = row.get('fwd_per')
             roe = row.get('roe')
             hybrid = row.get('hybrid_score', 0)
+            actionable = row.get('actionable_score', 0)
             score = row.get('score_321', 0)
             is_aligned = row.get('is_aligned', False)
             sector = row.get('sector', 'Other')
             action = row.get('action', '')
+            rsi = row.get('rsi')
 
             sector_kr = sector_map.get(sector, sector[:4])
             per_str = f"PER {fwd_per:.0f}" if fwd_per else "PER -"
             roe_str = f"ROE {roe:.0f}%" if roe else "ROE -"
+            rsi_str = f"RSI {rsi:.0f}" if rsi else "RSI -"
             align_mark = "⬆" if is_aligned else ""
 
             msg += f"\n{medal[idx]} <b>{ticker}</b> ${price:.0f}\n"
-            msg += f"   Hybrid: {hybrid:.1f} | 모멘텀: {score:.0f}{align_mark}\n"
-            msg += f"   {per_str} | {roe_str} | {sector_kr}\n"
+            msg += f"   실전: {actionable:.1f} | Hybrid: {hybrid:.1f}\n"
+            msg += f"   {per_str} | {rsi_str} | {sector_kr}\n"
 
             # 동적 한국어 추천 문구 생성
             rationale = generate_korean_rationale(row)
@@ -1847,10 +1859,10 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
             msg += "\n<b>📋 Honorable Mentions</b>\n"
             for idx, (_, row) in enumerate(screening_df.iloc[3:5].iterrows(), 4):
                 ticker = row['ticker']
-                hybrid = row.get('hybrid_score', 0)
-                fwd_per = row.get('fwd_per')
-                per_str = f"PER{fwd_per:.0f}" if fwd_per else ""
-                msg += f"#{idx} {ticker} (H:{hybrid:.1f} {per_str})\n"
+                actionable = row.get('actionable_score', 0)
+                action = row.get('action', '')
+                action_short = action.split('(')[0].strip() if '(' in str(action) else str(action)[:6]
+                msg += f"#{idx} {ticker} (실전:{actionable:.1f} {action_short})\n"
 
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
     # ========================================
@@ -1976,8 +1988,8 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
 
     # 푸터
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "<i>🤖 EPS Momentum v6.1 (Option A)</i>\n"
-    msg += "<i>좋은 사과를 싸게 사자</i>\n"
+    msg += "<i>🤖 EPS Momentum v6.2</i>\n"
+    msg += "<i>실전 매수 = Hybrid × Action배수</i>\n"
     if regime == 'YELLOW':
         msg += "<i>🟡 Caution Mode Active</i>\n"
     else:
@@ -2050,7 +2062,7 @@ def send_telegram_long(message, config):
 def main():
     """메인 실행"""
     log("=" * 60)
-    log("EPS Momentum Daily Runner v6.1 - Option A (가격위치 반영)")
+    log("EPS Momentum Daily Runner v6.2 - Action Multiplier")
     log("=" * 60)
 
     start_time = datetime.now()
