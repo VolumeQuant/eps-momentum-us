@@ -177,7 +177,7 @@ def init_database():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # EPS Trend 스냅샷 테이블 (v3: A/B 테스팅용 필드 추가)
+    # EPS Trend 스냅샷 테이블 (v6: Value-Momentum Hybrid 필드 추가)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS eps_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -202,10 +202,27 @@ def init_database():
             score_slope REAL,
             eps_chg_60d REAL,
             passed_screen INTEGER DEFAULT 0,
+            fwd_per REAL,
+            roe REAL,
+            peg_calculated REAL,
+            hybrid_score REAL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(date, ticker, period)
         )
     ''')
+
+    # v6: 신규 컬럼 마이그레이션 (기존 테이블용)
+    new_columns_v6 = [
+        ('fwd_per', 'REAL'),
+        ('roe', 'REAL'),
+        ('peg_calculated', 'REAL'),
+        ('hybrid_score', 'REAL'),
+    ]
+    for col_name, col_type in new_columns_v6:
+        try:
+            cursor.execute(f'ALTER TABLE eps_snapshots ADD COLUMN {col_name} {col_type}')
+        except:
+            pass  # 이미 존재하면 무시
 
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_date ON eps_snapshots(date)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_ticker ON eps_snapshots(ticker)')
@@ -528,6 +545,107 @@ def get_peg_ratio(info):
     except:
         pass
     return None
+
+
+# ============================================================
+# v6.0: Value-Momentum Hybrid 지표 계산
+# ============================================================
+
+def calculate_forward_per(price, current_eps):
+    """
+    Forward PER 계산 (v6.0)
+
+    Forward PER = 현재가격 / Forward EPS (Current)
+
+    Args:
+        price: 현재 주가
+        current_eps: Yahoo Finance eps_trend의 'current' 값 (Forward 1Y EPS)
+
+    Returns:
+        float: Forward PER (None if invalid)
+    """
+    if price is None or current_eps is None:
+        return None
+    if current_eps <= 0:
+        return None  # 음수/0 EPS는 의미없는 PER
+
+    fwd_per = price / current_eps
+    return round(fwd_per, 2)
+
+
+def get_roe(info):
+    """
+    ROE (Return on Equity) 조회 (v6.0)
+
+    Args:
+        info: yfinance ticker.info dict
+
+    Returns:
+        float: ROE (0~1 범위, 예: 0.15 = 15%)
+    """
+    try:
+        roe = info.get('returnOnEquity')
+        if roe is not None:
+            return round(roe, 4)
+    except:
+        pass
+    return None
+
+
+def calculate_peg_from_growth(forward_per, eps_growth_rate):
+    """
+    PEG 직접 계산 (v6.0)
+
+    PEG = Forward PER / EPS 성장률(%)
+
+    Args:
+        forward_per: Forward PER
+        eps_growth_rate: EPS 60일 성장률 (%)
+
+    Returns:
+        float: PEG Ratio
+    """
+    if forward_per is None or eps_growth_rate is None:
+        return None
+    if eps_growth_rate <= 0:
+        return None  # 음수/0 성장률은 의미없음
+
+    peg = forward_per / eps_growth_rate
+    return round(peg, 2)
+
+
+def calculate_hybrid_score(momentum_score, forward_per, weight_momentum=0.7, weight_value=0.3):
+    """
+    하이브리드 점수 계산 (v6.0)
+
+    Core Philosophy: "가장 신선한 사과를 가장 합리적인 가격에 산다"
+
+    공식: Hybrid Score = (Momentum * 0.7) + (Value * 0.3)
+
+    Value Component = 100 / Forward PER
+    - PER 10배 → Value 10점
+    - PER 20배 → Value 5점
+    - PER 50배 → Value 2점
+
+    Args:
+        momentum_score: 기존 모멘텀 점수 (score_321)
+        forward_per: Forward PER
+        weight_momentum: 모멘텀 가중치 (기본 0.7)
+        weight_value: 가치 가중치 (기본 0.3)
+
+    Returns:
+        float: Hybrid Score
+    """
+    if momentum_score is None:
+        return None
+
+    # Value component (PER 역수 기반)
+    value_score = 0
+    if forward_per is not None and forward_per > 0:
+        value_score = 100 / forward_per
+
+    hybrid = (momentum_score * weight_momentum) + (value_score * weight_value)
+    return round(hybrid, 2)
 
 
 def run_screening(index_filter=None, min_score=4.0):

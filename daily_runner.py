@@ -1,13 +1,20 @@
 """
-EPS Momentum Daily Runner - 자동화 시스템
-매일 지정된 시간에 실행되어 Track 1, Track 2 수행 후 결과 저장
+EPS Momentum Daily Runner v6.0 - Value-Momentum Hybrid System
+
+핵심 철학: "가장 신선한 사과(상승 EPS)를 가장 합리적인 가격(낮은 Forward PER)에 산다"
 
 기능:
-1. Track 1: 실시간 스크리닝 → 매수 후보 선정
-2. Track 2: 전 종목 데이터 축적 → 백테스팅용
+1. Track 1: 실시간 스크리닝 → 3-Layer Filtering + Hybrid Ranking
+2. Track 2: 전 종목 데이터 축적 → 백테스팅용 (fwd_per, roe, peg_calculated 포함)
 3. 일일 리포트 생성 (HTML + Markdown)
 4. Git 자동 commit/push (선택)
-5. 텔레그램 알림 (선택)
+5. 텔레그램 알림 (User Briefing + Admin Log 분리)
+
+v6.0 주요 변경:
+- Forward PER, ROE 지표 추가
+- 3-Layer Filtering: Momentum → Quality (ROE > 10%) → Safety (PER < 60)
+- Hybrid Ranking: Score = (Momentum * 0.7) + ((100/PER) * 0.3)
+- 텔레그램 User/Admin 분리 메시지
 
 실행: python daily_runner.py
 """
@@ -183,30 +190,35 @@ def check_market_regime():
 
 def run_screening(config, market_regime=None):
     """
-    Track 1: 실시간 스크리닝 v5.4
+    Track 1: 실시간 스크리닝 v6.0 - Value-Momentum Hybrid System
 
-    === 필터 구조 ===
+    === 3-Layer Filtering ===
 
-    0. Market Regime Check (v5.4):
+    0. Market Regime Check:
        🔴 RED: 스크리닝 즉시 중단 (SPY < MA50 OR VIX >= 30)
        🟡 YELLOW: 필터 강화 (Score 6.0, PEG 1.5)
        🟢 GREEN: 기본 필터 (Score 4.0, PEG 2.0)
 
-    1. Fundamental Filters (필수 조건):
-       - Score >= 4.0 (가중치 3-2-1 + 정배열 보너스)
+    Layer 1 [Momentum]: EPS Trend Alignment
        - Kill Switch: EPS(Current) < EPS(7d) * 0.99 시 탈락
-       - Dollar Volume >= $20M
-       - Price > MA200 (장기 상승 추세)
-       - 실적발표 기간 (D-5 ~ D+1) 제외
+       - Score >= min_score (가중치 3-2-1 + 정배열 보너스)
+       - EPS 정배열: Current > 7d > 30d
 
-    2. Quality & Value Filter (OR 조건):
-       A. Quality Growth: Rev Growth >= 5% AND Op Growth >= Rev Growth
-       B. Reasonable Value: PEG < 2.0
-       C. Technical Rescue: 재무 데이터 없으면 Price > MA60
+    Layer 2 [Quality]: ROE > 0.10 (10%)
+       - 저품질 성장 필터링
+       - 예외: ROE 데이터 없으면 통과 (Technical Rescue)
+
+    Layer 3 [Safety]: Forward PER < 60.0
+       - 버블 종목 제외
+       - 예외: 매우 높은 모멘텀 점수(>=8)시 PER 80까지 허용
+
+    === Hybrid Ranking ===
+    Score = (Momentum * 0.7) + ((100 / Forward PER) * 0.3)
+    목표: 빠르게 성장하면서도 저렴한 종목 상위 랭크
     """
     import pandas as pd
 
-    log("Track 1: 실시간 스크리닝 v5.4 시작")
+    log("Track 1: 실시간 스크리닝 v6.0 (Value-Momentum Hybrid) 시작")
 
     # === 시장 국면에 따른 동적 필터링 ===
     regime = market_regime.get('regime', 'GREEN') if market_regime else 'GREEN'
@@ -243,7 +255,8 @@ def run_screening(config, market_regime=None):
         from eps_momentum_system import (
             INDICES, SECTOR_MAP,
             calculate_momentum_score_v3, calculate_slope_score,
-            check_technical_filter, get_peg_ratio
+            check_technical_filter, get_peg_ratio,
+            calculate_forward_per, get_roe, calculate_peg_from_growth, calculate_hybrid_score
         )
 
         today = datetime.now().strftime('%Y-%m-%d')
@@ -276,7 +289,12 @@ def run_screening(config, market_regime=None):
             'technical_rescue': 0,
             'market_regime': market_regime,
             'min_score_used': min_score,
-            'max_peg_used': max_peg
+            'max_peg_used': max_peg,
+            # v6.0 추가 통계
+            'low_roe': 0,           # Layer 2: ROE < 10% 탈락
+            'high_per': 0,          # Layer 3: PER > 60 탈락
+            'avg_fwd_per': 0,       # 통과 종목 평균 Forward PER
+            'avg_roe': 0,           # 통과 종목 평균 ROE
         }
 
         for ticker, idx_name in all_tickers.items():
@@ -353,6 +371,34 @@ def run_screening(config, market_regime=None):
                 except:
                     pass
 
+                # === v6.0: Value-Momentum 지표 계산 ===
+                fwd_per = calculate_forward_per(price, current)
+                roe = get_roe(info)
+                peg_calculated = calculate_peg_from_growth(fwd_per, eps_chg) if eps_chg else None
+
+                # === LAYER 2 [Quality]: ROE > 10% ===
+                # 예외: ROE 데이터 없으면 통과 (Technical Rescue 대상)
+                roe_threshold = 0.10  # 10%
+                if roe is not None and roe < roe_threshold:
+                    stats['low_roe'] += 1
+                    continue
+
+                # === LAYER 3 [Safety]: Forward PER < 60 ===
+                # 예외: 매우 높은 모멘텀(score >= 8)이면 PER 80까지 허용
+                per_threshold = 60.0
+                per_exception_threshold = 80.0
+                if fwd_per is not None:
+                    if score_321 >= 8.0:
+                        # 높은 모멘텀 예외: PER 80까지 허용
+                        if fwd_per > per_exception_threshold:
+                            stats['high_per'] += 1
+                            continue
+                    else:
+                        # 일반: PER 60 제한
+                        if fwd_per > per_threshold:
+                            stats['high_per'] += 1
+                            continue
+
                 # === 펀더멘털 데이터 수집 ===
                 peg = info.get('pegRatio')
 
@@ -428,6 +474,9 @@ def run_screening(config, market_regime=None):
                 # Action 결정 (52주 고점 대비 위치 포함)
                 action = get_action_label(price, ma_20, ma_200, rsi, from_52w_high)
 
+                # v6.0: Hybrid Score 계산
+                hybrid_score = calculate_hybrid_score(score_321, fwd_per)
+
                 candidates.append({
                     'ticker': ticker,
                     'index': idx_name,
@@ -456,6 +505,11 @@ def run_screening(config, market_regime=None):
                     'op_growth': round(op_growth, 1) if op_growth else None,
                     'from_52w_high': round(from_52w_high, 1) if from_52w_high else None,
                     'action': action,
+                    # v6.0 신규 필드
+                    'fwd_per': round(fwd_per, 1) if fwd_per else None,
+                    'roe': round(roe * 100, 1) if roe else None,  # % 단위로 저장
+                    'peg_calculated': round(peg_calculated, 2) if peg_calculated else None,
+                    'hybrid_score': round(hybrid_score, 2) if hybrid_score else None,
                 })
                 stats['passed'] += 1
 
@@ -466,10 +520,21 @@ def run_screening(config, market_regime=None):
         # 결과 저장
         df = pd.DataFrame(candidates)
         if not df.empty:
-            df = df.sort_values('score_321', ascending=False)
+            # v6.0: Hybrid Score로 정렬 (높은 순)
+            df = df.sort_values('hybrid_score', ascending=False)
+
+            # v6.0 통계 계산
+            if 'fwd_per' in df.columns:
+                valid_per = df['fwd_per'].dropna()
+                stats['avg_fwd_per'] = round(valid_per.mean(), 1) if len(valid_per) > 0 else 0
+            if 'roe' in df.columns:
+                valid_roe = df['roe'].dropna()
+                stats['avg_roe'] = round(valid_roe.mean(), 1) if len(valid_roe) > 0 else 0
+
             csv_path = DATA_DIR / f'screening_{today}.csv'
             df.to_csv(csv_path, index=False)
             log(f"Track 1 완료: {len(df)}개 종목 -> {csv_path}")
+            log(f"  평균 Forward PER: {stats['avg_fwd_per']}, 평균 ROE: {stats['avg_roe']}%")
         else:
             log("Track 1: 조건 충족 종목 없음", "WARN")
 
@@ -593,7 +658,8 @@ def run_data_collection(config):
 
         from eps_momentum_system import (
             INDICES, SECTOR_MAP,
-            calculate_momentum_score_v2, calculate_slope_score
+            calculate_momentum_score_v2, calculate_slope_score,
+            calculate_forward_per, get_roe, calculate_peg_from_growth, calculate_hybrid_score
         )
 
         today = datetime.now().strftime('%Y-%m-%d')
@@ -602,7 +668,7 @@ def run_data_collection(config):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # 테이블 생성 (없으면) - v4: 추가 필드 포함
+        # 테이블 생성 (없으면) - v6: Value-Momentum Hybrid 필드 추가
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS eps_snapshots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -635,12 +701,16 @@ def run_data_collection(config):
                 rsi REAL,
                 rev_growth_yoy REAL,
                 op_growth_yoy REAL,
+                fwd_per REAL,
+                roe REAL,
+                peg_calculated REAL,
+                hybrid_score REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(date, ticker, period)
             )
         ''')
 
-        # 새 컬럼 추가 (기존 테이블에)
+        # 새 컬럼 추가 (기존 테이블에) - v6 포함
         new_columns = [
             ('is_aligned', 'INTEGER DEFAULT 0'),
             ('is_undervalued', 'INTEGER DEFAULT 0'),
@@ -651,6 +721,11 @@ def run_data_collection(config):
             ('rsi', 'REAL'),
             ('rev_growth_yoy', 'REAL'),
             ('op_growth_yoy', 'REAL'),
+            # v6.0 신규 컬럼
+            ('fwd_per', 'REAL'),
+            ('roe', 'REAL'),
+            ('peg_calculated', 'REAL'),
+            ('hybrid_score', 'REAL'),
         ]
         for col_name, col_type in new_columns:
             try:
@@ -736,21 +811,27 @@ def run_data_collection(config):
                 if len(hist) >= 15:
                     rsi = calculate_rsi(hist['Close'])
 
-                # DB 저장 (확장된 필드)
+                # v6.0: Value-Momentum 지표 계산
+                fwd_per = calculate_forward_per(price, eps_current)
+                roe = get_roe(info)
+                peg_calculated = calculate_peg_from_growth(fwd_per, eps_chg_60d) if eps_chg_60d else None
+                hybrid_score = calculate_hybrid_score(score_321, fwd_per)
+
+                # DB 저장 (v6 확장 필드 포함)
                 cursor.execute('''
                     INSERT OR REPLACE INTO eps_snapshots
                     (date, ticker, index_name, period, eps_current, eps_7d, eps_30d, eps_60d, eps_90d,
                      price, volume, dollar_volume, market_cap, sector, ma_20, above_ma20,
                      score_321, score_slope, eps_chg_60d, passed_screen,
                      is_aligned, is_undervalued, is_growth, peg, forward_pe, from_52w_high, rsi,
-                     rev_growth_yoy, op_growth_yoy)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     rev_growth_yoy, op_growth_yoy, fwd_per, roe, peg_calculated, hybrid_score)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (today, ticker, idx_name, '+1y',
                       eps_current, eps_7d, eps_30d, eps_60d, eps_90d,
                       price, avg_volume, dollar_volume, market_cap, sector,
                       ma_20, above_ma20, score_321, score_slope, eps_chg_60d, passed_screen,
                       is_aligned, is_undervalued, is_growth, peg, forward_pe, from_52w_high, rsi,
-                      rev_growth_yoy, op_growth_yoy))
+                      rev_growth_yoy, op_growth_yoy, fwd_per, roe, peg_calculated, hybrid_score))
 
                 collected += 1
 
@@ -845,7 +926,8 @@ def generate_report(screening_df, stats, config):
     top_20 = screening_df.head(20) if not screening_df.empty else pd.DataFrame()
 
     # ========== Markdown 리포트 ==========
-    md_content = f"""# EPS Momentum Daily Report
+    md_content = f"""# EPS Momentum v6.0 Daily Report
+## Value-Momentum Hybrid System
 **Date:** {today_time}
 
 ## Summary
@@ -856,8 +938,15 @@ def generate_report(screening_df, stats, config):
 | Kill Switch | {stats.get('killed', 0)} |
 | No EPS Data | {stats.get('no_eps', 0)} |
 | Low Volume | {stats.get('low_volume', 0)} |
-| Below MA20 | {stats.get('below_ma', 0)} |
+| Low ROE (<10%) | {stats.get('low_roe', 0)} |
+| High PER (>60) | {stats.get('high_per', 0)} |
 | Earnings Blackout | {stats.get('earnings_blackout', 0)} |
+
+## v6.0 Value Metrics
+| Metric | Value |
+|--------|-------|
+| Avg Forward PER | {stats.get('avg_fwd_per', 'N/A')} |
+| Avg ROE | {stats.get('avg_roe', 'N/A')}% |
 
 ## Portfolio Changes (vs Yesterday)
 | Type | Count | Tickers |
@@ -882,12 +971,17 @@ def generate_report(screening_df, stats, config):
         md_content += f"| {idx} | {count} |\n"
 
     md_content += f"""
-## Top 20 Candidates
-| # | Ticker | Index | Score_321 | Score_Slope | EPS% | Price |
-|---|--------|-------|-----------|-------------|------|-------|
+## Top 20 Candidates (Sorted by Hybrid Score)
+| # | Ticker | Index | Hybrid | Momentum | Fwd PER | ROE% | EPS% | Price |
+|---|--------|-------|--------|----------|---------|------|------|-------|
 """
     for i, (_, row) in enumerate(top_20.iterrows()):
-        md_content += f"| {i+1} | {row['ticker']} | {row['index']} | {row['score_321']:.1f} | {row.get('score_slope', 0):.4f} | {row['eps_chg_60d']:+.1f}% | ${row['price']:.2f} |\n"
+        hybrid = row.get('hybrid_score', 0) or 0
+        fwd_per = row.get('fwd_per', '-')
+        roe = row.get('roe', '-')
+        fwd_per_str = f"{fwd_per:.0f}" if isinstance(fwd_per, (int, float)) and fwd_per else "-"
+        roe_str = f"{roe:.0f}" if isinstance(roe, (int, float)) and roe else "-"
+        md_content += f"| {i+1} | {row['ticker']} | {row['index']} | {hybrid:.1f} | {row['score_321']:.1f} | {fwd_per_str} | {roe_str} | {row['eps_chg_60d']:+.1f}% | ${row['price']:.2f} |\n"
 
     # Markdown 저장
     md_path = REPORTS_DIR / f'report_{today}.md'
@@ -899,7 +993,7 @@ def generate_report(screening_df, stats, config):
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>EPS Momentum Report - {today}</title>
+    <title>EPS Momentum v6.0 Report - {today}</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; background: #f5f5f5; }}
         .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
@@ -919,7 +1013,8 @@ def generate_report(screening_df, stats, config):
 </head>
 <body>
     <div class="container">
-        <h1>EPS Momentum Daily Report</h1>
+        <h1>EPS Momentum v6.0 Daily Report</h1>
+        <p><strong>Value-Momentum Hybrid System</strong></p>
         <p><strong>Generated:</strong> {today_time}</p>
 
         <h2>Summary</h2>
@@ -969,32 +1064,39 @@ def generate_report(screening_df, stats, config):
             </div>
         </div>
 
-        <h2>Top 20 Candidates</h2>
+        <h2>Top 20 Candidates (by Hybrid Score)</h2>
         <table>
             <tr>
                 <th>#</th>
                 <th>Ticker</th>
                 <th>Index</th>
-                <th>Score_321</th>
-                <th>Score_Slope</th>
-                <th>EPS Change</th>
+                <th>Hybrid</th>
+                <th>Momentum</th>
+                <th>Fwd PER</th>
+                <th>ROE%</th>
+                <th>EPS%</th>
                 <th>Price</th>
-                <th>Volume ($M)</th>
             </tr>
 """
 
     for i, (_, row) in enumerate(top_20.iterrows()):
         eps_class = 'positive' if row['eps_chg_60d'] > 0 else 'negative'
+        hybrid = row.get('hybrid_score', 0) or 0
+        fwd_per = row.get('fwd_per')
+        roe = row.get('roe')
+        fwd_per_str = f"{fwd_per:.0f}" if fwd_per else "-"
+        roe_str = f"{roe:.0f}" if roe else "-"
         html_content += f"""
             <tr>
                 <td>{i+1}</td>
                 <td><strong>{row['ticker']}</strong></td>
                 <td>{row['index']}</td>
+                <td style="color: #007bff; font-weight: bold;">{hybrid:.1f}</td>
                 <td>{row['score_321']:.1f}</td>
-                <td>{row.get('score_slope', 0):.4f}</td>
+                <td>{fwd_per_str}</td>
+                <td>{roe_str}</td>
                 <td class="{eps_class}">{row['eps_chg_60d']:+.1f}%</td>
                 <td>${row['price']:.2f}</td>
-                <td>{row['dollar_vol_M']:.1f}M</td>
             </tr>
 """
 
@@ -1432,19 +1534,133 @@ def format_dollar_volume(dollar_vol_m):
         return f"${dollar_vol_m:.0f}M"
 
 
+def generate_korean_rationale(row):
+    """
+    v6.0: 동적 한국어 추천 문구 생성
+
+    종목의 특성에 따라 맞춤형 추천 이유를 생성합니다.
+    예: "EPS 전망치가 상승 중이며 PER 12배로 저평가 상태입니다."
+    """
+    parts = []
+
+    # EPS 모멘텀 관련
+    is_aligned = row.get('is_aligned', False)
+    eps_chg = row.get('eps_chg_60d', 0)
+
+    if is_aligned:
+        parts.append("EPS 전망치 완전 정배열")
+    elif eps_chg and eps_chg > 10:
+        parts.append(f"EPS 전망 +{eps_chg:.0f}% 상향")
+    elif eps_chg and eps_chg > 0:
+        parts.append("EPS 전망 상향 추세")
+
+    # Forward PER 관련
+    fwd_per = row.get('fwd_per')
+    if fwd_per:
+        if fwd_per < 15:
+            parts.append(f"PER {fwd_per:.0f}배 저평가")
+        elif fwd_per < 25:
+            parts.append(f"PER {fwd_per:.0f}배 적정")
+        elif fwd_per < 40:
+            parts.append(f"PER {fwd_per:.0f}배 성장주")
+
+    # ROE 관련
+    roe = row.get('roe')
+    if roe:
+        if roe > 30:
+            parts.append(f"ROE {roe:.0f}% 고수익")
+        elif roe > 20:
+            parts.append(f"ROE {roe:.0f}% 우량")
+
+    # Quality/Value 관련
+    if row.get('is_quality_growth'):
+        parts.append("매출+영업익 동반 성장")
+    elif row.get('is_reasonable_value'):
+        peg = row.get('peg')
+        if peg:
+            parts.append(f"PEG {peg:.1f}로 합리적")
+
+    # 52주 고점 대비
+    from_high = row.get('from_52w_high')
+    if from_high:
+        if -15 <= from_high <= -5:
+            parts.append("적절한 조정 후 반등 가능")
+        elif from_high < -20:
+            parts.append("큰 조정 후 저점 매수 기회")
+
+    # 문장 조합
+    if len(parts) >= 2:
+        return f"{parts[0]}, {parts[1]}"
+    elif len(parts) == 1:
+        return parts[0]
+    else:
+        return "모멘텀 상승 중"
+
+
+def create_telegram_message_admin(stats, collected, errors, execution_time):
+    """
+    텔레그램 Admin 메시지 (Track 2) - 시스템 로그용
+
+    Content:
+    - DB 저장 상태 (Success/Fail)
+    - 총 처리 티커 수
+    - 실행 시간
+    - v6 필터 통계
+    """
+    today = datetime.now().strftime('%m/%d %H:%M')
+
+    msg = f"🔧 <b>[{today}] EPS v6.0 Admin Log</b>\n"
+    msg += f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    # DB 저장 상태
+    status = "✅ SUCCESS" if collected > 0 else "❌ FAILED"
+    msg += f"📊 <b>Track 2 (Data Collection)</b>\n"
+    msg += f"Status: {status}\n"
+    msg += f"• 수집: {collected}개 종목\n"
+    msg += f"• 오류: {errors}개\n"
+    msg += f"• 실행시간: {execution_time:.1f}초\n\n"
+
+    # Track 1 필터 통계
+    msg += f"📈 <b>Track 1 (Screening) 통계</b>\n"
+    msg += f"• 총 스캔: {stats.get('total', 0)}개\n"
+    msg += f"• EPS 없음: {stats.get('no_eps', 0)}개\n"
+    msg += f"• Kill Switch: {stats.get('killed', 0)}개\n"
+    msg += f"• 점수부족: {stats.get('low_score', 0)}개\n"
+    msg += f"• 거래량부족: {stats.get('low_volume', 0)}개\n"
+    msg += f"• MA200↓: {stats.get('below_ma200', 0)}개\n"
+
+    # v6 신규 통계
+    msg += f"\n🆕 <b>v6.0 필터 통계</b>\n"
+    msg += f"• ROE &lt; 10%: {stats.get('low_roe', 0)}개\n"
+    msg += f"• PER &gt; 60: {stats.get('high_per', 0)}개\n"
+    msg += f"• 평균 Forward PER: {stats.get('avg_fwd_per', 0)}\n"
+    msg += f"• 평균 ROE: {stats.get('avg_roe', 0)}%\n"
+
+    # DB 상태
+    db_size = 0
+    if DB_PATH.exists():
+        db_size = DB_PATH.stat().st_size / (1024 * 1024)
+    msg += f"\n💾 DB Size: {db_size:.1f}MB\n"
+
+    msg += f"\n━━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"<i>🤖 EPS Momentum v6.0 Admin</i>"
+
+    return msg
+
+
 def create_telegram_message(screening_df, stats, changes=None, config=None):
     """
-    텔레그램 메시지 생성 함수 v5 - 전략 설명 + 상세 카드형 포맷
+    텔레그램 User 메시지 (Track 1) v6.0 - Value-Momentum Hybrid Briefing
 
-    [전략 설명 섹션]
-    - 사용한 전략, 데이터 소스, 필터 기준 상세 설명
-    - 왜 이 종목들이 선정되었는지 근거 제시
+    [헤더]
+    - 날짜, 시장 국면 (Safe/Danger)
 
-    [종목 카드 섹션]
-    1번째 줄: 순위, 티커, 회사명, 현재가
-    2번째 줄: EPS 모멘텀 점수, PEG, 섹터
-    3번째 줄: 통과 사유 (Quality Growth / Reasonable Value / Technical Rescue)
-    4번째 줄: 액션 (한국어), RSI, 거래대금
+    [Top 3 Picks]
+    - Rank, Ticker, Price, Forward PER, Momentum Score, ROE
+    - 동적 한국어 추천 문구
+
+    [Honorable Mentions]
+    - 4~5위 간략 표시
     """
     import yfinance as yf
     import math
@@ -1535,47 +1751,70 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
     msg += f"📅 {today_full} | 총 {total_count}개 통과\n\n"
 
-    # 전략 설명 섹션
-    msg += "<b>📋 전략 개요</b>\n"
-    msg += "Forward EPS 컨센서스 상향 종목 중\n"
-    msg += "품질/가치 기준을 충족하는 종목 선별\n\n"
+    # v6.0 전략 설명 섹션
+    msg += "<b>📋 전략: Value-Momentum Hybrid v6.0</b>\n"
+    msg += "\"<i>신선한 사과를 합리적 가격에</i>\" 🍎💰\n\n"
 
-    msg += "<b>🔍 데이터 소스</b>\n"
-    msg += "• Yahoo Finance EPS Trend (+1Y Forward)\n"
-    msg += "• 분기 재무제표 (매출/영업이익)\n"
-    msg += f"• 유니버스: NASDAQ100 + S&P500 + S&P400\n\n"
+    msg += "<b>🔍 3-Layer Filtering</b>\n"
+    msg += "L1. Momentum: EPS 정배열 (C>7d>30d)\n"
+    msg += "L2. Quality: ROE > 10%\n"
+    msg += "L3. Safety: Forward PER < 60\n\n"
 
-    msg += "<b>⚙️ 필터 기준 (v5.4)</b>\n"
-    if regime == 'YELLOW':
-        msg += "🟡 <b>경계 모드 필터 적용중</b>\n"
-    msg += "1️⃣ <b>필수 조건</b>\n"
-    msg += f"   • EPS 모멘텀 점수 >= {min_score_used:.0f}\n"
-    msg += "   • Kill Switch: 7일내 1%↓ 시 제외\n"
-    msg += "   • 거래대금 >= $20M\n"
-    msg += "   • <b>Price > MA200</b> (장기상승추세)\n"
-    msg += "   • 실적발표 D-5~D+1 제외\n\n"
+    msg += "<b>📊 Hybrid Ranking</b>\n"
+    msg += "Score = Momentum×0.7 + Value×0.3\n"
+    msg += "→ 빠르게 성장 + 저렴한 종목 우선\n\n"
 
-    msg += "2️⃣ <b>품질/가치 조건</b> (하나 이상 충족)\n"
-    msg += "   A. Quality Growth: 매출↑5%+ & 영업익>=매출\n"
-    msg += f"   B. Reasonable Value: PEG &lt; {max_peg_used:.1f}\n"
-    msg += "   C. Technical Rescue: 데이터없으면 Price>MA60\n\n"
+    # v6 필터 통계
+    msg += "<b>📈 필터 결과</b>\n"
+    msg += f"• 스캔: {stats.get('total', 0)} → 통과: {total_count}개\n"
+    msg += f"• ROE &lt; 10%: {stats.get('low_roe', 0)}개 제외\n"
+    msg += f"• PER &gt; 60: {stats.get('high_per', 0)}개 제외\n"
+    if stats.get('avg_fwd_per'):
+        msg += f"• 평균 PER: {stats.get('avg_fwd_per')} | ROE: {stats.get('avg_roe', 0)}%\n"
 
-    # 필터 통계
-    msg += "<b>📊 필터별 현황</b>\n"
-    msg += f"• 총 스캔: {stats.get('total', 0)}개\n"
-    msg += f"• EPS 없음: {stats.get('no_eps', 0)}개\n"
-    msg += f"• Kill Switch: {stats.get('killed', 0)}개\n"
-    msg += f"• 점수부족: {stats.get('low_score', 0)}개\n"
-    msg += f"• 거래량부족: {stats.get('low_volume', 0)}개\n"
-    msg += f"• MA200↓: {stats.get('below_ma200', 0)}개\n"
-    msg += f"• 품질/가치 미충족: {stats.get('no_quality_value', 0)}개\n"
-    msg += f"• <b>최종 통과: {total_count}개</b>\n"
+    msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
 
-    # 통과 사유별 분류
-    msg += "\n<b>✅ 통과 사유 분류</b>\n"
-    msg += f"• Quality Growth: {stats.get('quality_growth', 0)}개\n"
-    msg += f"• Reasonable Value: {stats.get('reasonable_value', 0)}개\n"
-    msg += f"• Technical Rescue: {stats.get('technical_rescue', 0)}개\n"
+    # ========================================
+    # 🥇🥈🥉 Top 3 Picks (핵심 추천)
+    # ========================================
+    if total_count > 0:
+        msg += "\n<b>🏆 TOP 3 PICKS</b>\n"
+        msg += "─" * 20 + "\n"
+
+        medal = ['🥇', '🥈', '🥉']
+        for idx, (_, row) in enumerate(screening_df.head(3).iterrows()):
+            ticker = row['ticker']
+            price = row.get('price', 0)
+            fwd_per = row.get('fwd_per')
+            roe = row.get('roe')
+            hybrid = row.get('hybrid_score', 0)
+            score = row.get('score_321', 0)
+            is_aligned = row.get('is_aligned', False)
+            sector = row.get('sector', 'Other')
+            action = row.get('action', '')
+
+            sector_kr = sector_map.get(sector, sector[:4])
+            per_str = f"PER {fwd_per:.0f}" if fwd_per else "PER -"
+            roe_str = f"ROE {roe:.0f}%" if roe else "ROE -"
+            align_mark = "⬆" if is_aligned else ""
+
+            msg += f"\n{medal[idx]} <b>{ticker}</b> ${price:.0f}\n"
+            msg += f"   Hybrid: {hybrid:.1f} | 모멘텀: {score:.0f}{align_mark}\n"
+            msg += f"   {per_str} | {roe_str} | {sector_kr}\n"
+
+            # 동적 한국어 추천 문구 생성
+            rationale = generate_korean_rationale(row)
+            msg += f"   💡 <i>{rationale}</i>\n"
+
+        # Honorable Mentions (4-5위)
+        if total_count > 3:
+            msg += "\n<b>📋 Honorable Mentions</b>\n"
+            for idx, (_, row) in enumerate(screening_df.iloc[3:5].iterrows(), 4):
+                ticker = row['ticker']
+                hybrid = row.get('hybrid_score', 0)
+                fwd_per = row.get('fwd_per')
+                per_str = f"PER{fwd_per:.0f}" if fwd_per else ""
+                msg += f"#{idx} {ticker} (H:{hybrid:.1f} {per_str})\n"
 
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
     # ========================================
@@ -1701,7 +1940,8 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
 
     # 푸터
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "<i>🤖 EPS Momentum Strategy v5.4</i>\n"
+    msg += "<i>🤖 EPS Momentum v6.0</i>\n"
+    msg += "<i>Value-Momentum Hybrid System</i>\n"
     if regime == 'YELLOW':
         msg += "<i>🟡 Caution Mode Active</i>\n"
     else:
@@ -1774,7 +2014,7 @@ def send_telegram_long(message, config):
 def main():
     """메인 실행"""
     log("=" * 60)
-    log("EPS Momentum Daily Runner v5.3 시작")
+    log("EPS Momentum Daily Runner v6.0 - Value-Momentum Hybrid")
     log("=" * 60)
 
     start_time = datetime.now()
@@ -1783,7 +2023,7 @@ def main():
     config = load_config()
     log(f"설정 로드 완료: {CONFIG_PATH}")
 
-    # 시장 국면 체크 (v5.3)
+    # 시장 국면 체크
     market_regime = check_market_regime()
 
     # Track 1: 스크리닝 (시장 국면 전달)
@@ -1802,13 +2042,23 @@ def main():
     # Git commit/push
     git_commit_push(config)
 
-    # 텔레그램 알림
-    if config.get('telegram_enabled', False) and not screening_df.empty:
-        msg = format_telegram_message(screening_df, stats, changes, config)
-        send_telegram_long(msg, config)
+    # 실행 시간 계산
+    elapsed = (datetime.now() - start_time).total_seconds()
+
+    # 텔레그램 알림 (User + Admin 분리)
+    if config.get('telegram_enabled', False):
+        # Track 1: User Briefing (종목 추천)
+        if not screening_df.empty or stats.get('skipped', False):
+            msg_user = format_telegram_message(screening_df, stats, changes, config)
+            send_telegram_long(msg_user, config)
+            log("텔레그램 User 메시지 전송 완료")
+
+        # Track 2: Admin Log (시스템 상태)
+        msg_admin = create_telegram_message_admin(stats, collected, errors, elapsed)
+        send_telegram_long(msg_admin, config)
+        log("텔레그램 Admin 메시지 전송 완료")
 
     # 완료
-    elapsed = (datetime.now() - start_time).total_seconds()
     log(f"전체 완료: {elapsed:.1f}초 소요")
     log("=" * 60)
 

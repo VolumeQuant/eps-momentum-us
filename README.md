@@ -1,11 +1,14 @@
-# EPS Revision Momentum Strategy v5.4 (US Stocks)
+# EPS Revision Momentum Strategy v6.0 (US Stocks)
 
-미국 주식 대상 EPS 리비전 모멘텀 전략 시스템
+미국 주식 대상 **Value-Momentum Hybrid** 전략 시스템
+
+> 🍎💰 **핵심 철학**: "가장 신선한 사과(상승 EPS)를 가장 합리적인 가격(낮은 Forward PER)에 산다"
 
 ## 버전 히스토리
 
 | 버전 | 날짜 | 주요 변경 |
 |------|------|----------|
+| **v6.0** | 2026-02-02 | **Value-Momentum Hybrid System**: 3-Layer Filtering + Hybrid Ranking |
 | v5.4 | 2026-02-02 | 시장 국면 3단계 진단 (RED/YELLOW/GREEN) + VIX 추가 |
 | v5.3 | 2026-02-02 | 시장 국면(Market Regime) 필터 추가 - SPY MA200 기반 |
 | v5.2 | 2026-02-01 | 텔레그램 메시지 액션별 그룹화, 메시지 길이 63% 감소 |
@@ -18,7 +21,99 @@
 
 ---
 
-## 전략 개요
+## v6.0 Value-Momentum Hybrid System
+
+### 핵심 개념
+
+기존 EPS 모멘텀 전략에 **밸류에이션(Forward PER)** 및 **품질(ROE)** 필터를 추가하여 "성장 + 가치" 복합 전략으로 업그레이드.
+
+### 3-Layer Filtering
+
+```
+Layer 1 [Momentum]: EPS Trend Alignment
+├── Kill Switch: 7일 대비 -1% 이상 하락시 탈락
+├── Score >= 4.0 (YELLOW 시장: >= 6.0)
+└── EPS 정배열: Current > 7d > 30d
+
+Layer 2 [Quality]: ROE > 10%
+├── 저품질 성장 필터링
+└── 예외: ROE 데이터 없으면 통과 (Technical Rescue 대상)
+
+Layer 3 [Safety]: Forward PER < 60
+├── 버블 종목 제외
+└── 예외: 고모멘텀(Score >= 8) 시 PER 80까지 허용
+```
+
+### Hybrid Ranking
+
+```python
+Hybrid Score = (Momentum × 0.7) + ((100 / Forward PER) × 0.3)
+```
+
+**목표**: 빠르게 성장하면서도 저렴한 종목 상위 랭크
+
+**예시**:
+| 종목 | Momentum | PER | Value점수 | Hybrid Score |
+|------|----------|-----|-----------|--------------|
+| A | 10 | 20 | 5.0 | 10×0.7 + 5.0×0.3 = **8.5** |
+| B | 10 | 40 | 2.5 | 10×0.7 + 2.5×0.3 = **7.75** |
+| C | 8 | 15 | 6.7 | 8×0.7 + 6.7×0.3 = **7.6** |
+
+→ 같은 모멘텀이라면 PER 낮은 종목이 상위 랭크
+
+### 신규 지표
+
+| 지표 | 계산식 | 용도 |
+|------|--------|------|
+| Forward PER | 현재가 / Forward EPS | 밸류에이션 |
+| ROE | `ticker.info['returnOnEquity']` | 품질 필터 |
+| PEG (계산) | Forward PER / EPS 성장률(%) | 성장 대비 가치 |
+| Hybrid Score | Momentum×0.7 + (100/PER)×0.3 | 최종 랭킹 |
+
+### 텔레그램 메시지 분리
+
+**User Briefing (Track 1)**:
+```
+🏆 TOP 3 PICKS
+─────────────────────
+🥇 AVGO $331
+   Hybrid: 8.5 | 모멘텀: 11.7⬆
+   PER 23 | ROE 52% | 반도체
+   💡 EPS 전망치 완전 정배열, PER 23배 적정
+
+🥈 NEM $112
+   Hybrid: 8.2 | 모멘텀: 11.7⬆
+   PER 13 | ROE 18% | 소재
+   💡 EPS 전망 +14% 상향, PER 13배 저평가
+```
+
+**Admin Log (Track 2)**:
+```
+🔧 [02/02] EPS v6.0 Admin Log
+━━━━━━━━━━━━━━━━━━━━━━
+📊 Track 2 (Data Collection)
+Status: ✅ SUCCESS
+• 수집: 845개 종목
+• 실행시간: 423.5초
+
+📈 Track 1 (Screening) 통계
+• 총 스캔: 917개
+• ROE < 10%: 127개
+• PER > 60: 45개
+```
+
+### DB 스키마 (v6 신규 필드)
+
+```sql
+fwd_per REAL,        -- Forward PER
+roe REAL,            -- ROE (0~1 범위)
+peg_calculated REAL, -- 직접 계산된 PEG
+hybrid_score REAL,   -- 하이브리드 점수
+```
+
+---
+
+## 전략 개요 (v5.4 이전)
 
 **핵심 아이디어**: 애널리스트들의 Forward EPS 컨센서스 상향 조정 + 기술적/펀더멘털 복합 필터
 
@@ -274,6 +369,34 @@ schtasks /create /tn "EPS_Momentum_Daily" /tr "C:\...\run_daily.bat" /sc daily /
 
 ## 필터 변경 이력
 
+### v6.0 변경 (2026-02-02)
+
+**Value-Momentum Hybrid System:**
+
+v5.x에서 모멘텀 위주 필터 → v6.0에서 밸류에이션+품질 필터 추가
+
+**새 기능:**
+1. **3-Layer Filtering**
+   - Layer 1: Momentum (기존 유지)
+   - Layer 2: Quality - ROE > 10%
+   - Layer 3: Safety - Forward PER < 60
+
+2. **Hybrid Ranking**
+   - `Score = Momentum×0.7 + (100/PER)×0.3`
+   - 성장 + 저평가 종목 상위 랭크
+
+3. **신규 지표**
+   - Forward PER, ROE, PEG (계산), Hybrid Score
+   - DB 스키마 자동 마이그레이션
+
+4. **텔레그램 분리**
+   - User Briefing: Top 3 Picks + 한국어 추천 문구
+   - Admin Log: 시스템 상태 + v6 필터 통계
+
+**변경 파일:**
+- `eps_momentum_system.py`: DB 스키마 + 신규 함수 4개
+- `daily_runner.py`: 3-Layer 필터 + Hybrid Ranking + 텔레그램 분리
+
 ### v5.4 변경 (2026-02-02)
 
 **시장 국면 3단계 진단 시스템:**
@@ -427,7 +550,9 @@ pip install yfinance pandas numpy
 
 ## 향후 과제
 
-1. **Point-in-Time 백테스트**: 6개월 데이터 축적 후 검증
-2. **Score_321 vs Score_Slope**: A/B 테스트 결과 분석
-3. **포지션 사이징**: 점수 기반 비중 배분
-4. **실시간 알림**: 장중 Kill Switch 발동 시 알림
+1. **v6 백테스팅**: Hybrid Score 기반 성과 분석
+2. **가중치 최적화**: Momentum/Value 비율 튜닝 (현재 0.7/0.3)
+3. **ROE/PER 임계값**: 시장 상황별 동적 조정
+4. **Point-in-Time 백테스트**: 6개월 데이터 축적 후 검증
+5. **포지션 사이징**: Hybrid Score 기반 비중 배분
+6. **실시간 알림**: 장중 Kill Switch 발동 시 알림
