@@ -614,24 +614,62 @@ def calculate_peg_from_growth(forward_per, eps_growth_rate):
     return round(peg, 2)
 
 
-def calculate_hybrid_score(momentum_score, forward_per, weight_momentum=0.7, weight_value=0.3):
+def calculate_price_position_score(price, high_52w):
     """
-    하이브리드 점수 계산 (v6.0)
+    52주 고점 대비 가격 위치 점수 계산 (v6.1)
 
-    Core Philosophy: "가장 신선한 사과를 가장 합리적인 가격에 산다"
+    가격위치 점수 = 100 - (현재가/52주고점 * 100)
 
-    공식: Hybrid Score = (Momentum * 0.7) + (Value * 0.3)
+    예시:
+    - 고점 $100, 현재 $95 → 위치 95% → 점수 5점 (비쌈)
+    - 고점 $100, 현재 $80 → 위치 80% → 점수 20점 (적당)
+    - 고점 $100, 현재 $70 → 위치 70% → 점수 30점 (쌈)
 
-    Value Component = 100 / Forward PER
-    - PER 10배 → Value 10점
-    - PER 20배 → Value 5점
-    - PER 50배 → Value 2점
+    Args:
+        price: 현재 가격
+        high_52w: 52주 고점
+
+    Returns:
+        float: 가격위치 점수 (0~100, 높을수록 싸다)
+    """
+    if price is None or high_52w is None or high_52w <= 0:
+        return None
+
+    position_pct = (price / high_52w) * 100  # 고점 대비 %
+    score = 100 - position_pct  # 낮을수록(싸면) 점수 높음
+
+    # 점수 범위 제한 (0~50)
+    score = max(0, min(50, score))
+
+    return round(score, 2)
+
+
+def calculate_hybrid_score(momentum_score, forward_per, price_position_score=None,
+                           weight_momentum=0.5, weight_value=0.2, weight_position=0.3):
+    """
+    하이브리드 점수 계산 (v6.1 - Option A)
+
+    Core Philosophy: "좋은 사과(A등급)를 싸게 사는 것이 최고 사과(S등급)를 비싸게 사는 것보다 낫다"
+
+    === v6.1 공식 (Option A) ===
+    Hybrid Score = (Momentum × 0.5) + (Value × 0.2) + (Position × 0.3)
+
+    Components:
+    1. Momentum (50%): 기존 모멘텀 점수 (EPS 상향 추세)
+    2. Value (20%): 100 / Forward PER (저PER 선호)
+    3. Position (30%): 100 - 고점대비% (고점에서 멀수록 높은 점수)
+
+    예시 비교:
+    - S등급 비싼 사과: Momentum 32 + Value 10 + Position 1 = 17.4점
+    - A등급 싼 사과: Momentum 25 + Value 5 + Position 25 = 20.0점 ← 승
 
     Args:
         momentum_score: 기존 모멘텀 점수 (score_321)
         forward_per: Forward PER
-        weight_momentum: 모멘텀 가중치 (기본 0.7)
-        weight_value: 가치 가중치 (기본 0.3)
+        price_position_score: 가격 위치 점수 (calculate_price_position_score 결과)
+        weight_momentum: 모멘텀 가중치 (기본 0.5)
+        weight_value: 가치 가중치 (기본 0.2)
+        weight_position: 가격위치 가중치 (기본 0.3)
 
     Returns:
         float: Hybrid Score
@@ -639,12 +677,21 @@ def calculate_hybrid_score(momentum_score, forward_per, weight_momentum=0.7, wei
     if momentum_score is None:
         return None
 
-    # Value component (PER 역수 기반)
+    # 1. Momentum component (50%)
+    momentum_component = momentum_score * weight_momentum
+
+    # 2. Value component (20%) - PER 역수 기반
     value_score = 0
     if forward_per is not None and forward_per > 0:
         value_score = 100 / forward_per
+    value_component = value_score * weight_value
 
-    hybrid = (momentum_score * weight_momentum) + (value_score * weight_value)
+    # 3. Position component (30%) - 고점 대비 위치
+    position_component = 0
+    if price_position_score is not None:
+        position_component = price_position_score * weight_position
+
+    hybrid = momentum_component + value_component + position_component
     return round(hybrid, 2)
 
 

@@ -1,16 +1,23 @@
 """
-EPS Momentum Daily Runner v6.0 - Value-Momentum Hybrid System
+EPS Momentum Daily Runner v6.1 - Value-Momentum Hybrid System (Option A)
 
-핵심 철학: "가장 신선한 사과(상승 EPS)를 가장 합리적인 가격(낮은 Forward PER)에 산다"
+핵심 철학: "좋은 사과(A등급)를 싸게 사는 것이 최고 사과(S등급)를 비싸게 사는 것보다 낫다"
 
 기능:
-1. Track 1: 실시간 스크리닝 → 3-Layer Filtering + Hybrid Ranking
-2. Track 2: 전 종목 데이터 축적 → 백테스팅용 (fwd_per, roe, peg_calculated 포함)
+1. Track 1: 실시간 스크리닝 → 3-Layer Filtering + Hybrid Ranking (Option A)
+2. Track 2: 전 종목 데이터 축적 → 백테스팅용 (fwd_per, roe, peg_calculated, price_position 포함)
 3. 일일 리포트 생성 (HTML + Markdown)
 4. Git 자동 commit/push (선택)
 5. 텔레그램 알림 (User Briefing + Admin Log 분리)
 
-v6.0 주요 변경:
+v6.1 주요 변경 (Option A):
+- 가격위치 점수 추가: 52주 고점 대비 현재 위치
+- Hybrid Ranking 개선: Score = (Momentum × 0.5) + ((100/PER) × 0.2) + (가격위치 × 0.3)
+  - Momentum: 50% (기존 70% → 50%)
+  - Value: 20% (기존 30% → 20%)
+  - Position: 30% (신규) - 고점에서 멀수록 높은 점수
+
+v6.0 (이전):
 - Forward PER, ROE 지표 추가
 - 3-Layer Filtering: Momentum → Quality (ROE > 10%) → Safety (PER < 60)
 - Hybrid Ranking: Score = (Momentum * 0.7) + ((100/PER) * 0.3)
@@ -190,7 +197,7 @@ def check_market_regime():
 
 def run_screening(config, market_regime=None):
     """
-    Track 1: 실시간 스크리닝 v6.0 - Value-Momentum Hybrid System
+    Track 1: 실시간 스크리닝 v6.1 - Value-Momentum Hybrid System (Option A)
 
     === 3-Layer Filtering ===
 
@@ -212,13 +219,18 @@ def run_screening(config, market_regime=None):
        - 버블 종목 제외
        - 예외: 매우 높은 모멘텀 점수(>=8)시 PER 80까지 허용
 
-    === Hybrid Ranking ===
-    Score = (Momentum * 0.7) + ((100 / Forward PER) * 0.3)
-    목표: 빠르게 성장하면서도 저렴한 종목 상위 랭크
+    === Hybrid Ranking (Option A) ===
+    Score = (Momentum × 0.5) + ((100 / PER) × 0.2) + (가격위치 × 0.3)
+
+    가격위치 = 100 - (현재가/52주고점 × 100)
+    - 고점 근처: 낮은 점수 (비쌈)
+    - 고점에서 멀리: 높은 점수 (쌈)
+
+    목표: "좋은 사과를 싸게" - A등급 싼 종목 > S등급 비싼 종목
     """
     import pandas as pd
 
-    log("Track 1: 실시간 스크리닝 v6.0 (Value-Momentum Hybrid) 시작")
+    log("Track 1: 실시간 스크리닝 v6.1 (Option A - 가격위치 반영) 시작")
 
     # === 시장 국면에 따른 동적 필터링 ===
     regime = market_regime.get('regime', 'GREEN') if market_regime else 'GREEN'
@@ -256,7 +268,8 @@ def run_screening(config, market_regime=None):
             INDICES, SECTOR_MAP,
             calculate_momentum_score_v3, calculate_slope_score,
             check_technical_filter, get_peg_ratio,
-            calculate_forward_per, get_roe, calculate_peg_from_growth, calculate_hybrid_score
+            calculate_forward_per, get_roe, calculate_peg_from_growth,
+            calculate_hybrid_score, calculate_price_position_score
         )
 
         today = datetime.now().strftime('%Y-%m-%d')
@@ -474,8 +487,17 @@ def run_screening(config, market_regime=None):
                 # Action 결정 (52주 고점 대비 위치 포함)
                 action = get_action_label(price, ma_20, ma_200, rsi, from_52w_high)
 
-                # v6.0: Hybrid Score 계산
-                hybrid_score = calculate_hybrid_score(score_321, fwd_per)
+                # v6.1: Hybrid Score 계산 (Option A - 가격위치 포함)
+                # 52주 고점 계산
+                high_52w = None
+                if len(hist_1y) > 50:
+                    high_52w = hist_1y['High'].max()
+
+                # 가격위치 점수 계산
+                price_position_score = calculate_price_position_score(price, high_52w)
+
+                # Hybrid Score = Momentum×0.5 + Value×0.2 + Position×0.3
+                hybrid_score = calculate_hybrid_score(score_321, fwd_per, price_position_score)
 
                 candidates.append({
                     'ticker': ticker,
@@ -510,6 +532,9 @@ def run_screening(config, market_regime=None):
                     'roe': round(roe * 100, 1) if roe else None,  # % 단위로 저장
                     'peg_calculated': round(peg_calculated, 2) if peg_calculated else None,
                     'hybrid_score': round(hybrid_score, 2) if hybrid_score else None,
+                    # v6.1 신규 필드 (Option A)
+                    'price_position_score': round(price_position_score, 1) if price_position_score else None,
+                    'high_52w': round(high_52w, 2) if high_52w else None,
                 })
                 stats['passed'] += 1
 
@@ -659,7 +684,8 @@ def run_data_collection(config):
         from eps_momentum_system import (
             INDICES, SECTOR_MAP,
             calculate_momentum_score_v2, calculate_slope_score,
-            calculate_forward_per, get_roe, calculate_peg_from_growth, calculate_hybrid_score
+            calculate_forward_per, get_roe, calculate_peg_from_growth,
+            calculate_hybrid_score, calculate_price_position_score
         )
 
         today = datetime.now().strftime('%Y-%m-%d')
@@ -811,11 +837,18 @@ def run_data_collection(config):
                 if len(hist) >= 15:
                     rsi = calculate_rsi(hist['Close'])
 
-                # v6.0: Value-Momentum 지표 계산
+                # v6.1: Value-Momentum 지표 계산 (Option A - 가격위치 포함)
                 fwd_per = calculate_forward_per(price, eps_current)
                 roe = get_roe(info)
                 peg_calculated = calculate_peg_from_growth(fwd_per, eps_chg_60d) if eps_chg_60d else None
-                hybrid_score = calculate_hybrid_score(score_321, fwd_per)
+
+                # 52주 고점에서 가격위치 점수 계산
+                hist_1y = stock.history(period='1y')
+                high_52w = hist_1y['High'].max() if len(hist_1y) > 50 else None
+                price_position_score = calculate_price_position_score(price, high_52w)
+
+                # Hybrid Score = Momentum×0.5 + Value×0.2 + Position×0.3
+                hybrid_score = calculate_hybrid_score(score_321, fwd_per, price_position_score)
 
                 # DB 저장 (v6 확장 필드 포함)
                 cursor.execute('''
@@ -926,9 +959,10 @@ def generate_report(screening_df, stats, config):
     top_20 = screening_df.head(20) if not screening_df.empty else pd.DataFrame()
 
     # ========== Markdown 리포트 ==========
-    md_content = f"""# EPS Momentum v6.0 Daily Report
-## Value-Momentum Hybrid System
+    md_content = f"""# EPS Momentum v6.1 Daily Report
+## Value-Momentum Hybrid System (Option A)
 **Date:** {today_time}
+**Formula:** Hybrid = Momentum×0.5 + Value×0.2 + Position×0.3
 
 ## Summary
 | Metric | Value |
@@ -993,7 +1027,7 @@ def generate_report(screening_df, stats, config):
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>EPS Momentum v6.0 Report - {today}</title>
+    <title>EPS Momentum v6.1 Report - {today}</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; background: #f5f5f5; }}
         .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
@@ -1013,8 +1047,9 @@ def generate_report(screening_df, stats, config):
 </head>
 <body>
     <div class="container">
-        <h1>EPS Momentum v6.0 Daily Report</h1>
-        <p><strong>Value-Momentum Hybrid System</strong></p>
+        <h1>EPS Momentum v6.1 Daily Report</h1>
+        <p><strong>Value-Momentum Hybrid System (Option A)</strong></p>
+        <p><strong>Formula:</strong> Hybrid = Momentum×0.5 + Value×0.2 + Position×0.3</p>
         <p><strong>Generated:</strong> {today_time}</p>
 
         <h2>Summary</h2>
@@ -1609,7 +1644,7 @@ def create_telegram_message_admin(stats, collected, errors, execution_time):
     """
     today = datetime.now().strftime('%m/%d %H:%M')
 
-    msg = f"🔧 <b>[{today}] EPS v6.0 Admin Log</b>\n"
+    msg = f"🔧 <b>[{today}] EPS v6.1 Admin Log</b>\n"
     msg += f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
     # DB 저장 상태
@@ -1751,18 +1786,19 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
     msg += f"📅 {today_full} | 총 {total_count}개 통과\n\n"
 
-    # v6.0 전략 설명 섹션
-    msg += "<b>📋 전략: Value-Momentum Hybrid v6.0</b>\n"
-    msg += "\"<i>신선한 사과를 합리적 가격에</i>\" 🍎💰\n\n"
+    # v6.1 전략 설명 섹션 (Option A)
+    msg += "<b>📋 전략: Value-Momentum Hybrid v6.1</b>\n"
+    msg += "\"<i>좋은 사과를 싸게 사자</i>\" 🍎💰\n\n"
 
     msg += "<b>🔍 3-Layer Filtering</b>\n"
     msg += "L1. Momentum: EPS 정배열\n"
     msg += "L2. Quality: ROE 10%+\n"
     msg += "L3. Safety: Forward PER 60 이하\n\n"
 
-    msg += "<b>📊 Hybrid Ranking</b>\n"
-    msg += "Score = Momentum×0.7 + Value×0.3\n"
-    msg += "빠른 성장 + 저평가 종목 우선\n\n"
+    msg += "<b>📊 Hybrid Ranking (Option A)</b>\n"
+    msg += "Score = M×0.5 + V×0.2 + P×0.3\n"
+    msg += "M=모멘텀, V=100/PER, P=고점거리\n"
+    msg += "💡 S급 비싸게 &lt; A급 싸게\n\n"
 
     # v6 필터 통계
     msg += "<b>📈 필터 결과</b>\n"
@@ -1940,8 +1976,8 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
 
     # 푸터
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "<i>🤖 EPS Momentum v6.0</i>\n"
-    msg += "<i>Value-Momentum Hybrid System</i>\n"
+    msg += "<i>🤖 EPS Momentum v6.1 (Option A)</i>\n"
+    msg += "<i>좋은 사과를 싸게 사자</i>\n"
     if regime == 'YELLOW':
         msg += "<i>🟡 Caution Mode Active</i>\n"
     else:
@@ -2014,7 +2050,7 @@ def send_telegram_long(message, config):
 def main():
     """메인 실행"""
     log("=" * 60)
-    log("EPS Momentum Daily Runner v6.0 - Value-Momentum Hybrid")
+    log("EPS Momentum Daily Runner v6.1 - Option A (가격위치 반영)")
     log("=" * 60)
 
     start_time = datetime.now()
