@@ -1,31 +1,28 @@
 """
-EPS Momentum Daily Runner v6.2 - Value-Momentum Hybrid System (Action Multiplier)
+EPS Momentum Daily Runner v6.3 - Quality & Value Scorecard System
 
-핵심 철학: "좋은 사과 + 지금 살 타이밍 = 실전 매수 점수"
+핵심 철학: "맛있는 사과를 좋은 값에" (Quality + Value)
 
 기능:
-1. Track 1: 실시간 스크리닝 → 3-Layer Filtering + Actionable Ranking
+1. Track 1: 실시간 스크리닝 → 3-Layer Filtering + Q/V Scorecard
 2. Track 2: 전 종목 데이터 축적 → 백테스팅용
 3. 일일 리포트 생성 (HTML + Markdown)
 4. Git 자동 commit/push (선택)
 5. 텔레그램 알림 (User Briefing + Admin Log 분리)
 
-v6.2 주요 변경 (Action Multiplier):
-- 실전 매수 점수: Actionable Score = Hybrid Score × Action Multiplier
-- Action Multiplier:
-  - 적극매수/저점매수: ×1.0 (보너스)
-  - 매수적기: ×0.9
-  - 관망: ×0.7 (페널티)
-  - 진입금지: ×0.3 (강한 페널티)
-- 결과: RSI 과열 종목(MU 등) 자동 순위 하락
+v6.3 주요 변경 (Quality & Value Scorecard):
+- Quality Score (맛, 100점): EPS정배열 + ROE + EPS성장률 + MA200위 + 거래량스파이크
+- Value Score (값, 100점): PEG + Forward PER + 52주고점대비 + RSI눌림목
+- Actionable Score = (Quality × 0.5 + Value × 0.5) × Action Multiplier
+- 거래량 스파이크 감지: 20일 평균 × 1.5 초과 시 신호
+- 실적 D-Day 표시
+- Fake Bottom 경고: RSI 낮지만 MA200 하회
+
+v6.2 (이전):
+- Action Multiplier로 RSI 과열 종목 페널티
 
 v6.1 (이전):
 - 가격위치 점수: 52주 고점 대비 위치
-- Hybrid Ranking: M×0.5 + V×0.2 + P×0.3
-
-v6.0 (이전):
-- Forward PER, ROE 지표 추가
-- 3-Layer Filtering: Momentum → Quality → Safety
 
 실행: python daily_runner.py
 """
@@ -234,7 +231,7 @@ def run_screening(config, market_regime=None):
     """
     import pandas as pd
 
-    log("Track 1: 실시간 스크리닝 v6.2 (Action Multiplier) 시작")
+    log("Track 1: 실시간 스크리닝 v6.3 (Quality & Value Scorecard) 시작")
 
     # === 시장 국면에 따른 동적 필터링 ===
     regime = market_regime.get('regime', 'GREEN') if market_regime else 'GREEN'
@@ -274,7 +271,8 @@ def run_screening(config, market_regime=None):
             check_technical_filter, get_peg_ratio,
             calculate_forward_per, get_roe, calculate_peg_from_growth,
             calculate_hybrid_score, calculate_price_position_score,
-            get_action_multiplier, calculate_actionable_score
+            get_action_multiplier, calculate_actionable_score,
+            calculate_quality_score, calculate_value_score
         )
 
         today = datetime.now().strftime('%Y-%m-%d')
@@ -489,8 +487,29 @@ def run_screening(config, market_regime=None):
                     rsi_series = 100 - (100 / (1 + rs))
                     rsi = rsi_series.iloc[-1] if not pd.isna(rsi_series.iloc[-1]) else None
 
-                # Action 결정 (52주 고점 대비 위치 포함)
-                action = get_action_label(price, ma_20, ma_200, rsi, from_52w_high)
+                # v6.3: 거래량 스파이크 감지 (최근 3일 중 20일 평균 × 1.5 초과)
+                volume_spike = False
+                if len(hist_1m) >= 20:
+                    vol_avg_20 = hist_1m['Volume'].tail(20).mean()
+                    vol_recent_3 = hist_1m['Volume'].tail(3)
+                    if any(vol_recent_3 > vol_avg_20 * 1.5):
+                        volume_spike = True
+
+                # v6.3: 실적 발표 D-Day 계산
+                earnings_dday = None
+                try:
+                    calendar = stock.calendar
+                    if calendar is not None and 'Earnings Date' in calendar:
+                        earnings_date = calendar['Earnings Date']
+                        if isinstance(earnings_date, (list, tuple)):
+                            earnings_date = earnings_date[0]
+                        if earnings_date:
+                            earnings_dday = (earnings_date.date() - datetime.now().date()).days
+                except:
+                    pass
+
+                # Action 결정 (52주 고점 대비 위치 + 거래량 스파이크 포함)
+                action = get_action_label(price, ma_20, ma_200, rsi, from_52w_high, volume_spike)
 
                 # v6.1: Hybrid Score 계산 (Option A - 가격위치 포함)
                 # 52주 고점 계산
@@ -503,6 +522,28 @@ def run_screening(config, market_regime=None):
 
                 # Hybrid Score = Momentum×0.5 + Value×0.2 + Position×0.3
                 hybrid_score = calculate_hybrid_score(score_321, fwd_per, price_position_score)
+
+                # v6.3: Quality Score (맛) 계산
+                above_ma200 = ma_200 is not None and price > ma_200
+                roe_pct = roe * 100 if roe else 0
+                quality_score, quality_grade = calculate_quality_score(
+                    is_aligned, roe_pct, eps_chg, above_ma200, volume_spike
+                )
+
+                # v6.3: Value Score (값) 계산
+                value_score, value_label = calculate_value_score(
+                    peg_calculated, fwd_per, from_52w_high, rsi
+                )
+
+                # v6.3: Actionable Score = (Q×0.5 + V×0.5) × Action Multiplier
+                action_multiplier = get_action_multiplier(action)
+                combined_score = (quality_score * 0.5 + value_score * 0.5)
+                actionable_score_v63 = round(combined_score * action_multiplier, 2)
+
+                # v6.3: Fake Bottom 감지 (RSI 낮지만 MA200 아래)
+                fake_bottom = False
+                if rsi is not None and rsi < 40 and ma_200 is not None and price < ma_200:
+                    fake_bottom = True
 
                 candidates.append({
                     'ticker': ticker,
@@ -541,8 +582,17 @@ def run_screening(config, market_regime=None):
                     'price_position_score': round(price_position_score, 1) if price_position_score else None,
                     'high_52w': round(high_52w, 2) if high_52w else None,
                     # v6.2 신규 필드 (Action Multiplier)
-                    'action_multiplier': get_action_multiplier(action),
+                    'action_multiplier': action_multiplier,
                     'actionable_score': calculate_actionable_score(hybrid_score, action),
+                    # v6.3 신규 필드 (Quality & Value Scorecard)
+                    'quality_score': quality_score,
+                    'quality_grade': quality_grade,
+                    'value_score': value_score,
+                    'value_label': value_label,
+                    'actionable_score_v63': actionable_score_v63,
+                    'volume_spike': volume_spike,
+                    'earnings_dday': earnings_dday,
+                    'fake_bottom': fake_bottom,
                 })
                 stats['passed'] += 1
 
@@ -553,8 +603,8 @@ def run_screening(config, market_regime=None):
         # 결과 저장
         df = pd.DataFrame(candidates)
         if not df.empty:
-            # v6.2: Actionable Score로 정렬 (실전 매수 적합도 순)
-            df = df.sort_values('actionable_score', ascending=False)
+            # v6.3: Actionable Score v6.3으로 정렬 (Quality + Value + Action Multiplier)
+            df = df.sort_values('actionable_score_v63', ascending=False)
 
             # v6.0 통계 계산
             if 'fwd_per' in df.columns:
@@ -580,44 +630,32 @@ def run_screening(config, market_regime=None):
         return pd.DataFrame(), {}
 
 
-def get_action_label(price, ma_20, ma_200, rsi, from_52w_high=None):
+def get_action_label(price, ma_20, ma_200, rsi, from_52w_high=None, volume_spike=False):
     """
-    실전 매매용 액션 레이블 v2
+    실전 매매용 액션 레이블 v3 - RSI Momentum Strategy 추가
 
     핵심 원칙:
-    - 52주 고점 근처는 상승여력 제한 → 진입 금지
-    - 진짜 눌림목 = 고점 대비 충분히 조정 + 추세 유지
-    - RSI만으로 판단하지 않고 가격 위치 종합 고려
+    - RSI 70 이상을 무조건 진입금지로 처리하지 않음
+    - 신고가 돌파 + 거래량 동반 = Super Momentum (강력 매수)
+    - RSI 85 이상만 진짜 과열
 
-    === 액션 정의 ===
+    === v3 변경사항: RSI Momentum Strategy ===
 
-    1. 진입금지: 지금 사면 물릴 확률 높음
-       - RSI >= 70 (과열)
-       - 52주 고점 -5% 이내 (천장 근처)
-       - MA20 대비 +8% 이상 (단기 과열)
+    Super Momentum 조건 (RSI 70-84):
+    - 신고가 근처 (52주 고점 -5% 이내)
+    - 거래량 스파이크 (20일 평균 1.5배 이상)
+    - → 진입금지 대신 "🚀강력매수 (돌파)" 등급 부여
 
-    2. 적극매수 (눌림목): 좋은 진입 기회
-       - 52주 고점 -10% ~ -25% (의미있는 조정)
-       - RSI 35-55 (과매도~중립)
-       - Price > MA200 (장기 추세 유지)
-       - Price <= MA20*1.03 (MA20 근처 또는 아래)
+    Extreme Overbought (진짜 위험):
+    - RSI >= 85 → "과열/진입금지"
 
-    3. 저점매수 (반등): 공포에 매수
-       - RSI < 35 (과매도)
-       - 52주 고점 -20% 이상 (큰 조정)
-       - Price > MA200 (장기 추세 유지)
+    === 기존 액션 정의 ===
 
-    4. 매수적기 (추세): 정상적인 상승 추세
-       - Price > MA20 > MA200 (정배열)
-       - RSI 40-65 (건강한 범위)
-       - 52주 고점 -5% ~ -15% (상승 여력 있음)
-
+    1. 추세이탈: Price < MA200 (장기 하락 추세)
+    2. 적극매수 (눌림목): 고점 -10~25% + RSI 35-55 + MA20 근처
+    3. 저점매수 (반등): RSI < 35 + 고점 -20% 이상
+    4. 매수적기 (추세): 정배열 + RSI 40-65
     5. 관망: 진입 애매
-       - 위 조건 불충족
-       - 또는 RSI 65-70 (과열 경계)
-
-    6. 추세이탈: 매수 금지
-       - Price < MA200 (장기 하락 추세)
     """
     # 기본값 처리
     if rsi is None:
@@ -633,24 +671,37 @@ def get_action_label(price, ma_20, ma_200, rsi, from_52w_high=None):
     if ma_200 and price < ma_200:
         return "추세이탈 (MA200↓)"
 
-    # === 2. 진입금지 조건 ===
-    # 2a. RSI 과열
-    if rsi >= 70:
-        return "진입금지 (RSI과열)"
+    # === 2. RSI 85 이상: 진짜 과열 (진입 금지) ===
+    if rsi >= 85:
+        return "진입금지 (극과열)"
 
-    # 2b. 52주 고점 근처 (-5% 이내)
-    if from_52w_high > -5:
-        return "진입금지 (고점근처)"
+    # === 3. RSI 70-84: Super Momentum 조건 체크 ===
+    if 70 <= rsi < 85:
+        # 신고가 근처 (-5% 이내) + 거래량 스파이크 = 강력 매수!
+        is_near_ath = from_52w_high > -5
+        if is_near_ath and volume_spike:
+            return "🚀강력매수 (돌파)"
+        # 신고가 근처이지만 거래량 미동반 = 관망
+        elif is_near_ath:
+            return "관망 (RSI🚀고점)"
+        # 신고가 아니면 기존 로직 (과열 경계)
+        else:
+            return "관망 (RSI🚀)"
 
-    # 2c. MA20 대비 +8% 이상 급등
+    # === 4. MA20 대비 +8% 이상 급등 (단기 과열) ===
     if ma20_pct >= 8:
         return "진입금지 (단기급등)"
 
-    # === 3. 저점매수 (과매도 반등) ===
+    # === 5. 52주 고점 근처 (-5% 이내) - RSI 70 미만일 때 ===
+    # (RSI 70 이상은 위에서 이미 처리됨)
+    if from_52w_high > -5 and rsi >= 65:
+        return "관망 (고점경계)"
+
+    # === 6. 저점매수 (과매도 반등) ===
     if rsi <= 35 and from_52w_high <= -20:
         return "저점매수 (과매도)"
 
-    # === 4. 적극매수 (진짜 눌림목) ===
+    # === 7. 적극매수 (진짜 눌림목) ===
     # 조건: 고점대비 조정폭 + RSI 중립 이하 + MA20 근처/아래
     is_meaningful_correction = -25 <= from_52w_high <= -10
     is_rsi_neutral = 35 <= rsi <= 55
@@ -659,7 +710,7 @@ def get_action_label(price, ma_20, ma_200, rsi, from_52w_high=None):
     if is_meaningful_correction and is_rsi_neutral and is_near_ma20:
         return "적극매수 (눌림목)"
 
-    # === 5. 매수적기 (건강한 추세) ===
+    # === 8. 매수적기 (건강한 추세) ===
     # 조건: 정배열 + RSI 건강 + 상승 여력 있음
     is_aligned = ma_20 and ma_200 and price > ma_20 > ma_200
     is_rsi_healthy = 40 <= rsi <= 65
@@ -668,7 +719,7 @@ def get_action_label(price, ma_20, ma_200, rsi, from_52w_high=None):
     if is_aligned and is_rsi_healthy and has_upside:
         return "매수적기 (추세)"
 
-    # === 6. 관망 (진입 애매) ===
+    # === 9. 관망 (진입 애매) ===
     # RSI 65-70 경계 구간
     if 65 <= rsi < 70:
         return "관망 (과열경계)"
@@ -1579,11 +1630,30 @@ def format_dollar_volume(dollar_vol_m):
 
 def generate_korean_rationale(row):
     """
-    v6.0: 동적 한국어 추천 문구 생성
+    v6.3: 동적 한국어 추천 문구 생성
 
     종목의 특성에 따라 맞춤형 추천 이유를 생성합니다.
-    예: "EPS 전망치가 상승 중이며 PER 12배로 저평가 상태입니다."
+    v6.3: RSI 모멘텀 (돌파 매수) 해설 추가
     """
+    action = row.get('action', '')
+    rsi = row.get('rsi')
+    from_high = row.get('from_52w_high')
+    volume_spike = row.get('volume_spike', False)
+
+    # === RSI 모멘텀 (돌파 매수) 특별 해설 ===
+    if '🚀강력매수' in action:
+        # 신고가 돌파 + 거래량 동반 = Super Momentum
+        if volume_spike:
+            return "신고가 돌파 + 거래량 폭발! 지금이 제일 쌉니다 (⚠️손절 -5% 필수)"
+        else:
+            return "신고가 돌파! 강한 매수세 지속 (⚠️손절 -5% 필수)"
+
+    # RSI 70 이상이지만 관망인 경우
+    if 'RSI🚀' in action:
+        if rsi and rsi >= 70:
+            return f"RSI {rsi:.0f} 과열이지만 상승세 강함, 거래량 확인 필요"
+
+    # === 일반 해설 로직 ===
     parts = []
 
     # EPS 모멘텀 관련
@@ -1623,13 +1693,19 @@ def generate_korean_rationale(row):
         if peg:
             parts.append(f"PEG {peg:.1f}로 합리적")
 
-    # 52주 고점 대비
-    from_high = row.get('from_52w_high')
+    # 52주 고점 대비 (RSI 모멘텀이 아닌 경우)
     if from_high:
         if -15 <= from_high <= -5:
             parts.append("적절한 조정 후 반등 가능")
         elif from_high < -20:
             parts.append("큰 조정 후 저점 매수 기회")
+        elif from_high > -3:
+            parts.append("신고가 근처, 추세 강함")
+
+    # 저점 매수 관련
+    if '저점매수' in action:
+        if rsi and rsi <= 35:
+            return f"RSI {rsi:.0f} 과매도! 반등 기대"
 
     # 문장 조합
     if len(parts) >= 2:
@@ -1648,11 +1724,11 @@ def create_telegram_message_admin(stats, collected, errors, execution_time):
     - DB 저장 상태 (Success/Fail)
     - 총 처리 티커 수
     - 실행 시간
-    - v6 필터 통계
+    - v6.3 필터 통계
     """
     today = datetime.now().strftime('%m/%d %H:%M')
 
-    msg = f"🔧 <b>[{today}] EPS v6.1 Admin Log</b>\n"
+    msg = f"🔧 <b>[{today}] EPS v6.3 Admin Log</b>\n"
     msg += f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
     # DB 저장 상태
@@ -1693,17 +1769,18 @@ def create_telegram_message_admin(stats, collected, errors, execution_time):
 
 def create_telegram_message(screening_df, stats, changes=None, config=None):
     """
-    텔레그램 User 메시지 (Track 1) v6.0 - Value-Momentum Hybrid Briefing
+    텔레그램 User 메시지 (Track 1) v6.3 - Quality & Value Scorecard Briefing
 
     [헤더]
     - 날짜, 시장 국면 (Safe/Danger)
 
-    [Top 3 Picks]
-    - Rank, Ticker, Price, Forward PER, Momentum Score, ROE
-    - 동적 한국어 추천 문구
+    [Top 3 Scorecard]
+    - Quality Score (맛) + Value Score (값) 분리 표시
+    - 실전 점수 = (Q×0.5 + V×0.5) × Action Multiplier
 
-    [Honorable Mentions]
-    - 4~5위 간략 표시
+    [Warnings]
+    - 섹터 집중 경고
+    - Fake Bottom 경고
     """
     import yfinance as yf
     import math
@@ -1724,7 +1801,7 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     }
 
     # ========================================
-    # 시장 국면 (Market Regime) 체크 v5.4
+    # 시장 국면 (Market Regime) 체크
     # ========================================
     market_regime = stats.get('market_regime', {})
     regime = market_regime.get('regime', 'GREEN') if market_regime else 'GREEN'
@@ -1733,15 +1810,13 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     spy_ma20 = market_regime.get('spy_ma20') if market_regime else None
     spy_ma50 = market_regime.get('spy_ma50') if market_regime else None
     vix = market_regime.get('vix') if market_regime else None
-    min_score_used = stats.get('min_score_used', 4.0)
-    max_peg_used = stats.get('max_peg_used', 2.0)
     skipped = stats.get('skipped', False)
 
     # ========================================
     # 🔴 RED: 경고 메시지만 전송
     # ========================================
     if regime == 'RED' or skipped:
-        msg = f"🚨 <b>[{today}] EPS 모멘텀 v5.4 - 시장 경고</b>\n"
+        msg = f"🚨 <b>[{today}] EPS 모멘텀 v6.3 - 시장 경고</b>\n"
         msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
         msg += f"🚦 <b>시장 상태: 🔴 RED (위험)</b>\n"
         msg += f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1767,7 +1842,7 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
         msg += f"• 현금 비중 확대\n\n"
 
         msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        msg += f"<i>🤖 EPS Momentum v5.4</i>\n"
+        msg += f"<i>🤖 EPS Momentum v6.3</i>\n"
         msg += f"<i>🔴 Market Regime: RED</i>\n"
 
         return msg
@@ -1778,176 +1853,171 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     regime_emoji = {'YELLOW': '🟡', 'GREEN': '🟢'}[regime]
     regime_text = {'YELLOW': 'YELLOW (경계)', 'GREEN': 'GREEN (상승장)'}[regime]
 
-    msg = f"🚀 <b>[{today}] EPS 모멘텀 v5.4 브리핑</b>\n"
+    msg = f"🍎 <b>[{today}] EPS 모멘텀 v6.3 브리핑</b>\n"
     msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"🚦 <b>시장 상태: {regime_emoji} {regime_text}</b>\n"
+    msg += f"🚦 <b>시장: {regime_emoji} {regime_text}</b>\n"
 
     if spy_price:
-        msg += f"📍 SPY ${spy_price:.0f} | MA20 ${spy_ma20:.0f} | MA50 ${spy_ma50:.0f}"
+        msg += f"📍 SPY ${spy_price:.0f}"
         if vix:
             msg += f" | VIX {vix:.1f}"
         msg += "\n"
 
-    if regime == 'YELLOW':
-        msg += f"⚠️ <b>경계 모드: 필터 강화 적용중</b>\n"
+    msg += f"📅 {today_full} | 총 {total_count}개 통과\n"
+    msg += f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"📅 {today_full} | 총 {total_count}개 통과\n\n"
+    # v6.3 전략 설명 섹션
+    msg += "<b>📋 v6.3 Quality + Value Scorecard</b>\n"
+    msg += "\"<i>맛있는 사과를 좋은 값에</i>\" 🍎💰\n\n"
 
-    # v6.2 전략 설명 섹션 (Action Multiplier)
-    msg += "<b>📋 전략: Value-Momentum Hybrid v6.2</b>\n"
-    msg += "\"<i>좋은 사과 + 지금 살 타이밍</i>\" 🍎⏰\n\n"
+    msg += "<b>🍎 맛(Quality) 100점</b>\n"
+    msg += "EPS정배열30 + ROE25 + 성장률20 + 추세15 + 수급10\n\n"
 
-    msg += "<b>🔍 3-Layer Filtering</b>\n"
-    msg += "L1. Momentum: EPS 정배열\n"
-    msg += "L2. Quality: ROE 10%+\n"
-    msg += "L3. Safety: Forward PER 60 이하\n\n"
+    msg += "<b>💰 값(Value) 100점</b>\n"
+    msg += "PEG35 + PER25 + 고점대비25 + RSI눌림15\n\n"
 
-    msg += "<b>📊 실전 매수 랭킹 (v6.2)</b>\n"
-    msg += "실전점수 = Hybrid × Action배수\n"
-    msg += "• 적극/저점매수: ×1.0\n"
-    msg += "• 관망: ×0.7 | 진입금지: ×0.3\n"
-    msg += "💡 RSI 과열 종목 자동 페널티\n\n"
-
-    # v6 필터 통계
-    msg += "<b>📈 필터 결과</b>\n"
-    msg += f"• 스캔: {stats.get('total', 0)} → 통과: {total_count}개\n"
-    msg += f"• ROE 10% 미만: {stats.get('low_roe', 0)}개 제외\n"
-    msg += f"• PER 60 초과: {stats.get('high_per', 0)}개 제외\n"
-    if stats.get('avg_fwd_per'):
-        msg += f"• 평균 PER: {stats.get('avg_fwd_per')} | ROE: {stats.get('avg_roe', 0)}%\n"
+    msg += "<b>📊 실전점수 공식</b>\n"
+    msg += "= (맛×0.5 + 값×0.5) × Action배수\n"
+    msg += "• 적극/저점: ×1.0 | 관망: ×0.7 | 금지: ×0.3\n"
 
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
 
     # ========================================
-    # 🥇🥈🥉 Top 3 Picks (핵심 추천)
+    # 🏆 TOP 3 SCORECARD (핵심 추천)
     # ========================================
     if total_count > 0:
-        msg += "\n<b>🏆 TOP 3 PICKS</b>\n"
-        msg += "─" * 20 + "\n"
+        msg += "\n<b>🏆 TOP 3 SCORECARD</b>\n"
 
         medal = ['🥇', '🥈', '🥉']
         for idx, (_, row) in enumerate(screening_df.head(3).iterrows()):
             ticker = row['ticker']
             price = row.get('price', 0)
-            fwd_per = row.get('fwd_per')
-            roe = row.get('roe')
-            hybrid = row.get('hybrid_score', 0)
-            actionable = row.get('actionable_score', 0)
-            score = row.get('score_321', 0)
-            is_aligned = row.get('is_aligned', False)
             sector = row.get('sector', 'Other')
             action = row.get('action', '')
             rsi = row.get('rsi')
+            from_52w_high = row.get('from_52w_high')
+
+            # v6.3 신규 필드
+            quality_score = row.get('quality_score', 0)
+            quality_grade = row.get('quality_grade', '-')
+            value_score = row.get('value_score', 0)
+            value_label = row.get('value_label', '-')
+            actionable_v63 = row.get('actionable_score_v63', 0)
+            volume_spike = row.get('volume_spike', False)
+            earnings_dday = row.get('earnings_dday')
 
             sector_kr = sector_map.get(sector, sector[:4])
-            per_str = f"PER {fwd_per:.0f}" if fwd_per else "PER -"
-            roe_str = f"ROE {roe:.0f}%" if roe else "ROE -"
-            rsi_str = f"RSI {rsi:.0f}" if rsi else "RSI -"
-            align_mark = "⬆" if is_aligned else ""
 
-            msg += f"\n{medal[idx]} <b>{ticker}</b> ${price:.0f}\n"
-            msg += f"   실전: {actionable:.1f} | Hybrid: {hybrid:.1f}\n"
-            msg += f"   {per_str} | {rsi_str} | {sector_kr}\n"
+            # 실적 D-Day 표시
+            dday_str = ""
+            if earnings_dday is not None:
+                if earnings_dday >= 0:
+                    dday_str = f" | 실적D-{earnings_dday}"
+                else:
+                    dday_str = f" | 실적D+{abs(earnings_dday)}"
 
-            # 동적 한국어 추천 문구 생성
+            # 거래량 스파이크 표시
+            spike_str = "📈" if volume_spike else ""
+
+            # RSI, 고점대비 표시 (RSI 70+ 시 🚀 추가)
+            if rsi and rsi >= 70:
+                rsi_str = f"🚀RSI{rsi:.0f}"
+            elif rsi:
+                rsi_str = f"RSI{rsi:.0f}"
+            else:
+                rsi_str = "RSI-"
+            high_str = f"고점{from_52w_high:.0f}%" if from_52w_high else ""
+
+            msg += f"\n{'─' * 22}\n"
+            msg += f"{medal[idx]} <b>{ticker}</b> ${price:.0f} {spike_str}\n"
+            msg += f"┌ 🍎 맛: <b>{quality_score}점</b> ({quality_grade})\n"
+            msg += f"├ 💰 값: <b>{value_score}점</b> ({value_label})\n"
+            msg += f"├ 📊 실전: <b>{actionable_v63:.1f}점</b>\n"
+            msg += f"└ {sector_kr} | {rsi_str} | {high_str}{dday_str}\n"
+
+            # Action 표시 + 동적 해설
+            action_short = action.split('(')[0].strip() if '(' in str(action) else str(action)
+            msg += f"   → <b>{action_short}</b>\n"
+
+            # 동적 한국어 해설
             rationale = generate_korean_rationale(row)
             msg += f"   💡 <i>{rationale}</i>\n"
 
         # Honorable Mentions (4-5위)
         if total_count > 3:
-            msg += "\n<b>📋 Honorable Mentions</b>\n"
+            msg += f"\n{'─' * 22}\n"
+            msg += "<b>📋 Honorable Mentions</b>\n"
             for idx, (_, row) in enumerate(screening_df.iloc[3:5].iterrows(), 4):
                 ticker = row['ticker']
-                actionable = row.get('actionable_score', 0)
+                quality_score = row.get('quality_score', 0)
+                value_score = row.get('value_score', 0)
+                actionable_v63 = row.get('actionable_score_v63', 0)
                 action = row.get('action', '')
                 action_short = action.split('(')[0].strip() if '(' in str(action) else str(action)[:6]
-                msg += f"#{idx} {ticker} (실전:{actionable:.1f} {action_short})\n"
+                msg += f"#{idx} {ticker} 맛{quality_score} 값{value_score} 실전{actionable_v63:.1f} {action_short}\n"
 
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    # ========================================
-    # 액션별 그룹화 (적극매수 우선)
-    # ========================================
-    action_priority = [
-        ('적극매수', '🚀', '지금 매수 적기'),
-        ('저점매수', '💎', '과매도 반등 기회'),
-        ('매수적기', '🟢', '건강한 상승 추세'),
-        ('관망', '👀', '진입 대기'),
-        ('진입금지', '🚫', '매수 금지'),
-        ('추세이탈', '⛔', '손절 검토'),
-    ]
-
-    aligned_count = 0
-    quality_growth_count = 0
-    reasonable_value_count = 0
-    technical_rescue_count = 0
-
-    # 통계 먼저 계산
-    for _, row in screening_df.iterrows():
-        if row.get('is_aligned', False):
-            aligned_count += 1
-        if row.get('is_quality_growth', False):
-            quality_growth_count += 1
-        if row.get('is_reasonable_value', False):
-            reasonable_value_count += 1
-        if row.get('is_technical_rescue', False):
-            technical_rescue_count += 1
-
-    # 액션별로 그룹화하여 출력
-    for action_key, action_icon, action_desc in action_priority:
-        # 해당 액션에 해당하는 종목 필터
-        action_stocks = screening_df[screening_df['action'].str.contains(action_key, na=False)]
-
-        if len(action_stocks) == 0:
-            continue
-
-        # 그룹 헤더
-        msg += f"\n{action_icon} <b>{action_key}</b> ({len(action_stocks)}개) - {action_desc}\n"
-        msg += "─" * 20 + "\n"
-
-        for idx, (_, row) in enumerate(action_stocks.iterrows(), 1):
-            ticker = row['ticker']
-            score = row.get('score_321', 0)
-            eps_chg = row.get('eps_chg_60d', 0)
-            peg = row.get('peg', None)
-            price = row.get('price', 0)
-            sector = row.get('sector', 'Other')
-            dollar_vol_m = row.get('dollar_vol_M', 0)
-            is_aligned = row.get('is_aligned', False)
-            rsi = row.get('rsi', None)
-            action = row.get('action', '')
-            from_52w_high = row.get('from_52w_high', None)
-
-            sector_kr = sector_map.get(sector, sector[:6] if len(sector) > 6 else sector)
-
-            # 포맷팅 (NaN 체크 포함)
-            peg_str = f"{peg:.1f}" if (peg and not math.isnan(peg)) else "-"
-            rsi_str = f"{rsi:.0f}" if (rsi and not math.isnan(rsi)) else "-"
-            high_str = f"{from_52w_high:.0f}%" if from_52w_high else "-"
-            eps_str = f"+{eps_chg:.0f}%" if eps_chg and eps_chg >= 0 else (f"{eps_chg:.0f}%" if eps_chg else "-")
-            align_mark = "⬆" if is_aligned else ""
-
-            # 간결한 2줄 포맷
-            msg += f"<b>{ticker}</b> ${price:.0f} | 점수{score:.0f}{align_mark} | RSI{rsi_str} | 고점{high_str}\n"
-
-            # 적극매수/저점매수/매수적기만 상세 사유 표시
-            if action_key in ['적극매수', '저점매수', '매수적기']:
-                # 액션 상세 사유 (괄호 안 내용)
-                if '(' in action and ')' in action:
-                    reason = action.split('(')[1].split(')')[0]
-                    msg += f"   └ {reason} | {sector_kr} | PEG {peg_str}\n"
 
     # ========================================
-    # 시장 테마 분석
+    # ⚠️ 경고 섹션
     # ========================================
-    sector_signals = analyze_sector_signal(screening_df)
-    if sector_signals:
+    warnings_section = []
+
+    # 1. 섹터 집중 경고 (특정 섹터가 50% 이상)
+    if not screening_df.empty:
+        sector_counts = screening_df['sector'].value_counts()
+        for sector, count in sector_counts.items():
+            pct = count / total_count * 100
+            if pct >= 50:
+                sector_kr = sector_map.get(sector, sector)
+                warnings_section.append(f"⚠️ 섹터집중: {sector_kr} {pct:.0f}% ({count}개)")
+
+    # 2. Fake Bottom 경고 (RSI 낮지만 MA200 아래)
+    fake_bottom_stocks = screening_df[screening_df.get('fake_bottom', False) == True] if 'fake_bottom' in screening_df.columns else []
+    if len(fake_bottom_stocks) > 0:
+        fake_tickers = fake_bottom_stocks['ticker'].tolist()[:5]
+        warnings_section.append(f"⚠️ Fake Bottom 주의: {', '.join(fake_tickers)}")
+        warnings_section.append("   (RSI 낮지만 MA200 아래 = 하락추세)")
+
+    # 3. 거래량 스파이크 종목 알림
+    spike_stocks = screening_df[screening_df.get('volume_spike', False) == True] if 'volume_spike' in screening_df.columns else []
+    if len(spike_stocks) > 0:
+        spike_tickers = spike_stocks['ticker'].tolist()[:5]
+        warnings_section.append(f"📈 거래량 스파이크: {', '.join(spike_tickers)}")
+
+    if warnings_section:
+        msg += "\n<b>⚠️ 경고 & 알림</b>\n"
+        for warning in warnings_section:
+            msg += f"{warning}\n"
         msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-        msg += "<b>📊 시장 테마 분석</b>\n"
-        for sig in sector_signals:
-            theme_type = "🎯Narrow" if sig['type'] == 'Narrow' else "📈Broad"
-            msg += f"• <b>{sig['sector']}</b> ({theme_type}): {sig['count']}종목\n"
-            msg += f"  └ ETF: {sig['etf_1x']} (1x) / {sig['etf_3x']} (3x)\n"
+
+    # ========================================
+    # 액션별 요약 (간략화)
+    # ========================================
+    action_counts = {}
+    # 🚀강력매수는 별도 처리 (이모지 포함)
+    super_momentum_count = len(screening_df[screening_df['action'].str.contains('🚀강력매수', na=False)])
+    if super_momentum_count > 0:
+        action_counts['🚀강력매수'] = super_momentum_count
+
+    for action_key in ['적극매수', '저점매수', '매수적기', '관망', '진입금지']:
+        # 🚀강력매수는 적극매수에 포함되지 않도록 제외
+        if action_key == '적극매수':
+            count = len(screening_df[
+                screening_df['action'].str.contains(action_key, na=False) &
+                ~screening_df['action'].str.contains('🚀강력매수', na=False)
+            ])
+        else:
+            count = len(screening_df[screening_df['action'].str.contains(action_key, na=False)])
+        if count > 0:
+            action_counts[action_key] = count
+
+    if action_counts:
+        msg += "\n<b>📊 액션별 분포</b>\n"
+        action_icons = {'🚀강력매수': '🔥', '적극매수': '🚀', '저점매수': '💎', '매수적기': '🟢', '관망': '👀', '진입금지': '🚫'}
+        for action_key, count in action_counts.items():
+            icon = action_icons.get(action_key, '•')
+            msg += f"{icon} {action_key}: {count}개\n"
 
     # ========================================
     # 포트폴리오 변경
@@ -1959,37 +2029,30 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
         msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
         msg += "<b>📋 전일 대비 변동</b>\n"
         if added_list:
-            msg += f"🆕 편입({len(added_list)}): {', '.join(added_list[:10])}"
-            if len(added_list) > 10:
-                msg += f" 외 {len(added_list)-10}개"
+            msg += f"🆕 편입({len(added_list)}): {', '.join(added_list[:8])}"
+            if len(added_list) > 8:
+                msg += f" +{len(added_list)-8}"
             msg += "\n"
         if removed_list:
-            msg += f"🚫 편출({len(removed_list)}): {', '.join(removed_list[:10])}"
-            if len(removed_list) > 10:
-                msg += f" 외 {len(removed_list)-10}개"
+            msg += f"🚫 편출({len(removed_list)}): {', '.join(removed_list[:8])}"
+            if len(removed_list) > 8:
+                msg += f" +{len(removed_list)-8}"
             msg += "\n"
 
     # ========================================
-    # 요약 통계
+    # 필터 통계 (간략)
     # ========================================
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "<b>✨ 품질 요약</b>\n"
-    if total_count > 0:
-        msg += f"• 📈 정배열: {aligned_count}개 ({aligned_count/total_count*100:.0f}%)\n"
-    msg += f"• 🌱 Quality Growth: {quality_growth_count}개\n"
-    msg += f"• 💎 Reasonable Value: {reasonable_value_count}개\n"
-    msg += f"• 🔧 Technical Rescue: {technical_rescue_count}개\n"
-
-    # DB 상태
-    db_size = 0
-    if DB_PATH.exists():
-        db_size = DB_PATH.stat().st_size / (1024 * 1024)
-    msg += f"\n💾 DB: {db_size:.1f}MB\n"
+    msg += "<b>📈 필터 결과</b>\n"
+    msg += f"• 스캔: {stats.get('total', 0)} → 통과: {total_count}개\n"
+    msg += f"• Kill: {stats.get('killed', 0)} | ROE필터: {stats.get('low_roe', 0)} | PER필터: {stats.get('high_per', 0)}\n"
+    if stats.get('avg_fwd_per'):
+        msg += f"• 평균 PER: {stats.get('avg_fwd_per')} | ROE: {stats.get('avg_roe', 0)}%\n"
 
     # 푸터
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "<i>🤖 EPS Momentum v6.2</i>\n"
-    msg += "<i>실전 매수 = Hybrid × Action배수</i>\n"
+    msg += "<i>🤖 EPS Momentum v6.3</i>\n"
+    msg += "<i>맛(Quality) + 값(Value) = 실전점수</i>\n"
     if regime == 'YELLOW':
         msg += "<i>🟡 Caution Mode Active</i>\n"
     else:
@@ -2062,7 +2125,7 @@ def send_telegram_long(message, config):
 def main():
     """메인 실행"""
     log("=" * 60)
-    log("EPS Momentum Daily Runner v6.2 - Action Multiplier")
+    log("EPS Momentum Daily Runner v6.3 - Quality & Value Scorecard")
     log("=" * 60)
 
     start_time = datetime.now()

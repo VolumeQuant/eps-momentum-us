@@ -614,23 +614,179 @@ def calculate_peg_from_growth(forward_per, eps_growth_rate):
     return round(peg, 2)
 
 
+def calculate_quality_score(is_aligned, roe, eps_chg, above_ma200, volume_spike):
+    """
+    품질 점수 계산 (v6.3) - "맛" 평가
+
+    펀더멘털 + 추세 + 수급을 종합 평가
+
+    Components (100점 만점):
+    - EPS 정배열: 30점
+    - ROE 품질: 25점 (30%+ S급, 20%+ A급, 10%+ B급)
+    - EPS 성장률: 20점
+    - 추세 (MA200 위): 15점
+    - 거래량 스파이크: 10점
+
+    Returns:
+        tuple: (score, grade)
+    """
+    score = 0
+
+    # 1. EPS 정배열 (30점)
+    if is_aligned:
+        score += 30
+
+    # 2. ROE 품질 (25점)
+    if roe is not None:
+        if roe >= 30:
+            score += 25  # S급
+        elif roe >= 20:
+            score += 20  # A급
+        elif roe >= 10:
+            score += 15  # B급
+        else:
+            score += 5   # C급
+
+    # 3. EPS 성장률 (20점)
+    if eps_chg is not None:
+        if eps_chg >= 20:
+            score += 20
+        elif eps_chg >= 10:
+            score += 15
+        elif eps_chg >= 5:
+            score += 10
+        elif eps_chg > 0:
+            score += 5
+
+    # 4. 추세 - MA200 위 (15점)
+    if above_ma200:
+        score += 15
+
+    # 5. 거래량 스파이크 (10점)
+    if volume_spike:
+        score += 10
+
+    # 등급 산정
+    if score >= 90:
+        grade = 'S급'
+    elif score >= 80:
+        grade = 'A+급'
+    elif score >= 70:
+        grade = 'A급'
+    elif score >= 60:
+        grade = 'B+급'
+    elif score >= 50:
+        grade = 'B급'
+    else:
+        grade = 'C급'
+
+    return score, grade
+
+
+def calculate_value_score(peg, fwd_per, from_52w_high, rsi):
+    """
+    가격 점수 계산 (v6.3) - "값" 평가
+
+    밸류에이션 + 가격 위치를 종합 평가
+
+    Components (100점 만점):
+    - PEG 평가: 35점 (<1.0 초저평가, <1.5 저평가, <2.0 적정)
+    - Forward PER: 25점 (<15 저평가, <25 적정, <40 성장주)
+    - 52주 고점 대비: 25점 (조정폭 클수록)
+    - RSI 눌림목: 15점 (30-50 최적)
+
+    Returns:
+        tuple: (score, valuation_label)
+    """
+    score = 0
+
+    # 1. PEG 평가 (35점) - 가장 중요
+    if peg is not None and peg > 0:
+        if peg < 1.0:
+            score += 35  # 초저평가
+        elif peg < 1.5:
+            score += 28  # 저평가
+        elif peg < 2.0:
+            score += 20  # 적정
+        elif peg < 3.0:
+            score += 10  # 고평가
+        # 3.0 이상은 0점
+
+    # 2. Forward PER (25점)
+    if fwd_per is not None and fwd_per > 0:
+        if fwd_per < 15:
+            score += 25  # 저평가
+        elif fwd_per < 25:
+            score += 20  # 적정
+        elif fwd_per < 40:
+            score += 12  # 성장주
+        elif fwd_per < 60:
+            score += 5   # 고평가
+
+    # 3. 52주 고점 대비 (25점)
+    if from_52w_high is not None:
+        drawdown = abs(from_52w_high)
+        if drawdown >= 25:
+            score += 25  # 큰 조정
+        elif drawdown >= 15:
+            score += 20  # 의미있는 조정
+        elif drawdown >= 10:
+            score += 15  # 적당한 조정
+        elif drawdown >= 5:
+            score += 8   # 소폭 조정
+        # 5% 미만은 0점 (고점 근처)
+
+    # 4. RSI 눌림목 (15점)
+    if rsi is not None:
+        if 30 <= rsi <= 45:
+            score += 15  # 최적 눌림목
+        elif 45 < rsi <= 55:
+            score += 10  # 중립
+        elif rsi < 30:
+            score += 12  # 과매도 (반등 가능)
+        elif 55 < rsi <= 65:
+            score += 5   # 약간 과열
+        # 65 이상은 0점
+
+    # 밸류에이션 레이블
+    if score >= 85:
+        label = '떨이세일'
+    elif score >= 70:
+        label = '저평가'
+    elif score >= 55:
+        label = '적정가'
+    elif score >= 40:
+        label = '고평가'
+    else:
+        label = '버블'
+
+    return score, label
+
+
 def get_action_multiplier(action):
     """
-    Action Multiplier 계산 (v6.2)
+    Action Multiplier 계산 (v6.3)
 
     실전 매수 적합도를 반영하는 승수.
     RSI 과열, 고점 근처 등 진입 부적합 종목에 페널티 적용.
+
+    v6.3 변경: 🚀강력매수 (돌파) 등급 추가
+    - RSI 70-84에서 신고가 + 거래량 스파이크 = 최고 배수
 
     Args:
         action: get_action_label() 결과 문자열
 
     Returns:
-        float: 0.1 ~ 1.0 (높을수록 매수 적합)
+        float: 0.1 ~ 1.1 (높을수록 매수 적합)
     """
     if action is None:
         return 0.5
 
     action = str(action)
+
+    # 🚀강력매수 (돌파): ×1.1 (슈퍼 모멘텀 보너스)
+    if '🚀강력매수' in action:
+        return 1.1
 
     # 적극 매수 신호: ×1.0
     if '적극매수' in action or '저점매수' in action:
@@ -640,7 +796,11 @@ def get_action_multiplier(action):
     if '매수적기' in action:
         return 0.9
 
-    # 관망: ×0.7
+    # 관망 (RSI🚀 포함): ×0.75 (RSI 과열이지만 완전 페널티는 아님)
+    if 'RSI🚀' in action:
+        return 0.75
+
+    # 일반 관망: ×0.7
     if '관망' in action:
         return 0.7
 
