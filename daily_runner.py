@@ -1830,6 +1830,44 @@ def create_telegram_message_admin(stats, collected, errors, execution_time):
     return msg
 
 
+def get_stock_insight(ticker, max_chars=50):
+    """
+    yfinance에서 종목 인사이트(뉴스 헤드라인 또는 업종) 가져오기
+
+    Args:
+        ticker: 종목 티커
+        max_chars: 최대 글자 수
+
+    Returns:
+        str: 뉴스 헤드라인 또는 업종 정보
+    """
+    import yfinance as yf
+    try:
+        stock = yf.Ticker(ticker)
+
+        # 1차: 뉴스 헤드라인 시도
+        news = stock.news
+        if news and len(news) > 0:
+            content = news[0].get('content', {})
+            if isinstance(content, dict):
+                title = content.get('title', '')
+                if title:
+                    # 너무 길면 자르기
+                    if len(title) > max_chars:
+                        title = title[:max_chars-3] + '...'
+                    return f"📰 {title}"
+
+        # 2차: 업종 정보
+        info = stock.info
+        industry = info.get('industry', '')
+        if industry:
+            return f"🏢 {industry}"
+
+        return None
+    except Exception:
+        return None
+
+
 def create_telegram_message(screening_df, stats, changes=None, config=None):
     """
     텔레그램 User 메시지 (Track 1) v7.0 - EPS Growth + RSI Dual Track
@@ -1841,13 +1879,10 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     [TOP 10 추천주]
     - 종합점수, 매수근거, 손절가(ATR×2)
     - Quality Score (맛) + Value Score (값)
+    - 뉴스/업종 인사이트
 
-    [관심 종목 11~25위]
-    - 간략 표시
-
-    [Sell Signal]
-    - Kill Switch 발동 종목
-    - 추세 이탈 종목
+    [후순위 종목]
+    - TOP 10과 동일 포맷
 
     [Warnings]
     - 섹터 집중 경고
@@ -2052,6 +2087,11 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
                 msg += f" | {high_str}"
             msg += f"{dday_str}\n"
 
+            # v7.0: yfinance 인사이트 (뉴스/업종)
+            insight = get_stock_insight(ticker, max_chars=45)
+            if insight:
+                msg += f"   {insight}\n"
+
             # 동적 한국어 해설
             rationale = generate_korean_rationale(row)
             msg += f"   💡 <i>{rationale}</i>\n"
@@ -2134,6 +2174,12 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
                 if high_str:
                     msg += f" | {high_str}"
                 msg += f"{dday_str}\n"
+
+                # v7.0: yfinance 인사이트 (상위 20개만 - 속도 최적화)
+                if idx <= 20:
+                    insight = get_stock_insight(ticker, max_chars=45)
+                    if insight:
+                        msg += f"   {insight}\n"
 
                 # 동적 해설
                 rationale = generate_korean_rationale(row)
