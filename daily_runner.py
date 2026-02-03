@@ -2035,10 +2035,12 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
             eps_growth_str = "EPS↗" if is_aligned else "EPS-"
             msg += f"   • 📊매수근거: {eps_growth_str} + {rsi_str}\n"
 
-            # 맛/값 스코어
+            # 맛/값 스코어 + 합산점수
             q_score = round(quality_score, 1) if quality_score else 0
             v_score = round(value_score, 1) if value_score else 0
+            combined_score = (q_score + v_score) / 2
             msg += f"   • 🍎맛: {q_score}점({quality_grade}) | 💰값: {v_score}점({value_label})\n"
+            msg += f"   • 📊합산: <b>{combined_score:.1f}점</b>/100 (맛+값 평균)\n"
 
             # 손절가 표시 (v7.0 핵심)
             if stop_loss and atr:
@@ -2054,11 +2056,11 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
             rationale = generate_korean_rationale(row)
             msg += f"   💡 <i>{rationale}</i>\n"
 
-        # v7.0: 전체 종목 상세 표시 (11위~끝까지)
+        # v7.0: 전체 종목 상세 표시 (11위~끝까지) - TOP 10과 동일 포맷
         if total_count > top_count:
             msg += f"\n{'─' * 22}\n"
             msg += f"<b>📋 후순위 종목 ({top_count+1}~{total_count}위)</b>\n"
-            remaining = screening_df.iloc[top_count:]  # 전체 표시
+            remaining = screening_df.iloc[top_count:]
             for idx, (_, row) in enumerate(remaining.iterrows(), top_count + 1):
                 ticker = row['ticker']
                 company_name = row.get('company_name', '')
@@ -2066,33 +2068,76 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
                 sector = row.get('sector', 'Other')
                 rsi = row.get('rsi')
                 from_52w_high = row.get('from_52w_high')
+                is_aligned = row.get('is_aligned', False)
                 quality_score = row.get('quality_score', 0)
+                quality_grade = row.get('quality_grade', '-')
                 value_score = row.get('value_score', 0)
+                value_label = row.get('value_label', '-')
                 actionable_v63 = row.get('actionable_score_v63', 0)
+                volume_spike = row.get('volume_spike', False)
+                earnings_dday = row.get('earnings_dday')
+                stop_loss = row.get('stop_loss')
+                atr = row.get('atr')
 
                 sector_kr = sector_map.get(sector, sector[:4])
-                q_score = round(quality_score, 1) if quality_score else 0
-                v_score = round(value_score, 1) if value_score else 0
+                spike_str = "📈" if volume_spike else ""
 
                 # RSI 표시
                 if rsi and rsi >= 70:
-                    rsi_str = f"🚀{rsi:.0f}"
+                    rsi_str = f"🚀RSI{rsi:.0f}"
                 elif rsi:
-                    rsi_str = f"{rsi:.0f}"
+                    rsi_str = f"RSI{rsi:.0f}"
                 else:
-                    rsi_str = "-"
+                    rsi_str = "RSI-"
 
                 # 고점대비
-                high_str = f"{from_52w_high:.0f}%" if from_52w_high else ""
+                high_str = f"고점{from_52w_high:.0f}%" if from_52w_high else ""
 
-                # 액션 결정 (동일 로직)
+                # 실적 D-Day
+                dday_str = ""
+                if earnings_dday is not None and pd.notna(earnings_dday):
+                    if earnings_dday >= 0:
+                        dday_str = f" | 실적D-{int(earnings_dday)}"
+                    else:
+                        dday_str = f" | 실적D+{abs(int(earnings_dday))}"
+
+                # 맛+값 합산 점수 (100점 만점)
+                q_score = round(quality_score, 1) if quality_score else 0
+                v_score = round(value_score, 1) if value_score else 0
+                combined_score = (q_score + v_score) / 2
+
+                # 액션 결정 (TOP 10과 동일)
                 is_near_high = from_52w_high is not None and from_52w_high >= -5
                 is_momentum = (rsi and rsi >= 60) or is_near_high
-                action_icon = "🚀" if is_momentum else "🛡️"
+                display_action = "🚀돌파매수" if is_momentum else "🛡️분할매수"
 
-                msg += f"\n<b>#{idx} {ticker}</b> ${price:.0f} {action_icon}\n"
-                msg += f"   {company_name}\n"
-                msg += f"   {actionable_v63:.1f}점 | 🍎{q_score} 💰{v_score} | RSI{rsi_str} | {high_str}\n"
+                msg += f"\n{'─' * 22}\n"
+                msg += f"<b>#{idx} {ticker}</b> ${price:.0f} {spike_str}\n"
+                if company_name:
+                    msg += f"   {company_name}\n"
+                msg += f"   [<b>{display_action}</b>] 종합: <b>{actionable_v63:.1f}점</b>\n"
+
+                # 매수근거
+                eps_growth_str = "EPS↗" if is_aligned else "EPS-"
+                msg += f"   • 📊매수근거: {eps_growth_str} + {rsi_str}\n"
+
+                # 맛/값 + 합산점수
+                msg += f"   • 🍎맛: {q_score}점({quality_grade}) | 💰값: {v_score}점({value_label})\n"
+                msg += f"   • 📊합산: <b>{combined_score:.1f}점</b>/100 (맛+값 평균)\n"
+
+                # 손절가 표시
+                if stop_loss and atr:
+                    msg += f"   • 📉대응: 손절가 ${stop_loss:.1f} (ATR×2)\n"
+
+                # 섹터, 고점대비, 실적D-Day
+                msg += f"   • {sector_kr}"
+                if high_str:
+                    msg += f" | {high_str}"
+                msg += f"{dday_str}\n"
+
+                # 동적 해설
+                rationale = generate_korean_rationale(row)
+                msg += f"   💡 <i>{rationale}</i>\n"
 
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
 
