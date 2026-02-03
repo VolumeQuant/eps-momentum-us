@@ -616,21 +616,21 @@ def calculate_peg_from_growth(forward_per, eps_growth_rate):
 
 def calculate_quality_score(is_aligned, roe, eps_chg, above_ma200, volume_spike, momentum_score=None):
     """
-    품질 점수 계산 (v6.3.1) - "맛" 평가
+    품질 점수 계산 (v6.3.2) - "맛" 평가
 
     펀더멘털 + 추세 + 수급을 종합 평가
 
     Components (100점 만점):
-    - EPS 모멘텀: 30점 (정배열 + 모멘텀 강도)
-      - 정배열 기본: 20점
-      - 모멘텀 강도 보너스: 최대 10점 (score_321 기반)
+    - EPS 모멘텀: 30점 (score_321 직접 활용)
+      - score_321을 30점 만점으로 정규화
+      - 정배열 여부는 이미 score_321에 반영되어 있음 (3+2+1점)
     - ROE 품질: 25점 (30%+ S급, 20%+ A급, 10%+ B급)
     - EPS 성장률: 20점
     - 추세 (MA200 위): 15점
     - 거래량 스파이크: 10점
 
     Args:
-        is_aligned: EPS 정배열 여부 (C>7d>30d>60d)
+        is_aligned: EPS 정배열 여부 (참고용, 직접 점수에 반영 안함)
         roe: ROE (%)
         eps_chg: EPS 60일 변화율 (%)
         above_ma200: 가격 > MA200 여부
@@ -642,22 +642,11 @@ def calculate_quality_score(is_aligned, roe, eps_chg, above_ma200, volume_spike,
     """
     score = 0
 
-    # 1. EPS 모멘텀 (30점) - 정배열 + 모멘텀 강도
-    if is_aligned:
-        # 정배열 기본점수: 20점
-        score += 20
-        # 모멘텀 강도 보너스: score_321 기반, 최대 10점
-        # score_321이 10 이상이면 만점(10), 5면 5점, 0이면 0점
-        if momentum_score is not None and momentum_score > 0:
-            momentum_bonus = min(10, momentum_score)
-            score += momentum_bonus
-    else:
-        # 정배열 아니어도 모멘텀이 강하면 일부 점수
-        # score_321이 8 이상이면 최대 15점
-        if momentum_score is not None and momentum_score >= 8:
-            score += min(15, momentum_score)
-        elif momentum_score is not None and momentum_score >= 4:
-            score += min(10, momentum_score)
+    # 1. EPS 모멘텀 (30점) - score_321 직접 활용
+    # score_321 범위: 대략 4~35점
+    # 30점 만점으로 정규화 (상한 30)
+    if momentum_score is not None and momentum_score > 0:
+        score += min(30, momentum_score)
 
     # 2. ROE 품질 (25점)
     if roe is not None:
