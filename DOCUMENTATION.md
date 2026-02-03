@@ -1,4 +1,4 @@
-# EPS Revision Momentum Strategy - 상세 기술 문서
+# EPS Revision Momentum Strategy v6.3.2 - 상세 기술 문서
 
 ## 목차
 
@@ -6,12 +6,13 @@
 2. [전략 철학](#2-전략-철학)
 3. [시스템 아키텍처](#3-시스템-아키텍처)
 4. [핵심 알고리즘](#4-핵심-알고리즘)
-5. [데이터 흐름](#5-데이터-흐름)
-6. [모듈별 상세](#6-모듈별-상세)
-7. [설정 가이드](#7-설정-가이드)
-8. [설치 및 실행](#8-설치-및-실행)
-9. [백테스팅 설계](#9-백테스팅-설계)
-10. [트러블슈팅](#10-트러블슈팅)
+5. [v6.3 Quality & Value Scorecard](#5-v63-quality--value-scorecard)
+6. [데이터 흐름](#6-데이터-흐름)
+7. [모듈별 상세](#7-모듈별-상세)
+8. [설정 가이드](#8-설정-가이드)
+9. [설치 및 실행](#9-설치-및-실행)
+10. [백테스팅 설계](#10-백테스팅-설계)
+11. [트러블슈팅](#11-트러블슈팅)
 
 ---
 
@@ -273,38 +274,200 @@ def check_market_regime():
 ~70개 통과 (하락장: 더 적음)
 ```
 
-### 4.4 액션 분류 알고리즘 (v5.1)
+### 4.4 액션 분류 알고리즘 (v6.3 - RSI Momentum Strategy)
 
 ```python
-def get_action_label(price, ma_20, ma_200, rsi, from_52w_high):
+def get_action_label(price, ma_20, ma_200, rsi, from_52w_high, volume_spike=False):
     """
-    52주 고점 대비 위치 기반 실전 매매 액션
+    v6.3 RSI Momentum Strategy 기반 액션 분류
 
-    핵심 원칙:
-    1. 고점 근처(-5% 이내)는 상승여력 제한 → 진입금지
-    2. 진짜 눌림목 = 충분한 조정(-10%~-25%) + RSI 중립
-    3. RSI만으로 판단하지 않음
+    핵심 철학:
+    - RSI 70 이상을 무조건 진입금지로 처리하지 않음
+    - 신고가 돌파 + 거래량 동반 = Super Momentum (🚀강력매수)
     """
 ```
 
-**액션 우선순위**:
+**v6.3 액션 우선순위**:
 ```
-1. 추세이탈: Price < MA200 → 즉시 제외
-2. 진입금지:
-   - RSI >= 70 (과열)
-   - 52주高 -5% 이내 (고점근처)
-   - MA20 +8% 이상 (단기급등)
-3. 저점매수: RSI <= 35 & 52주高 -20% 이상
-4. 적극매수: 52주高 -10%~-25% & RSI 35-55 & MA20 근처
-5. 매수적기: 정배열 & RSI 40-65 & 52주高 -5%~-15%
-6. 관망: 기타
+1. 추세이탈: Price < MA200 → 즉시 제외 (×0.1)
+2. 극과열: RSI >= 85 → 진입금지 (×0.3)
+3. RSI 70-84 구간 (Super Momentum 조건부):
+   - 신고가근처(-5%) + 거래량스파이크 → 🚀강력매수 (×1.1)
+   - 신고가근처(-5%) → 관망(RSI🚀고점) (×0.75)
+   - 기타 → 관망(RSI🚀) (×0.75)
+4. 단기급등: MA20 +8% 이상 → 진입금지 (×0.3)
+5. 저점매수: RSI <= 35 & 52주高 -20% 이상 → ×1.0
+6. 적극매수: 52주高 -10%~-25% & RSI 35-55 → ×1.0
+7. 매수적기: 정배열 & RSI 40-65 → ×0.9
+8. 관망: 기타 → ×0.7
+```
+
+**거래량 스파이크 감지**:
+```python
+volume_spike = False
+if len(hist_1m) >= 20:
+    vol_avg_20 = hist_1m['Volume'].tail(20).mean()
+    vol_recent_3 = hist_1m['Volume'].tail(3)
+    if any(vol_recent_3 > vol_avg_20 * 1.5):
+        volume_spike = True
 ```
 
 ---
 
-## 5. 데이터 흐름
+## 5. v6.3 Quality & Value Scorecard
 
-### 5.1 일일 실행 플로우
+### 5.1 핵심 개념
+
+v6.3에서는 종목을 **맛(Quality)**과 **값(Value)**으로 분리 평가:
+
+| 점수 | 의미 | 100점 만점 |
+|------|------|------------|
+| **Quality Score** | "이 사과가 맛있는가?" | EPS 모멘텀, ROE, 성장률, 추세, 수급 |
+| **Value Score** | "지금 가격이 적절한가?" | PEG, PER, 52주 고점대비, RSI 눌림목 |
+
+### 5.2 Quality Score (맛, 100점)
+
+```python
+def calculate_quality_score(is_aligned, roe, eps_chg, above_ma200, volume_spike, momentum_score=None):
+    score = 0
+
+    # v6.3.2: score_321 직접 활용 (정배열 보너스 중복 제거)
+    if momentum_score is not None and momentum_score > 0:
+        score += min(30, momentum_score)  # 최대 30점
+
+    # ROE 품질 (25점)
+    if roe and roe >= 0.30:
+        score += 25
+    elif roe and roe >= 0.20:
+        score += 20
+    elif roe and roe >= 0.10:
+        score += 15
+
+    # EPS 성장률 (20점)
+    if eps_chg and eps_chg >= 20:
+        score += 20
+    elif eps_chg and eps_chg >= 10:
+        score += 15
+    elif eps_chg and eps_chg >= 5:
+        score += 10
+
+    # 추세 (15점)
+    if above_ma200:
+        score += 15
+
+    # 수급 (10점)
+    if volume_spike:
+        score += 10
+
+    return score
+```
+
+### 5.3 Value Score (값, 100점)
+
+```python
+def calculate_value_score(peg, fwd_per, from_52w_high, rsi):
+    score = 0
+
+    # PEG 평가 (35점)
+    if peg and peg < 1.0:
+        score += 35
+    elif peg and peg < 1.5:
+        score += 28
+    elif peg and peg < 2.0:
+        score += 20
+
+    # Forward PER (25점)
+    if fwd_per and fwd_per < 15:
+        score += 25
+    elif fwd_per and fwd_per < 25:
+        score += 20
+    elif fwd_per and fwd_per < 40:
+        score += 12
+
+    # 52주 고점대비 (25점) - 떨어진 것 = 세일
+    if from_52w_high and from_52w_high <= -25:
+        score += 25
+    elif from_52w_high and from_52w_high <= -15:
+        score += 20
+    elif from_52w_high and from_52w_high <= -10:
+        score += 15
+
+    # RSI 눌림목 (15점)
+    if rsi and 30 <= rsi <= 45:
+        score += 15
+    elif rsi and 45 < rsi <= 55:
+        score += 10
+
+    return score
+```
+
+### 5.4 Actionable Score 공식
+
+```python
+actionable_score = (quality_score * 0.5 + value_score * 0.5) * action_multiplier
+```
+
+### 5.5 Action Multiplier
+
+| Action | Multiplier | 조건 |
+|--------|------------|------|
+| 🚀강력매수 (돌파) | ×1.1 | RSI 70-84 + 신고가 + 거래량 |
+| 적극매수/저점매수 | ×1.0 | 눌림목/과매도 |
+| 매수적기 | ×0.9 | 건강한 추세 |
+| 관망 (RSI🚀) | ×0.75 | RSI 70-84 (거래량 미동반) |
+| 관망 | ×0.7 | 진입 애매 |
+| 진입금지 | ×0.3 | RSI 85+ / 단기급등 |
+| 추세이탈 | ×0.1 | MA200 하회 |
+
+### 5.6 score_321 계산 (Quality Score의 EPS 모멘텀)
+
+```python
+def calculate_momentum_score_v3(current, d7, d30, d60):
+    score = 0
+
+    # 가중치 기반 (최근일수록 높은 점수)
+    if current > d7:   score += 3  # 최신
+    if d7 > d30:       score += 2
+    if d30 > d60:      score += 1
+
+    # 역전 페널티
+    if d7 < d30:       score -= 1
+    if d30 < d60:      score -= 1
+
+    # 60일 변화율 보너스
+    eps_chg_60d = (current - d60) / d60 * 100 if d60 else 0
+    score += eps_chg_60d / 5
+
+    # 정배열 보너스
+    if current > d7 > d30 > d60:
+        score += 3  # 완전 정배열
+    elif current > d7 > d30:
+        score += 1  # 부분 정배열
+
+    return score
+```
+
+### 5.7 v6.3.2 중복 제거 히스토리
+
+**v6.3.1 문제점:**
+```python
+# 정배열 여부로 20점 + 모멘텀 강도로 10점 = 중복
+if is_aligned:
+    score += 20  # 정배열 보너스
+    score += min(10, momentum_score)  # 모멘텀 강도
+```
+
+**v6.3.2 해결:**
+```python
+# score_321에 이미 정배열 보너스 포함되어 있으므로 직접 활용
+score += min(30, momentum_score)
+```
+
+---
+
+## 6. 데이터 흐름
+
+### 6.1 일일 실행 플로우
 
 ```
 07:00 KST (미장 마감 후)
@@ -349,7 +512,7 @@ def get_action_label(price, ma_20, ma_200, rsi, from_52w_high):
     └── 자동 커밋/푸시
 ```
 
-### 5.2 데이터 소스
+### 6.2 데이터 소스
 
 | 데이터 | 소스 | API |
 |--------|------|-----|
@@ -359,7 +522,7 @@ def get_action_label(price, ma_20, ma_200, rsi, from_52w_high):
 | 기업 정보 | Yahoo Finance | `stock.info` |
 | 실적발표일 | Yahoo Finance | `stock.calendar` |
 
-### 5.3 출력 파일
+### 6.3 출력 파일
 
 ```
 eps_data/
@@ -381,9 +544,9 @@ logs/
 
 ---
 
-## 6. 모듈별 상세
+## 7. 모듈별 상세
 
-### 6.1 daily_runner.py
+### 7.1 daily_runner.py
 
 **주요 함수**:
 
@@ -396,7 +559,7 @@ logs/
 | `analyze_fundamentals()` | 펀더멘털 분석 | 90줄 |
 | `analyze_technical()` | 기술적 분석 | 80줄 |
 
-### 6.2 eps_momentum_system.py
+### 7.2 eps_momentum_system.py
 
 **주요 상수**:
 
@@ -423,7 +586,7 @@ SECTOR_MAP = {
 | `check_technical_filter()` | MA20 필터 (레거시) |
 | `get_peg_ratio()` | PEG 계산 |
 
-### 6.3 sector_analysis.py
+### 7.3 sector_analysis.py
 
 **ETF 매핑**:
 
@@ -443,9 +606,9 @@ THEME_ETF = {
 
 ---
 
-## 7. 설정 가이드
+## 8. 설정 가이드
 
-### 7.1 config.json 상세
+### 8.1 config.json 상세
 
 ```json
 {
@@ -473,7 +636,7 @@ THEME_ETF = {
 }
 ```
 
-### 7.2 텔레그램 봇 설정
+### 8.2 텔레그램 봇 설정
 
 1. **봇 생성**: @BotFather → `/newbot`
 2. **토큰 획득**: 생성 후 토큰 복사
@@ -484,7 +647,7 @@ THEME_ETF = {
    "telegram_chat_id": "7580571403"
    ```
 
-### 7.3 필터 조정
+### 8.3 필터 조정
 
 **더 엄격하게**:
 ```json
@@ -500,16 +663,16 @@ THEME_ETF = {
 
 ---
 
-## 8. 설치 및 실행
+## 9. 설치 및 실행
 
-### 8.1 요구사항
+### 9.1 요구사항
 
 ```
 Python 3.8+
 패키지: yfinance, pandas, numpy
 ```
 
-### 8.2 설치
+### 9.2 설치
 
 ```bash
 # 클론
@@ -523,7 +686,7 @@ pip install yfinance pandas numpy
 # config.json에서 텔레그램 토큰/Chat ID 설정
 ```
 
-### 8.3 실행
+### 9.3 실행
 
 ```bash
 # 수동 실행
@@ -533,7 +696,7 @@ python daily_runner.py
 schtasks /create /tn "EPS_Momentum_Daily" /tr "C:\...\run_daily.bat" /sc daily /st 07:00
 ```
 
-### 8.4 개별 모듈 실행
+### 9.4 개별 모듈 실행
 
 ```bash
 # 스크리닝만
@@ -548,9 +711,9 @@ python eps_momentum_system.py stats
 
 ---
 
-## 9. 백테스팅 설계
+## 10. 백테스팅 설계
 
-### 9.1 Point-in-Time 원칙
+### 10.1 Point-in-Time 원칙
 
 ```
 ❌ Look-Ahead Bias
@@ -565,7 +728,7 @@ python eps_momentum_system.py stats
 - 스크리닝 통과 여부와 관계없이 저장
 - Survivorship Bias 방지
 
-### 9.2 DB 스키마
+### 10.2 DB 스키마
 
 ```sql
 CREATE TABLE eps_snapshots (
@@ -606,7 +769,7 @@ CREATE TABLE eps_snapshots (
 );
 ```
 
-### 9.3 백테스트 쿼리 예시
+### 10.3 백테스트 쿼리 예시
 
 ```sql
 -- 특정 날짜 스크리닝 통과 종목
@@ -628,7 +791,7 @@ WHERE a.date = '2026-01-31'
   AND a.is_aligned = 1;
 ```
 
-### 9.4 A/B 테스트 설계
+### 10.4 A/B 테스트 설계
 
 ```
 Score_321 (가중치 방식)
@@ -646,9 +809,9 @@ Score_Slope (변화율 가중 평균)
 
 ---
 
-## 10. 트러블슈팅
+## 11. 트러블슈팅
 
-### 10.1 일반적인 오류
+### 11.1 일반적인 오류
 
 | 오류 | 원인 | 해결 |
 |------|------|------|
@@ -657,7 +820,7 @@ Score_Slope (변화율 가중 평균)
 | `Telegram error` | 토큰/Chat ID 오류 | config.json 확인 |
 | `Git push failed` | 인증 오류 | Git credential 확인 |
 
-### 10.2 데이터 품질 이슈
+### 11.2 데이터 품질 이슈
 
 ```
 문제: 일부 종목 재무 데이터 누락
@@ -670,7 +833,7 @@ Score_Slope (변화율 가중 평균)
 해결: 기본값 -10% 가정
 ```
 
-### 10.3 성능 최적화
+### 11.3 성능 최적화
 
 ```
 현재 실행 시간: ~15분 (917개 종목)
@@ -698,4 +861,4 @@ Score_Slope (변화율 가중 평균)
 
 ---
 
-*문서 버전: v5.3 | 최종 업데이트: 2026-02-02*
+*문서 버전: v6.3.2 | 최종 업데이트: 2026-02-03*

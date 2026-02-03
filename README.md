@@ -1,14 +1,17 @@
-# EPS Revision Momentum Strategy v6.2 (US Stocks)
+# EPS Revision Momentum Strategy v6.3.2 (US Stocks)
 
-미국 주식 대상 **Value-Momentum Hybrid** 전략 시스템
+미국 주식 대상 **Quality & Value Scorecard** 전략 시스템
 
-> 🍎⏰ **핵심 철학**: "좋은 사과 + 지금 살 타이밍 = 실전 매수 점수"
+> 🍎⏰ **핵심 철학**: "맛(Quality) + 값(Value) = 실전 매수 점수"
 
 ## 버전 히스토리
 
 | 버전 | 날짜 | 주요 변경 |
 |------|------|----------|
-| **v6.2** | 2026-02-03 | **Action Multiplier**: RSI 과열 종목 자동 페널티, 실전 매수 랭킹 |
+| **v6.3.2** | 2026-02-03 | Quality Score: score_321 직접 활용 (정배열 중복 제거) |
+| v6.3.1 | 2026-02-03 | Quality Score: 정배열 + 모멘텀 강도 조합 (중복 문제 발견) |
+| v6.3 | 2026-02-03 | **Quality & Value Scorecard** 분리, **RSI Momentum Strategy** |
+| v6.2 | 2026-02-03 | Action Multiplier: RSI 과열 종목 자동 페널티, 실전 매수 랭킹 |
 | v6.1 | 2026-02-03 | Option A: 가격위치(Position) 점수 추가 - 52주 고점 대비 조정폭 반영 |
 | v6.0 | 2026-02-02 | Value-Momentum Hybrid System: 3-Layer Filtering + Hybrid Ranking |
 | v5.4 | 2026-02-02 | 시장 국면 3단계 진단 (RED/YELLOW/GREEN) + VIX 추가 |
@@ -23,102 +26,136 @@
 
 ---
 
-## v6.0 Value-Momentum Hybrid System
+## v6.3 Quality & Value Scorecard System
 
 ### 핵심 개념
 
-기존 EPS 모멘텀 전략에 **밸류에이션(Forward PER)** 및 **품질(ROE)** 필터를 추가하여 "성장 + 가치" 복합 전략으로 업그레이드.
+"**맛(Quality)**"과 "**값(Value)**"을 분리하여 각각 100점 만점으로 평가 후, 50:50 가중 평균 × Action Multiplier로 실전 점수 산출.
 
-### 3-Layer Filtering
+### Quality Score (맛, 100점)
 
-```
-Layer 1 [Momentum]: EPS Trend Alignment
-├── Kill Switch: 7일 대비 -1% 이상 하락시 탈락
-├── Score >= 4.0 (YELLOW 시장: >= 6.0)
-└── EPS 정배열: Current > 7d > 30d
+| 항목 | 배점 | 기준 |
+|------|------|------|
+| **EPS 모멘텀** | 30점 | `min(30, score_321)` 직접 활용 |
+| **ROE 품질** | 25점 | 30%+:25, 20%+:20, 10%+:15 |
+| **EPS 성장률** | 20점 | 20%+:20, 10%+:15, 5%+:10 |
+| **추세 (MA200)** | 15점 | MA200 위 = 15점 |
+| **거래량 스파이크** | 10점 | 20일 평균 × 1.5 돌파 |
 
-Layer 2 [Quality]: ROE > 10%
-├── 저품질 성장 필터링
-└── 예외: ROE 데이터 없으면 통과 (Technical Rescue 대상)
+### Value Score (값, 100점)
 
-Layer 3 [Safety]: Forward PER < 60
-├── 버블 종목 제외
-└── 예외: 고모멘텀(Score >= 8) 시 PER 80까지 허용
-```
+| 항목 | 배점 | 기준 |
+|------|------|------|
+| **PEG 평가** | 35점 | <1.0:35, <1.5:28, <2.0:20 |
+| **Forward PER** | 25점 | <15:25, <25:20, <40:12 |
+| **52주 고점대비** | 25점 | -25%+:25, -15%+:20, -10%+:15 |
+| **RSI 눌림목** | 15점 | 30-45:15, 45-55:10 |
 
-### 실전 매수 랭킹 (v6.2 - Action Multiplier)
+### Actionable Score 공식 (v6.3)
 
 ```python
-Actionable Score = Hybrid Score × Action Multiplier
+Actionable Score = (Quality × 0.5 + Value × 0.5) × Action Multiplier
 ```
 
-**Action Multiplier**: RSI, 고점 근처 등 타이밍 요소 반영
-| Action | Multiplier | 설명 |
+### RSI Momentum Strategy (v6.3 핵심)
+
+> **철학**: RSI 70 이상을 무조건 진입금지로 처리하지 않음.
+> 신고가 돌파 + 거래량 동반 = Super Momentum (🚀강력매수)
+
+```python
+if RSI >= 85:
+    return "진입금지 (극과열)"      # ×0.3
+elif 70 <= RSI < 85:
+    if 신고가근처 and 거래량스파이크:
+        return "🚀강력매수 (돌파)"  # ×1.1  ← NEW!
+    elif 신고가근처:
+        return "관망 (RSI🚀고점)"   # ×0.75
+    else:
+        return "관망 (RSI🚀)"       # ×0.75
+```
+
+### Action Multiplier (v6.3)
+
+| Action | Multiplier | 조건 |
 |--------|------------|------|
-| 적극매수/저점매수 | ×1.0 | 지금 사도 됨 |
-| 매수적기 | ×0.9 | 좋은 타이밍 |
-| 관망 | ×0.7 | 기다려 |
-| 진입금지 | ×0.3 | 사면 물림 |
+| 🚀강력매수 | ×1.1 | RSI 70-84 + 신고가 + 거래량 |
+| 적극매수/저점매수 | ×1.0 | 눌림목/과매도 |
+| 매수적기 | ×0.9 | 건강한 추세 |
+| 관망 (RSI🚀) | ×0.75 | RSI 70-84 (거래량 미동반) |
+| 관망 | ×0.7 | 진입 애매 |
+| 진입금지 | ×0.3 | RSI 85+ / 단기급등 |
+| 추세이탈 | ×0.1 | MA200 하회 |
 
-**예시**:
-| 종목 | Hybrid | Action | Mult | 실전점수 |
-|------|--------|--------|------|---------|
-| MU | 19.7 | 진입금지 (RSI 75) | ×0.3 | **5.9** ↓ |
-| AVGO | 12.8 | 적극매수 (RSI 36) | ×1.0 | **12.8** ✅ |
+### v6.3.2 Top 10 결과 (2026-02-03)
 
-→ **RSI 과열 종목(MU)은 아무리 펀더멘털이 좋아도 순위 하락**
+| # | 종목 | M점수 | Q점수 | V점수 | 실전 | Action |
+|---|------|-------|-------|-------|------|--------|
+| 1 | NEM | 11.7 | 62 | 90 | 75.8 | 적극매수 |
+| 2 | AVGO | 11.7 | 67 | 75 | 70.8 | 적극매수 |
+| 3 | EXEL | 5.9 | 51 | 65 | 58.0 | 적극매수 |
+| 4 | G | 9.1 | 49 | 60 | 54.5 | 저점매수 |
+| 5 | MU | 32.6 | 85 | 60 | 54.4 | 관망(RSI🚀) |
+| 6 | WMG | 6.5 | 52 | 55 | 53.2 | 적극매수 |
+| 7 | LRCX | 13.3 | 73 | 45 | 53.2 | 매수적기 |
+| 8 | DRI | 5.0 | 50 | 50 | 50.0 | 적극매수 |
+| 9 | CRS | 10.3 | 55 | 42 | 48.6 | 적극매수 |
+| 10 | CMC | 16.6 | 67 | 60 | 47.5 | 관망(RSI🚀) |
 
-### Hybrid Score 공식 (v6.1)
+**해석:**
+- **MU**: 모멘텀 32.6 최고지만 RSI 75 과열 → ×0.75 페널티 → 5위
+- **NEM**: 모멘텀 11.7 + Value 90 (떨이세일) → 1위
+- **AVGO**: 모멘텀 11.7 + Value 75 (저평가) → 2위
+
+### score_321 계산 로직 (v6.3.2)
+
+Quality Score의 EPS 모멘텀 30점은 `score_321`을 직접 활용:
 
 ```python
-Hybrid Score = (Momentum × 0.5) + ((100 / PER) × 0.2) + (Position × 0.3)
+def calculate_momentum_score_v3(current, d7, d30, d60):
+    score = 0
+
+    # 가중치 기반 (최근일수록 높은 점수)
+    if current > d7:   score += 3  # 최신
+    if d7 > d30:       score += 2
+    if d30 > d60:      score += 1
+
+    # 역전 페널티
+    if d7 < d30:       score -= 1
+    if d30 < d60:      score -= 1
+
+    # 60일 변화율 보너스
+    score += eps_chg_60d / 5
+
+    # 정배열 보너스
+    if current > d7 > d30 > d60:
+        score += 3  # 완전 정배열
+    elif current > d7 > d30:
+        score += 1  # 부분 정배열
+
+    return score
 ```
 
-**Position Score**: 52주 고점 대비 가격 위치
-```python
-Position Score = 100 - (현재가 / 52주고점 × 100)
+**예시:**
+- 완전 정배열 + 60일 변화율 20% = 3+2+1+4+3 = **13점**
+- 부분 정배열 + 60일 변화율 100% = 3+2+0+20+1 = **26점**
+
+### 텔레그램 스코어카드 포맷 (v6.3)
+
 ```
+📊 EPS Momentum v6.3 Scorecard
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-### 신규 지표 (v6.1)
+🥇 NEM $44.2 (Gold)
+   M: 11.7⬆ | Q: 62 | V: 90
+   실전점수: 75.8 | 적극매수
+   ─────────────────────
+   📈 RSI 52 | PER 14
+   🎯 52주高 -12% | PEG 0.8
+   💡 떨이세일 + 모멘텀 조합
 
-| 지표 | 계산식 | 용도 |
-|------|--------|------|
-| Forward PER | 현재가 / Forward EPS | 밸류에이션 |
-| ROE | `ticker.info['returnOnEquity']` | 품질 필터 |
-| PEG (계산) | Forward PER / EPS 성장률(%) | 성장 대비 가치 |
-| **Position Score** | 100 - (현재가/52주고점×100) | **가격 위치 (v6.1)** |
-| Hybrid Score | M×0.5 + V×0.2 + P×0.3 | 최종 랭킹 (v6.1) |
-
-### 텔레그램 메시지 분리
-
-**User Briefing (Track 1)**:
-```
-🏆 TOP 3 PICKS
-─────────────────────
-🥇 AVGO $331
-   Hybrid: 8.5 | 모멘텀: 11.7⬆
-   PER 23 | ROE 52% | 반도체
-   💡 EPS 전망치 완전 정배열, PER 23배 적정
-
-🥈 NEM $112
-   Hybrid: 8.2 | 모멘텀: 11.7⬆
-   PER 13 | ROE 18% | 소재
-   💡 EPS 전망 +14% 상향, PER 13배 저평가
-```
-
-**Admin Log (Track 2)**:
-```
-🔧 [02/02] EPS v6.0 Admin Log
-━━━━━━━━━━━━━━━━━━━━━━
-📊 Track 2 (Data Collection)
-Status: ✅ SUCCESS
-• 수집: 845개 종목
-• 실행시간: 423.5초
-
-📈 Track 1 (Screening) 통계
-• 총 스캔: 917개
-• ROE < 10%: 127개
-• PER > 60: 45개
+🥈 AVGO $224 (Semiconductor)
+   M: 11.7⬆ | Q: 67 | V: 75
+   실전점수: 70.8 | 적극매수
 ```
 
 ### DB 스키마 (v6 신규 필드)
@@ -127,7 +164,9 @@ Status: ✅ SUCCESS
 fwd_per REAL,        -- Forward PER
 roe REAL,            -- ROE (0~1 범위)
 peg_calculated REAL, -- 직접 계산된 PEG
-hybrid_score REAL,   -- 하이브리드 점수
+quality_score REAL,  -- Quality Score (v6.3)
+value_score REAL,    -- Value Score (v6.3)
+actionable_score REAL, -- Actionable Score (v6.3)
 ```
 
 ---
@@ -224,19 +263,30 @@ EPS가 꾸준히 상승하는 종목에 추가 점수:
 
 ---
 
-## 액션 분류 (v5.1)
+## 액션 분류 (v6.3 - RSI Momentum Strategy)
 
-52주 고점 대비 위치를 핵심 기준으로 실전 매매용 액션 판단:
+### v6.3 핵심 변화
 
-### 진입금지 조건 (하나라도 해당시)
+> **기존 (v5.1)**: RSI >= 70 → 무조건 진입금지
+> **v6.3**: RSI 70-84 → 조건부 🚀강력매수 허용
+
+### 진입금지 조건 (v6.3)
 
 | 조건 | 설명 |
 |------|------|
-| RSI >= 70 | 🚫 과열 |
-| 52주 고점 -5% 이내 | 🚫 고점근처 |
+| RSI >= 85 | 🚫 극과열 (진짜 위험) |
 | MA20 대비 +8% 이상 | 🚫 단기급등 |
+| MA200 하회 | 🚫 추세이탈 |
 
-### 매수 신호 조건
+### RSI 70-84 구간 (Super Momentum 조건부)
+
+| 조건 | 액션 | Multiplier |
+|------|------|------------|
+| 신고가근처(-5%) + 거래량스파이크 | 🚀강력매수 (돌파) | ×1.1 |
+| 신고가근처(-5%) | 관망 (RSI🚀고점) | ×0.75 |
+| 기타 | 관망 (RSI🚀) | ×0.75 |
+
+### 매수 신호 조건 (RSI < 70)
 
 | 액션 | 조건 | 의미 |
 |------|------|------|
@@ -250,7 +300,7 @@ EPS가 꾸준히 상승하는 종목에 추가 점수:
 |------|------|------|
 | 👀 관망 (과열경계) | RSI 65-70 | 매수 대기 |
 | 👀 관망 (조정부족) | 52주高 -5%~-10% | 추가 조정 대기 |
-| 📉 추세이탈 | Price < MA200 | 매수 금지 |
+| 📉 추세이탈 | Price < MA200 | 매수 금지 (×0.1) |
 
 ---
 
@@ -387,6 +437,42 @@ schtasks /create /tn "EPS_Momentum_Daily" /tr "C:\...\run_daily.bat" /sc daily /
 ---
 
 ## 필터 변경 이력
+
+### v6.3.2 변경 (2026-02-03)
+
+**Quality Score: score_321 직접 활용**
+
+v6.3.1 문제점:
+- 정배열 보너스(20점) + 모멘텀 보너스(10점) = 중복 계산
+- 정배열 여부는 이미 score_321에 반영됨 (C>7d:+3, 7d>30d:+2, 30d>60d:+1)
+
+해결:
+```python
+# 기존 (v6.3.1 - 중복)
+if is_aligned:
+    score += 20  # 정배열 보너스
+    score += min(10, momentum_score)
+
+# v6.3.2 (직접 활용)
+score += min(30, momentum_score)  # score_321 그대로 사용
+```
+
+### v6.3 변경 (2026-02-03)
+
+**Quality & Value Scorecard + RSI Momentum Strategy**
+
+1. **Quality & Value 분리**
+   - Quality Score (100점): 맛 평가
+   - Value Score (100점): 값 평가
+   - Actionable Score = (Q×0.5 + V×0.5) × Action Multiplier
+
+2. **RSI Momentum Strategy**
+   - RSI 70-84: 조건부 🚀강력매수 허용
+   - 신고가 + 거래량스파이크 = Super Momentum
+
+3. **Action Multiplier 개편**
+   - 🚀강력매수: ×1.1 (신규)
+   - 관망(RSI🚀): ×0.75 (신규)
 
 ### v6.0 변경 (2026-02-02)
 
@@ -569,9 +655,9 @@ pip install yfinance pandas numpy
 
 ## 향후 과제
 
-1. **v6 백테스팅**: Hybrid Score 기반 성과 분석
-2. **가중치 최적화**: Momentum/Value 비율 튜닝 (현재 0.7/0.3)
-3. **ROE/PER 임계값**: 시장 상황별 동적 조정
+1. **v6.3 백테스팅**: v6.2 vs v6.3.2 수익률 비교
+2. **가중치 최적화**: Quality/Value 비율 튜닝 (현재 50:50)
+3. **거래량 스파이크 임계값**: 현재 1.5x, 최적값 탐색
 4. **Point-in-Time 백테스트**: 6개월 데이터 축적 후 검증
-5. **포지션 사이징**: Hybrid Score 기반 비중 배분
+5. **포지션 사이징**: Actionable Score 기반 비중 배분
 6. **실시간 알림**: 장중 Kill Switch 발동 시 알림
