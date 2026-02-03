@@ -1,216 +1,196 @@
 # SESSION_HANDOFF.md
-## EPS Momentum System v6.3.2 - Quality & Value Scorecard
+## EPS Momentum System v7.0 - AI Insights + Dual Track Strategy
 
-**Last Updated:** 2026-02-03 10:30
-**Session:** v6.3 -> v6.3.2 업그레이드 완료
+**Last Updated:** 2026-02-03 21:00
+**Session:** v6.3.2 -> v7.0 대규모 업그레이드 완료
 
 ---
 
-## 1. 작업 요약
+## 1. v7.0 핵심 변경사항
 
-### v6.3.2 핵심 변경사항
+### A. TOP 10 액션 로직 변경 (핵심!)
 
-#### A. Quality Score - score_321 직접 활용
+**기존 문제점:**
+- TOP 10에 선정된 종목에도 "관망" 태그가 붙음
+- 이미 900개 중 선별된 종목인데 "지켜보라"는 건 모순
 
-**문제점 (v6.3.1):**
-- 정배열 보너스(20점) + 모멘텀 보너스(10점) = 중복 계산
-- 정배열 여부는 이미 score_321에 반영됨 (C>7d:+3, 7d>30d:+2, 30d>60d:+1)
-
-**해결 (v6.3.2):**
+**v7.0 해결:**
 ```python
-# 기존 (중복)
-if is_aligned:
-    score += 20  # 정배열 보너스
-    score += min(10, momentum_score)
-
-# v6.3.2 (직접 활용)
-score += min(30, momentum_score)  # score_321 그대로 사용
+# TOP 10은 무조건 매수 관점 (관망 제거)
+if RSI >= 60 or 신고가근처(-5%):
+    return "🚀돌파매수"  # Momentum
+else:
+    return "🛡️분할매수"  # Dip/Accumulate
 ```
 
-**결과:**
-| 종목 | M점수 | v6.3.1 Q | v6.3.2 Q | 변화 |
-|------|-------|----------|----------|------|
-| MU | 32.6 | 80 | 85 | +5 |
-| AVGO | 11.7 | 85 | 67 | -18 |
-| NEM | 11.7 | 80 | 62 | -18 |
+**결과:** TOP 10에서 "관망" 완전 제거
 
----
+### B. AI Insights 추가
 
-### v6.3 전체 아키텍처
+**기존:** 규칙 기반 해설 (PER, RSI 조건문)
+**v7.0:** 웹 검색 기반 실시간 뉴스/인사이트
 
-#### Quality Score (맛, 100점)
 ```
-EPS 모멘텀:     30점 - min(30, score_321) 직접 활용
-ROE 품질:       25점 - 30%+:25, 20%+:20, 10%+:15
-EPS 성장률:     20점 - 20%+:20, 10%+:15, 5%+:10
-추세(MA200위):  15점
-거래량스파이크: 10점
+기존: 💡 EPS 전망치 완전 정배열, PER 13배 저평가
+v7.0: 📰 금값 $5,000 돌파로 급등, UBS 목표가 $160 상향
 ```
 
-#### Value Score (값, 100점)
-```
-PEG 평가:       35점 - <1.0:35, <1.5:28, <2.0:20
-Forward PER:    25점 - <15:25, <25:20, <40:12
-52주 고점대비:  25점 - -25%+:25, -15%+:20, -10%+:15
-RSI 눌림목:     15점 - 30-45:15, 45-55:10
-```
+### C. Sector Booster (ETF 추천)
 
-#### Actionable Score (실전점수)
+TOP 10 중 동일 섹터 3개 이상 → 섹터 ETF 자동 추천
+
 ```
-실전점수 = (Quality × 0.5 + Value × 0.5) × Action Multiplier
+🔥 [HOT] 섹터 포착
+👉 반도체 4개 → SMH/SOXL
 ```
 
-#### Action Multiplier
-| Action | Multiplier | 조건 |
-|--------|------------|------|
-| 🚀강력매수 | ×1.1 | RSI 70-84 + 신고가 + 거래량 |
-| 적극매수/저점매수 | ×1.0 | 눌림목/과매도 |
-| 매수적기 | ×0.9 | 건강한 추세 |
-| 관망 (RSI🚀) | ×0.75 | RSI 70-84 (거래량 미동반) |
-| 관망 | ×0.7 | 진입 애매 |
-| 진입금지 | ×0.3 | RSI 85+ / 단기급등 |
-| 추세이탈 | ×0.1 | MA200 하회 |
-
----
-
-### RSI Momentum Strategy
-
-**핵심 철학:**
-> RSI 70 이상을 무조건 진입금지로 처리하지 않음.
-> 신고가 돌파 + 거래량 동반 = Super Momentum
+### D. Exit Strategy (ATR 손절가)
 
 ```python
-if RSI >= 85:
-    return "진입금지 (극과열)"      # ×0.3
-elif 70 <= RSI < 85:
-    if 신고가근처 and 거래량스파이크:
-        return "🚀강력매수 (돌파)"  # ×1.1
-    elif 신고가근처:
-        return "관망 (RSI🚀고점)"   # ×0.75
-    else:
-        return "관망 (RSI🚀)"       # ×0.75
+def calculate_stop_loss(price, atr, multiplier=2.0):
+    return price - (atr * multiplier)
 ```
+
+### E. Forward Fill (EPS 결측치 보정)
+
+```python
+def forward_fill_eps(current, d7, d30, d60):
+    """EPS 7d/30d/60d가 NaN이면 Current로 채움"""
+```
+
+### F. Super Momentum Override
+
+Quality >= 80 + RSI 70-85 → 자동 "슈퍼모멘텀" 부여
+
+### G. Config 분리
+
+하드코딩된 값들을 config.json으로 외부화:
+- action_multipliers
+- exit_strategy
+- super_momentum
+- sector_booster
+- telegram_format
 
 ---
 
-## 2. 실행 결과 (2026-02-03)
+## 2. v7.0 실행 결과 (2026-02-03)
 
-### v6.3.2 Top 10
-| # | 종목 | M점수 | Q점수 | V점수 | 실전 | Action |
-|---|------|-------|-------|-------|------|--------|
-| 1 | NEM | 11.7 | 62 | 90 | 75.8 | 적극매수 |
-| 2 | AVGO | 11.7 | 67 | 75 | 70.8 | 적극매수 |
-| 3 | EXEL | 5.9 | 51 | 65 | 58.0 | 적극매수 |
-| 4 | G | 9.1 | 49 | 60 | 54.5 | 저점매수 |
-| 5 | MU | 32.6 | 85 | 60 | 54.4 | 관망(RSI🚀) |
-| 6 | WMG | 6.5 | 52 | 55 | 53.2 | 적극매수 |
-| 7 | LRCX | 13.3 | 73 | 45 | 53.2 | 매수적기 |
-| 8 | DRI | 5.0 | 50 | 50 | 50.0 | 적극매수 |
-| 9 | CRS | 10.3 | 55 | 42 | 48.6 | 적극매수 |
-| 10 | CMC | 16.6 | 67 | 60 | 47.5 | 관망(RSI🚀) |
+### TOP 10 (AI Insights 포함)
 
-**해석:**
-- MU: 모멘텀 32.6 최고지만 RSI 75 과열 → ×0.75 페널티 → 5위
-- NEM: 모멘텀 11.7 + Value 90 (떨이세일) → 1위
-- AVGO: 모멘텀 11.7 + Value 75 (저평가) → 2위
+| # | 종목 | 점수 | 액션 | 핵심 인사이트 |
+|---|------|------|------|---------------|
+| 1 | NEM | 80.9 | 🛡️분할매수 | 금값 $5,000 돌파, UBS 목표가 $160 |
+| 2 | AVGO | 70.8 | 🛡️분할매수 | OpenAI 4년간 AI칩 공급 계약 |
+| 3 | EXEL | 62.9 | 🛡️분할매수 | 항암제 파이프라인 확대 |
+| 4 | G | 59.5 | 🛡️분할매수 | RSI 31 과매도, AI BPO 확대 |
+| 5 | KLAC | 56.4 | 🛡️분할매수 | Q2 사상최대, Citi 목표가 $1,800 |
+| 6 | MU | 54.4 | 🚀돌파매수 | HBM 품절, FY26 EPS 4배 성장 |
+| 7 | CRS | 53.6 | 🛡️분할매수 | 항공우주/방산 특수합금 수요 증가 |
+| 8 | WMG | 53.2 | 🛡️분할매수 | 스트리밍 수익 증가세 |
+| 9 | LRCX | 53.2 | 🛡️분할매수 | Q2 매출 +22% YoY, CEA-Leti R&D 협력 |
+| 10 | CVNA | 52.1 | 🛡️분할매수 | 공매도 리포트 후 JPM "매수 기회" |
 
 ---
 
 ## 3. 수정된 파일
 
-### eps_momentum_system.py
-```python
-def calculate_quality_score(..., momentum_score=None):
-    # v6.3.2: score_321 직접 활용 (정배열 보너스 중복 제거)
-    if momentum_score is not None and momentum_score > 0:
-        score += min(30, momentum_score)
-```
+### config.json
+- action_multipliers 추가
+- exit_strategy, super_momentum, sector_booster 추가
+- telegram_format (top_n: 10, watchlist_max: 25)
 
 ### daily_runner.py
-- v6.3 스코어카드 텔레그램 포맷
-- RSI Momentum Strategy (get_action_label)
-- 거래량 스파이크/실적 D-Day/Fake Bottom 감지
+- load_config(): UTF-8 인코딩 추가
+- create_telegram_message(): v7.0 포맷
+- TOP 10 액션 오버라이드 (돌파매수/분할매수)
+- Sell Signal 섹션 추가
+- killed_tickers, trend_exit_tickers 추적
+
+### eps_momentum_system.py
+- calculate_atr(): ATR(14) 계산
+- calculate_stop_loss(): 동적 손절가
+- forward_fill_eps(): 결측치 보정
+- super_momentum_override(): Quality+RSI 기반
+
+### sector_analysis.py
+- SECTOR_ETF에 Semiconductor 추가 (SMH/SOXL)
+- get_sector_etf_recommendation(): 섹터 집중 감지
+
+### DOCUMENTATION.md
+- v7.0 섹션 추가 (6장)
+- 새 텔레그램 템플릿 문서화
 
 ---
 
-## 4. score_321 계산 로직 (참고)
+## 4. 텔레그램 메시지 v7.0 포맷
 
-```python
-def calculate_momentum_score_v3(current, d7, d30, d60):
-    score = 0
+```
+🇺🇸 미국주식 퀀트 랭킹 v7.0
+━━━━━━━━━━━━━━━━━━━━━━
+📅 {Date} 마감 | 총 {Count}개 통과
+📋 전략: EPS Growth + RSI Dual Track
 
-    # 가중치 기반 (최근일수록 높은 점수)
-    if current > d7:   score += 3  # 최신
-    if d7 > d30:       score += 2
-    if d30 > d60:      score += 1
+🔥 [HOT] 섹터 포착
+👉 반도체 4개 → SMH/SOXL
+━━━━━━━━━━━━━━━━━━━━━━
 
-    # 역전 페널티
-    if d7 < d30:       score -= 1
-    if d30 < d60:      score -= 1
+🏆 TOP 10 추천주
 
-    # 60일 변화율 보너스
-    score += eps_chg_60d / 5
+🥇 NEM $113 | Newmont Corp
+   [🛡️분할매수] 80.9점
+   • 🍎맛: 71.7 | 💰값: 90 | RSI50
+   • 📰 금값 $5,000 돌파, UBS 목표가 $160 상향
+   • 2/19 실적발표 예정
 
-    # 정배열 보너스
-    if current > d7 > d30 > d60:
-        score += 3  # 완전 정배열
-    elif current > d7 > d30:
-        score += 1  # 부분 정배열
+━━━━━━━━━━━━━━━━━━━━━━
+📋 관심 종목 (11~25위)
+...
 
-    return score
+━━━━━━━━━━━━━━━━━━━━━━
+🤖 EPS Momentum v7.0 + AI Insights
 ```
 
-**예시:**
-- 완전 정배열 + 60일 변화율 20% = 3+2+1+4+3 = **13점**
-- 부분 정배열 + 60일 변화율 100% = 3+2+0+20+1 = **26점**
+---
+
+## 5. GitHub Actions 설정
+
+`.github/workflows/daily_screening.yml` 추가
+
+**필요 설정:**
+1. GitHub Secrets에 추가:
+   - `TELEGRAM_BOT_TOKEN`
+   - `TELEGRAM_CHAT_ID`
+
+2. 스케줄: 매일 07:00 KST (UTC 22:00)
 
 ---
 
-## 5. 버전 히스토리
+## 6. 버전 히스토리
 
-### v6.3.2 (2026-02-03 10:30)
-- Quality Score: score_321 직접 활용 (정배열 중복 제거)
+### v7.0 (2026-02-03 21:00)
+- TOP 10 액션 로직 변경 (관망 제거)
+- AI Insights (웹 검색 기반)
+- Sector Booster (ETF 추천)
+- Exit Strategy (ATR 손절가)
+- Forward Fill (EPS 결측치)
+- Super Momentum Override
+- Config 분리
+- GitHub Actions 워크플로우
 
-### v6.3.1 (2026-02-03 10:20)
-- Quality Score: 정배열 + 모멘텀 강도 조합 (중복 문제 발견)
+### v6.3.2 (2026-02-03)
+- Quality Score: score_321 직접 활용
 
-### v6.3 (2026-02-03 08:15)
+### v6.3 (2026-02-03)
 - Quality & Value Scorecard 분리
-- RSI Momentum Strategy
-- 거래량 스파이크 / 실적 D-Day / Fake Bottom
-
-### v6.2 (2026-02-03)
-- Action Multiplier 도입
-
-### v6.1 (2026-02-03)
-- 가격위치 점수 (52주 고점 대비)
-
-### v6.0 (2026-02-02)
-- Forward PER, ROE 지표 추가
-- 3-Layer Filtering
 
 ---
 
-## 6. 다음 작업
+## 7. 다음 작업
 
-### 선택적 개선
-- [ ] 백테스트: v6.2 vs v6.3.2 수익률 비교
-- [ ] Quality/Value 가중치 튜닝 (현재 50:50)
-- [ ] 거래량 스파이크 임계값 조정 (현재 1.5x)
-
----
-
-## 7. 설정 파일
-
-**config.json:**
-```json
-{
-  "telegram_enabled": true,
-  "git_enabled": true,
-  "min_score": 4.0,
-  "indices": ["NASDAQ_100", "SP500", "SP400_MidCap"]
-}
-```
+- [ ] GitHub Secrets 설정 (Telegram 토큰)
+- [ ] GitHub Actions 테스트 실행
+- [ ] 백테스트: v6.3 vs v7.0 수익률 비교
+- [ ] AI Insights 자동화 (yfinance news 활용)
 
 ---
 

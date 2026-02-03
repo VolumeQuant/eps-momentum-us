@@ -1,14 +1,25 @@
-# EPS Revision Momentum Strategy v6.3.2 (US Stocks)
+# EPS Revision Momentum Strategy v7.0 (US Stocks)
 
-미국 주식 대상 **Quality & Value Scorecard** 전략 시스템
+미국 주식 대상 **EPS Growth + RSI Dual Track** 전략 시스템
 
-> 🍎⏰ **핵심 철학**: "맛(Quality) + 값(Value) = 실전 매수 점수"
+> 🇺🇸 **핵심 철학**: "TOP 10은 무조건 매수 (돌파 or 분할)"
+
+## v7.0 주요 변경 (2026-02-03)
+
+| 기능 | 설명 |
+|------|------|
+| **TOP 10 액션 변경** | 관망 제거 → 🚀돌파매수 / 🛡️분할매수만 표시 |
+| **AI Insights** | 웹 검색 기반 실시간 뉴스/인사이트 |
+| **Sector Booster** | 섹터 집중시 ETF 추천 (SMH/SOXL 등) |
+| **Exit Strategy** | ATR(14) 기반 동적 손절가 |
+| **GitHub Actions** | 매일 07:00 KST 자동 실행 |
 
 ## 버전 히스토리
 
 | 버전 | 날짜 | 주요 변경 |
 |------|------|----------|
-| **v6.3.2** | 2026-02-03 | Quality Score: score_321 직접 활용 (정배열 중복 제거) |
+| **v7.0** | 2026-02-03 | TOP 10 액션 변경, AI Insights, Sector Booster, GitHub Actions |
+| v6.3.2 | 2026-02-03 | Quality Score: score_321 직접 활용 (정배열 중복 제거) |
 | v6.3.1 | 2026-02-03 | Quality Score: 정배열 + 모멘텀 강도 조합 (중복 문제 발견) |
 | v6.3 | 2026-02-03 | **Quality & Value Scorecard** 분리, **RSI Momentum Strategy** |
 | v6.2 | 2026-02-03 | Action Multiplier: RSI 과열 종목 자동 페널티, 실전 매수 랭킹 |

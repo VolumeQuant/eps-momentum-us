@@ -74,7 +74,7 @@ DEFAULT_CONFIG = {
 def load_config():
     """설정 로드 (없으면 기본값 생성)"""
     if CONFIG_PATH.exists():
-        with open(CONFIG_PATH, 'r') as f:
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             config = json.load(f)
             # 기본값 병합
             for key, value in DEFAULT_CONFIG.items():
@@ -82,8 +82,8 @@ def load_config():
                     config[key] = value
             return config
     else:
-        with open(CONFIG_PATH, 'w') as f:
-            json.dump(DEFAULT_CONFIG, f, indent=2)
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(DEFAULT_CONFIG, f, indent=2, ensure_ascii=False)
         print(f"[INFO] 기본 설정 파일 생성: {CONFIG_PATH}")
         return DEFAULT_CONFIG
 
