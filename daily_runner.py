@@ -2130,32 +2130,8 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
         msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
 
     # ========================================
-    # 액션별 요약 (간략화)
+    # v7.0: 액션별 분포 제거 (모든 종목이 돌파/분할매수로 표시되므로 혼란 방지)
     # ========================================
-    action_counts = {}
-    # 🚀강력매수는 별도 처리 (이모지 포함)
-    super_momentum_count = len(screening_df[screening_df['action'].str.contains('🚀강력매수', na=False)])
-    if super_momentum_count > 0:
-        action_counts['🚀강력매수'] = super_momentum_count
-
-    for action_key in ['적극매수', '저점매수', '매수적기', '관망', '진입금지']:
-        # 🚀강력매수는 적극매수에 포함되지 않도록 제외
-        if action_key == '적극매수':
-            count = len(screening_df[
-                screening_df['action'].str.contains(action_key, na=False) &
-                ~screening_df['action'].str.contains('🚀강력매수', na=False)
-            ])
-        else:
-            count = len(screening_df[screening_df['action'].str.contains(action_key, na=False)])
-        if count > 0:
-            action_counts[action_key] = count
-
-    if action_counts:
-        msg += "\n<b>📊 액션별 분포</b>\n"
-        action_icons = {'🚀강력매수': '🔥', '적극매수': '🚀', '저점매수': '💎', '매수적기': '🟢', '관망': '👀', '진입금지': '🚫'}
-        for action_key, count in action_counts.items():
-            icon = action_icons.get(action_key, '•')
-            msg += f"{icon} {action_key}: {count}개\n"
 
     # ========================================
     # 포트폴리오 변경
