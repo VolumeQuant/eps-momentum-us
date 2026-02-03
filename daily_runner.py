@@ -1839,9 +1839,124 @@ def get_stock_insight(ticker, max_chars=50):
         max_chars: 최대 글자 수
 
     Returns:
-        str: 뉴스 헤드라인 또는 업종 정보
+        str: 뉴스 헤드라인 또는 업종 정보 (한국어)
     """
     import yfinance as yf
+
+    # 업종 한국어 매핑
+    industry_kr = {
+        # Technology
+        'Semiconductors': '반도체',
+        'Semiconductor Equipment & Materials': '반도체 장비',
+        'Software—Infrastructure': '인프라 소프트웨어',
+        'Software—Application': '애플리케이션 소프트웨어',
+        'Information Technology Services': 'IT 서비스',
+        'Computer Hardware': '컴퓨터 하드웨어',
+        'Electronic Components': '전자부품',
+        'Consumer Electronics': '가전제품',
+        'Communication Equipment': '통신장비',
+        # Healthcare
+        'Biotechnology': '바이오테크',
+        'Drug Manufacturers—General': '대형 제약',
+        'Drug Manufacturers—Specialty & Generic': '특수/제네릭 제약',
+        'Medical Devices': '의료기기',
+        'Medical Instruments & Supplies': '의료기기 및 소모품',
+        'Diagnostics & Research': '진단 및 연구',
+        'Health Information Services': '헬스케어 IT',
+        'Healthcare Plans': '건강보험',
+        # Financial
+        'Banks—Diversified': '대형 은행',
+        'Banks—Regional': '지역 은행',
+        'Asset Management': '자산운용',
+        'Capital Markets': '자본시장',
+        'Insurance—Life': '생명보험',
+        'Insurance—Property & Casualty': '손해보험',
+        'Insurance—Diversified': '종합보험',
+        'Credit Services': '신용서비스',
+        'Financial Data & Stock Exchanges': '금융데이터/거래소',
+        # Consumer
+        'Internet Retail': '온라인 유통',
+        'Specialty Retail': '전문 소매',
+        'Home Improvement Retail': '홈임프루브먼트',
+        'Auto Manufacturers': '자동차',
+        'Auto Parts': '자동차 부품',
+        'Restaurants': '레스토랑',
+        'Apparel Retail': '의류 소매',
+        'Apparel Manufacturing': '의류 제조',
+        'Footwear & Accessories': '신발/액세서리',
+        'Leisure': '레저',
+        'Gambling': '게임/카지노',
+        'Resorts & Casinos': '리조트/카지노',
+        'Travel Services': '여행 서비스',
+        'Lodging': '숙박',
+        'Packaged Foods': '식품',
+        'Beverages—Non-Alcoholic': '음료',
+        'Beverages—Wineries & Distilleries': '주류',
+        'Household & Personal Products': '생활용품',
+        'Tobacco': '담배',
+        # Industrials
+        'Aerospace & Defense': '항공우주/방산',
+        'Airlines': '항공',
+        'Railroads': '철도',
+        'Trucking': '트럭운송',
+        'Integrated Freight & Logistics': '물류',
+        'Marine Shipping': '해운',
+        'Electrical Equipment & Parts': '전기장비',
+        'Industrial Distribution': '산업재 유통',
+        'Specialty Industrial Machinery': '특수 산업기계',
+        'Farm & Heavy Construction Machinery': '건설/농업기계',
+        'Metal Fabrication': '금속가공',
+        'Building Products & Equipment': '건축자재',
+        'Engineering & Construction': '엔지니어링/건설',
+        'Consulting Services': '컨설팅',
+        'Staffing & Employment Services': '인력서비스',
+        'Waste Management': '폐기물관리',
+        'Rental & Leasing Services': '렌탈/리스',
+        'Security & Protection Services': '보안 서비스',
+        'Conglomerates': '복합기업',
+        # Energy
+        'Oil & Gas Integrated': '종합 에너지',
+        'Oil & Gas E&P': '원유/가스 탐사',
+        'Oil & Gas Midstream': '원유/가스 중류',
+        'Oil & Gas Refining & Marketing': '정유',
+        'Oil & Gas Equipment & Services': '에너지 장비/서비스',
+        'Uranium': '우라늄',
+        # Basic Materials
+        'Gold': '금',
+        'Silver': '은',
+        'Copper': '구리',
+        'Steel': '철강',
+        'Aluminum': '알루미늄',
+        'Specialty Chemicals': '특수화학',
+        'Chemicals': '화학',
+        'Agricultural Inputs': '농업투입재',
+        'Building Materials': '건축자재',
+        'Paper & Paper Products': '종이/제지',
+        'Lumber & Wood Production': '목재',
+        # Communication Services
+        'Telecom Services': '통신서비스',
+        'Entertainment': '엔터테인먼트',
+        'Internet Content & Information': '인터넷/미디어',
+        'Electronic Gaming & Multimedia': '게임/멀티미디어',
+        'Advertising Agencies': '광고',
+        'Broadcasting': '방송',
+        'Publishing': '출판',
+        # Real Estate
+        'REIT—Residential': '주거용 리츠',
+        'REIT—Retail': '리테일 리츠',
+        'REIT—Industrial': '산업용 리츠',
+        'REIT—Office': '오피스 리츠',
+        'REIT—Healthcare Facilities': '헬스케어 리츠',
+        'REIT—Specialty': '특수 리츠',
+        'REIT—Diversified': '복합 리츠',
+        'Real Estate Services': '부동산 서비스',
+        # Utilities
+        'Utilities—Regulated Electric': '규제 전력',
+        'Utilities—Diversified': '복합 유틸리티',
+        'Utilities—Renewable': '신재생 에너지',
+        'Utilities—Independent Power Producers': '독립 발전사',
+    }
+
     try:
         stock = yf.Ticker(ticker)
 
@@ -1857,11 +1972,12 @@ def get_stock_insight(ticker, max_chars=50):
                         title = title[:max_chars-3] + '...'
                     return f"📰 {title}"
 
-        # 2차: 업종 정보
+        # 2차: 업종 정보 (한국어 변환)
         info = stock.info
         industry = info.get('industry', '')
         if industry:
-            return f"🏢 {industry}"
+            industry_korean = industry_kr.get(industry, industry)  # 매핑 없으면 원문
+            return f"🏢 {industry_korean}"
 
         return None
     except Exception:
@@ -1949,7 +2065,7 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
         msg += f"• 현금 비중 확대\n\n"
 
         msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        msg += f"<i>🤖 EPS Momentum v7.0</i>\n"
+        msg += f"<i>🤖 EPS Momentum v7.0.5</i>\n"
         msg += f"<i>🔴 Market Regime: RED</i>\n"
 
         return msg
@@ -1978,18 +2094,25 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     msg += "• 펀더멘털: EPS 전망치 상향 (실적 우상향)\n"
     msg += "• 타이밍: RSI 눌림목(Dip) &amp; 신고가 돌파(Momentum)\n\n"
 
-    # v7.0: ETF 추천 섹션 (Sector Booster)
+    # v7.0.5: ETF 추천 섹션 (전체 종목 섹터 분석)
     from sector_analysis import get_sector_etf_recommendation, format_etf_recommendation_text
-    etf_recommendations = get_sector_etf_recommendation(screening_df, top_n=10, min_count=3, config=config)
+    # 전체 통과 종목 기준 섹터 분석 (config의 top_n 무시)
+    etf_recommendations = get_sector_etf_recommendation(
+        screening_df,
+        top_n=len(screening_df),  # 전체 종목 분석
+        min_count=3,
+        config=None  # config의 top_n=10 설정 무시
+    )
     if etf_recommendations:
-        msg += f"🔥 <b>[HOT] 섹터 포착</b>\n"
-        for rec in etf_recommendations[:2]:  # 상위 2개만
+        msg += f"🔥 <b>[HOT] 섹터 집중</b> (전체 {total_count}개 분석)\n"
+        for rec in etf_recommendations[:3]:  # 상위 3개 섹터
             sector = rec['sector']
             count = rec['count']
+            pct = rec['pct']
             etf_1x = rec.get('etf_1x', '-')
             etf_3x = rec.get('etf_3x', '-')
             sector_kr = sector_map.get(sector, sector)
-            msg += f"👉 {sector_kr} {count}개 → {etf_1x}"
+            msg += f"👉 {sector_kr} {count}개({pct:.0f}%) → {etf_1x}"
             if etf_3x:
                 msg += f"/{etf_3x}"
             msg += "\n"
@@ -2284,7 +2407,7 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
 
     # 푸터
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "<i>🤖 EPS Momentum v7.0</i>\n"
+    msg += "<i>🤖 EPS Momentum v7.0.5</i>\n"
     msg += "<i>맛(Quality) + 값(Value) = 실전점수</i>\n"
     if regime == 'YELLOW':
         msg += "<i>🟡 Caution Mode Active</i>\n"

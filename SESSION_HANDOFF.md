@@ -1,8 +1,8 @@
 # SESSION_HANDOFF.md
-## EPS Momentum System v7.0 - AI Insights + Dual Track Strategy
+## EPS Momentum System v7.0.5 - AI Insights + Dual Track Strategy
 
-**Last Updated:** 2026-02-03 21:00
-**Session:** v6.3.2 -> v7.0 대규모 업그레이드 완료
+**Last Updated:** 2026-02-03 23:20
+**Session:** v7.0.5 인사이트 한국어 + 전체 섹터 분석 + ETF 버그 수정
 
 ---
 
@@ -185,13 +185,34 @@ Quality >= 80 + RSI 70-85 → 자동 "슈퍼모멘텀" 부여
 
 ---
 
-## 7. v7.0.4 추가 변경 (2026-02-03 22:55)
+## 7. v7.0.5 추가 변경 (2026-02-03 23:30)
 
-### yfinance 인사이트 자동 추가
+### 인사이트 한국어 + 전체 섹터 분석
 
 **변경사항:**
+1. **업종 한국어 변환**: 뉴스 없을 때 표시되는 업종명을 한국어로 변환
+   - 예: "Semiconductors" → "🏢 반도체"
+   - 100개+ 업종 한국어 매핑 추가
+
+2. **전체 종목 섹터 분석**: TOP 10이 아닌 전체 통과 종목(54개) 기준 ETF 추천
+   - 기존: TOP 10 중 3개 이상 → ETF 추천
+   - 변경: 전체 54개 중 섹터 비중 분석 → 상위 3개 섹터 ETF 추천
+   - 비율(%) 표시 추가
+   - **버그 수정**: config.json의 top_n=10이 함수 파라미터 덮어쓰던 문제 해결
+
+**새 ETF 섹션 포맷 (실제 결과):**
+```
+🔥 [HOT] 섹터 집중 (전체 54개 분석)
+👉 경기소비재 12개(22%) → XLY/WANT
+👉 산업재 11개(20%) → XLI/DUSL
+👉 기술 9개(17%) → XLK/TECL
+```
+
+### v7.0.4 변경 (2026-02-03 22:55)
+
+**yfinance 인사이트 자동 추가:**
 - TOP 20 종목에 yfinance 뉴스 헤드라인 자동 추가
-- 뉴스 없으면 업종(industry) 표시
+- 뉴스 없으면 업종(industry) 표시 (v7.0.5에서 한국어로 변경)
 - 생성 시간: 7.3초 (20개 API 호출)
 
 **샘플:**
@@ -250,7 +271,9 @@ Quality >= 80 + RSI 70-85 → 자동 "슈퍼모멘텀" 부여
 - [ ] GitHub Secrets 설정 (Telegram 토큰)
 - [ ] GitHub Actions 테스트 실행
 - [ ] 백테스트: v6.3 vs v7.0 수익률 비교
-- [ ] AI Insights 자동화 (yfinance news 활용)
+- [x] AI Insights 자동화 (yfinance news 활용) ✅ v7.0.4
+- [x] 인사이트 한국어 변환 ✅ v7.0.5
+- [x] 전체 종목 섹터 분석 ETF 추천 ✅ v7.0.5
 
 ---
 
