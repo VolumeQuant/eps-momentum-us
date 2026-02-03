@@ -523,11 +523,11 @@ def run_screening(config, market_regime=None):
                 # Hybrid Score = Momentum×0.5 + Value×0.2 + Position×0.3
                 hybrid_score = calculate_hybrid_score(score_321, fwd_per, price_position_score)
 
-                # v6.3: Quality Score (맛) 계산
+                # v6.3.1: Quality Score (맛) 계산 - 모멘텀 강도 반영
                 above_ma200 = ma_200 is not None and price > ma_200
                 roe_pct = roe * 100 if roe else 0
                 quality_score, quality_grade = calculate_quality_score(
-                    is_aligned, roe_pct, eps_chg, above_ma200, volume_spike
+                    is_aligned, roe_pct, eps_chg, above_ma200, volume_spike, score_321
                 )
 
                 # v6.3: Value Score (값) 계산
