@@ -2054,22 +2054,45 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
             rationale = generate_korean_rationale(row)
             msg += f"   💡 <i>{rationale}</i>\n"
 
-        # v7.0: 관심 종목 (11~25위)
-        watchlist_max = config.get('telegram_format', {}).get('watchlist_max', 25)
+        # v7.0: 전체 종목 상세 표시 (11위~끝까지)
         if total_count > top_count:
             msg += f"\n{'─' * 22}\n"
-            msg += f"<b>📋 관심 종목 ({top_count+1}~{min(watchlist_max, total_count)}위)</b>\n"
-            remaining = screening_df.iloc[top_count:min(watchlist_max, total_count)]
+            msg += f"<b>📋 후순위 종목 ({top_count+1}~{total_count}위)</b>\n"
+            remaining = screening_df.iloc[top_count:]  # 전체 표시
             for idx, (_, row) in enumerate(remaining.iterrows(), top_count + 1):
                 ticker = row['ticker']
                 company_name = row.get('company_name', '')
+                price = row.get('price', 0)
+                sector = row.get('sector', 'Other')
+                rsi = row.get('rsi')
+                from_52w_high = row.get('from_52w_high')
+                quality_score = row.get('quality_score', 0)
+                value_score = row.get('value_score', 0)
                 actionable_v63 = row.get('actionable_score_v63', 0)
-                action = row.get('action', '')
-                action_short = action.split('(')[0].strip() if '(' in str(action) else str(action)[:6]
-                name_str = f" | {company_name}" if company_name else ""
-                msg += f"{idx}. {ticker}{name_str} | {actionable_v63:.1f}점\n"
-            if total_count > watchlist_max:
-                msg += f"   ... +{total_count - watchlist_max}개 더\n"
+
+                sector_kr = sector_map.get(sector, sector[:4])
+                q_score = round(quality_score, 1) if quality_score else 0
+                v_score = round(value_score, 1) if value_score else 0
+
+                # RSI 표시
+                if rsi and rsi >= 70:
+                    rsi_str = f"🚀{rsi:.0f}"
+                elif rsi:
+                    rsi_str = f"{rsi:.0f}"
+                else:
+                    rsi_str = "-"
+
+                # 고점대비
+                high_str = f"{from_52w_high:.0f}%" if from_52w_high else ""
+
+                # 액션 결정 (동일 로직)
+                is_near_high = from_52w_high is not None and from_52w_high >= -5
+                is_momentum = (rsi and rsi >= 60) or is_near_high
+                action_icon = "🚀" if is_momentum else "🛡️"
+
+                msg += f"\n<b>#{idx} {ticker}</b> ${price:.0f} {action_icon}\n"
+                msg += f"   {company_name}\n"
+                msg += f"   {actionable_v63:.1f}점 | 🍎{q_score} 💰{v_score} | RSI{rsi_str} | {high_str}\n"
 
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
 
