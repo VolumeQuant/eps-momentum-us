@@ -1,8 +1,8 @@
 # SESSION_HANDOFF.md
 ## EPS Momentum System v7.0.5 - AI Insights + Dual Track Strategy
 
-**Last Updated:** 2026-02-03 23:20
-**Session:** v7.0.5 인사이트 한국어 + 전체 섹터 분석 + ETF 버그 수정
+**Last Updated:** 2026-02-03 23:22
+**Session:** v7.0.5 완료 - 인사이트 한국어 + 전체 섹터 분석 + 정확한 stats 표시
 
 ---
 
@@ -206,6 +206,12 @@ Quality >= 80 + RSI 70-85 → 자동 "슈퍼모멘텀" 부여
 👉 경기소비재 12개(22%) → XLY/WANT
 👉 산업재 11개(20%) → XLI/DUSL
 👉 기술 9개(17%) → XLK/TECL
+```
+
+**필터 통계 (리포트 기준):**
+```
+스캔: 917개 → 통과: 54개
+Kill: 113 | ROE필터: 58 | PER필터: 0
 ```
 
 ### v7.0.4 변경 (2026-02-03 22:55)
