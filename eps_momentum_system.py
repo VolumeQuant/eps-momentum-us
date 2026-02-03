@@ -775,56 +775,245 @@ def calculate_value_score(peg, fwd_per, from_52w_high, rsi):
     return score, label
 
 
-def get_action_multiplier(action):
+def get_action_multiplier(action, config=None):
     """
-    Action Multiplier 계산 (v6.3)
+    Action Multiplier 계산 (v7.0)
 
-    실전 매수 적합도를 반영하는 승수.
-    RSI 과열, 고점 근처 등 진입 부적합 종목에 페널티 적용.
-
-    v6.3 변경: 🚀강력매수 (돌파) 등급 추가
-    - RSI 70-84에서 신고가 + 거래량 스파이크 = 최고 배수
+    config.json에서 가중치 로드 (설정 외부화)
 
     Args:
         action: get_action_label() 결과 문자열
+        config: 설정 딕셔너리 (None이면 기본값 사용)
 
     Returns:
         float: 0.1 ~ 1.1 (높을수록 매수 적합)
     """
+    # 기본 가중치 (config 없을 경우)
+    default_multipliers = {
+        '돌파매수': 1.1,
+        '슈퍼모멘텀': 1.1,
+        '적극매수': 1.0,
+        '저점매수': 1.0,
+        '분할매수': 1.0,
+        '매수적기': 0.9,
+        'RSI관망': 0.75,
+        '관망': 0.7,
+        '진입금지': 0.3,
+        '추세이탈': 0.1
+    }
+
+    # config에서 가중치 로드
+    multipliers = default_multipliers
+    if config and 'action_multipliers' in config:
+        multipliers = {**default_multipliers, **config['action_multipliers']}
+
     if action is None:
         return 0.5
 
     action = str(action)
 
-    # 🚀강력매수 (돌파): ×1.1 (슈퍼 모멘텀 보너스)
-    if '🚀강력매수' in action:
-        return 1.1
+    # 우선순위 순으로 매칭
+    if '🚀' in action or '돌파매수' in action or '슈퍼모멘텀' in action:
+        return multipliers.get('돌파매수', 1.1)
 
-    # 적극 매수 신호: ×1.0
-    if '적극매수' in action or '저점매수' in action:
-        return 1.0
+    if '적극매수' in action:
+        return multipliers.get('적극매수', 1.0)
 
-    # 매수 적기: ×0.9
+    if '저점매수' in action:
+        return multipliers.get('저점매수', 1.0)
+
+    if '분할매수' in action:
+        return multipliers.get('분할매수', 1.0)
+
     if '매수적기' in action:
-        return 0.9
+        return multipliers.get('매수적기', 0.9)
 
-    # 관망 (RSI🚀 포함): ×0.75 (RSI 과열이지만 완전 페널티는 아님)
     if 'RSI🚀' in action:
-        return 0.75
+        return multipliers.get('RSI관망', 0.75)
 
-    # 일반 관망: ×0.7
     if '관망' in action:
-        return 0.7
+        return multipliers.get('관망', 0.7)
 
-    # 진입 금지: ×0.3 (강한 페널티)
     if '진입금지' in action:
-        return 0.3
+        return multipliers.get('진입금지', 0.3)
 
-    # 추세 이탈: ×0.1 (최강 페널티)
     if '추세이탈' in action:
-        return 0.1
+        return multipliers.get('추세이탈', 0.1)
 
     return 0.5
+
+
+# ============================================================
+# v7.0 신규 함수: ATR, Stop Loss, Forward Fill
+# ============================================================
+
+def calculate_atr(hist, period=14):
+    """
+    ATR(Average True Range) 계산
+
+    공식: ATR = SMA of True Range over 'period' days
+    True Range = max(High-Low, |High-PrevClose|, |Low-PrevClose|)
+
+    Args:
+        hist: yfinance history DataFrame (OHLC 포함)
+        period: ATR 기간 (기본 14일)
+
+    Returns:
+        float: ATR 값 (None if insufficient data)
+    """
+    if hist is None or len(hist) < period + 1:
+        return None
+
+    high = hist['High']
+    low = hist['Low']
+    close = hist['Close']
+    prev_close = close.shift(1)
+
+    # True Range 계산
+    tr1 = high - low
+    tr2 = abs(high - prev_close)
+    tr3 = abs(low - prev_close)
+
+    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = true_range.rolling(window=period).mean().iloc[-1]
+
+    if pd.isna(atr):
+        return None
+
+    return round(atr, 4)
+
+
+def calculate_stop_loss(price, atr, multiplier=2.0):
+    """
+    동적 손절가 계산 (ATR 기반)
+
+    공식: Stop Loss = Close - (ATR × multiplier)
+
+    Args:
+        price: 현재 종가
+        atr: ATR 값
+        multiplier: ATR 배수 (기본 2.0)
+
+    Returns:
+        float: 손절가 (None if invalid input)
+    """
+    if price is None or atr is None or atr <= 0:
+        return None
+
+    stop_loss = price - (atr * multiplier)
+    return round(max(stop_loss, 0), 2)  # 음수 방지
+
+
+def check_trend_exit(price, ma_20, ma_50, action_type='B'):
+    """
+    추세 이탈 체크 (Exit Strategy)
+
+    Track A (Dip 매수): Close < MA50 → 추세 이탈
+    Track B (Momentum): Close < MA20 → 추세 이탈
+
+    Args:
+        price: 현재 가격
+        ma_20: 20일 이동평균
+        ma_50: 50일 이동평균
+        action_type: 'A' (Dip) 또는 'B' (Momentum)
+
+    Returns:
+        tuple: (is_exit: bool, reason: str or None)
+    """
+    if price is None:
+        return False, None
+
+    if action_type == 'A' and ma_50 is not None:
+        if price < ma_50:
+            return True, f"Track A 이탈: ${price:.2f} < MA50 ${ma_50:.2f}"
+    elif action_type == 'B' and ma_20 is not None:
+        if price < ma_20:
+            return True, f"Track B 이탈: ${price:.2f} < MA20 ${ma_20:.2f}"
+
+    return False, None
+
+
+def forward_fill_eps(current, d7, d30, d60=None):
+    """
+    EPS Forward Fill (데이터 안정성 강화)
+
+    7d, 30d, 60d가 NaN이면 더 최신 데이터로 채움
+    (변화 없음으로 가정)
+
+    Args:
+        current: 현재 EPS
+        d7: 7일 전 EPS
+        d30: 30일 전 EPS
+        d60: 60일 전 EPS (optional)
+
+    Returns:
+        tuple: (filled_7d, filled_30d, filled_60d, was_filled: bool)
+    """
+    was_filled = False
+
+    # 7d: NaN이면 current로
+    filled_7d = d7
+    if pd.isna(d7) and pd.notna(current):
+        filled_7d = current
+        was_filled = True
+
+    # 30d: NaN이면 7d(또는 current)로
+    filled_30d = d30
+    if pd.isna(d30) and pd.notna(filled_7d):
+        filled_30d = filled_7d
+        was_filled = True
+
+    # 60d: NaN이면 30d로
+    filled_60d = d60
+    if d60 is not None and pd.isna(d60) and pd.notna(filled_30d):
+        filled_60d = filled_30d
+        was_filled = True
+
+    return filled_7d, filled_30d, filled_60d, was_filled
+
+
+def super_momentum_override(quality_score, rsi, action, config=None):
+    """
+    Super Momentum Override (v7.0)
+
+    펀더멘털(Quality)이 완벽한데 기술적 과열(RSI)로
+    매수 금지되는 모순 해결.
+
+    조건: Quality_Score >= 80 (S급) AND 70 <= RSI < 85
+    결과: 기존 '관망' 무시, [🚀돌파매수 (슈퍼모멘텀)] 부여
+
+    Args:
+        quality_score: 품질 점수 (0-100)
+        rsi: RSI 값 (0-100)
+        action: 기존 액션 레이블
+        config: 설정 딕셔너리
+
+    Returns:
+        str: 최종 액션 레이블
+    """
+    # 기본 임계값
+    quality_threshold = 80
+    rsi_min = 70
+    rsi_max = 85
+
+    # config에서 임계값 로드
+    if config and 'super_momentum' in config:
+        sm_config = config['super_momentum']
+        if not sm_config.get('enabled', True):
+            return action  # 비활성화 시 원래 action 반환
+        quality_threshold = sm_config.get('quality_threshold', 80)
+        rsi_min = sm_config.get('rsi_min', 70)
+        rsi_max = sm_config.get('rsi_max', 85)
+
+    # Override 조건 체크
+    if (quality_score is not None and rsi is not None and
+        quality_score >= quality_threshold and
+        rsi_min <= rsi < rsi_max):
+        # 기존 액션이 '관망' 계열이면 오버라이드
+        if '관망' in str(action):
+            return "🚀돌파매수 (슈퍼모멘텀)"
+
+    return action
 
 
 def calculate_actionable_score(hybrid_score, action):

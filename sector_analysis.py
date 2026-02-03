@@ -68,6 +68,7 @@ INDICES = {
 # 섹터별 레버리지 ETF (Broad 신호용)
 SECTOR_ETF = {
     'Technology': {'1x': 'XLK', '2x': 'ROM', '3x': 'TECL'},
+    'Semiconductor': {'1x': 'SMH', '2x': 'USD', '3x': 'SOXL'},  # v7.0 추가
     'Financial Services': {'1x': 'XLF', '2x': 'UYG', '3x': 'FAS'},
     'Healthcare': {'1x': 'XLV', '2x': 'RXL', '3x': 'CURE'},
     'Consumer Cyclical': {'1x': 'XLY', '2x': 'UCC', '3x': 'WANT'},
@@ -394,6 +395,97 @@ def main():
     print("  - NARROW signal: Use THEME ETF (e.g., SOXL for Semiconductors)")
     print("  - BROAD signal:  Use SECTOR ETF (e.g., DUSL for Industrials)")
     print("="*80)
+
+
+# ============================================================
+# v7.0 신규 함수: Sector Booster (ETF 추천)
+# ============================================================
+
+def get_sector_etf_recommendation(screening_df, top_n=10, min_count=3, config=None):
+    """
+    Sector Booster: TOP N 종목 중 동일 섹터 집중 시 ETF 추천
+
+    TOP 10 종목 중 동일 섹터가 3개 이상이면 관련 ETF 추천.
+    특정 섹터에 쏠림을 기회로 활용.
+
+    Args:
+        screening_df: 스크리닝 결과 DataFrame (actionable_score 정렬됨)
+        top_n: 상위 N개 종목 기준 (기본 10)
+        min_count: 섹터당 최소 종목 수 (기본 3)
+        config: 설정 딕셔너리
+
+    Returns:
+        list: [{'sector': str, 'count': int, 'pct': float,
+                'etf_1x': str, 'etf_3x': str}]
+    """
+    if screening_df is None or screening_df.empty:
+        return []
+
+    # config에서 설정 로드
+    if config and 'sector_booster' in config:
+        sb_config = config['sector_booster']
+        if not sb_config.get('enabled', True):
+            return []
+        top_n = sb_config.get('top_n', top_n)
+        min_count = sb_config.get('min_sector_count', min_count)
+
+    # TOP N 종목 추출
+    top_df = screening_df.head(top_n)
+    if 'sector' not in top_df.columns:
+        return []
+
+    # 섹터별 카운트
+    sector_counts = top_df['sector'].value_counts()
+
+    recommendations = []
+    for sector, count in sector_counts.items():
+        if count >= min_count:
+            etf_info = SECTOR_ETF.get(sector, {})
+            recommendations.append({
+                'sector': sector,
+                'count': count,
+                'pct': round(count / top_n * 100, 1),
+                'etf_1x': etf_info.get('1x'),
+                'etf_2x': etf_info.get('2x'),
+                'etf_3x': etf_info.get('3x'),
+            })
+
+    # count 내림차순 정렬
+    recommendations.sort(key=lambda x: x['count'], reverse=True)
+
+    return recommendations
+
+
+def format_etf_recommendation_text(recommendations):
+    """
+    ETF 추천을 텔레그램 메시지 포맷으로 변환
+
+    Args:
+        recommendations: get_sector_etf_recommendation() 결과
+
+    Returns:
+        str: 포맷된 텍스트
+    """
+    if not recommendations:
+        return ""
+
+    lines = []
+    for rec in recommendations:
+        sector = rec['sector']
+        count = rec['count']
+        pct = rec['pct']
+        etf_1x = rec.get('etf_1x', '-')
+        etf_3x = rec.get('etf_3x', '-')
+
+        line = f"{sector} {count}개({pct}%)"
+        if etf_1x and etf_3x:
+            line += f" → {etf_1x}/{etf_3x}"
+        elif etf_1x:
+            line += f" → {etf_1x}"
+
+        lines.append(line)
+
+    return "\n".join(lines)
 
 
 if __name__ == '__main__':

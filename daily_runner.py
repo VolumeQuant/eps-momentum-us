@@ -246,7 +246,9 @@ def run_screening(config, market_regime=None):
             'no_quality_value': 0, 'data_error': 0, 'passed': 0,
             'aligned': 0, 'quality_growth': 0, 'reasonable_value': 0,
             'technical_rescue': 0, 'market_regime': market_regime,
-            'min_score_used': None, 'max_peg_used': None, 'skipped': True
+            'min_score_used': None, 'max_peg_used': None, 'skipped': True,
+            'low_roe': 0, 'high_per': 0, 'avg_fwd_per': 0, 'avg_roe': 0,
+            'killed_tickers': [], 'trend_exit_tickers': []
         }
         return pd.DataFrame(), empty_stats
 
@@ -272,7 +274,10 @@ def run_screening(config, market_regime=None):
             calculate_forward_per, get_roe, calculate_peg_from_growth,
             calculate_hybrid_score, calculate_price_position_score,
             get_action_multiplier, calculate_actionable_score,
-            calculate_quality_score, calculate_value_score
+            calculate_quality_score, calculate_value_score,
+            # v7.0 신규 함수
+            calculate_atr, calculate_stop_loss, forward_fill_eps,
+            super_momentum_override, check_trend_exit
         )
 
         today = datetime.now().strftime('%Y-%m-%d')
@@ -311,6 +316,9 @@ def run_screening(config, market_regime=None):
             'high_per': 0,          # Layer 3: PER > 60 탈락
             'avg_fwd_per': 0,       # 통과 종목 평균 Forward PER
             'avg_roe': 0,           # 통과 종목 평균 ROE
+            # v7.0 Sell Signal 지원
+            'killed_tickers': [],    # Kill Switch 발동 종목 리스트
+            'trend_exit_tickers': [],  # 추세 이탈 종목 리스트
         }
 
         for ticker, idx_name in all_tickers.items():
@@ -331,10 +339,17 @@ def run_screening(config, market_regime=None):
                 d60 = eps_row.get('60daysAgo')
                 d90 = eps_row.get('90daysAgo')
 
+                # v7.0: Forward Fill (결측치 보정)
+                is_filled = False
+                if pd.notna(current):
+                    d7_filled, d30_filled, d60_filled, is_filled = forward_fill_eps(current, d7, d30, d60)
+                    d7, d30, d60 = d7_filled, d30_filled, d60_filled
+
                 # === FILTER 2: Kill Switch (1% 하락시 탈락) ===
                 if pd.notna(current) and pd.notna(d7) and d7 != 0:
                     if current < d7 * 0.99:  # 1% 이상 하락
                         stats['killed'] += 1
+                        stats['killed_tickers'].append(ticker)
                         continue
 
                 # === FILTER 3: Score >= 4.0 ===
@@ -364,8 +379,16 @@ def run_screening(config, market_regime=None):
 
                 # MA 계산
                 ma_20 = hist_1m['Close'].tail(20).mean() if len(hist_1m) >= 20 else hist_1m['Close'].mean()
+                ma_50 = hist_1y['Close'].tail(50).mean() if len(hist_1y) >= 50 else None  # v7.0
                 ma_60 = hist_1y['Close'].tail(60).mean() if len(hist_1y) >= 60 else None
                 ma_200 = hist_1y['Close'].tail(200).mean() if len(hist_1y) >= 200 else None
+
+                # v7.0: ATR 및 손절가 계산
+                exit_config = config.get('exit_strategy', {})
+                atr_period = exit_config.get('atr_period', 14)
+                atr_multiplier = exit_config.get('atr_multiplier', 2.0)
+                atr = calculate_atr(hist_1m, period=atr_period)
+                stop_loss = calculate_stop_loss(price, atr, multiplier=atr_multiplier)
 
                 # === FILTER 5: Price > MA200 (장기 상승 추세) ===
                 if ma_200 is not None and price <= ma_200:
@@ -511,6 +534,9 @@ def run_screening(config, market_regime=None):
                 # Action 결정 (52주 고점 대비 위치 + 거래량 스파이크 포함)
                 action = get_action_label(price, ma_20, ma_200, rsi, from_52w_high, volume_spike)
 
+                # v7.0: Industry 정보
+                industry = info.get('industry', '')
+
                 # v6.1: Hybrid Score 계산 (Option A - 가격위치 포함)
                 # 52주 고점 계산
                 high_52w = None
@@ -535,8 +561,11 @@ def run_screening(config, market_regime=None):
                     peg_calculated, fwd_per, from_52w_high, rsi
                 )
 
-                # v6.3: Actionable Score = (Q×0.5 + V×0.5) × Action Multiplier
-                action_multiplier = get_action_multiplier(action)
+                # v7.0: Super Momentum Override (Quality >= 80 + RSI 70-85 → 돌파매수)
+                action = super_momentum_override(quality_score, rsi, action, config)
+
+                # v7.0: Actionable Score = (Q×0.5 + V×0.5) × Action Multiplier
+                action_multiplier = get_action_multiplier(action, config)
                 combined_score = (quality_score * 0.5 + value_score * 0.5)
                 actionable_score_v63 = round(combined_score * action_multiplier, 2)
 
@@ -597,6 +626,12 @@ def run_screening(config, market_regime=None):
                     'volume_spike': volume_spike,
                     'earnings_dday': earnings_dday,
                     'fake_bottom': fake_bottom,
+                    # v7.0 신규 필드 (Exit Strategy + Super Momentum)
+                    'atr': round(atr, 2) if atr else None,
+                    'stop_loss': round(stop_loss, 2) if stop_loss else None,
+                    'ma_50': round(ma_50, 2) if ma_50 else None,
+                    'industry': industry,
+                    'is_filled': 1 if is_filled else 0,
                 })
                 stats['passed'] += 1
 
@@ -799,7 +834,7 @@ def run_data_collection(config):
             )
         ''')
 
-        # 새 컬럼 추가 (기존 테이블에) - v6 포함
+        # 새 컬럼 추가 (기존 테이블에) - v7 포함
         new_columns = [
             ('is_aligned', 'INTEGER DEFAULT 0'),
             ('is_undervalued', 'INTEGER DEFAULT 0'),
@@ -815,6 +850,13 @@ def run_data_collection(config):
             ('roe', 'REAL'),
             ('peg_calculated', 'REAL'),
             ('hybrid_score', 'REAL'),
+            # v7.0 신규 컬럼 (Exit Strategy + Super Momentum)
+            ('atr', 'REAL'),
+            ('stop_loss', 'REAL'),
+            ('action_type', 'TEXT'),
+            ('industry', 'TEXT'),
+            ('is_filled', 'INTEGER DEFAULT 0'),
+            ('ma_50', 'REAL'),
         ]
         for col_name, col_type in new_columns:
             try:
@@ -1790,14 +1832,22 @@ def create_telegram_message_admin(stats, collected, errors, execution_time):
 
 def create_telegram_message(screening_df, stats, changes=None, config=None):
     """
-    텔레그램 User 메시지 (Track 1) v6.3 - Quality & Value Scorecard Briefing
+    텔레그램 User 메시지 (Track 1) v7.0 - EPS Growth + RSI Dual Track
 
     [헤더]
-    - 날짜, 시장 국면 (Safe/Danger)
+    - 날짜, 시장 국면 (GREEN/YELLOW/RED)
+    - ETF 추천 (Sector Booster)
 
-    [Top 3 Scorecard]
-    - Quality Score (맛) + Value Score (값) 분리 표시
-    - 실전 점수 = (Q×0.5 + V×0.5) × Action Multiplier
+    [TOP 10 추천주]
+    - 종합점수, 매수근거, 손절가(ATR×2)
+    - Quality Score (맛) + Value Score (값)
+
+    [관심 종목 11~25위]
+    - 간략 표시
+
+    [Sell Signal]
+    - Kill Switch 발동 종목
+    - 추세 이탈 종목
 
     [Warnings]
     - 섹터 집중 경고
@@ -1805,6 +1855,7 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     """
     import yfinance as yf
     import math
+    import pandas as pd
 
     today = datetime.now().strftime('%m/%d')
     today_full = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -1863,7 +1914,7 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
         msg += f"• 현금 비중 확대\n\n"
 
         msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        msg += f"<i>🤖 EPS Momentum v6.3</i>\n"
+        msg += f"<i>🤖 EPS Momentum v7.0</i>\n"
         msg += f"<i>🔴 Market Regime: RED</i>\n"
 
         return msg
@@ -1874,43 +1925,52 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     regime_emoji = {'YELLOW': '🟡', 'GREEN': '🟢'}[regime]
     regime_text = {'YELLOW': 'YELLOW (경계)', 'GREEN': 'GREEN (상승장)'}[regime]
 
-    msg = f"🍎 <b>[{today}] EPS 모멘텀 v6.3 브리핑</b>\n"
+    msg = f"🇺🇸 <b>미국주식 퀀트 랭킹 v7.0</b>\n"
     msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"🚦 <b>시장: {regime_emoji} {regime_text}</b>\n"
+    msg += f"📅 {today_full} 마감 | 총 {total_count}개 통과\n"
+    msg += f"🚦 <b>시장: {regime_emoji} {regime_text}</b>"
 
     if spy_price:
-        msg += f"📍 SPY ${spy_price:.0f}"
+        msg += f" | SPY ${spy_price:.0f}"
         if vix:
             msg += f" | VIX {vix:.1f}"
+    msg += "\n"
+
+    msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+
+    # v7.0 전략 설명 섹션
+    msg += "<b>📋 전략: EPS Growth + RSI Dual Track</b>\n"
+    msg += "• 펀더멘털: EPS 전망치 상향 (실적 우상향)\n"
+    msg += "• 타이밍: RSI 눌림목(Dip) &amp; 신고가 돌파(Momentum)\n\n"
+
+    # v7.0: ETF 추천 섹션 (Sector Booster)
+    from sector_analysis import get_sector_etf_recommendation, format_etf_recommendation_text
+    etf_recommendations = get_sector_etf_recommendation(screening_df, top_n=10, min_count=3, config=config)
+    if etf_recommendations:
+        msg += f"🔥 <b>[HOT] 섹터 포착</b>\n"
+        for rec in etf_recommendations[:2]:  # 상위 2개만
+            sector = rec['sector']
+            count = rec['count']
+            etf_1x = rec.get('etf_1x', '-')
+            etf_3x = rec.get('etf_3x', '-')
+            sector_kr = sector_map.get(sector, sector)
+            msg += f"👉 {sector_kr} {count}개 → {etf_1x}"
+            if etf_3x:
+                msg += f"/{etf_3x}"
+            msg += "\n"
         msg += "\n"
 
-    msg += f"📅 {today_full} | 총 {total_count}개 통과\n"
-    msg += f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
-
-    # v6.3 전략 설명 섹션
-    msg += "<b>📋 v6.3 Quality + Value Scorecard</b>\n"
-    msg += "\"<i>맛있는 사과를 좋은 값에</i>\" 🍎💰\n\n"
-
-    msg += "<b>🍎 맛(Quality) 100점</b>\n"
-    msg += "EPS정배열30 + ROE25 + 성장률20 + 추세15 + 수급10\n\n"
-
-    msg += "<b>💰 값(Value) 100점</b>\n"
-    msg += "PEG35 + PER25 + 고점대비25 + RSI눌림15\n\n"
-
-    msg += "<b>📊 실전점수 공식</b>\n"
-    msg += "= (맛×0.5 + 값×0.5) × Action배수\n"
-    msg += "• 적극/저점: ×1.0 | 관망: ×0.7 | 금지: ×0.3\n"
-
-    msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━━\n"
 
     # ========================================
-    # 🏆 TOP 5 SCORECARD (핵심 추천)
+    # 🏆 TOP 10 추천주 (v7.0)
     # ========================================
     if total_count > 0:
-        msg += "\n<b>🏆 TOP 5 SCORECARD</b>\n"
+        top_n_config = config.get('telegram_format', {}).get('top_n', 10)
+        msg += f"\n<b>🏆 TOP {min(top_n_config, total_count)} 추천주</b>\n"
 
-        medal = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣']
-        top_count = min(5, total_count)
+        medal = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
+        top_count = min(top_n_config, total_count)
         for idx, (_, row) in enumerate(screening_df.head(top_count).iterrows()):
             ticker = row['ticker']
             company_name = row.get('company_name', '')
@@ -1934,11 +1994,11 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
 
             # 실적 D-Day 표시
             dday_str = ""
-            if earnings_dday is not None:
+            if earnings_dday is not None and pd.notna(earnings_dday):
                 if earnings_dday >= 0:
-                    dday_str = f" | 실적D-{earnings_dday}"
+                    dday_str = f" | 실적D-{int(earnings_dday)}"
                 else:
-                    dday_str = f" | 실적D+{abs(earnings_dday)}"
+                    dday_str = f" | 실적D+{abs(int(earnings_dday))}"
 
             # 거래량 스파이크 표시
             spike_str = "📈" if volume_spike else ""
@@ -1955,41 +2015,61 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
                 rsi_str = "RSI-"
             high_str = f"고점{from_52w_high:.0f}%" if from_52w_high else ""
 
+            # v7.0 신규 필드: 손절가, ATR
+            stop_loss = row.get('stop_loss')
+            atr = row.get('atr')
+
             msg += f"\n{'─' * 22}\n"
             msg += f"{medal[idx]} <b>{ticker}</b> ${price:.0f} {spike_str}\n"
             if company_name:
                 msg += f"   {company_name}\n"
-            msg += f"┌ 🍎 맛: <b>{quality_score}점</b> ({quality_grade})\n"
-            msg += f"├ 💰 값: <b>{value_score}점</b> ({value_label})\n"
-            msg += f"├ 📊 실전: <b>{actionable_v63:.1f}점</b>\n"
-            msg += f"└ {sector_kr} | {rsi_str} | {high_str}"
-            if eps_aligned_str:
-                msg += f" | {eps_aligned_str}"
-            msg += f"{dday_str}\n"
 
-            # Action 표시 + 동적 해설
-            action_short = action.split('(')[0].strip() if '(' in str(action) else str(action)
-            msg += f"   → <b>{action_short}</b>\n"
+            # v7.0 Action 표시: TOP 10은 무조건 매수 (돌파 or 분할)
+            # RSI 60+ OR 신고가 근처(-5%) → 돌파매수, 그 외 → 분할매수
+            is_near_high = from_52w_high is not None and from_52w_high >= -5
+            is_momentum = (rsi and rsi >= 60) or is_near_high
+            display_action = "🚀돌파매수" if is_momentum else "🛡️분할매수"
+            msg += f"   [<b>{display_action}</b>] 종합점수: <b>{actionable_v63:.1f}점</b>\n"
+
+            # 매수근거 (EPS 성장 + RSI)
+            eps_growth_str = "EPS↗" if is_aligned else "EPS-"
+            msg += f"   • 📊매수근거: {eps_growth_str} + {rsi_str}\n"
+
+            # 맛/값 스코어
+            q_score = round(quality_score, 1) if quality_score else 0
+            v_score = round(value_score, 1) if value_score else 0
+            msg += f"   • 🍎맛: {q_score}점({quality_grade}) | 💰값: {v_score}점({value_label})\n"
+
+            # 손절가 표시 (v7.0 핵심)
+            if stop_loss and atr:
+                msg += f"   • 📉대응: 손절가 ${stop_loss:.1f} (ATR×2)\n"
+
+            # 섹터, 고점대비, 실적D-Day
+            msg += f"   • {sector_kr}"
+            if high_str:
+                msg += f" | {high_str}"
+            msg += f"{dday_str}\n"
 
             # 동적 한국어 해설
             rationale = generate_korean_rationale(row)
             msg += f"   💡 <i>{rationale}</i>\n"
 
-        # 나머지 순위 (6위 이하)
-        if total_count > 5:
+        # v7.0: 관심 종목 (11~25위)
+        watchlist_max = config.get('telegram_format', {}).get('watchlist_max', 25)
+        if total_count > top_count:
             msg += f"\n{'─' * 22}\n"
-            msg += "<b>📋 기타 통과 종목</b>\n"
-            remaining = screening_df.iloc[5:min(15, total_count)]  # 최대 10개까지
-            for idx, (_, row) in enumerate(remaining.iterrows(), 6):
+            msg += f"<b>📋 관심 종목 ({top_count+1}~{min(watchlist_max, total_count)}위)</b>\n"
+            remaining = screening_df.iloc[top_count:min(watchlist_max, total_count)]
+            for idx, (_, row) in enumerate(remaining.iterrows(), top_count + 1):
                 ticker = row['ticker']
                 company_name = row.get('company_name', '')
                 actionable_v63 = row.get('actionable_score_v63', 0)
                 action = row.get('action', '')
                 action_short = action.split('(')[0].strip() if '(' in str(action) else str(action)[:6]
-                name_str = f" ({company_name})" if company_name else ""
-                msg += f"#{idx} {ticker}{name_str} {actionable_v63:.1f}점 {action_short}\n"
-            if total_count > 15:
-                msg += f"   ... +{total_count - 15}개 더\n"
+                name_str = f" | {company_name}" if company_name else ""
+                msg += f"{idx}. {ticker}{name_str} | {actionable_v63:.1f}점\n"
+            if total_count > watchlist_max:
+                msg += f"   ... +{total_count - watchlist_max}개 더\n"
 
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
 
@@ -2084,9 +2164,37 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     if stats.get('avg_fwd_per'):
         msg += f"• 평균 PER: {stats.get('avg_fwd_per')} | ROE: {stats.get('avg_roe', 0)}%\n"
 
+    # ========================================
+    # 🚨 v7.0 Sell Signal 섹션
+    # ========================================
+    sell_signals = []
+
+    # Kill Switch 발동 종목 (stats에서 가져오기)
+    killed_tickers = stats.get('killed_tickers', [])
+    if killed_tickers:
+        for ticker in killed_tickers[:5]:
+            sell_signals.append(f"🔻 {ticker}: 펀더멘털 훼손 (EPS -1% 하향)")
+
+    # 추세 이탈 종목 (stats에서 가져오기)
+    trend_exit_tickers = stats.get('trend_exit_tickers', [])
+    if trend_exit_tickers:
+        for ticker_info in trend_exit_tickers[:5]:
+            if isinstance(ticker_info, dict):
+                ticker = ticker_info.get('ticker', '')
+                ma_type = ticker_info.get('ma_type', 20)
+                sell_signals.append(f"🔻 {ticker}: 기술적 이탈 (MA{ma_type} 붕괴)")
+            else:
+                sell_signals.append(f"🔻 {ticker_info}: 기술적 이탈")
+
+    if sell_signals:
+        msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        msg += "<b>🚨 보유 종목 긴급 점검 (Sell Signal)</b>\n"
+        for signal in sell_signals:
+            msg += f"{signal}\n"
+
     # 푸터
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "<i>🤖 EPS Momentum v6.3</i>\n"
+    msg += "<i>🤖 EPS Momentum v7.0</i>\n"
     msg += "<i>맛(Quality) + 값(Value) = 실전점수</i>\n"
     if regime == 'YELLOW':
         msg += "<i>🟡 Caution Mode Active</i>\n"

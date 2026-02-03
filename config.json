@@ -14,5 +14,49 @@
   ],
   "min_score": 4.0,
   "kill_switch_threshold": -0.01,
-  "earnings_blackout_days": 5
+  "earnings_blackout_days": 5,
+
+  "action_multipliers": {
+    "돌파매수": 1.1,
+    "슈퍼모멘텀": 1.1,
+    "적극매수": 1.0,
+    "저점매수": 1.0,
+    "분할매수": 1.0,
+    "매수적기": 0.9,
+    "RSI관망": 0.75,
+    "관망": 0.7,
+    "진입금지": 0.3,
+    "추세이탈": 0.1
+  },
+
+  "exit_strategy": {
+    "atr_period": 14,
+    "atr_multiplier": 2.0,
+    "track_a_ma": 50,
+    "track_b_ma": 20
+  },
+
+  "threading": {
+    "enabled": true,
+    "max_workers": 10,
+    "batch_size": 50
+  },
+
+  "super_momentum": {
+    "enabled": true,
+    "quality_threshold": 80,
+    "rsi_min": 70,
+    "rsi_max": 85
+  },
+
+  "sector_booster": {
+    "enabled": true,
+    "min_sector_count": 3,
+    "top_n": 10
+  },
+
+  "telegram_format": {
+    "top_n": 10,
+    "watchlist_max": 25
+  }
 }

@@ -1,4 +1,4 @@
-# EPS Revision Momentum Strategy v6.3.3 - 상세 기술 문서
+# EPS Revision Momentum Strategy v7.0 - 상세 기술 문서
 
 ## 목차
 
@@ -7,12 +7,13 @@
 3. [시스템 아키텍처](#3-시스템-아키텍처)
 4. [핵심 알고리즘](#4-핵심-알고리즘)
 5. [v6.3 Quality & Value Scorecard](#5-v63-quality--value-scorecard)
-6. [데이터 흐름](#6-데이터-흐름)
-7. [모듈별 상세](#7-모듈별-상세)
-8. [설정 가이드](#8-설정-가이드)
-9. [설치 및 실행](#9-설치-및-실행)
-10. [백테스팅 설계](#10-백테스팅-설계)
-11. [트러블슈팅](#11-트러블슈팅)
+6. [v7.0 신규 기능](#6-v70-신규-기능)
+7. [데이터 흐름](#7-데이터-흐름)
+8. [모듈별 상세](#8-모듈별-상세)
+9. [설정 가이드](#9-설정-가이드)
+10. [설치 및 실행](#10-설치-및-실행)
+11. [백테스팅 설계](#11-백테스팅-설계)
+12. [트러블슈팅](#12-트러블슈팅)
 
 ---
 
@@ -465,9 +466,175 @@ score += min(30, momentum_score)
 
 ---
 
-## 6. 데이터 흐름
+## 6. v7.0 신규 기능
 
-### 6.1 일일 실행 플로우
+### 6.1 Super Momentum Override
+
+Quality >= 80 + RSI 70-85 조건 충족시 자동으로 "🚀슈퍼모멘텀" 액션 부여:
+
+```python
+def super_momentum_override(quality_score, rsi, action, config):
+    """Quality >= 80 AND RSI 70-85 → 무조건 슈퍼모멘텀"""
+    sm_config = config.get('super_momentum', {})
+    if not sm_config.get('enabled', True):
+        return action, False
+
+    threshold = sm_config.get('quality_threshold', 80)
+    rsi_min = sm_config.get('rsi_min', 70)
+    rsi_max = sm_config.get('rsi_max', 85)
+
+    if quality_score >= threshold and rsi_min <= rsi < rsi_max:
+        return "🚀슈퍼모멘텀", True
+    return action, False
+```
+
+### 6.2 Exit Strategy (ATR 손절가 + 추세 이탈)
+
+동적 손절가 계산 (ATR × 2):
+
+```python
+def calculate_atr(hist, period=14):
+    """Average True Range 계산"""
+    high = hist['High']
+    low = hist['Low']
+    close = hist['Close'].shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - close).abs(),
+        (low - close).abs()
+    ], axis=1).max(axis=1)
+    return tr.rolling(period).mean().iloc[-1]
+
+def calculate_stop_loss(price, atr, multiplier=2.0):
+    """손절가 = Close - (ATR × multiplier)"""
+    return price - (atr * multiplier)
+```
+
+추세 이탈 감지:
+- Track A (Momentum): MA50 이탈시 경고
+- Track B (Dip Buy): MA20 이탈시 경고
+
+### 6.3 Forward Fill (EPS 결측치 보정)
+
+EPS 7d/30d/60d가 NaN일 경우 Current 값으로 채움:
+
+```python
+def forward_fill_eps(current, d7, d30, d60):
+    """EPS 결측치를 Current로 채움"""
+    filled_7d = d7 if pd.notna(d7) else current
+    filled_30d = d30 if pd.notna(d30) else current
+    filled_60d = d60 if pd.notna(d60) else current
+    was_filled = pd.isna(d7) or pd.isna(d30) or pd.isna(d60)
+    return filled_7d, filled_30d, filled_60d, was_filled
+```
+
+### 6.4 Sector Booster (ETF 추천)
+
+TOP 10 중 동일 섹터 3개 이상 → 섹터 ETF 추천:
+
+```python
+SECTOR_ETF = {
+    'Semiconductor': {'1x': 'SMH', '3x': 'SOXL'},
+    'Technology': {'1x': 'XLK', '3x': 'TECL'},
+    'Healthcare': {'1x': 'XLV', '3x': 'LABU'},
+    # ...
+}
+
+def get_sector_etf_recommendation(screening_df, top_n=10, min_count=3):
+    """섹터 집중시 ETF 추천"""
+    sector_counts = screening_df.head(top_n)['sector'].value_counts()
+    recommendations = []
+    for sector, count in sector_counts.items():
+        if count >= min_count and sector in SECTOR_ETF:
+            recommendations.append({
+                'sector': sector,
+                'count': count,
+                'etf_1x': SECTOR_ETF[sector]['1x'],
+                'etf_3x': SECTOR_ETF[sector].get('3x')
+            })
+    return recommendations
+```
+
+### 6.5 Config 분리
+
+하드코딩된 값들을 config.json으로 외부화:
+
+```json
+{
+  "action_multipliers": {
+    "돌파매수": 1.1, "슈퍼모멘텀": 1.1,
+    "적극매수": 1.0, "저점매수": 1.0, "분할매수": 1.0,
+    "매수적기": 0.9, "RSI관망": 0.75, "관망": 0.7,
+    "진입금지": 0.3, "추세이탈": 0.1
+  },
+  "exit_strategy": {
+    "atr_period": 14, "atr_multiplier": 2.0,
+    "track_a_ma": 50, "track_b_ma": 20
+  },
+  "super_momentum": {
+    "enabled": true, "quality_threshold": 80,
+    "rsi_min": 70, "rsi_max": 85
+  },
+  "sector_booster": {
+    "enabled": true, "min_sector_count": 3, "top_n": 10
+  },
+  "telegram_format": {
+    "top_n": 10, "watchlist_max": 25
+  }
+}
+```
+
+### 6.6 DB 스키마 확장
+
+신규 컬럼 6개:
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `atr` | REAL | ATR(14) |
+| `stop_loss` | REAL | 손절가 |
+| `action_type` | TEXT | 액션 분류 |
+| `industry` | TEXT | 업종 |
+| `is_filled` | INTEGER | Forward Fill 적용 여부 |
+| `ma_50` | REAL | 50일 이평선 |
+
+### 6.7 텔레그램 템플릿 v7.0
+
+```
+🇺🇸 미국주식 퀀트 랭킹 v7.0
+━━━━━━━━━━━━━━━━━━━━━━
+📅 {Date} 마감 | 총 {Count}개 통과
+📋 전략: EPS Growth + RSI Dual Track
+
+🔥 [HOT] 섹터 포착: {Sector}
+👉 ETF 추천: {ETF_1x} / {ETF_3x}
+━━━━━━━━━━━━━━━━━━━━━━
+
+🏆 TOP 10 추천주
+
+🥇 {Name} ({Ticker}) ${Price}
+   [{Action}] 종합점수: {Score}점
+   • 📊매수근거: EPS↗ + RSI {RSI}
+   • 🍎맛: {Q}점 | 💰값: {V}점
+   • 📉대응: 손절가 ${Stop_Loss} (ATR×2)
+   • {Sector} | 고점{High}%
+   💡 {Rationale}
+
+━━━━━━━━━━━━━━━━━━━━━━
+📋 관심 종목 (11~25위)
+11. {Ticker} | {Name} | {Score}점
+...
+
+━━━━━━━━━━━━━━━━━━━━━━
+🚨 보유 종목 긴급 점검 (Sell Signal)
+🔻 {Ticker}: 펀더멘털 훼손 (EPS -1% 하향)
+🔻 {Ticker}: 기술적 이탈 (MA{20/50} 붕괴)
+```
+
+---
+
+## 7. 데이터 흐름
+
+### 7.1 일일 실행 플로우
 
 ```
 07:00 KST (미장 마감 후)
@@ -544,7 +711,7 @@ logs/
 
 ---
 
-## 7. 모듈별 상세
+## 8. 모듈별 상세
 
 ### 7.1 daily_runner.py
 
@@ -606,7 +773,7 @@ THEME_ETF = {
 
 ---
 
-## 8. 설정 가이드
+## 9. 설정 가이드
 
 ### 8.1 config.json 상세
 
@@ -663,7 +830,7 @@ THEME_ETF = {
 
 ---
 
-## 9. 설치 및 실행
+## 10. 설치 및 실행
 
 ### 9.1 요구사항
 
@@ -711,7 +878,7 @@ python eps_momentum_system.py stats
 
 ---
 
-## 10. 백테스팅 설계
+## 11. 백테스팅 설계
 
 ### 10.1 Point-in-Time 원칙
 
@@ -809,7 +976,7 @@ Score_Slope (변화율 가중 평균)
 
 ---
 
-## 11. 트러블슈팅
+## 12. 트러블슈팅
 
 ### 11.1 일반적인 오류
 
