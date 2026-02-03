@@ -1,4 +1,4 @@
-# EPS Revision Momentum Strategy v6.3.2 - 상세 기술 문서
+# EPS Revision Momentum Strategy v6.3.3 - 상세 기술 문서
 
 ## 목차
 
@@ -852,7 +852,8 @@ Score_Slope (변화율 가중 평균)
 |------|------|
 | **EPS Revision** | 애널리스트 EPS 전망치 변화 |
 | **Forward EPS** | 향후 1년 예상 EPS |
-| **정배열** | Current > 7d > 30d > 60d |
+| **EPS 정배열** | EPS 전망치 Current > 7d > 30d > 60d (지속적 상향) |
+| **MA 정배열** | 가격 > MA20 > MA200 (상승 추세) |
 | **Kill Switch** | 모멘텀 꺾임 감지 장치 |
 | **MA200** | 200일 이동평균선 |
 | **PEG** | P/E ÷ 성장률 |
@@ -861,4 +862,4 @@ Score_Slope (변화율 가중 평균)
 
 ---
 
-*문서 버전: v6.3.2 | 최종 업데이트: 2026-02-03*
+*문서 버전: v6.3.3 | 최종 업데이트: 2026-02-03*

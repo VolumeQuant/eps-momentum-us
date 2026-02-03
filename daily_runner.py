@@ -545,8 +545,12 @@ def run_screening(config, market_regime=None):
                 if rsi is not None and rsi < 40 and ma_200 is not None and price < ma_200:
                     fake_bottom = True
 
+                # 종목명 가져오기
+                company_name = info.get('shortName', '') or info.get('longName', ticker)
+
                 candidates.append({
                     'ticker': ticker,
+                    'company_name': company_name,
                     'index': idx_name,
                     'score_321': round(score_321, 1),
                     'score_slope': round(score_slope, 1) if score_slope else None,
@@ -828,10 +832,26 @@ def run_data_collection(config):
                     if ticker not in all_tickers:
                         all_tickers[ticker] = idx_name
 
+        # 오늘 이미 수집된 종목 조회 (증분 수집)
+        cursor.execute('SELECT ticker FROM eps_snapshots WHERE date = ?', (today,))
+        already_collected = set(row[0] for row in cursor.fetchall())
+
+        # 미수집 종목만 필터링
+        tickers_to_collect = {t: idx for t, idx in all_tickers.items() if t not in already_collected}
+
+        if already_collected:
+            log(f"  이미 수집된 종목: {len(already_collected)}개 (스킵)")
+        log(f"  신규 수집 대상: {len(tickers_to_collect)}개")
+
+        if not tickers_to_collect:
+            log("  오늘 데이터 이미 수집 완료")
+            conn.close()
+            return len(already_collected), 0
+
         collected = 0
         errors = 0
 
-        for ticker, idx_name in all_tickers.items():
+        for ticker, idx_name in tickers_to_collect.items():
             try:
                 stock = yf.Ticker(ticker)
                 trend = stock.eps_trend
@@ -938,7 +958,8 @@ def run_data_collection(config):
         conn.commit()
         conn.close()
 
-        log(f"Track 2 완료: {collected}개 수집, {errors}개 오류")
+        total_in_db = len(already_collected) + collected
+        log(f"Track 2 완료: {collected}개 신규수집, {len(already_collected)}개 스킵 (DB총 {total_in_db}개), {errors}개 오류")
         return collected, errors
 
     except Exception as e:
@@ -1883,19 +1904,22 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
 
     # ========================================
-    # 🏆 TOP 3 SCORECARD (핵심 추천)
+    # 🏆 TOP 5 SCORECARD (핵심 추천)
     # ========================================
     if total_count > 0:
-        msg += "\n<b>🏆 TOP 3 SCORECARD</b>\n"
+        msg += "\n<b>🏆 TOP 5 SCORECARD</b>\n"
 
-        medal = ['🥇', '🥈', '🥉']
-        for idx, (_, row) in enumerate(screening_df.head(3).iterrows()):
+        medal = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣']
+        top_count = min(5, total_count)
+        for idx, (_, row) in enumerate(screening_df.head(top_count).iterrows()):
             ticker = row['ticker']
+            company_name = row.get('company_name', '')
             price = row.get('price', 0)
             sector = row.get('sector', 'Other')
             action = row.get('action', '')
             rsi = row.get('rsi')
             from_52w_high = row.get('from_52w_high')
+            is_aligned = row.get('is_aligned', False)
 
             # v6.3 신규 필드
             quality_score = row.get('quality_score', 0)
@@ -1919,6 +1943,9 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
             # 거래량 스파이크 표시
             spike_str = "📈" if volume_spike else ""
 
+            # EPS 정배열 표시
+            eps_aligned_str = "EPS↗" if is_aligned else ""
+
             # RSI, 고점대비 표시 (RSI 70+ 시 🚀 추가)
             if rsi and rsi >= 70:
                 rsi_str = f"🚀RSI{rsi:.0f}"
@@ -1930,10 +1957,15 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
 
             msg += f"\n{'─' * 22}\n"
             msg += f"{medal[idx]} <b>{ticker}</b> ${price:.0f} {spike_str}\n"
+            if company_name:
+                msg += f"   {company_name}\n"
             msg += f"┌ 🍎 맛: <b>{quality_score}점</b> ({quality_grade})\n"
             msg += f"├ 💰 값: <b>{value_score}점</b> ({value_label})\n"
             msg += f"├ 📊 실전: <b>{actionable_v63:.1f}점</b>\n"
-            msg += f"└ {sector_kr} | {rsi_str} | {high_str}{dday_str}\n"
+            msg += f"└ {sector_kr} | {rsi_str} | {high_str}"
+            if eps_aligned_str:
+                msg += f" | {eps_aligned_str}"
+            msg += f"{dday_str}\n"
 
             # Action 표시 + 동적 해설
             action_short = action.split('(')[0].strip() if '(' in str(action) else str(action)
@@ -1943,18 +1975,21 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
             rationale = generate_korean_rationale(row)
             msg += f"   💡 <i>{rationale}</i>\n"
 
-        # Honorable Mentions (4-5위)
-        if total_count > 3:
+        # 나머지 순위 (6위 이하)
+        if total_count > 5:
             msg += f"\n{'─' * 22}\n"
-            msg += "<b>📋 Honorable Mentions</b>\n"
-            for idx, (_, row) in enumerate(screening_df.iloc[3:5].iterrows(), 4):
+            msg += "<b>📋 기타 통과 종목</b>\n"
+            remaining = screening_df.iloc[5:min(15, total_count)]  # 최대 10개까지
+            for idx, (_, row) in enumerate(remaining.iterrows(), 6):
                 ticker = row['ticker']
-                quality_score = row.get('quality_score', 0)
-                value_score = row.get('value_score', 0)
+                company_name = row.get('company_name', '')
                 actionable_v63 = row.get('actionable_score_v63', 0)
                 action = row.get('action', '')
                 action_short = action.split('(')[0].strip() if '(' in str(action) else str(action)[:6]
-                msg += f"#{idx} {ticker} 맛{quality_score} 값{value_score} 실전{actionable_v63:.1f} {action_short}\n"
+                name_str = f" ({company_name})" if company_name else ""
+                msg += f"#{idx} {ticker}{name_str} {actionable_v63:.1f}점 {action_short}\n"
+            if total_count > 15:
+                msg += f"   ... +{total_count - 15}개 더\n"
 
     msg += "\n━━━━━━━━━━━━━━━━━━━━━━\n"
 
