@@ -1957,20 +1957,35 @@ def get_stock_insight(ticker, max_chars=50):
         'Utilities—Independent Power Producers': '독립 발전사',
     }
 
+    def translate_to_korean(text, max_len=60):
+        """영어 텍스트를 한국어로 번역"""
+        try:
+            from googletrans import Translator
+            translator = Translator()
+            result = translator.translate(text, src='en', dest='ko')
+            translated = result.text
+            if len(translated) > max_len:
+                translated = translated[:max_len-3] + '...'
+            return translated
+        except Exception:
+            # 번역 실패시 원문 반환 (길이 제한)
+            if len(text) > max_len:
+                text = text[:max_len-3] + '...'
+            return text
+
     try:
         stock = yf.Ticker(ticker)
 
-        # 1차: 뉴스 헤드라인 시도
+        # 1차: 뉴스 헤드라인 시도 (한국어 번역)
         news = stock.news
         if news and len(news) > 0:
             content = news[0].get('content', {})
             if isinstance(content, dict):
                 title = content.get('title', '')
                 if title:
-                    # 너무 길면 자르기
-                    if len(title) > max_chars:
-                        title = title[:max_chars-3] + '...'
-                    return f"📰 {title}"
+                    # 한국어로 번역
+                    title_kr = translate_to_korean(title, max_chars)
+                    return f"📰 {title_kr}"
 
         # 2차: 업종 정보 (한국어 변환)
         info = stock.info
