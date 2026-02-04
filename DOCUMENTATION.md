@@ -1,4 +1,4 @@
-# EPS Revision Momentum Strategy v7.0 - 상세 기술 문서
+# EPS Revision Momentum Strategy v7.0.6 - 상세 기술 문서
 
 ## 목차
 
@@ -8,12 +8,13 @@
 4. [핵심 알고리즘](#4-핵심-알고리즘)
 5. [v6.3 Quality & Value Scorecard](#5-v63-quality--value-scorecard)
 6. [v7.0 신규 기능](#6-v70-신규-기능)
-7. [데이터 흐름](#7-데이터-흐름)
-8. [모듈별 상세](#8-모듈별-상세)
-9. [설정 가이드](#9-설정-가이드)
-10. [설치 및 실행](#10-설치-및-실행)
-11. [백테스팅 설계](#11-백테스팅-설계)
-12. [트러블슈팅](#12-트러블슈팅)
+7. [v7.0.5~v7.0.6 업데이트](#7-v705v706-업데이트)
+8. [데이터 흐름](#8-데이터-흐름)
+9. [모듈별 상세](#9-모듈별-상세)
+10. [설정 가이드](#10-설정-가이드)
+11. [설치 및 실행](#11-설치-및-실행)
+12. [백테스팅 설계](#12-백테스팅-설계)
+13. [트러블슈팅](#13-트러블슈팅)
 
 ---
 
@@ -632,9 +633,51 @@ def get_sector_etf_recommendation(screening_df, top_n=10, min_count=3):
 
 ---
 
-## 7. 데이터 흐름
+## 7. v7.0.5~v7.0.6 업데이트
 
-### 7.1 일일 실행 플로우
+### 7.1 v7.0.5 (2026-02-03)
+
+#### 업종 한국어 매핑
+```python
+industry_kr = {
+    'Semiconductors': '반도체',
+    'Biotechnology': '바이오테크',
+    'Gold': '금',
+    # ... 100개+ 매핑
+}
+```
+
+#### 전체 섹터 분석 ETF 추천
+- 기존: TOP 10 종목 중 섹터 집중 분석
+- 변경: **전체 통과 종목** 기준 섹터 분석
+
+```
+🔥 [HOT] 섹터 집중 (전체 54개 분석)
+👉 경기소비재 12개(22%) → XLY/WANT
+👉 산업재 11개(20%) → XLI/DUSL
+👉 기술 9개(17%) → XLK/TECL
+```
+
+### 7.2 v7.0.6 (2026-02-05)
+
+#### 뉴스 헤드라인 한글 번역
+```python
+def translate_to_korean(text, max_len=60):
+    from googletrans import Translator
+    translator = Translator()
+    result = translator.translate(text, src='en', dest='ko')
+    return result.text
+```
+
+**결과 예시:**
+- 영어: "Broadcom adds $4 billion to buyback..."
+- 한글: "브로드컴, 자사주 매입 40억 달러 추가..."
+
+---
+
+## 8. 데이터 흐름
+
+### 8.1 일일 실행 플로우
 
 ```
 07:00 KST (미장 마감 후)
@@ -711,7 +754,7 @@ logs/
 
 ---
 
-## 8. 모듈별 상세
+## 9. 모듈별 상세
 
 ### 7.1 daily_runner.py
 
@@ -773,7 +816,7 @@ THEME_ETF = {
 
 ---
 
-## 9. 설정 가이드
+## 10. 설정 가이드
 
 ### 8.1 config.json 상세
 
@@ -830,7 +873,7 @@ THEME_ETF = {
 
 ---
 
-## 10. 설치 및 실행
+## 11. 설치 및 실행
 
 ### 9.1 요구사항
 
@@ -878,7 +921,7 @@ python eps_momentum_system.py stats
 
 ---
 
-## 11. 백테스팅 설계
+## 12. 백테스팅 설계
 
 ### 10.1 Point-in-Time 원칙
 
@@ -976,7 +1019,7 @@ Score_Slope (변화율 가중 평균)
 
 ---
 
-## 12. 트러블슈팅
+## 13. 트러블슈팅
 
 ### 11.1 일반적인 오류
 

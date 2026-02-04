@@ -1,24 +1,27 @@
-# EPS Revision Momentum Strategy v7.0 (US Stocks)
+# EPS Revision Momentum Strategy v7.0.6 (US Stocks)
 
 미국 주식 대상 **EPS Growth + RSI Dual Track** 전략 시스템
 
 > 🇺🇸 **핵심 철학**: "TOP 10은 무조건 매수 (돌파 or 분할)"
 
-## v7.0 주요 변경 (2026-02-03)
+## v7.0.6 주요 변경 (2026-02-05)
 
 | 기능 | 설명 |
 |------|------|
+| **뉴스 한글 번역** | 영어 뉴스 헤드라인 자동 한글 번역 (googletrans) |
+| **전체 섹터 분석** | TOP 10이 아닌 전체 통과 종목 기준 ETF 추천 |
+| **업종 한국어화** | 100개+ 업종명 한국어 매핑 |
 | **TOP 10 액션 변경** | 관망 제거 → 🚀돌파매수 / 🛡️분할매수만 표시 |
-| **AI Insights** | 웹 검색 기반 실시간 뉴스/인사이트 |
 | **Sector Booster** | 섹터 집중시 ETF 추천 (SMH/SOXL 등) |
 | **Exit Strategy** | ATR(14) 기반 동적 손절가 |
-| **GitHub Actions** | 매일 07:00 KST 자동 실행 |
 
 ## 버전 히스토리
 
 | 버전 | 날짜 | 주요 변경 |
 |------|------|----------|
-| **v7.0** | 2026-02-03 | TOP 10 액션 변경, AI Insights, Sector Booster, GitHub Actions |
+| **v7.0.6** | 2026-02-05 | 뉴스 한글 번역 기능 추가 |
+| v7.0.5 | 2026-02-03 | 업종 한국어 매핑, 전체 섹터 분석 ETF 추천 |
+| v7.0 | 2026-02-03 | TOP 10 액션 변경, AI Insights, Sector Booster, GitHub Actions |
 | v6.3.2 | 2026-02-03 | Quality Score: score_321 직접 활용 (정배열 중복 제거) |
 | v6.3.1 | 2026-02-03 | Quality Score: 정배열 + 모멘텀 강도 조합 (중복 문제 발견) |
 | v6.3 | 2026-02-03 | **Quality & Value Scorecard** 분리, **RSI Momentum Strategy** |
