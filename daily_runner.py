@@ -2099,61 +2099,8 @@ def create_telegram_message_v71(screening_df, stats, config=None):
     msg += "• 가격 100점: RSI + 52주위치 + 거래량 + 신고가돌파\n"
     msg += "• 총점 = 밸류×50% + 가격×50%\n\n"
 
-    msg += "━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"🏆 총점 기준 TOP 10 ({total_count}개 중 상위)\n"
-    msg += "━━━━━━━━━━━━━━━━━━━\n"
-
-    # 순위 아이콘
-    def get_rank_icon(rank):
-        if rank == 1:
-            return "🥇"
-        elif rank == 2:
-            return "🥈"
-        elif rank == 3:
-            return "🥉"
-        else:
-            return "📌"
-
-    # TOP 10 종목
-    top_10 = screening_df.head(10)
-
-    for idx, (_, row) in enumerate(top_10.iterrows(), 1):
-        ticker = row['ticker']
-        company = row.get('company_name', ticker)
-        sector = row.get('sector', 'Other')
-        sector_kr = sector_map.get(sector, sector[:4] if len(sector) > 4 else sector)
-        price = row.get('price', 0)
-        price_change = row.get('price_change_pct', 0)
-        quality = row.get('quality_score', 0) or 0
-        value = row.get('value_score', 0) or 0
-        total = row.get('total_score') or (quality * 0.5 + value * 0.5)
-        rsi = row.get('rsi')
-        from_high = row.get('from_52w_high')
-
-        icon = get_rank_icon(idx)
-        change_str = f"({price_change:+.2f}%)" if price_change else ""
-
-        msg += f"\n{icon} {idx}위 {company} ({ticker}) {sector_kr}\n"
-        msg += f"💰 ${price:.2f} {change_str}\n"
-        msg += f"📊 총 {total:.1f}점 = 밸류 {quality:.0f}점 + 가격 {value:.0f}점\n"
-
-        rsi_str = f"RSI {rsi:.0f}" if rsi else "RSI -"
-        high_str = f"52주 {from_high:+.0f}%" if from_high else "52주 -"
-        msg += f"📈 진입타이밍: {rsi_str} | {high_str}\n"
-
-        # 선정이유 (불릿 포인트)
-        bullets = generate_rationale_bullets_v71(row)
-        msg += "📝 선정이유:\n"
-        for bullet in bullets:
-            msg += f"• {bullet}\n"
-
-        # 리스크
-        risk = generate_risk_v71(row)
-        msg += f"⚠️ 리스크: {risk}\n"
-        msg += "━━━━━━━━━━━━━━━━━━━\n"
-
     # === 섹터 분석 (전체 통과 종목 기준) ===
-    msg += "\n📊 섹터 분석\n"
+    msg += "📊 섹터 분석\n"
     msg += "━━━━━━━━━━━━━━━━━━━\n"
 
     # industry 필드로 중분류 섹터 집계
@@ -2212,6 +2159,61 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         industry_etf = industry_etf_map.get(industry, '')
         etf_str = f" [{industry_etf}]" if industry_etf else ""
         msg += f"• {industry_kr}({industry}): {count}개 ({pct:.0f}%){etf_str}\n"
+
+    msg += "\n"
+
+    msg += "━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"🏆 총점 기준 TOP 10 ({total_count}개 중 상위)\n"
+    msg += "━━━━━━━━━━━━━━━━━━━\n"
+
+    # 순위 아이콘
+    def get_rank_icon(rank):
+        if rank == 1:
+            return "🥇"
+        elif rank == 2:
+            return "🥈"
+        elif rank == 3:
+            return "🥉"
+        else:
+            return "📌"
+
+    # TOP 10 종목
+    top_10 = screening_df.head(10)
+
+    for idx, (_, row) in enumerate(top_10.iterrows(), 1):
+        ticker = row['ticker']
+        company = row.get('company_name', ticker)
+        sector = row.get('sector', 'Other')
+        sector_kr = sector_map.get(sector, sector[:4] if len(sector) > 4 else sector)
+        price = row.get('price', 0)
+        price_change = row.get('price_change_pct', 0)
+        quality = row.get('quality_score', 0) or 0
+        value = row.get('value_score', 0) or 0
+        total = row.get('total_score') or (quality * 0.5 + value * 0.5)
+        rsi = row.get('rsi')
+        from_high = row.get('from_52w_high')
+
+        icon = get_rank_icon(idx)
+        change_str = f"({price_change:+.2f}%)" if price_change else ""
+
+        msg += f"\n{icon} {idx}위 {company} ({ticker}) {sector_kr}\n"
+        msg += f"💰 ${price:.2f} {change_str}\n"
+        msg += f"📊 총 {total:.1f}점 = 밸류 {quality:.0f}점 + 가격 {value:.0f}점\n"
+
+        rsi_str = f"RSI {rsi:.0f}" if rsi else "RSI -"
+        high_str = f"52주 {from_high:+.0f}%" if from_high else "52주 -"
+        msg += f"📈 진입타이밍: {rsi_str} | {high_str}\n"
+
+        # 선정이유 (불릿 포인트)
+        bullets = generate_rationale_bullets_v71(row)
+        msg += "📝 선정이유:\n"
+        for bullet in bullets:
+            msg += f"• {bullet}\n"
+
+        # 리스크
+        risk = generate_risk_v71(row)
+        msg += f"⚠️ 리스크: {risk}\n"
+        msg += "━━━━━━━━━━━━━━━━━━━\n"
 
     msg += "\n💡 순위가 높을수록 매수 우선순위 높음\n"
     msg += "━━━━━━━━━━━━━━━━━━━\n"
