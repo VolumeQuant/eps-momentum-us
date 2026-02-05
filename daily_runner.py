@@ -2191,16 +2191,18 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         'Auto & Truck Dealerships': 'XLY', 'Specialty Retail': 'XRT', 'Luxury Goods': 'XLY',
     }
 
-    # 주도 섹터 (1위)
-    if len(top_industries) > 0:
-        leading_industry = top_industries.index[0]
-        leading_count = top_industries.iloc[0]
-        leading_pct = leading_count / total_count * 100
-        leading_kr = industry_kr_map.get(leading_industry, leading_industry[:8])
-        leading_etf = industry_etf_map.get(leading_industry, '')
-        etf_str = f" → {leading_etf}" if leading_etf else ""
+    # 주도 섹터 (1위가 2위보다 많을 때만 표시)
+    if len(top_industries) >= 2:
+        first_count = top_industries.iloc[0]
+        second_count = top_industries.iloc[1]
 
-        msg += f"🔥 주도섹터: {leading_kr}({leading_industry}) - {leading_count}개 ({leading_pct:.0f}%){etf_str}\n\n"
+        if first_count > second_count:
+            leading_industry = top_industries.index[0]
+            leading_pct = first_count / total_count * 100
+            leading_kr = industry_kr_map.get(leading_industry, leading_industry[:8])
+            leading_etf = industry_etf_map.get(leading_industry, '')
+            etf_str = f" → {leading_etf}" if leading_etf else ""
+            msg += f"🔥 주도섹터: {leading_kr}({leading_industry}) - {first_count}개 ({leading_pct:.0f}%){etf_str}\n\n"
 
     # 섹터별 분포 (한글+영문+ETF)
     msg += "📈 섹터별 분포:\n"
