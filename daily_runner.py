@@ -2194,66 +2194,54 @@ def create_telegram_message_v71(screening_df, stats, config=None):
     msg += "• 가격 100점: RSI + 52주위치 + 거래량 + 신고가돌파\n"
     msg += "• 총점 = 밸류×50% + 가격×50%\n\n"
 
-    # === 섹터 분석 (전체 통과 종목 기준) ===
+    # === 섹터 분석 (전체 통과 종목 기준, 대분류 sector 사용) ===
     msg += "📊 섹터 분석\n"
     msg += "━━━━━━━━━━━━━━━━━━━\n"
 
-    # industry 필드로 중분류 섹터 집계
-    industry_col = 'industry' if 'industry' in screening_df.columns else 'sector'
-    industry_counts = screening_df[industry_col].value_counts()
+    # sector 필드로 대분류 섹터 집계
+    sector_counts = screening_df['sector'].value_counts() if 'sector' in screening_df.columns else pd.Series()
 
-    # 상위 5개 섹터
-    top_industries = industry_counts.head(5)
-
-    # 업종 한국어 매핑 (단순화)
-    industry_kr_map = {
-        'Semiconductors': '반도체', 'Semiconductor Equipment & Materials': '반도체',
-        'Computer Hardware': '하드웨어', 'Electronic Components': '전자부품',
-        'Communication Equipment': '통신장비', 'Data Storage': '저장장치',
-        'Biotechnology': '바이오', 'Drug Manufacturers - General': '제약',
-        'Medical Devices': '의료기기', 'Medical Instruments & Supplies': '의료기기',
-        'Medical Distribution': '의료유통', 'Diagnostics & Research': '헬스케어',
-        'Gold': '금', 'Steel': '철강',
-        'Oil & Gas Equipment & Services': '에너지',
-        'Aerospace & Defense': '방산', 'Specialty Industrial Machinery': '산업기계',
-        'Auto & Truck Dealerships': '자동차', 'Specialty Retail': '소매',
-        'Luxury Goods': '명품', 'Personal Services': '서비스',
+    # 섹터 한국어 매핑
+    sector_kr_map = {
+        'Semiconductor': '반도체', 'Technology': '기술',
+        'Healthcare': '헬스케어', 'Consumer Cyclical': '경기소비재',
+        'Consumer Defensive': '필수소비재', 'Industrials': '산업재',
+        'Financial Services': '금융', 'Basic Materials': '소재',
+        'Energy': '에너지', 'Utilities': '유틸리티',
+        'Real Estate': '부동산', 'Communication Services': '통신',
     }
 
-    # 업종별 ETF 매핑
-    industry_etf_map = {
-        'Semiconductors': 'SMH/SOXL', 'Semiconductor Equipment & Materials': 'SMH/SOXL',
-        'Computer Hardware': 'XLK/TECL', 'Electronic Components': 'XLK/TECL',
-        'Communication Equipment': 'XLK', 'Data Storage': 'XLK',
-        'Biotechnology': 'XBI/LABU', 'Drug Manufacturers - General': 'XLV/CURE',
-        'Medical Devices': 'XLV', 'Medical Instruments & Supplies': 'XLV',
-        'Gold': 'GDX/NUGT', 'Steel': 'XME',
-        'Oil & Gas Equipment & Services': 'XLE/ERX',
-        'Aerospace & Defense': 'ITA', 'Specialty Industrial Machinery': 'XLI',
-        'Auto & Truck Dealerships': 'XLY', 'Specialty Retail': 'XRT', 'Luxury Goods': 'XLY',
+    # 섹터별 ETF 매핑
+    sector_etf_map = {
+        'Semiconductor': 'SMH/SOXL', 'Technology': 'XLK/TECL',
+        'Healthcare': 'XLV/LABU', 'Consumer Cyclical': 'XLY',
+        'Consumer Defensive': 'XLP', 'Industrials': 'XLI',
+        'Financial Services': 'XLF', 'Basic Materials': 'XLB',
+        'Energy': 'XLE/ERX', 'Utilities': 'XLU',
+        'Real Estate': 'XLRE', 'Communication Services': 'XLC',
     }
 
     # 주도 섹터 (1위가 2위보다 많을 때만 표시)
-    if len(top_industries) >= 2:
-        first_count = top_industries.iloc[0]
-        second_count = top_industries.iloc[1]
+    if len(sector_counts) >= 2:
+        first_count = sector_counts.iloc[0]
+        second_count = sector_counts.iloc[1]
 
         if first_count > second_count:
-            leading_industry = top_industries.index[0]
+            leading_sector = sector_counts.index[0]
             leading_pct = first_count / total_count * 100
-            leading_kr = industry_kr_map.get(leading_industry, leading_industry[:8])
-            leading_etf = industry_etf_map.get(leading_industry, '')
+            leading_kr = sector_kr_map.get(leading_sector, leading_sector[:8])
+            leading_etf = sector_etf_map.get(leading_sector, '')
             etf_str = f" → {leading_etf}" if leading_etf else ""
-            msg += f"🔥 주도섹터: {leading_kr}({leading_industry}) - {first_count}개 ({leading_pct:.0f}%){etf_str}\n\n"
+            msg += f"🔥 주도섹터: {leading_kr}({leading_sector}) - {first_count}개 ({leading_pct:.0f}%){etf_str}\n\n"
 
     # 섹터별 분포 (한글+영문+ETF)
     msg += "📈 섹터별 분포:\n"
-    for industry, count in top_industries.items():
+    for sector, count in sector_counts.items():
         pct = count / total_count * 100
-        industry_kr = industry_kr_map.get(industry, industry[:8])
-        industry_etf = industry_etf_map.get(industry, '')
-        etf_str = f" [{industry_etf}]" if industry_etf else ""
-        msg += f"• {industry_kr}({industry}): {count}개 ({pct:.0f}%){etf_str}\n"
+        sector_kr = sector_kr_map.get(sector, sector[:8])
+        sector_etf = sector_etf_map.get(sector, '')
+        etf_str = f" [{sector_etf}]" if sector_etf else ""
+        msg += f"• {sector_kr}({sector}): {count}개 ({pct:.0f}%){etf_str}\n"
 
     msg += "\n"
 
