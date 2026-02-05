@@ -1,4 +1,4 @@
-# EPS Revision Momentum Strategy v7.1 - 상세 기술 문서
+# EPS Revision Momentum Strategy v7.1.6 - 상세 기술 문서
 
 ## 목차
 
@@ -389,11 +389,13 @@ def calculate_quality_score_v71(eps_chg_7d, eps_chg_30d, eps_chg_60d, eps_chg_90
 | 60-70 | 10점 | 중립 고 |
 | ≥70 | 5점 | 과매수 |
 
-**신고가 돌파 모멘텀:**
+**신고가 돌파 (v7.1.1+):**
 ```python
-# 52주 고점 -2% 이내면 RSI 과매수도 OK
+# 52주 고점 -2% 이내면 감점만 안 함 (보너스 없음)
 if from_52w_high >= -2:
-    score = max(score, 80)  # 최소 80점 보장
+    # RSI: 10-20점 (과매수도 동일)
+    # 52주: 15점 (소폭 조정과 동일)
+    pass  # 별도 보너스 없음
 ```
 
 ```python
@@ -442,46 +444,39 @@ def calculate_value_score_v71(rsi, from_52w_high, volume_ratio):
     return min(100, score)
 ```
 
-### 5.4 핵심 추천 자동 분류
+### 5.4 순위 = 매수 우선순위 (v7.1.1+)
 
-```python
-def get_recommendation_category_v71(row):
-    """v7.1 핵심추천 카테고리 자동 분류"""
-    rsi = row.get('rsi', 50)
-    value_score = row.get('value_score', 0)
-    quality_score = row.get('quality_score', 0)
-    from_52w_high = row.get('from_52w_high', -10)
+**v7.1.1부터 별도 핵심추천 분류 제거**. 순위가 곧 매수 우선순위:
 
-    # 1. 적극매수: RSI 과매도 + 가격 좋음
-    if rsi <= 35 and value_score >= 80:
-        return "적극매수"
+- 🥇 1위: 가장 먼저 매수
+- 🥈 2위: 두 번째 매수
+- 📌 4위~: 순위대로 매수
 
-    # 2. 급락저가매수: 가격 좋지만 밸류 낮음
-    if value_score >= 80 and quality_score < 65:
-        return "급락저가매수"
+**이유**: "1위인데 돌파확인 대기" 같은 혼란 제거
 
-    # 3. 분할진입: 밸류 좋고 RSI 중립
-    if quality_score >= 70 and 40 <= rsi <= 60:
-        return "분할진입"
+### 5.5 섹터 분석 (v7.1.1+)
 
-    # 4. 돌파확인: 신고가 근접 + RSI 과열
-    if from_52w_high >= -2 and rsi >= 70:
-        return "돌파확인"
+**섹터별 분포 (한글+영문+ETF)**:
+```
+📊 섹터 분석
+━━━━━━━━━━━━━━━━━━━
+🔥 주도섹터: 반도체(Semiconductors) - 5개 (19%) → SMH/SOXL
 
-    # 5. 조정대기: RSI 과열
-    if rsi >= 70:
-        return "조정대기"
-
-    return "분할진입"
+📈 섹터별 분포:
+• 반도체(Semiconductors): 5개 (19%) [SMH/SOXL]
+• 바이오(Biotechnology): 3개 (12%) [XBI/LABU]
 ```
 
-| 카테고리 | 아이콘 | 조건 |
-|----------|--------|------|
-| 적극매수 | ✅ | RSI≤35 AND 가격≥80 |
-| 급락저가매수 | 💰 | 가격≥80 AND 밸류<65 |
-| 분할진입 | 🔄 | 밸류≥70 AND RSI 40-60 |
-| 돌파확인 | ⏸️ | 52주 -2% 이내 AND RSI≥70 |
-| 조정대기 | ⏸️ | RSI≥70 |
+**주도섹터 표시 조건**: 1위 종목 수 > 2위 종목 수 (동점시 미표시)
+
+### 5.6 신고가 돌파 (v7.1.1+)
+
+**v7.1.1 변경**: 52주 고점 -2% 이내면 **감점만 안 함** (보너스 없음)
+
+- **이전**: 신고가 돌파시 RSI 35점 + 52주 30점 → 가격 80점+
+- **현재**: 신고가 돌파시 RSI 10-20점 + 52주 15점 → 감점 없음
+
+**이유**: "비싸면 비싼 것" - 신고가라고 해서 과도한 보너스 제거
 
 ---
 
@@ -1174,4 +1169,4 @@ Score_Slope (변화율 가중 평균)
 
 ---
 
-*문서 버전: v7.1 | 최종 업데이트: 2026-02-05*
+*문서 버전: v7.1.6 | 최종 업데이트: 2026-02-05*
