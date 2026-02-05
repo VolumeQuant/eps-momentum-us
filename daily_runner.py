@@ -2152,6 +2152,68 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         msg += f"⚠️ 리스크: {risk}\n"
         msg += "━━━━━━━━━━━━━━━━━━━\n"
 
+    # === 섹터 분석 (전체 통과 종목 기준) ===
+    msg += "\n📊 섹터 분석\n"
+    msg += "━━━━━━━━━━━━━━━━━━━\n"
+
+    # industry 필드로 중분류 섹터 집계
+    industry_col = 'industry' if 'industry' in screening_df.columns else 'sector'
+    industry_counts = screening_df[industry_col].value_counts()
+
+    # 상위 5개 섹터
+    top_industries = industry_counts.head(5)
+
+    # 업종 한국어 매핑 (중분류)
+    industry_kr_map = {
+        'Semiconductors': '반도체', 'Semiconductor Equipment & Materials': '반도체장비',
+        'Biotechnology': '바이오', 'Pharmaceuticals': '제약', 'Drug Manufacturers': '제약',
+        'Software—Application': '소프트웨어', 'Software—Infrastructure': '소프트웨어',
+        'Banks—Regional': '은행', 'Banks—Diversified': '은행', 'Asset Management': '자산운용',
+        'Gold': '금', 'Steel': '철강', 'Copper': '구리', 'Aluminum': '알루미늄',
+        'Oil & Gas E&P': '원유가스', 'Oil & Gas Equipment & Services': '에너지장비',
+        'Aerospace & Defense': '방산', 'Industrial Distribution': '산업유통',
+        'Auto Parts': '자동차부품', 'Auto Manufacturers': '자동차',
+        'Medical Devices': '의료기기', 'Health Care Plans': '헬스케어',
+        'Specialty Retail': '소매', 'Restaurants': '외식', 'Travel Services': '여행',
+        'Internet Content & Information': 'IT서비스', 'Telecom Services': '통신',
+        'REIT—Residential': '리츠', 'REIT—Industrial': '리츠',
+        'Semiconductors & Semiconductor Equipment': '반도체',
+        'Computer Hardware': '컴퓨터', 'Electronic Components': '전자부품',
+        'Communication Equipment': '통신장비', 'Data Storage': '저장장치',
+    }
+
+    # 주도 섹터 (1위)
+    if len(top_industries) > 0:
+        leading_industry = top_industries.index[0]
+        leading_count = top_industries.iloc[0]
+        leading_pct = leading_count / total_count * 100
+        leading_kr = industry_kr_map.get(leading_industry, leading_industry[:6])
+
+        # ETF 추천
+        from sector_analysis import SECTOR_ETF, THEME_ETF
+        etf_info = THEME_ETF.get(leading_industry, {})
+        if not etf_info:
+            # 대분류로 매핑
+            sector_for_etf = screening_df[screening_df[industry_col] == leading_industry]['sector'].iloc[0] if len(screening_df[screening_df[industry_col] == leading_industry]) > 0 else None
+            if sector_for_etf:
+                etf_info = SECTOR_ETF.get(sector_for_etf, {})
+
+        etf_str = ""
+        if etf_info.get('1x'):
+            etf_str = f" → {etf_info['1x']}"
+            if etf_info.get('3x'):
+                etf_str += f"/{etf_info['3x']}"
+
+        msg += f"🔥 주도섹터: {leading_kr} ({leading_count}개, {leading_pct:.0f}%){etf_str}\n\n"
+
+    # 섹터별 분포
+    msg += "📈 섹터별 분포:\n"
+    for industry, count in top_industries.items():
+        pct = count / total_count * 100
+        industry_kr = industry_kr_map.get(industry, industry[:6] if len(industry) > 6 else industry)
+        bar = "█" * int(pct / 5)  # 5%당 1칸
+        msg += f"• {industry_kr}: {count}개 ({pct:.0f}%) {bar}\n"
+
     msg += "\n💡 순위가 높을수록 매수 우선순위 높음\n"
     msg += "━━━━━━━━━━━━━━━━━━━\n"
     msg += "📊 EPS Momentum v7.1"
