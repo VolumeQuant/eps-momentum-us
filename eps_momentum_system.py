@@ -720,14 +720,14 @@ def calculate_value_score(peg, fwd_per, from_52w_high, rsi, volume_spike=False):
             score += 20  # 중립
         else:  # RSI > 70
             if is_breakout:
-                score += 35  # 신고가 돌파 모멘텀 - 과매수여도 OK
+                score += 20  # 신고가 돌파 - 감점 안 함 (중립과 동일)
             else:
                 score += 10  # 그냥 과매수 - 위험
 
     # 2. 52주 고점 위치 (30점)
     if from_52w_high is not None:
         if is_breakout:
-            score += 30  # 신고가 돌파 모멘텀
+            score += 15  # 신고가 돌파 - 감점 안 함 (소폭 조정과 동일)
         else:
             drawdown = abs(from_52w_high)
             if drawdown >= 20:
