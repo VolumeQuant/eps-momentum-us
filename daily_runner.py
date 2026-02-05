@@ -2020,6 +2020,118 @@ def get_recommendation_category_v71(row):
     return None
 
 
+def collect_filtered_news(screening_df, max_stocks=10):
+    """
+    상위 종목들의 뉴스를 수집하고 시세 뉴스 필터링 후 한글 번역
+
+    Args:
+        screening_df: 스크리닝 결과 DataFrame
+        max_stocks: 뉴스 수집할 최대 종목 수
+
+    Returns:
+        list: [(ticker, headline_kr), ...] 필터링된 뉴스 리스트
+    """
+    import yfinance as yf
+    import re
+
+    # 시세 뉴스 필터링 패턴 (제외할 것들)
+    noise_patterns = [
+        r'\b\d+\.?\d*%\s*(up|down|rise|fall|gain|drop|surge|plunge|jump|slip|climb|decline)',
+        r'(stock|share|shares)\s+(up|down|rise|fall|gain|drop|surge|plunge)',
+        r'(rises|falls|gains|drops|surges|plunges|jumps|slips|climbs|declines)\s+\d+',
+        r'(trading|trades)\s+(up|down|higher|lower)',
+        r'(hits|reaches|touches)\s+(high|low|peak)',
+        r'(volume|trading volume)\s+(spike|surge|jump)',
+        r'VI\s*(발동|triggered)',
+        r'(closes|opens|ends)\s+(up|down|higher|lower)',
+        r'(rallies|tumbles|soars|tanks|spikes)',
+        r'(market cap|valuation)\s+(hits|reaches|tops)',
+        r'^\s*\$?\d+',  # 숫자로 시작하는 뉴스
+        r'price target',
+        r'(upgrades?|downgrades?)\s+to',
+        r'(buy|sell|hold)\s+rating',
+        r'analyst.*(rating|target|estimate)',
+        r'(down|up|fell|rose|gained|lost)\s+\d+\.?\d*%',  # "down 11.4%", "up 5%"
+        r'\d+\.?\d*%\s+(down|up|lower|higher|decline|gain)',  # "11.4% down"
+        r'(what\s+changed|why.*moving|why.*falling|why.*rising)',  # 시세 분석 기사
+        r'(slid|slipped|sank|dropped|plummeted|crashed)',  # 하락 동사
+        r'(jumped|surged|rocketed|spiked|soared)',  # 급등 동사
+    ]
+
+    # 실적/사업 관련 키워드 (우선 포함)
+    business_keywords = [
+        r'earnings', r'revenue', r'profit', r'quarter', r'Q[1-4]',
+        r'guidance', r'forecast', r'outlook',
+        r'launch', r'announce', r'partnership', r'acquisition', r'merger',
+        r'contract', r'deal', r'agreement', r'order',
+        r'FDA', r'approval', r'patent', r'regulatory',
+        r'expansion', r'investment', r'facility', r'production',
+        r'CEO', r'executive', r'leadership', r'restructur',
+        r'dividend', r'buyback', r'split',
+        r'AI', r'chip', r'semiconductor', r'data center',
+    ]
+
+    def is_noise(headline):
+        """시세 뉴스인지 확인"""
+        headline_lower = headline.lower()
+        for pattern in noise_patterns:
+            if re.search(pattern, headline_lower, re.IGNORECASE):
+                return True
+        return False
+
+    def has_business_content(headline):
+        """사업/실적 관련 내용인지 확인"""
+        headline_lower = headline.lower()
+        for keyword in business_keywords:
+            if re.search(keyword, headline_lower, re.IGNORECASE):
+                return True
+        return False
+
+    def translate_to_korean(text, max_len=60):
+        """Google Translate로 한글 번역"""
+        try:
+            from googletrans import Translator
+            translator = Translator()
+            result = translator.translate(text, dest='ko')
+            translated = result.text
+            if len(translated) > max_len:
+                translated = translated[:max_len-3] + '...'
+            return translated
+        except Exception:
+            if len(text) > max_len:
+                text = text[:max_len-3] + '...'
+            return text
+
+    news_list = []
+    top_stocks = screening_df.head(max_stocks)
+
+    for _, row in top_stocks.iterrows():
+        ticker = row['ticker']
+        try:
+            stock = yf.Ticker(ticker)
+            news = stock.news
+
+            if news and len(news) > 0:
+                # 최대 3개 뉴스 체크
+                for item in news[:3]:
+                    content = item.get('content', {})
+                    if isinstance(content, dict):
+                        title = content.get('title', '')
+                        if title:
+                            # 시세 뉴스 필터링
+                            if is_noise(title):
+                                continue
+                            # 사업/실적 관련이면 우선 추가
+                            if has_business_content(title):
+                                title_kr = translate_to_korean(title)
+                                news_list.append((ticker, title_kr))
+                                break
+        except Exception:
+            continue
+
+    return news_list[:8]  # 최대 8개 뉴스
+
+
 def create_telegram_message_v71(screening_df, stats, config=None):
     """
     v7.1 텔레그램 메시지 생성 - 최종 형식
@@ -2159,6 +2271,14 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         industry_etf = industry_etf_map.get(industry, '')
         etf_str = f" [{industry_etf}]" if industry_etf else ""
         msg += f"• {industry_kr}({industry}): {count}개 ({pct:.0f}%){etf_str}\n"
+
+    # === 주요 뉴스 (시세 뉴스 필터링) ===
+    news_list = collect_filtered_news(screening_df, max_stocks=10)
+    if news_list:
+        msg += "\n📰 주요 뉴스 (사업/실적)\n"
+        msg += "━━━━━━━━━━━━━━━━━━━\n"
+        for ticker, headline in news_list:
+            msg += f"• {ticker}: {headline}\n"
 
     msg += "\n"
 
