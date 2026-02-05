@@ -490,17 +490,15 @@ def run_screening(config, market_regime=None):
                     continue
 
                 # 장중 데이터 제외: 미국 동부시간 16시(장마감) 전이면 오늘 데이터 제거
-                from datetime import datetime
-                import pytz
-                us_eastern = pytz.timezone('US/Eastern')
-                now_us = datetime.now(us_eastern)
-                today_us = now_us.date()
-                market_closed = now_us.hour >= 16  # 16시 이후 = 장 마감
+                us_tz = pytz.timezone('US/Eastern')
+                now_eastern = datetime.now(us_tz)
+                today_eastern = now_eastern.date()
+                market_closed = now_eastern.hour >= 16  # 16시 이후 = 장 마감
 
                 if not market_closed:
                     # 장중이면 오늘 데이터 제외 (불완전한 데이터)
-                    hist_1m = hist_1m[hist_1m.index.date < today_us]
-                    hist_1y = hist_1y[hist_1y.index.date < today_us]
+                    hist_1m = hist_1m[hist_1m.index.date < today_eastern]
+                    hist_1y = hist_1y[hist_1y.index.date < today_eastern]
 
                 if len(hist_1m) < 5:
                     stats['data_error'] += 1
