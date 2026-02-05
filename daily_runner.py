@@ -35,6 +35,11 @@ import sqlite3
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
+try:
+    import pytz
+    HAS_PYTZ = True
+except ImportError:
+    HAS_PYTZ = False
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -92,6 +97,68 @@ def log(message, level="INFO"):
     """로그 출력"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] [{level}] {message}")
+
+
+def get_display_dates():
+    """
+    인사말과 시장 데이터에 표시할 날짜 계산
+
+    Returns:
+        dict: {
+            'kr_date': '2월6일' (한국 날짜, 인사말용),
+            'us_date': '2026년 02월 05일' (미국 최근 영업일, 시장 데이터용),
+            'us_date_short': '02/05' (짧은 형식)
+        }
+    """
+    import pandas as pd
+
+    if HAS_PYTZ:
+        # pytz 있으면 정확한 타임존 계산
+        kst = pytz.timezone('Asia/Seoul')
+        est = pytz.timezone('America/New_York')
+
+        now_kst = datetime.now(kst)
+        now_est = datetime.now(est)
+
+        kr_date = now_kst.strftime('%m월%d일')
+
+        # 미국 최근 영업일 계산
+        us_date = now_est.date()
+
+        # 미국 시간 기준 장 마감 전이면 전날로
+        if now_est.hour < 16:
+            us_date = us_date - timedelta(days=1)
+
+        # 주말이면 금요일로
+        while us_date.weekday() >= 5:  # 5=토, 6=일
+            us_date = us_date - timedelta(days=1)
+    else:
+        # pytz 없으면 간단한 계산 (UTC 기준 추정)
+        now = datetime.utcnow()
+
+        # 한국 시간 = UTC + 9
+        kr_time = now + timedelta(hours=9)
+        kr_date = kr_time.strftime('%m월%d일')
+
+        # 미국 동부 = UTC - 5 (겨울) / UTC - 4 (여름)
+        # 대략 UTC - 5로 계산
+        us_time = now - timedelta(hours=5)
+        us_date = us_time.date()
+
+        # 장 마감 전이면 전날
+        if us_time.hour < 16:
+            us_date = us_date - timedelta(days=1)
+
+        # 주말이면 금요일로
+        while us_date.weekday() >= 5:
+            us_date = us_date - timedelta(days=1)
+
+    return {
+        'kr_date': kr_date,
+        'us_date': us_date.strftime('%Y년 %m월 %d일'),
+        'us_date_short': us_date.strftime('%m/%d'),
+        'us_date_iso': us_date.strftime('%Y-%m-%d')
+    }
 
 
 # ============================================================
@@ -2051,8 +2118,11 @@ def create_telegram_message_v71(screening_df, stats, config=None):
     import pandas as pd
     from datetime import datetime
 
-    today_kr = datetime.now().strftime('%Y년 %m월 %d일')
-    today_us = (datetime.now() - pd.Timedelta(hours=14)).strftime('%Y년 %m월 %d일')  # 미국장 기준
+    # 날짜 계산: 인사말=한국날짜, 시장데이터=미국 최근 영업일
+    dates = get_display_dates()
+    kr_date = dates['kr_date']  # 인사말용 (2월6일)
+    us_date = dates['us_date']  # 시장 데이터용 (2026년 02월 05일)
+
     total_count = len(screening_df)
 
     # 섹터 한국어 매핑
@@ -2087,9 +2157,9 @@ def create_telegram_message_v71(screening_df, stats, config=None):
     messages = []
 
     # === TOP 10 메시지 ===
-    msg = f"안녕하세요! 오늘({datetime.now().strftime('%m월%d일')}) 미국주식 EPS 모멘텀 포트폴리오입니다 📊\n\n"
+    msg = f"안녕하세요! 오늘({kr_date}) 미국주식 EPS 모멘텀 포트폴리오입니다 📊\n\n"
     msg += "━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"📅 {today_us} (미국장 기준)\n"
+    msg += f"📅 {us_date} (미국장 기준)\n"
     msg += f"{regime_emoji} {regime_text}\n"
 
     if ndx_price:
