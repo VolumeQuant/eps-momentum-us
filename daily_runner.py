@@ -2029,7 +2029,7 @@ def create_telegram_message_v71(screening_df, stats, config=None):
     - 전략 설명
     - TOP 10: 순위 아이콘, 종목명(티커)업종, 가격, 점수, 진입타이밍, 선정이유(불릿), 리스크
     - 11-26위: 동일 형식
-    - 핵심 추천: 자동 카테고리 분류
+    - 순위 = 매수 우선순위 (별도 핵심추천 없음)
     """
     import pandas as pd
     from datetime import datetime
@@ -2116,7 +2116,6 @@ def create_telegram_message_v71(screening_df, stats, config=None):
 
     # TOP 10 종목
     top_10 = screening_df.head(10)
-    recommendations = {'적극매수': [], '급락저가매수': [], '분할진입': [], '돌파확인': [], '조정대기': []}
 
     for idx, (_, row) in enumerate(top_10.iterrows(), 1):
         ticker = row['ticker']
@@ -2153,45 +2152,7 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         msg += f"⚠️ 리스크: {risk}\n"
         msg += "━━━━━━━━━━━━━━━━━━━\n"
 
-        # 추천 카테고리 분류
-        category = get_recommendation_category_v71(row)
-        if category:
-            recommendations[category].append(ticker)
-
-    # 핵심 추천 섹션
-    msg += "\n🎯 핵심 추천\n\n"
-
-    if recommendations['적극매수']:
-        msg += "✅ 적극 매수 (밸류+가격 둘 다 좋음)\n"
-        for t in recommendations['적극매수'][:3]:
-            r = screening_df[screening_df['ticker'] == t].iloc[0]
-            msg += f"• {t} - 밸류{r['quality_score']:.0f}+가격{r['value_score']:.0f}, RSI{r['rsi']:.0f}\n"
-        msg += "\n"
-
-    if recommendations['급락저가매수']:
-        msg += "💰 급락 저가매수 (밸류 낮지만 싸짐)\n"
-        for t in recommendations['급락저가매수'][:2]:
-            r = screening_df[screening_df['ticker'] == t].iloc[0]
-            msg += f"• {t} - 밸류{r['quality_score']:.0f}+가격{r['value_score']:.0f}, RSI{r['rsi']:.0f} 과매도\n"
-        msg += "  ⚠️ 밸류 낮아 리스크 있음\n\n"
-
-    if recommendations['분할진입']:
-        msg += "🔄 분할 진입\n"
-        for t in recommendations['분할진입'][:3]:
-            r = screening_df[screening_df['ticker'] == t].iloc[0]
-            msg += f"• {t} - 밸류{r['quality_score']:.0f}, RSI{r['rsi']:.0f} 중립\n"
-        msg += "\n"
-
-    if recommendations['돌파확인']:
-        msg += "⏸️ 돌파 확인 후\n"
-        for t in recommendations['돌파확인'][:2]:
-            msg += f"• {t} - 신고가 돌파 시 진입\n"
-        msg += "\n"
-
-    if recommendations['조정대기']:
-        tickers = "/".join(recommendations['조정대기'][:3])
-        msg += f"⏸️ 조정 대기\n• {tickers} (RSI70+)\n\n"
-
+    msg += "\n💡 순위가 높을수록 매수 우선순위 높음\n"
     msg += "━━━━━━━━━━━━━━━━━━━\n"
     msg += "📊 EPS Momentum v7.1"
 
