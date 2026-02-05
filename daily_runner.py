@@ -2286,33 +2286,33 @@ def create_telegram_message_v71(screening_df, stats, config=None):
 
     has_opportunity = False
 
-    # 매수타이밍 설명 함수 (RSI 기반, 고객 친화적)
+    # 매수타이밍 설명 함수 (RSI 기반, 간결하게)
     def get_timing_desc(rsi):
-        """RSI를 고객이 이해하기 쉬운 매수타이밍으로 변환"""
+        """RSI를 짧은 매수타이밍으로 변환"""
         if rsi is None:
             return None
         if rsi >= 70:
-            return f"과열 구간 (RSI {rsi:.0f}) → 조정 후 진입 권장"
+            return f"RSI {rsi:.0f} 과열 → 조정 후 진입"
         elif rsi <= 30:
-            return f"과매도 구간 (RSI {rsi:.0f}) → 반등 기대"
+            return f"RSI {rsi:.0f} 과매도 → 반등 기대"
         elif rsi <= 40:
-            return f"매수 적기 (RSI {rsi:.0f}) → 저점 매집 구간"
+            return f"RSI {rsi:.0f} 저점 → 매집 구간"
         elif rsi >= 60:
-            return f"상승 추세 (RSI {rsi:.0f}) → 추격 매수 주의"
+            return f"RSI {rsi:.0f} 상승중 → 추격 주의"
         else:
-            return f"중립 구간 (RSI {rsi:.0f}) → 분할 매수 적합"
+            return f"RSI {rsi:.0f} 중립 → 분할매수 OK"
 
     if buy_opportunities['breakout']:
         msg += "\n🚀 신고가 돌파\n\n"
         for item in buy_opportunities['breakout'][:3]:
             msg += f"▸ {item['company']} ({item['ticker']})\n"
-            msg += f"   • 진입근거: 52주 신고가 돌파 + 거래량 급증\n"
+            msg += f"   • 근거: 신고가 돌파 + 거래량\n"
             if item['from_high'] is not None:
-                msg += f"   • 고점대비: {item['from_high']:+.0f}% (신고가 근접)\n"
+                msg += f"   • 고점대비: {item['from_high']:+.0f}%\n"
             if item['rsi']:
                 timing = get_timing_desc(item['rsi'])
                 if timing:
-                    msg += f"   • 매수타이밍: {timing}\n"
+                    msg += f"   • 타이밍: {timing}\n"
             msg += "\n"
         has_opportunity = True
 
@@ -2321,22 +2321,22 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         for item in buy_opportunities['support'][:4]:
             reason = ""
             if "MA200" in item['action']:
-                reason = "200일 이동평균선 지지 반등"
+                reason = "MA200 지지"
             elif "MA50" in item['action']:
-                reason = "50일 이동평균선 지지 반등"
+                reason = "MA50 지지"
             elif "눌림목" in item['action']:
-                reason = "상승추세 중 눌림목 (조정 후 반등)"
+                reason = "눌림목 반등"
             elif "매수적기" in item['action']:
-                reason = "이평선 정배열 + 건강한 조정"
+                reason = "정배열 조정"
             msg += f"▸ {item['company']} ({item['ticker']})\n"
             if reason:
-                msg += f"   • 진입근거: {reason}\n"
+                msg += f"   • 근거: {reason}\n"
             if item['from_high'] is not None:
-                msg += f"   • 고점대비: {item['from_high']:+.0f}% (매수 여력 있음)\n"
+                msg += f"   • 고점대비: {item['from_high']:+.0f}%\n"
             if item['rsi']:
                 timing = get_timing_desc(item['rsi'])
                 if timing:
-                    msg += f"   • 매수타이밍: {timing}\n"
+                    msg += f"   • 타이밍: {timing}\n"
             msg += "\n"
         has_opportunity = True
 
@@ -2344,13 +2344,13 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         msg += "\n💎 급락 반등\n\n"
         for item in buy_opportunities['oversold'][:3]:
             msg += f"▸ {item['company']} ({item['ticker']})\n"
-            msg += f"   • 진입근거: 과매도 급락 → 기술적 반등 예상\n"
+            msg += f"   • 근거: 과매도 급락\n"
             if item['from_high'] is not None:
-                msg += f"   • 고점대비: {item['from_high']:+.0f}% (저점 매수 기회)\n"
+                msg += f"   • 고점대비: {item['from_high']:+.0f}%\n"
             if item['rsi']:
                 timing = get_timing_desc(item['rsi'])
                 if timing:
-                    msg += f"   • 매수타이밍: {timing}\n"
+                    msg += f"   • 타이밍: {timing}\n"
             msg += "\n"
         has_opportunity = True
 
@@ -2400,22 +2400,9 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         msg2 += f"💰 ${price:.2f} {change_str}\n"
         msg2 += f"📊 밸류 {quality:.0f}점 (EPS 모멘텀)\n"
 
-        # RSI 상태 표시
-        if rsi:
-            if rsi >= 70:
-                rsi_str = f"RSI {rsi:.0f} (과열)"
-            elif rsi <= 30:
-                rsi_str = f"RSI {rsi:.0f} (과매도)"
-            elif rsi <= 40:
-                rsi_str = f"RSI {rsi:.0f} (매수구간)"
-            elif rsi >= 60:
-                rsi_str = f"RSI {rsi:.0f} (중립↑)"
-            else:
-                rsi_str = f"RSI {rsi:.0f} (중립)"
-        else:
-            rsi_str = "RSI -"
-        high_str = f"52주 {from_high:+.0f}%" if from_high else "52주 -"
-        msg2 += f"📈 진입타이밍: {rsi_str} | {high_str}\n"
+        # 진입액션 표시
+        action = row.get('action', '관망')
+        msg2 += f"📈 진입액션: {action}\n"
 
         # 선정이유 (불릿 포인트)
         bullets = generate_rationale_bullets_v71(row)
@@ -2456,22 +2443,9 @@ def create_telegram_message_v71(screening_df, stats, config=None):
             msg3 += f"💰 ${price:.2f} {change_str}\n"
             msg3 += f"📊 밸류 {quality:.0f}점 (EPS 모멘텀)\n"
 
-            # RSI 상태 표시
-            if rsi:
-                if rsi >= 70:
-                    rsi_str = f"RSI {rsi:.0f} (과열)"
-                elif rsi <= 30:
-                    rsi_str = f"RSI {rsi:.0f} (과매도)"
-                elif rsi <= 40:
-                    rsi_str = f"RSI {rsi:.0f} (매수구간)"
-                elif rsi >= 60:
-                    rsi_str = f"RSI {rsi:.0f} (중립↑)"
-                else:
-                    rsi_str = f"RSI {rsi:.0f} (중립)"
-            else:
-                rsi_str = "RSI -"
-            high_str = f"52주 {from_high:+.0f}%" if from_high else "52주 -"
-            msg3 += f"📈 진입타이밍: {rsi_str} | {high_str}\n"
+            # 진입액션 표시
+            action = row.get('action', '관망')
+            msg3 += f"📈 진입액션: {action}\n"
 
             bullets = generate_rationale_bullets_v71(row)
             msg3 += "📝 선정이유:\n"
