@@ -614,80 +614,68 @@ def calculate_peg_from_growth(forward_per, eps_growth_rate):
     return round(peg, 2)
 
 
-def calculate_quality_score(is_aligned, roe, eps_chg, above_ma200, volume_spike, momentum_score=None):
+def calculate_quality_score(is_aligned, roe, eps_chg, above_ma200, volume_spike, momentum_score=None,
+                            eps_chg_7d=None, eps_chg_30d=None, eps_chg_60d=None, eps_chg_90d=None):
     """
-    품질 점수 계산 (v6.3.2) - "맛" 평가
+    품질 점수 계산 (v7.1) - EPS 모멘텀 집중
 
-    펀더멘털 + 추세 + 수급을 종합 평가
+    EPS 모멘텀 기간별 점수 + 정배열 보너스
 
-    Components (100점 만점):
-    - EPS 모멘텀: 30점 (score_321 직접 활용)
-      - score_321을 30점 만점으로 정규화
-      - 정배열 여부는 이미 score_321에 반영되어 있음 (3+2+1점)
-    - ROE 품질: 25점 (30%+ S급, 20%+ A급, 10%+ B급)
-    - EPS 성장률: 20점
-    - 추세 (MA200 위): 15점
-    - 거래량 스파이크: 10점
+    Components (최대 100점):
+    - EPS 모멘텀 기간별: 80점 (최근일수록 가중)
+      - 7일 변화: 24점
+      - 30일 변화: 22점
+      - 60일 변화: 18점
+      - 90일 변화: 16점
+    - 정배열 보너스: +20점
 
     Args:
-        is_aligned: EPS 정배열 여부 (참고용, 직접 점수에 반영 안함)
-        roe: ROE (%)
-        eps_chg: EPS 60일 변화율 (%)
-        above_ma200: 가격 > MA200 여부
-        volume_spike: 거래량 스파이크 여부
-        momentum_score: 모멘텀 점수 (score_321) - 가중치 기반 점수
+        is_aligned: EPS 정배열 여부
+        roe: ROE (%) - 참고용
+        eps_chg: EPS 60일 변화율 (%) - 하위호환
+        above_ma200: 가격 > MA200 여부 - 참고용
+        volume_spike: 거래량 스파이크 여부 - 참고용
+        momentum_score: 모멘텀 점수 (score_321) - 하위호환
+        eps_chg_7d: 7일 EPS 변화율 (%)
+        eps_chg_30d: 30일 EPS 변화율 (%)
+        eps_chg_60d: 60일 EPS 변화율 (%)
+        eps_chg_90d: 90일 EPS 변화율 (%)
 
     Returns:
         tuple: (score, grade)
     """
+    def score_eps_period(chg, max_score):
+        """기간별 EPS 변화율을 점수로 변환 (0~20% → 0~max점, 20%+ = max점)"""
+        if chg is None or chg <= 0:
+            return 0
+        return min(chg / 20 * max_score, max_score)
+
     score = 0
 
-    # 1. EPS 모멘텀 (30점) - score_321 직접 활용
-    # score_321 범위: 대략 4~35점
-    # 30점 만점으로 정규화 (상한 30)
-    if momentum_score is not None and momentum_score > 0:
-        score += min(30, momentum_score)
+    # 새로운 기간별 EPS 데이터가 있으면 사용
+    if eps_chg_7d is not None or eps_chg_30d is not None:
+        # 1. EPS 모멘텀 기간별 점수 (80점) - 최근일수록 가중
+        score += score_eps_period(eps_chg_7d, 24)   # 7일: 24점
+        score += score_eps_period(eps_chg_30d, 22)  # 30일: 22점
+        score += score_eps_period(eps_chg_60d if eps_chg_60d is not None else eps_chg, 18)  # 60일: 18점
+        score += score_eps_period(eps_chg_90d, 16)  # 90일: 16점
 
-    # 2. ROE 품질 (25점)
-    if roe is not None:
-        if roe >= 30:
-            score += 25  # S급
-        elif roe >= 20:
-            score += 20  # A급
-        elif roe >= 10:
-            score += 15  # B급
-        else:
-            score += 5   # C급
-
-    # 3. EPS 성장률 (20점)
-    if eps_chg is not None:
-        if eps_chg >= 20:
+        # 2. 정배열 보너스 (+20점)
+        if is_aligned:
             score += 20
-        elif eps_chg >= 10:
-            score += 15
-        elif eps_chg >= 5:
-            score += 10
-        elif eps_chg > 0:
-            score += 5
+    else:
+        # 하위호환: 기존 로직 (기간별 데이터 없을 때)
+        if momentum_score is not None and momentum_score > 0:
+            score += min(80, momentum_score * 2.4)  # 대략적 스케일링
+        if is_aligned:
+            score += 20
 
-    # 4. 추세 - MA200 위 (15점)
-    if above_ma200:
-        score += 15
-
-    # 5. 거래량 스파이크 (10점)
-    if volume_spike:
-        score += 10
-
-    # 등급 산정
-    if score >= 90:
+    # 등급은 총점 기준으로 판단하므로 여기서는 참고용
+    if score >= 80:
         grade = 'S급'
-    elif score >= 80:
-        grade = 'A+급'
-    elif score >= 70:
-        grade = 'A급'
     elif score >= 60:
-        grade = 'B+급'
-    elif score >= 50:
+        grade = 'A급'
+    elif score >= 40:
         grade = 'B급'
     else:
         grade = 'C급'
@@ -695,84 +683,82 @@ def calculate_quality_score(is_aligned, roe, eps_chg, above_ma200, volume_spike,
     return score, grade
 
 
-def calculate_value_score(peg, fwd_per, from_52w_high, rsi):
+def calculate_value_score(peg, fwd_per, from_52w_high, rsi, volume_spike=False):
     """
-    가격 점수 계산 (v6.3) - "값" 평가
+    가격 점수 계산 (v7.1) - 진입 타이밍 평가
 
-    밸류에이션 + 가격 위치를 종합 평가
+    RSI + 가격위치 + 거래량 + 신고가 돌파 로직
 
     Components (100점 만점):
-    - PEG 평가: 35점 (<1.0 초저평가, <1.5 저평가, <2.0 적정)
-    - Forward PER: 25점 (<15 저평가, <25 적정, <40 성장주)
-    - 52주 고점 대비: 25점 (조정폭 클수록)
-    - RSI 눌림목: 15점 (30-50 최적)
+    - RSI 위치: 40점 (과매도 좋음, 단 신고가 돌파시 과매수도 OK)
+    - 52주 고점 위치: 30점 (할인 or 돌파 모멘텀)
+    - 거래량 스파이크: 20점
+    - 기본점수: 10점
+
+    Args:
+        peg: PEG 비율 - 참고용
+        fwd_per: Forward PER - 참고용
+        from_52w_high: 52주 고점 대비 (%, 음수)
+        rsi: RSI 값
+        volume_spike: 거래량 스파이크 여부
 
     Returns:
         tuple: (score, valuation_label)
     """
     score = 0
 
-    # 1. PEG 평가 (35점) - 가장 중요
-    if peg is not None and peg > 0:
-        if peg < 1.0:
-            score += 35  # 초저평가
-        elif peg < 1.5:
-            score += 28  # 저평가
-        elif peg < 2.0:
-            score += 20  # 적정
-        elif peg < 3.0:
-            score += 10  # 고평가
-        # 3.0 이상은 0점
+    # 신고가 돌파 체크 (고점 -2% 이내)
+    is_breakout = from_52w_high is not None and from_52w_high > -2
 
-    # 2. Forward PER (25점)
-    if fwd_per is not None and fwd_per > 0:
-        if fwd_per < 15:
-            score += 25  # 저평가
-        elif fwd_per < 25:
-            score += 20  # 적정
-        elif fwd_per < 40:
-            score += 12  # 성장주
-        elif fwd_per < 60:
-            score += 5   # 고평가
-
-    # 3. 52주 고점 대비 (25점) - 더 엄격한 기준
-    if from_52w_high is not None:
-        drawdown = abs(from_52w_high)
-        if drawdown >= 40:
-            score += 25  # 진짜 떨이세일 (40% 이상 하락)
-        elif drawdown >= 30:
-            score += 20  # 큰 조정
-        elif drawdown >= 20:
-            score += 15  # 의미있는 조정
-        elif drawdown >= 10:
-            score += 10  # 적당한 조정
-        elif drawdown >= 5:
-            score += 5   # 소폭 조정
-        # 5% 미만은 0점 (고점 근처)
-
-    # 4. RSI 눌림목 (15점)
+    # 1. RSI 위치 (40점)
     if rsi is not None:
-        if 30 <= rsi <= 45:
-            score += 15  # 최적 눌림목
-        elif 45 < rsi <= 55:
-            score += 10  # 중립
-        elif rsi < 30:
-            score += 12  # 과매도 (반등 가능)
-        elif 55 < rsi <= 65:
-            score += 5   # 약간 과열
-        # 65 이상은 0점
+        if rsi <= 30:
+            score += 40  # 과매도 - 매수 기회
+        elif rsi <= 50:
+            score += 30  # 양호
+        elif rsi <= 70:
+            score += 20  # 중립
+        else:  # RSI > 70
+            if is_breakout:
+                score += 35  # 신고가 돌파 모멘텀 - 과매수여도 OK
+            else:
+                score += 10  # 그냥 과매수 - 위험
 
-    # 밸류에이션 레이블
-    if score >= 85:
-        label = '떨이세일'
-    elif score >= 70:
-        label = '저평가'
-    elif score >= 55:
-        label = '적정가'
-    elif score >= 40:
-        label = '고평가'
+    # 2. 52주 고점 위치 (30점)
+    if from_52w_high is not None:
+        if is_breakout:
+            score += 30  # 신고가 돌파 모멘텀
+        else:
+            drawdown = abs(from_52w_high)
+            if drawdown >= 20:
+                score += 30  # 큰 할인
+            elif drawdown >= 10:
+                score += 25  # 의미있는 할인
+            elif drawdown >= 5:
+                score += 20  # 적당한 조정
+            else:
+                score += 15  # 소폭 조정
+
+    # 3. 거래량 스파이크 (20점)
+    if volume_spike:
+        score += 20
     else:
-        label = '버블'
+        score += 10  # 기본값
+
+    # 4. 기본 점수 (10점)
+    score += 10
+
+    # 가격 레이블
+    if score >= 85:
+        label = '급락매수'
+    elif score >= 70:
+        label = '매수적기'
+    elif score >= 55:
+        label = '중립'
+    elif score >= 40:
+        label = '과열'
+    else:
+        label = '위험'
 
     return score, label
 
@@ -976,16 +962,16 @@ def forward_fill_eps(current, d7, d30, d60=None):
 
 def super_momentum_override(quality_score, rsi, action, config=None):
     """
-    Super Momentum Override (v7.0)
+    Super Momentum Override (v7.1)
 
     펀더멘털(Quality)이 완벽한데 기술적 과열(RSI)로
     매수 금지되는 모순 해결.
 
-    조건: Quality_Score >= 80 (S급) AND 70 <= RSI < 85
+    조건: Quality_Score >= 70 (100점 만점 기준 S급) AND 70 <= RSI < 85
     결과: 기존 '관망' 무시, [🚀돌파매수 (슈퍼모멘텀)] 부여
 
     Args:
-        quality_score: 품질 점수 (0-100)
+        quality_score: 품질 점수 (0-50)
         rsi: RSI 값 (0-100)
         action: 기존 액션 레이블
         config: 설정 딕셔너리
@@ -993,8 +979,8 @@ def super_momentum_override(quality_score, rsi, action, config=None):
     Returns:
         str: 최종 액션 레이블
     """
-    # 기본 임계값
-    quality_threshold = 80
+    # 기본 임계값 (100점 만점 기준)
+    quality_threshold = 70
     rsi_min = 70
     rsi_max = 85
 
@@ -1003,7 +989,7 @@ def super_momentum_override(quality_score, rsi, action, config=None):
         sm_config = config['super_momentum']
         if not sm_config.get('enabled', True):
             return action  # 비활성화 시 원래 action 반환
-        quality_threshold = sm_config.get('quality_threshold', 80)
+        quality_threshold = sm_config.get('quality_threshold', 70)
         rsi_min = sm_config.get('rsi_min', 70)
         rsi_max = sm_config.get('rsi_max', 85)
 

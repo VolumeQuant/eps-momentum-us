@@ -501,10 +501,10 @@ def run_screening(config, market_regime=None):
                 # === FILTER 7: Quality & Value Filter (OR 조건) ===
                 pass_reason = None
 
-                # A. Quality Growth: Rev >= 5% AND Op >= Rev
+                # A. Quality Growth: Rev >= 10% AND Op > Rev (v7.1 강화)
                 is_quality_growth = False
                 if rev_growth is not None and op_growth is not None:
-                    if rev_growth >= 5 and op_growth >= rev_growth:
+                    if rev_growth >= 10 and op_growth > rev_growth:
                         is_quality_growth = True
                         pass_reason = f"Quality Growth (Rev+{rev_growth:.0f}%, Op+{op_growth:.0f}%)"
                         stats['quality_growth'] += 1
@@ -584,25 +584,44 @@ def run_screening(config, market_regime=None):
                 # Hybrid Score = Momentum×0.5 + Value×0.2 + Position×0.3
                 hybrid_score = calculate_hybrid_score(score_321, fwd_per, price_position_score)
 
-                # v6.3.1: Quality Score (맛) 계산 - 모멘텀 강도 반영
+                # v7.1: 기간별 EPS 변화율 계산
+                eps_chg_7d = ((current - d7) / d7 * 100) if (d7 and d7 != 0) else None
+                eps_chg_30d = ((current - d30) / d30 * 100) if (d30 and d30 != 0) else None
+                eps_chg_60d = ((current - d60) / d60 * 100) if (d60 and d60 != 0) else None
+                eps_chg_90d = ((current - d90) / d90 * 100) if (d90 and d90 != 0) else None
+
+                # v7.1: Quality Score (품질) 계산 - EPS 모멘텀 집중 (50점 만점)
                 above_ma200 = ma_200 is not None and price > ma_200
                 roe_pct = roe * 100 if roe else 0
-                quality_score, quality_grade = calculate_quality_score(
-                    is_aligned, roe_pct, eps_chg, above_ma200, volume_spike, score_321
+                quality_score, _ = calculate_quality_score(
+                    is_aligned, roe_pct, eps_chg, above_ma200, volume_spike, score_321,
+                    eps_chg_7d, eps_chg_30d, eps_chg_60d, eps_chg_90d
                 )
 
-                # v6.3: Value Score (값) 계산
+                # v7.1: Value Score (가격) 계산 - 진입 타이밍 평가 (50점 만점)
                 value_score, value_label = calculate_value_score(
-                    peg_calculated, fwd_per, from_52w_high, rsi
+                    peg_calculated, fwd_per, from_52w_high, rsi, volume_spike
                 )
 
-                # v7.0: Super Momentum Override (Quality >= 80 + RSI 70-85 → 돌파매수)
+                # v7.1: 총점 기준 등급 산정 (100점 만점)
+                # 밸류 100점, 가격 100점 각각 50%씩 반영
+                total_score = (quality_score * 0.5) + (value_score * 0.5)
+                if total_score >= 70:
+                    quality_grade = 'S급'
+                elif total_score >= 60:
+                    quality_grade = 'A급'
+                elif total_score >= 50:
+                    quality_grade = 'B급'
+                else:
+                    quality_grade = 'C급'
+
+                # v7.0: Super Momentum Override (Quality >= 35 + RSI 70-85 → 돌파매수)
+                # 품질 50점 만점 기준으로 35점 이상 (구 80/120 = 신 33/50)
                 action = super_momentum_override(quality_score, rsi, action, config)
 
-                # v7.0: Actionable Score = (Q×0.5 + V×0.5) × Action Multiplier
+                # v7.1: Actionable Score = total_score × Action Multiplier
                 action_multiplier = get_action_multiplier(action, config)
-                combined_score = (quality_score * 0.5 + value_score * 0.5)
-                actionable_score_v63 = round(combined_score * action_multiplier, 2)
+                actionable_score_v63 = round(total_score * action_multiplier, 2)
 
                 # v6.3: Fake Bottom 감지 (RSI 낮지만 MA200 아래)
                 fake_bottom = False
@@ -612,6 +631,13 @@ def run_screening(config, market_regime=None):
                 # 종목명 가져오기
                 company_name = info.get('shortName', '') or info.get('longName', ticker)
 
+                # v7.1: 당일 등락률 계산
+                price_change_pct = None
+                if len(hist_1m) >= 2:
+                    prev_close = hist_1m['Close'].iloc[-2]
+                    if prev_close and prev_close != 0:
+                        price_change_pct = ((price - prev_close) / prev_close) * 100
+
                 candidates.append({
                     'ticker': ticker,
                     'company_name': company_name,
@@ -619,6 +645,12 @@ def run_screening(config, market_regime=None):
                     'score_321': round(score_321, 1),
                     'score_slope': round(score_slope, 1) if score_slope else None,
                     'eps_chg_60d': round(eps_chg, 1) if eps_chg else None,
+                    # v7.1: 기간별 EPS 변화율 저장
+                    'eps_chg_7d': round(eps_chg_7d, 1) if eps_chg_7d else None,
+                    'eps_chg_30d': round(eps_chg_30d, 1) if eps_chg_30d else None,
+                    'eps_chg_90d': round(eps_chg_90d, 1) if eps_chg_90d else None,
+                    # v7.1: 당일 등락률
+                    'price_change_pct': round(price_change_pct, 2) if price_change_pct else None,
                     'peg': round(peg, 2) if peg else None,
                     'price': round(price, 2),
                     'ma_20': round(ma_20, 2),
@@ -652,10 +684,11 @@ def run_screening(config, market_regime=None):
                     # v6.2 신규 필드 (Action Multiplier)
                     'action_multiplier': action_multiplier,
                     'actionable_score': calculate_actionable_score(hybrid_score, action),
-                    # v6.3 신규 필드 (Quality & Value Scorecard)
-                    'quality_score': quality_score,
+                    # v7.1 신규 필드 (Quality & Value Scorecard - 100점 만점)
+                    'quality_score': round(quality_score, 1),
+                    'value_score': round(value_score, 1),
+                    'total_score': round(total_score, 1),
                     'quality_grade': quality_grade,
-                    'value_score': value_score,
                     'value_label': value_label,
                     'actionable_score_v63': actionable_score_v63,
                     'volume_spike': volume_spike,
@@ -1817,6 +1850,420 @@ def generate_korean_rationale(row):
         return "모멘텀 상승 중"
 
 
+# ========================================
+# v7.1 텔레그램 메시지 생성 함수들
+# ========================================
+
+def generate_rationale_bullets_v71(row):
+    """
+    v7.1: 선정이유를 불릿 포인트 리스트로 반환
+
+    Returns:
+        list: 2-3개의 선정이유 문자열 리스트
+    """
+    bullets = []
+
+    quality_score = row.get('quality_score', 0)
+    value_score = row.get('value_score', 0)
+    rsi = row.get('rsi')
+    from_high = row.get('from_52w_high')
+    is_aligned = row.get('is_aligned', False)
+    volume_spike = row.get('volume_spike', False)
+    roe = row.get('roe')
+    peg = row.get('peg')
+    rev_growth = row.get('rev_growth')
+    op_growth = row.get('op_growth')
+    price_change = row.get('price_change_pct', 0)
+
+    # 1. 밸류(품질) 관련
+    if quality_score >= 80:
+        if is_aligned:
+            bullets.append(f"밸류 {quality_score:.0f}점 최상위 (EPS 정배열)")
+        else:
+            bullets.append(f"밸류 {quality_score:.0f}점 최상위")
+    elif quality_score >= 60:
+        bullets.append(f"밸류 {quality_score:.0f}점 우수")
+    elif quality_score >= 40:
+        bullets.append(f"밸류 {quality_score:.0f}점 (EPS 모멘텀 약함)")
+
+    # 2. 펀더멘털 관련
+    if roe and roe >= 50:
+        bullets.append(f"ROE {roe:.0f}% 초고수익")
+    elif roe and roe >= 30:
+        bullets.append(f"ROE {roe:.0f}% 고수익")
+
+    if op_growth and rev_growth:
+        if op_growth > 100:
+            bullets.append(f"영업익 +{op_growth:.0f}% 폭발 성장")
+        elif op_growth > 50:
+            bullets.append(f"영업익 +{op_growth:.0f}% 고성장")
+
+    if peg and peg < 0.5:
+        bullets.append(f"PEG {peg:.2f} 극저평가")
+    elif peg and peg < 1.0:
+        bullets.append(f"PEG {peg:.2f} 저평가")
+
+    # 3. 가격/타이밍 관련
+    if rsi and rsi <= 35:
+        bullets.append(f"RSI {rsi:.0f} 과매도 → 반등 기회")
+    elif rsi and rsi >= 70 and from_high and from_high > -3:
+        bullets.append(f"신고가 돌파 모멘텀")
+    elif rsi and 45 <= rsi <= 55:
+        bullets.append(f"RSI {rsi:.0f} 중립 → 분할 진입 적기")
+
+    if from_high and from_high > -3:
+        bullets.append(f"52주 신고가 {from_high:+.0f}% 돌파 임박")
+    elif from_high and from_high <= -20:
+        bullets.append(f"52주 고점 대비 {from_high:.0f}% 대폭 할인")
+
+    # 4. 당일 등락률 관련
+    if price_change and price_change <= -5:
+        bullets.append(f"{price_change:+.1f}% 급락 → 진입 기회")
+    elif price_change and price_change >= 5:
+        bullets.append(f"{price_change:+.1f}% 급등 (거래량 확인)")
+
+    # 5. 거래량 스파이크
+    if volume_spike:
+        bullets.append("거래량 급증 (20일 평균 1.5배↑)")
+
+    # 최소 2개, 최대 3개 반환
+    if len(bullets) < 2:
+        bullets.append("모멘텀 상승 추세")
+
+    return bullets[:3]
+
+
+def generate_risk_v71(row):
+    """
+    v7.1: 리스크 문구 자동 생성
+
+    Returns:
+        str: 리스크 문구
+    """
+    risks = []
+
+    rsi = row.get('rsi')
+    from_high = row.get('from_52w_high')
+    quality_score = row.get('quality_score', 0)
+    value_score = row.get('value_score', 0)
+    sector = row.get('sector', '')
+    price_change = row.get('price_change_pct', 0)
+
+    # RSI 관련
+    if rsi and rsi >= 75:
+        risks.append("RSI 과매수")
+
+    # 밸류 낮음
+    if quality_score < 50:
+        risks.append("밸류 낮음")
+
+    # 급락 관련
+    if price_change and price_change <= -7:
+        risks.append("급락 안정 확인 필요")
+
+    # 신고가 돌파 실패 가능성
+    if from_high and -5 < from_high < 0 and rsi and rsi >= 70:
+        risks.append("돌파 실패 시 조정")
+
+    # 섹터별 리스크
+    sector_risks = {
+        'Semiconductor': '반도체 변동성',
+        'Technology': '기술주 변동성',
+        'Basic Materials': '원자재 가격 변동',
+        'Energy': '유가 변동',
+        'Consumer Cyclical': '경기 민감',
+        'Healthcare': '규제 리스크',
+        'Financial Services': '금리 민감',
+    }
+    if sector in sector_risks:
+        risks.append(sector_risks[sector])
+
+    # 기본 리스크
+    if not risks:
+        risks.append("시장 변동성")
+
+    return ", ".join(risks[:2])
+
+
+def get_recommendation_category_v71(row):
+    """
+    v7.1: 핵심 추천 카테고리 분류
+
+    Returns:
+        str: 카테고리 ('적극매수', '급락저가매수', '분할진입', '돌파확인', '조정대기', None)
+    """
+    quality_score = row.get('quality_score', 0)
+    value_score = row.get('value_score', 0)
+    rsi = row.get('rsi')
+    from_high = row.get('from_52w_high')
+
+    # 적극 매수: 밸류 70+ AND 가격 70+ AND RSI 적정
+    if quality_score >= 70 and value_score >= 70 and rsi and 40 <= rsi <= 60:
+        return '적극매수'
+
+    # 급락 저가매수: 밸류 낮지만 가격 80+ (RSI 35 이하)
+    if quality_score < 60 and value_score >= 80 and rsi and rsi <= 35:
+        return '급락저가매수'
+
+    # 분할 진입: 밸류 좋고 RSI 중립
+    if quality_score >= 70 and rsi and 45 <= rsi <= 65:
+        return '분할진입'
+
+    # 돌파 확인 후: 신고가 근처
+    if from_high and from_high > -3 and rsi and rsi >= 70:
+        return '돌파확인'
+
+    # 조정 대기: RSI 70+
+    if rsi and rsi >= 70:
+        return '조정대기'
+
+    return None
+
+
+def create_telegram_message_v71(screening_df, stats, config=None):
+    """
+    v7.1 텔레그램 메시지 생성 - 최종 형식
+
+    포맷:
+    - 헤더: 날짜, 시장 국면, 지수
+    - 전략 설명
+    - TOP 10: 순위 아이콘, 종목명(티커)업종, 가격, 점수, 진입타이밍, 선정이유(불릿), 리스크
+    - 11-26위: 동일 형식
+    - 핵심 추천: 자동 카테고리 분류
+    """
+    import pandas as pd
+    from datetime import datetime
+
+    today_kr = datetime.now().strftime('%Y년 %m월 %d일')
+    today_us = (datetime.now() - pd.Timedelta(hours=14)).strftime('%Y년 %m월 %d일')  # 미국장 기준
+    total_count = len(screening_df)
+
+    # 섹터 한국어 매핑
+    sector_map = {
+        'Semiconductor': '반도체', 'Technology': '기술', 'Tech': '기술',
+        'Industrials': '산업재', 'Financial Services': '금융', 'Financial': '금융',
+        'Healthcare': '헬스케어', 'Consumer Cyclical': '경기소비재',
+        'Consumer Defensive': '필수소비재', 'Energy': '에너지',
+        'Basic Materials': '소재', 'Real Estate': '부동산', 'Utilities': '유틸리티',
+        'Communication Services': '통신', 'Consumer': '소비재', 'Other': '기타'
+    }
+
+    # 시장 국면
+    market_regime = stats.get('market_regime', {})
+    regime = market_regime.get('regime', 'GREEN') if market_regime else 'GREEN'
+    ndx_price = market_regime.get('ndx_price') if market_regime else None
+    ndx_ma50 = market_regime.get('ndx_ma50') if market_regime else None
+    spx_price = market_regime.get('spx_price') if market_regime else None
+    vix = market_regime.get('vix') if market_regime else None
+
+    # 나스닥 등락률 계산 (추정)
+    ndx_change = None
+    if ndx_price and ndx_ma50:
+        ndx_change = ((ndx_price - ndx_ma50) / ndx_ma50) * 100
+
+    regime_emoji = {'RED': '🔴', 'YELLOW': '🟡', 'GREEN': '🟢'}.get(regime, '🟢')
+    regime_text = {'RED': '하락장 (RED)', 'YELLOW': '경계 (YELLOW)', 'GREEN': '상승장 (GREEN)'}.get(regime, '상승장')
+
+    total_scanned = stats.get('total', 917)
+
+    # ========== 메시지 시작 ==========
+    messages = []
+
+    # === TOP 10 메시지 ===
+    msg = f"안녕하세요! 오늘({datetime.now().strftime('%m월%d일')}) 미국주식 EPS 모멘텀 포트폴리오입니다 📊\n\n"
+    msg += "━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"📅 {today_us} (미국장 기준)\n"
+    msg += f"{regime_emoji} {regime_text}\n"
+
+    if ndx_price:
+        msg += f"• 나스닥 {ndx_price:,.0f}"
+        if ndx_ma50 and ndx_price < ndx_ma50:
+            msg += " ⚠️MA50 하회"
+        msg += "\n"
+    if spx_price:
+        msg += f"• S&P500 {spx_price:,.0f}\n"
+    if vix:
+        vix_status = "정상" if vix < 20 else "경계" if vix < 30 else "공포"
+        msg += f"• VIX {vix:.2f} ({vix_status})\n"
+
+    msg += "━━━━━━━━━━━━━━━━━━━\n\n"
+
+    # 전략 설명
+    msg += "💡 전략 v7.1\n\n"
+    msg += f"[1단계] 스크리닝: {total_scanned}개 → {total_count}개 통과 ({total_count/total_scanned*100:.1f}%)\n"
+    msg += "• Kill Switch: FWD 1Y EPS가 7일 전 대비 1%↓ 시 제외\n"
+    msg += "• EPS 상승 추세: 7일/30일/60일 가중 점수 4.0↑\n"
+    msg += "• 성장 필터: 매출≥10% AND 영업익성장>매출성장\n\n"
+    msg += "[2단계] 점수 산정 (총점 100점)\n"
+    msg += "• 밸류 100점: EPS 모멘텀 기간별 + 정배열 보너스\n"
+    msg += "• 가격 100점: RSI + 52주위치 + 거래량 + 신고가돌파\n"
+    msg += "• 총점 = 밸류×50% + 가격×50%\n\n"
+
+    msg += "━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"🏆 총점 기준 TOP 10 ({total_count}개 중 상위)\n"
+    msg += "━━━━━━━━━━━━━━━━━━━\n"
+
+    # 순위 아이콘
+    def get_rank_icon(rank):
+        if rank == 1:
+            return "🥇"
+        elif rank == 2:
+            return "🥈"
+        elif rank == 3:
+            return "🥉"
+        else:
+            return "📌"
+
+    # TOP 10 종목
+    top_10 = screening_df.head(10)
+    recommendations = {'적극매수': [], '급락저가매수': [], '분할진입': [], '돌파확인': [], '조정대기': []}
+
+    for idx, (_, row) in enumerate(top_10.iterrows(), 1):
+        ticker = row['ticker']
+        company = row.get('company_name', ticker)
+        sector = row.get('sector', 'Other')
+        sector_kr = sector_map.get(sector, sector[:4] if len(sector) > 4 else sector)
+        price = row.get('price', 0)
+        price_change = row.get('price_change_pct', 0)
+        quality = row.get('quality_score', 0) or 0
+        value = row.get('value_score', 0) or 0
+        total = row.get('total_score') or (quality * 0.5 + value * 0.5)
+        rsi = row.get('rsi')
+        from_high = row.get('from_52w_high')
+
+        icon = get_rank_icon(idx)
+        change_str = f"({price_change:+.2f}%)" if price_change else ""
+
+        msg += f"\n{icon} {idx}위 {company} ({ticker}) {sector_kr}\n"
+        msg += f"💰 ${price:.2f} {change_str}\n"
+        msg += f"📊 총 {total:.1f}점 = 밸류 {quality:.0f}점 + 가격 {value:.0f}점\n"
+
+        rsi_str = f"RSI {rsi:.0f}" if rsi else "RSI -"
+        high_str = f"52주 {from_high:+.0f}%" if from_high else "52주 -"
+        msg += f"📈 진입타이밍: {rsi_str} | {high_str}\n"
+
+        # 선정이유 (불릿 포인트)
+        bullets = generate_rationale_bullets_v71(row)
+        msg += "📝 선정이유:\n"
+        for bullet in bullets:
+            msg += f"• {bullet}\n"
+
+        # 리스크
+        risk = generate_risk_v71(row)
+        msg += f"⚠️ 리스크: {risk}\n"
+        msg += "━━━━━━━━━━━━━━━━━━━\n"
+
+        # 추천 카테고리 분류
+        category = get_recommendation_category_v71(row)
+        if category:
+            recommendations[category].append(ticker)
+
+    # 핵심 추천 섹션
+    msg += "\n🎯 핵심 추천\n\n"
+
+    if recommendations['적극매수']:
+        msg += "✅ 적극 매수 (밸류+가격 둘 다 좋음)\n"
+        for t in recommendations['적극매수'][:3]:
+            r = screening_df[screening_df['ticker'] == t].iloc[0]
+            msg += f"• {t} - 밸류{r['quality_score']:.0f}+가격{r['value_score']:.0f}, RSI{r['rsi']:.0f}\n"
+        msg += "\n"
+
+    if recommendations['급락저가매수']:
+        msg += "💰 급락 저가매수 (밸류 낮지만 싸짐)\n"
+        for t in recommendations['급락저가매수'][:2]:
+            r = screening_df[screening_df['ticker'] == t].iloc[0]
+            msg += f"• {t} - 밸류{r['quality_score']:.0f}+가격{r['value_score']:.0f}, RSI{r['rsi']:.0f} 과매도\n"
+        msg += "  ⚠️ 밸류 낮아 리스크 있음\n\n"
+
+    if recommendations['분할진입']:
+        msg += "🔄 분할 진입\n"
+        for t in recommendations['분할진입'][:3]:
+            r = screening_df[screening_df['ticker'] == t].iloc[0]
+            msg += f"• {t} - 밸류{r['quality_score']:.0f}, RSI{r['rsi']:.0f} 중립\n"
+        msg += "\n"
+
+    if recommendations['돌파확인']:
+        msg += "⏸️ 돌파 확인 후\n"
+        for t in recommendations['돌파확인'][:2]:
+            msg += f"• {t} - 신고가 돌파 시 진입\n"
+        msg += "\n"
+
+    if recommendations['조정대기']:
+        tickers = "/".join(recommendations['조정대기'][:3])
+        msg += f"⏸️ 조정 대기\n• {tickers} (RSI70+)\n\n"
+
+    msg += "━━━━━━━━━━━━━━━━━━━\n"
+    msg += "📊 EPS Momentum v7.1"
+
+    messages.append(msg)
+
+    # === 11-26위 메시지 (있으면) ===
+    if total_count > 10:
+        msg2 = f"📊 11-26위 종목 분석 (v7.1)\n\n"
+        msg2 += "━━━━━━━━━━━━━━━━━━━\n"
+
+        remaining = screening_df.iloc[10:26]
+        for idx, (_, row) in enumerate(remaining.iterrows(), 11):
+            ticker = row['ticker']
+            company = row.get('company_name', ticker)
+            sector = row.get('sector', 'Other')
+            sector_kr = sector_map.get(sector, sector[:4] if len(sector) > 4 else sector)
+            price = row.get('price', 0)
+            price_change = row.get('price_change_pct', 0)
+            quality = row.get('quality_score', 0) or 0
+            value = row.get('value_score', 0) or 0
+            total = row.get('total_score') or (quality * 0.5 + value * 0.5)
+            rsi = row.get('rsi')
+            from_high = row.get('from_52w_high')
+
+            change_str = f"({price_change:+.2f}%)" if price_change else ""
+
+            msg2 += f"📌 {idx}위 {company} ({ticker}) {sector_kr}\n"
+            msg2 += f"💰 ${price:.2f} {change_str}\n"
+            msg2 += f"📊 총 {total:.1f}점 = 밸류 {quality:.0f}점 + 가격 {value:.0f}점\n"
+
+            rsi_str = f"RSI {rsi:.0f}" if rsi else "RSI -"
+            high_str = f"52주 {from_high:+.0f}%" if from_high else "52주 -"
+            msg2 += f"📈 진입타이밍: {rsi_str} | {high_str}\n"
+
+            bullets = generate_rationale_bullets_v71(row)
+            msg2 += "📝 선정이유:\n"
+            for bullet in bullets:
+                msg2 += f"• {bullet}\n"
+
+            risk = generate_risk_v71(row)
+            msg2 += f"⚠️ 리스크: {risk}\n"
+            msg2 += "━━━━━━━━━━━━━━━━━━━\n"
+
+        # 11-26위 주목 섹션
+        msg2 += "\n📌 11-26위 중 주목\n\n"
+
+        # 과매도 종목
+        oversold = remaining[remaining['rsi'] <= 35] if 'rsi' in remaining.columns else pd.DataFrame()
+        if len(oversold) > 0:
+            msg2 += "✅ 과매도 반등 기회\n"
+            for _, r in oversold.head(2).iterrows():
+                r_total = r.get('total_score') or ((r.get('quality_score', 0) or 0) * 0.5 + (r.get('value_score', 0) or 0) * 0.5)
+                msg2 += f"• {r['ticker']} (RSI{r['rsi']:.0f}) - {r_total:.1f}점\n"
+            msg2 += "\n"
+
+        # 방어주 (헬스케어, 유틸리티)
+        defensive = remaining[remaining['sector'].isin(['Healthcare', 'Utilities', 'Consumer Defensive'])]
+        if len(defensive) > 0:
+            msg2 += "🛡️ 방어주\n"
+            for _, r in defensive.head(2).iterrows():
+                sector_kr = sector_map.get(r['sector'], r['sector'])
+                msg2 += f"• {r['ticker']} - {sector_kr}\n"
+            msg2 += "\n"
+
+        msg2 += "━━━━━━━━━━━━━━━━━━━\n"
+        msg2 += "📊 EPS Momentum v7.1"
+
+        messages.append(msg2)
+
+    return messages
+
+
 def create_telegram_message_admin(stats, collected, errors, execution_time):
     """
     텔레그램 Admin 메시지 (Track 2) - 시스템 로그용
@@ -2515,9 +2962,13 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
 
 def format_telegram_message(screening_df, stats, changes=None, config=None):
     """
-    텔레그램 메시지 (레거시 호환용 - create_telegram_message로 대체)
+    텔레그램 메시지 v7.1 형식으로 생성
+
+    Returns:
+        list: 메시지 리스트 (TOP 10, 11-26위 등)
     """
-    return create_telegram_message(screening_df, stats, changes, config)
+    # v7.1 형식 사용
+    return create_telegram_message_v71(screening_df, stats, config)
 
 
 def send_telegram_long(message, config):
@@ -2577,7 +3028,7 @@ def send_telegram_long(message, config):
 def main():
     """메인 실행"""
     log("=" * 60)
-    log("EPS Momentum Daily Runner v7.0.6 - EPS Growth + RSI Dual Track")
+    log("EPS Momentum Daily Runner v7.1 - 밸류+가격 100점 체계")
     log("=" * 60)
 
     start_time = datetime.now()
@@ -2602,12 +3053,19 @@ def main():
         changes = get_portfolio_changes(screening_df, config)
         log(f"편입: {len(changes['added'])}개, 편출: {len(changes['removed'])}개")
 
-    # Track 1 완료 → 텔레그램 User 메시지 즉시 전송
+    # Track 1 완료 → 텔레그램 User 메시지 즉시 전송 (v7.1)
     if config.get('telegram_enabled', False):
         if not screening_df.empty or stats.get('skipped', False):
-            msg_user = format_telegram_message(screening_df, stats, changes, config)
-            send_telegram_long(msg_user, config)
-            log("✅ 텔레그램 User 메시지 전송 완료")
+            messages = format_telegram_message(screening_df, stats, changes, config)
+            # v7.1: 메시지 리스트 순차 전송 (TOP 10, 11-26위 등)
+            if isinstance(messages, list):
+                for i, msg in enumerate(messages):
+                    send_telegram_long(msg, config)
+                    log(f"✅ 텔레그램 메시지 {i+1}/{len(messages)} 전송 완료")
+            else:
+                # 하위 호환: 단일 문자열
+                send_telegram_long(messages, config)
+                log("✅ 텔레그램 User 메시지 전송 완료")
             log("=" * 60)
 
     # Track 2: 데이터 축적 (User 메시지 전송 후 진행)

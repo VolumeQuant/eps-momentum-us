@@ -1,4 +1,4 @@
-# EPS Revision Momentum Strategy v7.0.6 - 상세 기술 문서
+# EPS Revision Momentum Strategy v7.1 - 상세 기술 문서
 
 ## 목차
 
@@ -6,9 +6,9 @@
 2. [전략 철학](#2-전략-철학)
 3. [시스템 아키텍처](#3-시스템-아키텍처)
 4. [핵심 알고리즘](#4-핵심-알고리즘)
-5. [v6.3 Quality & Value Scorecard](#5-v63-quality--value-scorecard)
-6. [v7.0 신규 기능](#6-v70-신규-기능)
-7. [v7.0.5~v7.0.6 업데이트](#7-v705v706-업데이트)
+5. [v7.1 밸류+가격 100점 체계](#5-v71-밸류가격-100점-체계)
+6. [v7.1 텔레그램 자동화](#6-v71-텔레그램-자동화)
+7. [v7.0 신규 기능](#7-v70-신규-기능)
 8. [데이터 흐름](#8-데이터-흐름)
 9. [모듈별 상세](#9-모듈별-상세)
 10. [설정 가이드](#10-설정-가이드)
@@ -316,158 +316,302 @@ if len(hist_1m) >= 20:
 
 ---
 
-## 5. v6.3 Quality & Value Scorecard
+## 5. v7.1 밸류+가격 100점 체계
 
 ### 5.1 핵심 개념
 
-v6.3에서는 종목을 **맛(Quality)**과 **값(Value)**으로 분리 평가:
+v7.1에서는 **밸류(Quality)**와 **가격(Value)**을 각각 100점으로 평가:
 
 | 점수 | 의미 | 100점 만점 |
 |------|------|------------|
-| **Quality Score** | "이 사과가 맛있는가?" | EPS 모멘텀, ROE, 성장률, 추세, 수급 |
-| **Value Score** | "지금 가격이 적절한가?" | PEG, PER, 52주 고점대비, RSI 눌림목 |
+| **밸류 Score** | "EPS 모멘텀이 얼마나 강한가?" | 기간별 EPS 변화율 + 정배열 보너스 |
+| **가격 Score** | "지금 매수하기 좋은 가격인가?" | RSI + 52주 위치 + 거래량 |
 
-### 5.2 Quality Score (맛, 100점)
-
+**총점 공식:**
 ```python
-def calculate_quality_score(is_aligned, roe, eps_chg, above_ma200, volume_spike, momentum_score=None):
-    score = 0
-
-    # v6.3.2: score_321 직접 활용 (정배열 보너스 중복 제거)
-    if momentum_score is not None and momentum_score > 0:
-        score += min(30, momentum_score)  # 최대 30점
-
-    # ROE 품질 (25점)
-    if roe and roe >= 0.30:
-        score += 25
-    elif roe and roe >= 0.20:
-        score += 20
-    elif roe and roe >= 0.10:
-        score += 15
-
-    # EPS 성장률 (20점)
-    if eps_chg and eps_chg >= 20:
-        score += 20
-    elif eps_chg and eps_chg >= 10:
-        score += 15
-    elif eps_chg and eps_chg >= 5:
-        score += 10
-
-    # 추세 (15점)
-    if above_ma200:
-        score += 15
-
-    # 수급 (10점)
-    if volume_spike:
-        score += 10
-
-    return score
+총점 = 밸류 × 50% + 가격 × 50%
 ```
 
-### 5.3 Value Score (값, 100점)
+### 5.2 밸류 Score (Quality, 100점)
+
+**기간별 가중치** - 최근일수록 높음:
+
+| 기간 | 배점 | 계산 |
+|------|------|------|
+| 7일 | 24점 | `min(24, eps_chg_7d * 2.4)` |
+| 30일 | 22점 | `min(22, eps_chg_30d * 0.73)` |
+| 60일 | 18점 | `min(18, eps_chg_60d * 0.3)` |
+| 90일 | 16점 | `min(16, eps_chg_90d * 0.16)` |
+| 정배열 | 20점 | C > 7d > 30d > 60d |
 
 ```python
-def calculate_value_score(peg, fwd_per, from_52w_high, rsi):
+def calculate_quality_score_v71(eps_chg_7d, eps_chg_30d, eps_chg_60d, eps_chg_90d, is_aligned):
+    """v7.1 밸류 Score 계산 (100점 만점)"""
     score = 0
 
-    # PEG 평가 (35점)
-    if peg and peg < 1.0:
+    # 기간별 EPS 변화율 점수
+    if eps_chg_7d and eps_chg_7d > 0:
+        score += min(24, eps_chg_7d * 2.4)  # 10% → 24점
+    if eps_chg_30d and eps_chg_30d > 0:
+        score += min(22, eps_chg_30d * 0.73)  # 30% → 22점
+    if eps_chg_60d and eps_chg_60d > 0:
+        score += min(18, eps_chg_60d * 0.3)  # 60% → 18점
+    if eps_chg_90d and eps_chg_90d > 0:
+        score += min(16, eps_chg_90d * 0.16)  # 100% → 16점
+
+    # 정배열 보너스 (20점)
+    if is_aligned:
+        score += 20
+
+    return min(100, score)
+```
+
+**예시:**
+- LRCX: 7d +5%, 30d +20%, 60d +50%, 90d +60%, 정배열
+  - = 12 + 14.6 + 15 + 9.6 + 20 = **71.2점**
+
+### 5.3 가격 Score (Value, 100점)
+
+| 항목 | 배점 | 기준 |
+|------|------|------|
+| **RSI 점수** | 40점 | 낮을수록 좋음 |
+| **52주 위치** | 30점 | 고점 대비 하락 폭 |
+| **거래량** | 20점 | 20일 평균 대비 |
+| **기본 점수** | 10점 | 스크리닝 통과 기본 |
+
+**RSI 세부 점수:**
+| RSI | 점수 | 해석 |
+|-----|------|------|
+| ≤30 | 40점 | 과매도 |
+| 30-40 | 35점 | 저점 |
+| 40-50 | 25점 | 중립 저 |
+| 50-60 | 15점 | 중립 |
+| 60-70 | 10점 | 중립 고 |
+| ≥70 | 5점 | 과매수 |
+
+**신고가 돌파 모멘텀:**
+```python
+# 52주 고점 -2% 이내면 RSI 과매수도 OK
+if from_52w_high >= -2:
+    score = max(score, 80)  # 최소 80점 보장
+```
+
+```python
+def calculate_value_score_v71(rsi, from_52w_high, volume_ratio):
+    """v7.1 가격 Score 계산 (100점 만점)"""
+    score = 10  # 기본 점수
+
+    # RSI 점수 (40점)
+    if rsi <= 30:
+        score += 40
+    elif rsi <= 40:
         score += 35
-    elif peg and peg < 1.5:
-        score += 28
-    elif peg and peg < 2.0:
-        score += 20
-
-    # Forward PER (25점)
-    if fwd_per and fwd_per < 15:
+    elif rsi <= 50:
         score += 25
-    elif fwd_per and fwd_per < 25:
-        score += 20
-    elif fwd_per and fwd_per < 40:
-        score += 12
+    elif rsi <= 60:
+        score += 15
+    elif rsi <= 70:
+        score += 10
+    else:
+        score += 5
 
-    # 52주 고점대비 (25점) - 떨어진 것 = 세일
-    if from_52w_high and from_52w_high <= -25:
+    # 52주 위치 점수 (30점)
+    if from_52w_high <= -25:
+        score += 30
+    elif from_52w_high <= -20:
         score += 25
-    elif from_52w_high and from_52w_high <= -15:
+    elif from_52w_high <= -15:
         score += 20
-    elif from_52w_high and from_52w_high <= -10:
+    elif from_52w_high <= -10:
         score += 15
-
-    # RSI 눌림목 (15점)
-    if rsi and 30 <= rsi <= 45:
-        score += 15
-    elif rsi and 45 < rsi <= 55:
+    elif from_52w_high <= -5:
         score += 10
 
-    return score
+    # 거래량 점수 (20점)
+    if volume_ratio >= 2.0:
+        score += 20
+    elif volume_ratio >= 1.5:
+        score += 15
+    elif volume_ratio >= 1.2:
+        score += 10
+
+    # 신고가 돌파 모멘텀
+    if from_52w_high >= -2:
+        score = max(score, 80)
+
+    return min(100, score)
 ```
 
-### 5.4 Actionable Score 공식
+### 5.4 핵심 추천 자동 분류
 
 ```python
-actionable_score = (quality_score * 0.5 + value_score * 0.5) * action_multiplier
+def get_recommendation_category_v71(row):
+    """v7.1 핵심추천 카테고리 자동 분류"""
+    rsi = row.get('rsi', 50)
+    value_score = row.get('value_score', 0)
+    quality_score = row.get('quality_score', 0)
+    from_52w_high = row.get('from_52w_high', -10)
+
+    # 1. 적극매수: RSI 과매도 + 가격 좋음
+    if rsi <= 35 and value_score >= 80:
+        return "적극매수"
+
+    # 2. 급락저가매수: 가격 좋지만 밸류 낮음
+    if value_score >= 80 and quality_score < 65:
+        return "급락저가매수"
+
+    # 3. 분할진입: 밸류 좋고 RSI 중립
+    if quality_score >= 70 and 40 <= rsi <= 60:
+        return "분할진입"
+
+    # 4. 돌파확인: 신고가 근접 + RSI 과열
+    if from_52w_high >= -2 and rsi >= 70:
+        return "돌파확인"
+
+    # 5. 조정대기: RSI 과열
+    if rsi >= 70:
+        return "조정대기"
+
+    return "분할진입"
 ```
 
-### 5.5 Action Multiplier
+| 카테고리 | 아이콘 | 조건 |
+|----------|--------|------|
+| 적극매수 | ✅ | RSI≤35 AND 가격≥80 |
+| 급락저가매수 | 💰 | 가격≥80 AND 밸류<65 |
+| 분할진입 | 🔄 | 밸류≥70 AND RSI 40-60 |
+| 돌파확인 | ⏸️ | 52주 -2% 이내 AND RSI≥70 |
+| 조정대기 | ⏸️ | RSI≥70 |
 
-| Action | Multiplier | 조건 |
-|--------|------------|------|
-| 🚀강력매수 (돌파) | ×1.1 | RSI 70-84 + 신고가 + 거래량 |
-| 적극매수/저점매수 | ×1.0 | 눌림목/과매도 |
-| 매수적기 | ×0.9 | 건강한 추세 |
-| 관망 (RSI🚀) | ×0.75 | RSI 70-84 (거래량 미동반) |
-| 관망 | ×0.7 | 진입 애매 |
-| 진입금지 | ×0.3 | RSI 85+ / 단기급등 |
-| 추세이탈 | ×0.1 | MA200 하회 |
+---
 
-### 5.6 score_321 계산 (Quality Score의 EPS 모멘텀)
+## 6. v7.1 텔레그램 자동화
 
-```python
-def calculate_momentum_score_v3(current, d7, d30, d60):
-    score = 0
+### 6.1 메시지 구조
 
-    # 가중치 기반 (최근일수록 높은 점수)
-    if current > d7:   score += 3  # 최신
-    if d7 > d30:       score += 2
-    if d30 > d60:      score += 1
+**TOP 10 메시지:**
+```
+안녕하세요! 오늘의 미국주식 EPS 모멘텀 포트폴리오입니다 📊
 
-    # 역전 페널티
-    if d7 < d30:       score -= 1
-    if d30 < d60:      score -= 1
+━━━━━━━━━━━━━━━━━━━
+📅 2026년 02월 05일
+🔴 하락장 (RED)
+• 나스닥 22,905 (-1.51%) ⚠️MA50 하회
+• S&P500 6,883 (-0.51%)
+• VIX 18.64 (정상)
+━━━━━━━━━━━━━━━━━━━
 
-    # 60일 변화율 보너스
-    eps_chg_60d = (current - d60) / d60 * 100 if d60 else 0
-    score += eps_chg_60d / 5
+🏆 TOP 10 추천주
+━━━━━━━━━━━━━━━━━━━
 
-    # 정배열 보너스
-    if current > d7 > d30 > d60:
-        score += 3  # 완전 정배열
-    elif current > d7 > d30:
-        score += 1  # 부분 정배열
+🥇 1위 Commercial Metals (CMC) 철강
+💰 $83 (+1.0%)
+📊 품질 99.4 | 가격 80 | 총 179.4
+📈 RSI 72 | 52주 -2%
+📝 선정이유:
+• 52주 신고가 -2% 돌파 임박
+• PEG 0.3 극저평가, 영업익 +63%
+⚠️ 리스크: 돌파 실패 시 조정 가능
 
-    return score
+━━━━━━━━━━━━━━━━━━━
+🤖 핵심 추천
+
+✅ 적극매수
+• AVGO - 가격85 급락매수, RSI31
+
+🔄 분할진입
+• LRCX - 품질112, RSI50 중립
 ```
 
-### 5.7 v6.3.2 중복 제거 히스토리
+### 6.2 순위 아이콘
 
-**v6.3.1 문제점:**
+| 순위 | 아이콘 |
+|------|--------|
+| 1위 | 🥇 |
+| 2위 | 🥈 |
+| 3위 | 🥉 |
+| 4위~ | 📌 |
+
+### 6.3 자동 생성 함수
+
+**선정이유 불릿 포인트:**
 ```python
-# 정배열 여부로 20점 + 모멘텀 강도로 10점 = 중복
-if is_aligned:
-    score += 20  # 정배열 보너스
-    score += min(10, momentum_score)  # 모멘텀 강도
+def generate_rationale_bullets_v71(row):
+    """v7.1 선정이유 불릿 포인트 생성 (2-3개)"""
+    bullets = []
+
+    # 1. 밸류 관련
+    quality = row.get('quality_score', 0)
+    if quality >= 100:
+        bullets.append(f"품질 {quality:.1f}점! EPS 전 기간 상승 + 정배열")
+    elif quality >= 80:
+        bullets.append(f"품질 {quality:.1f}점, EPS 모멘텀 강함")
+
+    # 2. 가격 관련
+    rsi = row.get('rsi', 50)
+    from_52w = row.get('from_52w_high', -10)
+    if rsi <= 35:
+        bullets.append(f"RSI {rsi:.0f} 과매도 → 반등 기회")
+    if from_52w >= -2:
+        bullets.append(f"52주 신고가 {from_52w:.0f}% 돌파 임박")
+
+    # 3. 펀더멘털
+    peg = row.get('peg')
+    if peg and peg < 1.0:
+        bullets.append(f"PEG {peg:.2f} 극저평가")
+
+    return bullets[:3]
 ```
 
-**v6.3.2 해결:**
+**리스크 자동 생성:**
 ```python
-# score_321에 이미 정배열 보너스 포함되어 있으므로 직접 활용
-score += min(30, momentum_score)
+def generate_risk_v71(row):
+    """v7.1 리스크 자동 생성"""
+    risks = []
+
+    rsi = row.get('rsi', 50)
+    if rsi >= 70:
+        risks.append("RSI 과열")
+
+    sector = row.get('industry_kr', '')
+    if '반도체' in sector:
+        risks.append("반도체 변동성")
+    elif '바이오' in sector:
+        risks.append("임상 리스크")
+
+    quality = row.get('quality_score', 0)
+    if quality < 65:
+        risks.append("밸류 낮음")
+
+    return ", ".join(risks) if risks else "시장 변동성"
+```
+
+### 6.4 메시지 분할
+
+텔레그램 4096자 제한으로 자동 분할:
+- **메시지 1**: TOP 10 (1-10위)
+- **메시지 2**: 11-26위 + 핵심 추천
+
+```python
+def create_telegram_message_v71(screening_df, stats, config):
+    """v7.1 텔레그램 메시지 생성 (리스트 반환)"""
+    messages = []
+
+    # 메시지 1: TOP 10
+    msg1 = format_top10_message(screening_df.head(10))
+    messages.append(msg1)
+
+    # 메시지 2: 11-26위
+    if len(screening_df) > 10:
+        msg2 = format_watchlist_message(screening_df.iloc[10:26])
+        messages.append(msg2)
+
+    return messages
 ```
 
 ---
 
-## 6. v7.0 신규 기능
+## 7. v7.0 신규 기능
 
 ### 6.1 Super Momentum Override
 
@@ -630,48 +774,6 @@ def get_sector_etf_recommendation(screening_df, top_n=10, min_count=3):
 🔻 {Ticker}: 펀더멘털 훼손 (EPS -1% 하향)
 🔻 {Ticker}: 기술적 이탈 (MA{20/50} 붕괴)
 ```
-
----
-
-## 7. v7.0.5~v7.0.6 업데이트
-
-### 7.1 v7.0.5 (2026-02-03)
-
-#### 업종 한국어 매핑
-```python
-industry_kr = {
-    'Semiconductors': '반도체',
-    'Biotechnology': '바이오테크',
-    'Gold': '금',
-    # ... 100개+ 매핑
-}
-```
-
-#### 전체 섹터 분석 ETF 추천
-- 기존: TOP 10 종목 중 섹터 집중 분석
-- 변경: **전체 통과 종목** 기준 섹터 분석
-
-```
-🔥 [HOT] 섹터 집중 (전체 54개 분석)
-👉 경기소비재 12개(22%) → XLY/WANT
-👉 산업재 11개(20%) → XLI/DUSL
-👉 기술 9개(17%) → XLK/TECL
-```
-
-### 7.2 v7.0.6 (2026-02-05)
-
-#### 뉴스 헤드라인 한글 번역
-```python
-def translate_to_korean(text, max_len=60):
-    from googletrans import Translator
-    translator = Translator()
-    result = translator.translate(text, src='en', dest='ko')
-    return result.text
-```
-
-**결과 예시:**
-- 영어: "Broadcom adds $4 billion to buyback..."
-- 한글: "브로드컴, 자사주 매입 40억 달러 추가..."
 
 ---
 
@@ -1072,4 +1174,4 @@ Score_Slope (변화율 가중 평균)
 
 ---
 
-*문서 버전: v6.3.3 | 최종 업데이트: 2026-02-03*
+*문서 버전: v7.1 | 최종 업데이트: 2026-02-05*
