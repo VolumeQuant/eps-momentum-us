@@ -276,23 +276,15 @@ def run_screening(config, market_regime=None):
     regime = market_regime.get('regime', 'GREEN') if market_regime else 'GREEN'
     reason = market_regime.get('reason', '') if market_regime else ''
 
-    # 🔴 RED: 스크리닝 즉시 중단
+    # 🔴 RED: 경고만 표시하고 스크리닝 진행 (가장 강화된 필터 적용)
     if regime == 'RED':
-        log(f"🔴 시장 위험으로 스크리닝 건너뜀: {reason}", "WARN")
-        empty_stats = {
-            'total': 0, 'no_eps': 0, 'killed': 0, 'low_score': 0,
-            'low_volume': 0, 'below_ma200': 0, 'earnings_blackout': 0,
-            'no_quality_value': 0, 'data_error': 0, 'passed': 0,
-            'aligned': 0, 'quality_growth': 0, 'reasonable_value': 0,
-            'technical_rescue': 0, 'market_regime': market_regime,
-            'min_score_used': None, 'max_peg_used': None, 'skipped': True,
-            'low_roe': 0, 'high_per': 0, 'avg_fwd_per': 0, 'avg_roe': 0,
-            'killed_tickers': [], 'trend_exit_tickers': []
-        }
-        return pd.DataFrame(), empty_stats
+        log(f"🔴 시장 위험 경고! {reason}", "WARN")
+        log(f"🔴 스크리닝은 계속 진행하되, 최고 수준 필터 적용 (Score >= 8.0, PEG < 1.0)")
+        min_score = 8.0  # 가장 엄격한 필터
+        max_peg = 1.0    # 가장 엄격한 필터
 
     # 🟡 YELLOW: 필터 강화
-    if regime == 'YELLOW':
+    elif regime == 'YELLOW':
         min_score = 6.0  # 4.0 → 6.0 (강화)
         max_peg = 1.5    # 2.0 → 1.5 (강화)
         log(f"🟡 경계 모드! 필터 강화: Score >= {min_score}, PEG < {max_peg}")

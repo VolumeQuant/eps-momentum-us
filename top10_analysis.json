@@ -1,0 +1,132 @@
+[
+  {
+    "rank": 1,
+    "ticker": "AVGO",
+    "name": "Broadcom Inc.",
+    "price": 308.05,
+    "change_pct": -3.8,
+    "vol_today_m": 42.6,
+    "vol_ratio": 1.6,
+    "news": [
+      "메모리 업체 주가, AI 붐에 1000% 상승",
+      "오늘 주식 시장: 월스트리트의 기술 매도가 심화된 후 다우, S&P 500, 나스닥 선물 상승"
+    ]
+  },
+  {
+    "rank": 2,
+    "ticker": "NEM",
+    "name": "Newmont Corporation",
+    "price": 116.85,
+    "change_pct": -0.2,
+    "vol_today_m": 10.9,
+    "vol_ratio": 1.0,
+    "news": [
+      "Zacks 분석가 블로그에서는 Agnico Eagle Mines, Kinross Gold 및 Newmont를 강조합니다.",
+      "Here's How Much a $1000 Investment in Newmont Corporation Made 10 Years Ago Woul"
+    ]
+  },
+  {
+    "rank": 3,
+    "ticker": "LITE",
+    "name": "Lumentum Holdings Inc.",
+    "price": 465.54,
+    "change_pct": 7.0,
+    "vol_today_m": 11.9,
+    "vol_ratio": 2.3,
+    "news": [
+      "투자자들이 AI 거래의 확대되는 에너지 수요를 활용하는 방법",
+      "Lumentum(LITE)의 적극 매수 움직임: 업그레이드의 근거"
+    ]
+  },
+  {
+    "rank": 4,
+    "ticker": "LRCX",
+    "name": "Lam Research Corporation",
+    "price": 209.78,
+    "change_pct": -8.8,
+    "vol_today_m": 19.6,
+    "vol_ratio": 1.4,
+    "news": [
+      "Amtech, Vishay Intertechnology, Lam Research, Micron 및 Western Digital 주식 거래 ...",
+      "Lam Research의 Jim Cramer: \"Lam Research를 매수하려면 포지션의 4분의 1을 투자하고 참여하세요.\""
+    ]
+  },
+  {
+    "rank": 5,
+    "ticker": "CMC",
+    "name": "Commercial Metals Company",
+    "price": 82.7,
+    "change_pct": 1.0,
+    "vol_today_m": 1.4,
+    "vol_ratio": 1.0,
+    "news": [
+      "Carpenter Technology 2분기 실적, 예상치 상회, 매출 전년 동기 대비 8% 증가",
+      "상업용 금속(CMC)은 다년간 강력한 주가 상승 이후에도 여전히 매력적입니까?"
+    ]
+  },
+  {
+    "rank": 6,
+    "ticker": "STX",
+    "name": "Seagate Technology Holdings PLC",
+    "price": 418.63,
+    "change_pct": -5.8,
+    "vol_today_m": 6.4,
+    "vol_ratio": 1.2,
+    "news": [
+      "길거리 요약: Tech Tantrum에서 들음",
+      "MACOM, Seagate 및 Semtech 주가 급락, 알아야 할 사항"
+    ]
+  },
+  {
+    "rank": 7,
+    "ticker": "MU",
+    "name": "Micron Technology, Inc.",
+    "price": 379.4,
+    "change_pct": -9.5,
+    "vol_today_m": 56.3,
+    "vol_ratio": 1.5,
+    "news": [
+      "메모리 업체 주가, AI 붐에 1000% 상승",
+      "길거리 요약: Tech Tantrum에서 들음"
+    ]
+  },
+  {
+    "rank": 8,
+    "ticker": "KLAC",
+    "name": "KLA Corporation",
+    "price": 1307.22,
+    "change_pct": -3.6,
+    "vol_today_m": 1.6,
+    "vol_ratio": 1.2,
+    "news": [
+      "Cirrus Logic 3분기 수익 및 수익이 예상치를 상회하고 Y/Y 상승",
+      "KLA(KLAC) 국제 수익 동향에 주목해야 하는 이유"
+    ]
+  },
+  {
+    "rank": 9,
+    "ticker": "RMD",
+    "name": "ResMed Inc.",
+    "price": 263.03,
+    "change_pct": 4.6,
+    "vol_today_m": 1.7,
+    "vol_ratio": 1.6,
+    "news": [
+      "Zacks 산업 전망에서는 Boston Scientific, ResMed, Phibro Animal Health 및 BioLife Solu...",
+      "실버 경제 붐: 헬스케어의 노령화 순풍에 투자"
+    ]
+  },
+  {
+    "rank": 10,
+    "ticker": "AMGN",
+    "name": "Amgen Inc.",
+    "price": 366.2,
+    "change_pct": 8.2,
+    "vol_today_m": 5.9,
+    "vol_ratio": 2.0,
+    "news": [
+      "다우존스 선물 상승;Google이 조회수를 능가하고 막대한 AI 지출을 보고함",
+      "오늘, 2월 4일 주식 시장: 기술 낙진이 계속됨에 따라 AMD는 17% 이상 급락했습니다."
+    ]
+  }
+]
