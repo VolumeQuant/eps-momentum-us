@@ -69,11 +69,11 @@
       "Bash(\"C:/Users/user/miniconda3/envs/volumequant/python.exe\" -c \"\nimport sys\nsys.path.insert\\(0, ''C:/dev/claude code/eps-momentum-us''\\)\nfrom daily_runner import get_display_dates\n\ndates = get_display_dates\\(\\)\nprint\\(''=== 날짜 테스트 ===''\\)\nprint\\(f\"\"인사말 \\(한국날짜\\): {dates[''kr_date'']}\"\"\\)\nprint\\(f\"\"시장데이터 \\(미국 영업일\\): {dates[''us_date'']}\"\"\\)\nprint\\(f\"\"미국 영업일 \\(짧은형식\\): {dates[''us_date_short'']}\"\"\\)\nprint\\(f\"\"미국 영업일 \\(ISO\\): {dates[''us_date_iso'']}\"\"\\)\n\")",
       "Bash(git status:*)",
       "Bash(\"C:/Users/user/miniconda3/envs/volumequant/python.exe\" -c \"\nimport pandas as pd\ndf = pd.read_csv\\(''C:/dev/claude code/eps-momentum-us/eps_data/screening_2026-02-05.csv''\\)\nprint\\(f''전체 종목 수: {len\\(df\\)}''\\)\nprint\\(\\)\nprint\\(''=== industry 컬럼 분포 ===''\\)\nif ''industry'' in df.columns:\n    print\\(df[''industry''].value_counts\\(\\)\\)\nelse:\n    print\\(''industry 컬럼 없음''\\)\nprint\\(\\)\nprint\\(''=== sector 컬럼 분포 ===''\\)\nif ''sector'' in df.columns:\n    print\\(df[''sector''].value_counts\\(\\)\\)\n\")",
-      "Bash(\"C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\\\\daily_runner.py\")",
-      "Bash(\"C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" -c \"\nimport pandas as pd\ndf = pd.read_csv\\(''C:/dev/claude-code/eps-momentum-us/eps_data/screening_2026-02-05.csv''\\)\nprint\\(''=== Top 10 by total_score ===''\\)\nprint\\(df[[''ticker'', ''quality_score'', ''value_score'', ''total_score'']].head\\(10\\).to_string\\(index=False\\)\\)\nprint\\(\\)\nprint\\(''Total scores \\(first 15\\):'', df[''total_score''].head\\(15\\).tolist\\(\\)\\)\n\")",
-      "Bash(\"C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" -c:*)",
-      "Bash(test:*)",
-      "Bash(/c/Users/jkw88/miniconda3/envs/volumequant/python.exe daily_runner.py)"
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(git stash pop:*)",
+      "Bash(\"C:/Users/user/miniconda3/envs/volumequant/python.exe\" -c \"\nimport urllib.request\nimport urllib.parse\n\nbot_token = ''7948087946:AAGVHj7FdBxr0LRJzQTzfEp0HadzAtoXs-8''\nprivate_id = ''7580571403''\n\nurl = f''https://api.telegram.org/bot{bot_token}/sendMessage''\ndata = urllib.parse.urlencode\\({\n    ''chat_id'': private_id,\n    ''text'': ''테스트 메시지입니다. 로컬에서 봇에만 전송되는지 확인용.'',\n    ''parse_mode'': ''HTML''\n}\\).encode\\(\\)\n\nreq = urllib.request.Request\\(url, data=data\\)\nresponse = urllib.request.urlopen\\(req, timeout=10\\)\nprint\\(''전송 성공!'' if response.status == 200 else ''실패''\\)\n\")",
+      "Bash(\"C:/Users/user/miniconda3/envs/volumequant/python.exe\" -c \"\nimport sqlite3\nconn = sqlite3.connect\\(''C:/dev/claude code/eps-momentum-us/eps_momentum_data.db''\\)\ncursor = conn.cursor\\(\\)\ncursor.execute\\(''SELECT MIN\\(date\\), MAX\\(date\\), COUNT\\(DISTINCT date\\) FROM eps_snapshots''\\)\nmin_date, max_date, count = cursor.fetchone\\(\\)\nprint\\(f''시작일: {min_date}''\\)\nprint\\(f''종료일: {max_date}''\\)\nprint\\(f''누적 일수: {count}일''\\)\nconn.close\\(\\)\n\")"
     ]
   }
 }
