@@ -2020,16 +2020,16 @@ def get_recommendation_category_v71(row):
     return None
 
 
-def collect_filtered_news(screening_df, max_stocks=10):
+def get_filtered_news(ticker, max_len=50):
     """
-    상위 종목들의 뉴스를 수집하고 시세 뉴스 필터링 후 한글 번역
+    개별 종목의 사업/실적 뉴스를 가져옴 (시세 뉴스 필터링)
 
     Args:
-        screening_df: 스크리닝 결과 DataFrame
-        max_stocks: 뉴스 수집할 최대 종목 수
+        ticker: 종목 티커
+        max_len: 최대 글자 수
 
     Returns:
-        list: [(ticker, headline_kr), ...] 필터링된 뉴스 리스트
+        str or None: 필터링된 뉴스 헤드라인 (한글) 또는 None
     """
     import yfinance as yf
     import re
@@ -2051,14 +2051,14 @@ def collect_filtered_news(screening_df, max_stocks=10):
         r'(upgrades?|downgrades?)\s+to',
         r'(buy|sell|hold)\s+rating',
         r'analyst.*(rating|target|estimate)',
-        r'(down|up|fell|rose|gained|lost)\s+\d+\.?\d*%',  # "down 11.4%", "up 5%"
-        r'\d+\.?\d*%\s+(down|up|lower|higher|decline|gain)',  # "11.4% down"
-        r'(what\s+changed|why.*moving|why.*falling|why.*rising)',  # 시세 분석 기사
-        r'(slid|slipped|sank|dropped|plummeted|crashed)',  # 하락 동사
-        r'(jumped|surged|rocketed|spiked|soared)',  # 급등 동사
+        r'(down|up|fell|rose|gained|lost)\s+\d+\.?\d*%',
+        r'\d+\.?\d*%\s+(down|up|lower|higher|decline|gain)',
+        r'(what\s+changed|why.*moving|why.*falling|why.*rising)',
+        r'(slid|slipped|sank|dropped|plummeted|crashed)',
+        r'(jumped|surged|rocketed|spiked|soared)',
     ]
 
-    # 실적/사업 관련 키워드 (우선 포함)
+    # 실적/사업 관련 키워드
     business_keywords = [
         r'earnings', r'revenue', r'profit', r'quarter', r'Q[1-4]',
         r'guidance', r'forecast', r'outlook',
@@ -2072,7 +2072,6 @@ def collect_filtered_news(screening_df, max_stocks=10):
     ]
 
     def is_noise(headline):
-        """시세 뉴스인지 확인"""
         headline_lower = headline.lower()
         for pattern in noise_patterns:
             if re.search(pattern, headline_lower, re.IGNORECASE):
@@ -2080,15 +2079,13 @@ def collect_filtered_news(screening_df, max_stocks=10):
         return False
 
     def has_business_content(headline):
-        """사업/실적 관련 내용인지 확인"""
         headline_lower = headline.lower()
         for keyword in business_keywords:
             if re.search(keyword, headline_lower, re.IGNORECASE):
                 return True
         return False
 
-    def translate_to_korean(text, max_len=60):
-        """Google Translate로 한글 번역"""
+    def translate_to_korean(text):
         try:
             from googletrans import Translator
             translator = Translator()
@@ -2102,34 +2099,23 @@ def collect_filtered_news(screening_df, max_stocks=10):
                 text = text[:max_len-3] + '...'
             return text
 
-    news_list = []
-    top_stocks = screening_df.head(max_stocks)
+    try:
+        stock = yf.Ticker(ticker)
+        news = stock.news
 
-    for _, row in top_stocks.iterrows():
-        ticker = row['ticker']
-        try:
-            stock = yf.Ticker(ticker)
-            news = stock.news
-
-            if news and len(news) > 0:
-                # 최대 3개 뉴스 체크
-                for item in news[:3]:
-                    content = item.get('content', {})
-                    if isinstance(content, dict):
-                        title = content.get('title', '')
-                        if title:
-                            # 시세 뉴스 필터링
-                            if is_noise(title):
-                                continue
-                            # 사업/실적 관련이면 우선 추가
-                            if has_business_content(title):
-                                title_kr = translate_to_korean(title)
-                                news_list.append((ticker, title_kr))
-                                break
-        except Exception:
-            continue
-
-    return news_list[:8]  # 최대 8개 뉴스
+        if news and len(news) > 0:
+            for item in news[:5]:  # 최대 5개 뉴스 체크
+                content = item.get('content', {})
+                if isinstance(content, dict):
+                    title = content.get('title', '')
+                    if title:
+                        if is_noise(title):
+                            continue
+                        if has_business_content(title):
+                            return translate_to_korean(title)
+        return None
+    except Exception:
+        return None
 
 
 def create_telegram_message_v71(screening_df, stats, config=None):
@@ -2272,14 +2258,6 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         etf_str = f" [{industry_etf}]" if industry_etf else ""
         msg += f"• {industry_kr}({industry}): {count}개 ({pct:.0f}%){etf_str}\n"
 
-    # === 주요 뉴스 (시세 뉴스 필터링) ===
-    news_list = collect_filtered_news(screening_df, max_stocks=10)
-    if news_list:
-        msg += "\n📰 주요 뉴스 (사업/실적)\n"
-        msg += "━━━━━━━━━━━━━━━━━━━\n"
-        for ticker, headline in news_list:
-            msg += f"• {ticker}: {headline}\n"
-
     msg += "\n"
 
     msg += "━━━━━━━━━━━━━━━━━━━\n"
@@ -2330,6 +2308,11 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         for bullet in bullets:
             msg += f"• {bullet}\n"
 
+        # 주요 뉴스 (시세 뉴스 필터링)
+        news = get_filtered_news(ticker, max_len=45)
+        if news:
+            msg += f"📰 뉴스: {news}\n"
+
         # 리스크
         risk = generate_risk_v71(row)
         msg += f"⚠️ 리스크: {risk}\n"
@@ -2374,6 +2357,11 @@ def create_telegram_message_v71(screening_df, stats, config=None):
             msg2 += "📝 선정이유:\n"
             for bullet in bullets:
                 msg2 += f"• {bullet}\n"
+
+            # 주요 뉴스 (시세 뉴스 필터링)
+            news = get_filtered_news(ticker, max_len=45)
+            if news:
+                msg2 += f"📰 뉴스: {news}\n"
 
             risk = generate_risk_v71(row)
             msg2 += f"⚠️ 리스크: {risk}\n"
