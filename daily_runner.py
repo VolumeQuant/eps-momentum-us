@@ -2175,81 +2175,28 @@ def create_telegram_message_v71(screening_df, stats, config=None):
     actionable_df = screening_df[screening_df.apply(is_actionable, axis=1)].copy()
     actionable_count = len(actionable_df)
 
-    # === 스크리닝 전략 ===
+    # === 스크리닝 결과 ===
     msg += "\n━━━━━━━━━━━━━━━━━━━\n"
-    msg += "          📋 스크리닝 전략\n"
+    msg += "          📋 스크리닝 결과\n"
     msg += "━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"S&P500 + 나스닥100 + 미드캡400 ({total_scanned}개)\n"
-    msg += f"→ EPS 상향 + 펀더멘털 필터\n"
-    msg += f"→ {total_count}개 통과\n"
-    msg += f"→ 진입 타이밍 필터 (RSI, 지지선)\n"
-    msg += f"→ 최종 {actionable_count}개 매수 가능 ✅\n"
+    msg += f"{total_scanned}개 스캔 → {total_count}개 통과 → {actionable_count}개 매수 가능\n"
 
-    # === 섹터 분석 ===
-    sector_counts = screening_df['sector'].value_counts() if 'sector' in screening_df.columns else pd.Series()
+    # 순위 아이콘 함수
+    def get_rank_icon(rank):
+        if rank == 1:
+            return "🥇"
+        elif rank == 2:
+            return "🥈"
+        elif rank == 3:
+            return "🥉"
+        else:
+            return "📌"
 
-    sector_kr_map = {
-        'Semiconductor': '반도체', 'Technology': '기술',
-        'Healthcare': '헬스케어', 'Consumer Cyclical': '경기소비재',
-        'Consumer Defensive': '필수소비재', 'Industrials': '산업재',
-        'Financial Services': '금융', 'Basic Materials': '소재',
-        'Energy': '에너지', 'Utilities': '유틸리티',
-        'Real Estate': '부동산', 'Communication Services': '통신',
-    }
-
-    sector_etf_map = {
-        'Semiconductor': 'SMH', 'Technology': 'XLK',
-        'Healthcare': 'XLV', 'Consumer Cyclical': 'XLY',
-        'Consumer Defensive': 'XLP', 'Industrials': 'XLI',
-        'Financial Services': 'XLF', 'Basic Materials': 'XLB',
-        'Energy': 'XLE', 'Utilities': 'XLU',
-        'Real Estate': 'XLRE', 'Communication Services': 'XLC',
-    }
-
-    msg += "\n━━━━━━━━━━━━━━━━━━━\n"
-    msg += "          📊 섹터 분석\n"
-    msg += "━━━━━━━━━━━━━━━━━━━\n"
-
-    for sector, count in sector_counts.items():
-        pct = count / total_count * 100
-        sector_kr = sector_kr_map.get(sector, sector[:6])
-        sector_etf = sector_etf_map.get(sector, '')
-        bar = "█" * int(pct / 10) + "░" * (10 - int(pct / 10))
-        etf_str = f" [{sector_etf}]" if sector_etf else ""
-        msg += f"{sector_kr}: {count}개 ({pct:.0f}%) {bar}{etf_str}\n"
-
-    # === 오늘의 매수 종목 요약 ===
-    msg += "\n━━━━━━━━━━━━━━━━━━━\n"
-    msg += "       🎯 오늘의 매수 종목\n"
-    msg += "━━━━━━━━━━━━━━━━━━━\n"
-
+    # === 매수 종목 상세 (하나의 메시지에 통합) ===
     if actionable_count > 0:
-        tickers = ", ".join(actionable_df['ticker'].tolist()[:10])
-        msg += f"매수 가능 {actionable_count}개: {tickers}\n"
-        msg += "※ 순위 = 매수 우선순위 (상세는 다음 메시지)\n"
-    else:
-        msg += "현재 매수 타이밍 종목 없음\n"
-        msg += "대부분 과열 또는 관망 구간\n"
-
-    messages.append(msg)
-
-    # === 매수 종목 상세 메시지 (actionable_df 사용) ===
-    if actionable_count > 0:
-        msg2 = "━━━━━━━━━━━━━━━━━━━\n"
-        msg2 += f"     🏆 매수 종목 TOP {min(actionable_count, 10)}\n"
-        msg2 += "━━━━━━━━━━━━━━━━━━━\n"
-        msg2 += "순위 = 매수 우선순위 (EPS 모멘텀 기준)\n"
-
-        # 순위 아이콘
-        def get_rank_icon(rank):
-            if rank == 1:
-                return "🥇"
-            elif rank == 2:
-                return "🥈"
-            elif rank == 3:
-                return "🥉"
-            else:
-                return "📌"
+        msg += "\n━━━━━━━━━━━━━━━━━━━\n"
+        msg += f"    🏆 매수 종목 TOP {min(actionable_count, 10)}\n"
+        msg += "━━━━━━━━━━━━━━━━━━━\n"
 
         # 매수 가능 종목만 표시 (최대 10개)
         top_actionable = actionable_df.head(10)
@@ -2261,59 +2208,53 @@ def create_telegram_message_v71(screening_df, stats, config=None):
             sector_kr = sector_map.get(sector, sector[:4] if len(sector) > 4 else sector)
             price = row.get('price', 0)
             price_change = row.get('price_change_pct', 0)
-            quality = row.get('quality_score', 0) or 0
 
             icon = get_rank_icon(idx)
             change_str = f" ({price_change:+.2f}%)" if price_change else ""
 
-            msg2 += f"\n{icon} {idx}위 {company} ({ticker}) {sector_kr}\n"
-            msg2 += f"💰 전일종가: ${price:.2f}{change_str}\n"
+            msg += f"\n{icon} {idx}위 {company} ({ticker}) {sector_kr}\n"
+            msg += f"💰 ${price:.2f}{change_str}\n"
 
             # 진입액션 표시
             action = row.get('action', '관망')
-            msg2 += f"📈 진입액션: {action}\n"
+            msg += f"📈 {action}\n"
 
-            # 선정이유 (불릿 포인트)
+            # 선정이유 (불릿 포인트) - 간결하게
             bullets = generate_rationale_bullets_v71(row)
-            msg2 += "📝 선정이유:\n"
-            for bullet in bullets:
-                msg2 += f"• {bullet}\n"
-            msg2 += "━━━━━━━━━━━━━━━━━━━\n"
+            msg += f"📝 {' / '.join(bullets)}\n"
+
+    else:
+        msg += "\n현재 매수 타이밍 종목 없음\n"
+
+    messages.append(msg)
+
+    # === 11위 이후 매수 종목 (별도 메시지) ===
+    if actionable_count > 10:
+        msg2 = "━━━━━━━━━━━━━━━━━━━\n"
+        msg2 += f"    📊 {11}~{actionable_count}위 매수 종목\n"
+        msg2 += "━━━━━━━━━━━━━━━━━━━\n"
+
+        remaining = actionable_df.iloc[10:]
+        for idx, (_, row) in enumerate(remaining.iterrows(), 11):
+            ticker = row['ticker']
+            company = row.get('company_name', ticker)
+            sector = row.get('sector', 'Other')
+            sector_kr = sector_map.get(sector, sector[:4] if len(sector) > 4 else sector)
+            price = row.get('price', 0)
+            price_change = row.get('price_change_pct', 0)
+
+            change_str = f" ({price_change:+.2f}%)" if price_change else ""
+
+            msg2 += f"\n📌 {idx}위 {company} ({ticker}) {sector_kr}\n"
+            msg2 += f"💰 ${price:.2f}{change_str}\n"
+
+            action = row.get('action', '관망')
+            msg2 += f"📈 {action}\n"
+
+            bullets = generate_rationale_bullets_v71(row)
+            msg2 += f"📝 {' / '.join(bullets)}\n"
 
         messages.append(msg2)
-
-        # === 11위 이후 매수 종목 (있으면) ===
-        if actionable_count > 10:
-            msg3 = "━━━━━━━━━━━━━━━━━━━\n"
-            msg3 += f"      📊 {11}~{actionable_count}위 매수 종목\n"
-            msg3 += "━━━━━━━━━━━━━━━━━━━\n"
-
-            remaining = actionable_df.iloc[10:]
-            for idx, (_, row) in enumerate(remaining.iterrows(), 11):
-                ticker = row['ticker']
-                company = row.get('company_name', ticker)
-                sector = row.get('sector', 'Other')
-                sector_kr = sector_map.get(sector, sector[:4] if len(sector) > 4 else sector)
-                price = row.get('price', 0)
-                price_change = row.get('price_change_pct', 0)
-                quality = row.get('quality_score', 0) or 0
-
-                change_str = f" ({price_change:+.2f}%)" if price_change else ""
-
-                msg3 += f"\n📌 {idx}위 {company} ({ticker}) {sector_kr}\n"
-                msg3 += f"💰 전일종가: ${price:.2f}{change_str}\n"
-
-                # 진입액션 표시
-                action = row.get('action', '관망')
-                msg3 += f"📈 진입액션: {action}\n"
-
-                bullets = generate_rationale_bullets_v71(row)
-                msg3 += "📝 선정이유:\n"
-                for bullet in bullets:
-                    msg3 += f"• {bullet}\n"
-                msg3 += "━━━━━━━━━━━━━━━━━━━\n"
-
-            messages.append(msg3)
 
     return messages
 
