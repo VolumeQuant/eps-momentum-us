@@ -2348,29 +2348,7 @@ def create_telegram_message_v71(screening_df, stats, config=None):
             msg2 += f"⚠️ 리스크: {risk}\n"
             msg2 += "━━━━━━━━━━━━━━━━━━━\n"
 
-        # 11-26위 주목 섹션
-        msg2 += "\n📌 11-26위 중 주목\n\n"
-
-        # 과매도 종목
-        oversold = remaining[remaining['rsi'] <= 35] if 'rsi' in remaining.columns else pd.DataFrame()
-        if len(oversold) > 0:
-            msg2 += "✅ 과매도 반등 기회\n"
-            for _, r in oversold.head(2).iterrows():
-                r_total = r.get('total_score') or ((r.get('quality_score', 0) or 0) * 0.5 + (r.get('value_score', 0) or 0) * 0.5)
-                msg2 += f"• {r['ticker']} (RSI{r['rsi']:.0f}) - {r_total:.1f}점\n"
-            msg2 += "\n"
-
-        # 방어주 (헬스케어, 유틸리티)
-        defensive = remaining[remaining['sector'].isin(['Healthcare', 'Utilities', 'Consumer Defensive'])]
-        if len(defensive) > 0:
-            msg2 += "🛡️ 방어주\n"
-            for _, r in defensive.head(2).iterrows():
-                sector_kr = sector_map.get(r['sector'], r['sector'])
-                msg2 += f"• {r['ticker']} - {sector_kr}\n"
-            msg2 += "\n"
-
-        msg2 += "━━━━━━━━━━━━━━━━━━━\n"
-        msg2 += "📊 EPS Momentum v7.1"
+        msg2 += "\n📊 EPS Momentum v7.1"
 
         messages.append(msg2)
 
