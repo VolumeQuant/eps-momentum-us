@@ -43,8 +43,8 @@
 
 ## 2. 점수 체계 (v7.1)
 ```python
-# 총점 = 밸류×50% + 가격×50%
-total_score = quality_score * 0.5 + value_score * 0.5
+# 총점 = 밸류×60% + 가격×40%
+total_score = quality_score * 0.6 + value_score * 0.4
 ```
 
 ### 밸류 Score (Quality, 100점)
@@ -163,7 +163,7 @@ EPS 모멘텀 기간별 가중치 - 최근일수록 높음:
 
 ```bash
 # 전략 실행 (volumequant Python 사용)
-"C:/Users/user/miniconda3/envs/volumequant/python.exe" "C:/dev/claude code/eps-momentum-us/daily_runner.py"
+"C:/Users/jkw88/miniconda3/envs/volumequant/python.exe" "C:/dev/claude-code/eps-momentum-us/daily_runner.py"
 ```
 
 **자동화 흐름:**

@@ -11,7 +11,7 @@ EPS Momentum Daily Runner v7.2 - 밸류+가격 100점 체계 + GitHub Actions �
 5. 텔레그램 알림 (User Briefing + Admin Log 분리)
 
 v7.2 주요 변경:
-- 밸류 100점 + 가격 100점 체계 (총점 = 밸류×50% + 가격×50%)
+- 밸류 100점 + 가격 100점 체계 (총점 = 밸류×60% + 가격×40%)
 - GitHub Actions 자동화 (KST 08:00 매일 실행)
 - 텔레그램 채널/봇 분리 전송
 - 섹터 대분류 분석 + ETF 추천
@@ -684,8 +684,8 @@ def run_screening(config, market_regime=None):
                 )
 
                 # v7.1: 총점 기준 등급 산정 (100점 만점)
-                # 밸류 100점, 가격 100점 각각 50%씩 반영
-                total_score = (quality_score * 0.5) + (value_score * 0.5)
+                # 밸류 60% + 가격 40% (EPS 모멘텀 우선)
+                total_score = (quality_score * 0.6) + (value_score * 0.4)
                 if total_score >= 70:
                     quality_grade = 'S급'
                 elif total_score >= 60:
@@ -793,8 +793,8 @@ def run_screening(config, market_regime=None):
         # 결과 저장
         df = pd.DataFrame(candidates)
         if not df.empty:
-            # v6.3: Actionable Score v6.3으로 정렬 (Quality + Value + Action Multiplier)
-            df = df.sort_values('actionable_score_v63', ascending=False)
+            # v7.1: total_score로 정렬 (순위 = 매수 우선순위)
+            df = df.sort_values('total_score', ascending=False)
 
             # v6.0 통계 계산
             if 'fwd_per' in df.columns:
@@ -1232,10 +1232,10 @@ def generate_report(screening_df, stats, config):
     top_20 = screening_df.head(20) if not screening_df.empty else pd.DataFrame()
 
     # ========== Markdown 리포트 ==========
-    md_content = f"""# EPS Momentum v6.1 Daily Report
-## Value-Momentum Hybrid System (Option A)
+    md_content = f"""# EPS Momentum v7.2 Daily Report
+## 밸류+가격 100점 체계
 **Date:** {today_time}
-**Formula:** Hybrid = Momentum×0.5 + Value×0.2 + Position×0.3
+**Formula:** 총점 = 밸류×60% + 가격×40%
 
 ## Summary
 | Metric | Value |
@@ -1249,7 +1249,7 @@ def generate_report(screening_df, stats, config):
 | High PER (>60) | {stats.get('high_per', 0)} |
 | Earnings Blackout | {stats.get('earnings_blackout', 0)} |
 
-## v6.0 Value Metrics
+## v7.2 Value Metrics
 | Metric | Value |
 |--------|-------|
 | Avg Forward PER | {stats.get('avg_fwd_per', 'N/A')} |
@@ -1300,7 +1300,7 @@ def generate_report(screening_df, stats, config):
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>EPS Momentum v6.1 Report - {today}</title>
+    <title>EPS Momentum v7.2 Report - {today}</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; background: #f5f5f5; }}
         .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
@@ -1320,9 +1320,9 @@ def generate_report(screening_df, stats, config):
 </head>
 <body>
     <div class="container">
-        <h1>EPS Momentum v6.1 Daily Report</h1>
-        <p><strong>Value-Momentum Hybrid System (Option A)</strong></p>
-        <p><strong>Formula:</strong> Hybrid = Momentum×0.5 + Value×0.2 + Position×0.3</p>
+        <h1>EPS Momentum v7.2 Daily Report</h1>
+        <p><strong>밸류+가격 100점 체계</strong></p>
+        <p><strong>Formula:</strong> 총점 = 밸류×60% + 가격×40%</p>
         <p><strong>Generated:</strong> {today_time}</p>
 
         <h2>Summary</h2>
@@ -2197,7 +2197,7 @@ def create_telegram_message_v71(screening_df, stats, config=None):
     msg += "[2단계] 점수 산정 (총점 100점)\n"
     msg += "• 밸류 100점: EPS 모멘텀 기간별 + 정배열 보너스\n"
     msg += "• 가격 100점: RSI + 52주위치 + 거래량 + 신고가돌파\n"
-    msg += "• 총점 = 밸류×50% + 가격×50%\n\n"
+    msg += "• 총점 = 밸류×60% + 가격×40%\n\n"
 
     # === 섹터 분석 (전체 통과 종목 기준, 대분류 sector 사용) ===
     msg += "📊 섹터 분석\n"

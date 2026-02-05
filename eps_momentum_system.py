@@ -644,21 +644,24 @@ def calculate_quality_score(is_aligned, roe, eps_chg, above_ma200, volume_spike,
     Returns:
         tuple: (score, grade)
     """
-    def score_eps_period(chg, max_score):
-        """기간별 EPS 변화율을 점수로 변환 (0~20% → 0~max점, 20%+ = max점)"""
-        if chg is None or chg <= 0:
-            return 0
-        return min(chg / 20 * max_score, max_score)
-
     score = 0
 
     # 새로운 기간별 EPS 데이터가 있으면 사용
     if eps_chg_7d is not None or eps_chg_30d is not None:
-        # 1. EPS 모멘텀 기간별 점수 (80점) - 최근일수록 가중
-        score += score_eps_period(eps_chg_7d, 24)   # 7일: 24점
-        score += score_eps_period(eps_chg_30d, 22)  # 30일: 22점
-        score += score_eps_period(eps_chg_60d if eps_chg_60d is not None else eps_chg, 18)  # 60일: 18점
-        score += score_eps_period(eps_chg_90d, 16)  # 90일: 16점
+        # 1. EPS 모멘텀 기간별 점수 (80점) - 최근일수록 쉽게 만점
+        # 7일: 10%면 만점 (최신성 높음 → 낮은 허들)
+        if eps_chg_7d and eps_chg_7d > 0:
+            score += min(24, eps_chg_7d * 2.4)
+        # 30일: 30%면 만점
+        if eps_chg_30d and eps_chg_30d > 0:
+            score += min(22, eps_chg_30d * 0.73)
+        # 60일: 60%면 만점
+        eps_60 = eps_chg_60d if eps_chg_60d is not None else eps_chg
+        if eps_60 and eps_60 > 0:
+            score += min(18, eps_60 * 0.3)
+        # 90일: 100%면 만점 (오래됨 → 높은 허들)
+        if eps_chg_90d and eps_chg_90d > 0:
+            score += min(16, eps_chg_90d * 0.16)
 
         # 2. 정배열 보너스 (+20점)
         if is_aligned:
@@ -710,16 +713,20 @@ def calculate_value_score(peg, fwd_per, from_52w_high, rsi, volume_spike=False):
     # 신고가 돌파 체크 (고점 -2% 이내)
     is_breakout = from_52w_high is not None and from_52w_high > -2
 
-    # 1. RSI 위치 (40점)
+    # 1. RSI 위치 (40점) - 낮을수록 좋음
     if rsi is not None:
         if rsi <= 30:
-            score += 40  # 과매도 - 매수 기회
+            score += 40  # 과매도 - 최고 매수 기회
+        elif rsi <= 40:
+            score += 35  # 저점
         elif rsi <= 50:
-            score += 30  # 양호
+            score += 25  # 중립 저
+        elif rsi <= 60:
+            score += 15  # 중립
         elif rsi <= 70:
-            score += 20  # 중립
+            score += 10  # 중립 고
         else:  # RSI > 70
-            score += 10  # 과매수 - 신고가든 아니든 동일 (비싸면 비싼 것)
+            score += 5   # 과매수 - 비싸면 비싼 것
 
     # 2. 52주 고점 위치 (30점)
     if from_52w_high is not None:
