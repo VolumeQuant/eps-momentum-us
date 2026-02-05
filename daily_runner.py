@@ -1949,15 +1949,13 @@ def generate_korean_rationale(row):
 
 def generate_rationale_bullets_v71(row):
     """
-    v7.1: 선정이유를 불릿 포인트 리스트로 반환
+    v7.2.2: 선정이유를 불릿 포인트 리스트로 반환 (점수 제거, 팩트 중심)
 
     Returns:
         list: 2-3개의 선정이유 문자열 리스트
     """
     bullets = []
 
-    quality_score = row.get('quality_score', 0)
-    value_score = row.get('value_score', 0)
     rsi = row.get('rsi')
     from_high = row.get('from_52w_high')
     is_aligned = row.get('is_aligned', False)
@@ -1968,16 +1966,9 @@ def generate_rationale_bullets_v71(row):
     op_growth = row.get('op_growth')
     price_change = row.get('price_change_pct', 0)
 
-    # 1. 밸류(품질) 관련
-    if quality_score >= 80:
-        if is_aligned:
-            bullets.append(f"밸류 {quality_score:.0f}점 최상위 (EPS 정배열)")
-        else:
-            bullets.append(f"밸류 {quality_score:.0f}점 최상위")
-    elif quality_score >= 60:
-        bullets.append(f"밸류 {quality_score:.0f}점 우수")
-    elif quality_score >= 40:
-        bullets.append(f"밸류 {quality_score:.0f}점 (EPS 모멘텀 약함)")
+    # 1. EPS 추세 관련 (점수 없이)
+    if is_aligned:
+        bullets.append("EPS 추정치 지속 상향")
 
     # 2. 펀더멘털 관련
     if roe and roe >= 50:
@@ -2301,11 +2292,10 @@ def create_telegram_message_v71(screening_df, stats, config=None):
             quality = row.get('quality_score', 0) or 0
 
             icon = get_rank_icon(idx)
-            change_str = f"({price_change:+.2f}%)" if price_change else ""
+            change_str = f" ({price_change:+.2f}%)" if price_change else ""
 
             msg2 += f"\n{icon} {idx}위 {company} ({ticker}) {sector_kr}\n"
-            msg2 += f"💰 ${price:.2f} {change_str}\n"
-            msg2 += f"📊 밸류 {quality:.0f}점 (EPS 모멘텀)\n"
+            msg2 += f"💰 전일종가: ${price:.2f}{change_str}\n"
 
             # 진입액션 표시
             action = row.get('action', '관망')
@@ -2316,10 +2306,6 @@ def create_telegram_message_v71(screening_df, stats, config=None):
             msg2 += "📝 선정이유:\n"
             for bullet in bullets:
                 msg2 += f"• {bullet}\n"
-
-            # 리스크
-            risk = generate_risk_v71(row)
-            msg2 += f"⚠️ 리스크: {risk}\n"
             msg2 += "━━━━━━━━━━━━━━━━━━━\n"
 
         messages.append(msg2)
@@ -2340,11 +2326,10 @@ def create_telegram_message_v71(screening_df, stats, config=None):
                 price_change = row.get('price_change_pct', 0)
                 quality = row.get('quality_score', 0) or 0
 
-                change_str = f"({price_change:+.2f}%)" if price_change else ""
+                change_str = f" ({price_change:+.2f}%)" if price_change else ""
 
                 msg3 += f"\n📌 {idx}위 {company} ({ticker}) {sector_kr}\n"
-                msg3 += f"💰 ${price:.2f} {change_str}\n"
-                msg3 += f"📊 밸류 {quality:.0f}점 (EPS 모멘텀)\n"
+                msg3 += f"💰 전일종가: ${price:.2f}{change_str}\n"
 
                 # 진입액션 표시
                 action = row.get('action', '관망')
@@ -2354,9 +2339,6 @@ def create_telegram_message_v71(screening_df, stats, config=None):
                 msg3 += "📝 선정이유:\n"
                 for bullet in bullets:
                     msg3 += f"• {bullet}\n"
-
-                risk = generate_risk_v71(row)
-                msg3 += f"⚠️ 리스크: {risk}\n"
                 msg3 += "━━━━━━━━━━━━━━━━━━━\n"
 
             messages.append(msg3)
