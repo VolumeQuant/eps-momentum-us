@@ -43,8 +43,9 @@
 
 ## 2. 점수 체계 (v7.1)
 ```python
-# 총점 = 밸류×60% + 가격×40%
-total_score = quality_score * 0.6 + value_score * 0.4
+# v7.2: 총점 = 밸류 (EPS 모멘텀)
+total_score = quality_score
+# 진입 타이밍은 액션 분류로 판단 (RSI, 지지선, 거래량)
 ```
 
 ### 밸류 Score (Quality, 100점)

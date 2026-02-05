@@ -11,7 +11,7 @@ EPS Momentum Daily Runner v7.2 - 밸류+가격 100점 체계 + GitHub Actions �
 5. 텔레그램 알림 (User Briefing + Admin Log 분리)
 
 v7.2 주요 변경:
-- 밸류 100점 + 가격 100점 체계 (총점 = 밸류×60% + 가격×40%)
+- 밸류 100점 체계 (총점 = 밸류, 진입 타이밍은 액션 분류로 판단)
 - GitHub Actions 자동화 (KST 08:00 매일 실행)
 - 텔레그램 채널/봇 분리 전송
 - 섹터 대분류 분석 + ETF 추천
@@ -646,8 +646,8 @@ def run_screening(config, market_regime=None):
                 except:
                     pass
 
-                # Action 결정 (52주 고점 대비 위치 + 거래량 스파이크 포함)
-                action = get_action_label(price, ma_20, ma_200, rsi, from_52w_high, volume_spike)
+                # Action 결정 (52주 고점 대비 위치 + 거래량 스파이크 + MA50 지지)
+                action = get_action_label(price, ma_20, ma_200, rsi, from_52w_high, volume_spike, ma_50)
 
                 # v7.0: Industry 정보
                 industry = info.get('industry', '')
@@ -683,9 +683,9 @@ def run_screening(config, market_regime=None):
                     peg_calculated, fwd_per, from_52w_high, rsi, volume_spike
                 )
 
-                # v7.1: 총점 기준 등급 산정 (100점 만점)
-                # 밸류 60% + 가격 40% (EPS 모멘텀 우선)
-                total_score = (quality_score * 0.6) + (value_score * 0.4)
+                # v7.2: 총점 = 밸류 100% (EPS 모멘텀이 순위 결정)
+                # 가격/타이밍은 액션 분류에서 판단
+                total_score = quality_score
                 if total_score >= 70:
                     quality_grade = 'S급'
                 elif total_score >= 60:
@@ -820,88 +820,89 @@ def run_screening(config, market_regime=None):
         return pd.DataFrame(), {}
 
 
-def get_action_label(price, ma_20, ma_200, rsi, from_52w_high=None, volume_spike=False):
+def get_action_label(price, ma_20, ma_200, rsi, from_52w_high=None, volume_spike=False, ma_50=None):
     """
-    실전 매매용 액션 레이블 v3 - RSI Momentum Strategy 추가
+    실전 매매용 액션 레이블 v4 - 지지선/저항선 + 거래량 강화
 
-    핵심 원칙:
-    - RSI 70 이상을 무조건 진입금지로 처리하지 않음
-    - 신고가 돌파 + 거래량 동반 = Super Momentum (강력 매수)
-    - RSI 85 이상만 진짜 과열
+    === v4 변경사항 ===
+    - MA50 지지선 추가
+    - MA200 지지선 반등 감지
+    - 거래량 스파이크를 더 많은 조건에 활용
+    - 저항선 근접 시 관망
 
-    === v3 변경사항: RSI Momentum Strategy ===
-
-    Super Momentum 조건 (RSI 70-84):
-    - 신고가 근처 (52주 고점 -5% 이내)
-    - 거래량 스파이크 (20일 평균 1.5배 이상)
-    - → 진입금지 대신 "🚀강력매수 (돌파)" 등급 부여
-
-    Extreme Overbought (진짜 위험):
-    - RSI >= 85 → "과열/진입금지"
-
-    === 기존 액션 정의 ===
-
-    1. 추세이탈: Price < MA200 (장기 하락 추세)
-    2. 적극매수 (눌림목): 고점 -10~25% + RSI 35-55 + MA20 근처
-    3. 저점매수 (반등): RSI < 35 + 고점 -20% 이상
-    4. 매수적기 (추세): 정배열 + RSI 40-65
-    5. 관망: 진입 애매
+    === 액션 우선순위 ===
+    1. 추세이탈: Price < MA200
+    2. 극과열: RSI >= 85
+    3. 강력매수 (돌파): 52주 -2% 이내 + 거래량↑
+    4. 적극매수 (MA200지지): MA200 +3% 이내 + RSI < 50
+    5. 적극매수 (MA50지지): MA50 ±3% + RSI 40-55 + 거래량↑
+    6. 저점매수 (과매도): RSI ≤ 35 + 52주 -20%
+    7. 적극매수 (눌림목): 52주 -10%~-25% + RSI 35-55
+    8. 매수적기 (추세): 정배열 + RSI 40-65
+    9. 관망 (저항근접): 52주 -5% 이내 + 거래량↓
+    10. 관망 (기타)
     """
     # 기본값 처리
     if rsi is None:
-        rsi = 50  # 중립 가정
+        rsi = 50
     if from_52w_high is None:
-        from_52w_high = -10  # 모르면 중간값 가정
+        from_52w_high = -10
 
-    # MA 대비 거리 계산
+    # MA 대비 거리 계산 (%)
     ma20_pct = ((price - ma_20) / ma_20 * 100) if ma_20 else 0
+    ma50_pct = ((price - ma_50) / ma_50 * 100) if ma_50 else 0
     ma200_pct = ((price - ma_200) / ma_200 * 100) if ma_200 else 0
 
-    # === 1. 추세이탈 (최우선 체크) ===
+    # === 1. 추세이탈 (최우선) ===
     if ma_200 and price < ma_200:
         return "추세이탈 (MA200↓)"
 
-    # === 2. RSI 85 이상: 진짜 과열 (진입 금지) ===
+    # === 2. RSI 85+: 극과열 ===
     if rsi >= 85:
         return "진입금지 (극과열)"
 
-    # === 3. RSI 70-84: Super Momentum 조건 체크 ===
-    if 70 <= rsi < 85:
-        # 신고가 근처 (-5% 이내) + 거래량 스파이크 = 강력 매수!
-        is_near_ath = from_52w_high > -5
-        if is_near_ath and volume_spike:
-            return "🚀강력매수 (돌파)"
-        # 신고가 근처이지만 거래량 미동반 = 관망
-        elif is_near_ath:
-            return "관망 (RSI🚀고점)"
-        # 신고가 아니면 기존 로직 (과열 경계)
-        else:
-            return "관망 (RSI🚀)"
+    # === 3. 강력매수 (신고가 돌파) ===
+    # 52주 고점 -2% 이내 + 거래량 스파이크
+    if from_52w_high > -2 and volume_spike:
+        return "🚀강력매수 (돌파)"
 
-    # === 4. MA20 대비 +8% 이상 급등 (단기 과열) ===
+    # === 4. 적극매수 (MA200 지지) ===
+    # MA200 바로 위 (+0% ~ +3%) + RSI 50 미만 = 장기 지지선 반등
+    if ma_200 and 0 <= ma200_pct <= 3 and rsi < 50:
+        return "적극매수 (MA200지지)"
+
+    # === 5. 적극매수 (MA50 지지) ===
+    # MA50 ±3% + RSI 40-55 + 거래량 스파이크
+    if ma_50 and -3 <= ma50_pct <= 3 and 40 <= rsi <= 55 and volume_spike:
+        return "적극매수 (MA50지지)"
+
+    # === 6. MA20 대비 +8% 급등 (단기 과열) ===
     if ma20_pct >= 8:
         return "진입금지 (단기급등)"
 
-    # === 5. 52주 고점 근처 (-5% 이내) - RSI 70 미만일 때 ===
-    # (RSI 70 이상은 위에서 이미 처리됨)
-    if from_52w_high > -5 and rsi >= 65:
-        return "관망 (고점경계)"
+    # === 7. RSI 70-84 구간 처리 ===
+    if 70 <= rsi < 85:
+        is_near_ath = from_52w_high > -5
+        if is_near_ath and volume_spike:
+            return "🚀강력매수 (돌파)"
+        elif is_near_ath:
+            return "관망 (RSI🚀고점)"
+        else:
+            return "관망 (RSI🚀)"
 
-    # === 6. 저점매수 (과매도 반등) ===
+    # === 8. 저점매수 (과매도 반등) ===
     if rsi <= 35 and from_52w_high <= -20:
         return "저점매수 (과매도)"
 
-    # === 7. 적극매수 (진짜 눌림목) ===
-    # 조건: 고점대비 조정폭 + RSI 중립 이하 + MA20 근처/아래
+    # === 9. 적극매수 (눌림목) ===
     is_meaningful_correction = -25 <= from_52w_high <= -10
     is_rsi_neutral = 35 <= rsi <= 55
-    is_near_ma20 = ma20_pct <= 3  # MA20 근처 또는 아래
+    is_near_ma20 = ma20_pct <= 3
 
     if is_meaningful_correction and is_rsi_neutral and is_near_ma20:
         return "적극매수 (눌림목)"
 
-    # === 8. 매수적기 (건강한 추세) ===
-    # 조건: 정배열 + RSI 건강 + 상승 여력 있음
+    # === 10. 매수적기 (건강한 추세) ===
     is_aligned = ma_20 and ma_200 and price > ma_20 > ma_200
     is_rsi_healthy = 40 <= rsi <= 65
     has_upside = -15 <= from_52w_high <= -5
@@ -909,12 +910,16 @@ def get_action_label(price, ma_20, ma_200, rsi, from_52w_high=None, volume_spike
     if is_aligned and is_rsi_healthy and has_upside:
         return "매수적기 (추세)"
 
-    # === 9. 관망 (진입 애매) ===
-    # RSI 65-70 경계 구간
+    # === 11. 관망 (저항선 근접) ===
+    # 52주 고점 -5% 이내 + 거래량 미동반 = 돌파 실패 가능성
+    if from_52w_high > -5 and not volume_spike:
+        return "관망 (저항근접)"
+
+    # === 12. 관망 (과열경계) ===
     if 65 <= rsi < 70:
         return "관망 (과열경계)"
 
-    # 고점 대비 조정 부족 (-5% ~ -10%)
+    # === 13. 관망 (조정부족) ===
     if -10 < from_52w_high <= -5:
         return "관망 (조정부족)"
 
@@ -1235,7 +1240,7 @@ def generate_report(screening_df, stats, config):
     md_content = f"""# EPS Momentum v7.2 Daily Report
 ## 밸류+가격 100점 체계
 **Date:** {today_time}
-**Formula:** 총점 = 밸류×60% + 가격×40%
+**Formula:** 총점 = 밸류 (EPS 모멘텀)
 
 ## Summary
 | Metric | Value |
@@ -1322,7 +1327,7 @@ def generate_report(screening_df, stats, config):
     <div class="container">
         <h1>EPS Momentum v7.2 Daily Report</h1>
         <p><strong>밸류+가격 100점 체계</strong></p>
-        <p><strong>Formula:</strong> 총점 = 밸류×60% + 가격×40%</p>
+        <p><strong>Formula:</strong> 총점 = 밸류 (EPS 모멘텀)</p>
         <p><strong>Generated:</strong> {today_time}</p>
 
         <h2>Summary</h2>
@@ -2189,7 +2194,7 @@ def create_telegram_message_v71(screening_df, stats, config=None):
     msg += "━━━━━━━━━━━━━━━━━━━\n\n"
 
     # 전략 설명
-    msg += "💡 전략 v7.1\n\n"
+    msg += "💡 전략 v7.2\n\n"
     msg += f"[1단계] 스크리닝: {total_scanned}개 → {total_count}개 통과 ({total_count/total_scanned*100:.1f}%)\n"
     msg += "• Kill Switch: FWD 1Y EPS가 7일 전 대비 1%↓ 시 제외\n"
     msg += "• EPS 상승 추세: 7일/30일/60일 가중 점수 4.0↑\n"
@@ -2197,7 +2202,8 @@ def create_telegram_message_v71(screening_df, stats, config=None):
     msg += "[2단계] 점수 산정 (총점 100점)\n"
     msg += "• 밸류 100점: EPS 모멘텀 기간별 + 정배열 보너스\n"
     msg += "• 가격 100점: RSI + 52주위치 + 거래량 + 신고가돌파\n"
-    msg += "• 총점 = 밸류×60% + 가격×40%\n\n"
+    msg += "• 총점 = 밸류 (EPS 모멘텀)\n"
+    msg += "• 진입 타이밍 = 액션 분류 (RSI, 지지선, 거래량)\n\n"
 
     # === 섹터 분석 (전체 통과 종목 기준, 대분류 sector 사용) ===
     msg += "📊 섹터 분석\n"
@@ -2286,7 +2292,7 @@ def create_telegram_message_v71(screening_df, stats, config=None):
 
         msg += f"\n{icon} {idx}위 {company} ({ticker}) {sector_kr}\n"
         msg += f"💰 ${price:.2f} {change_str}\n"
-        msg += f"📊 총 {total:.1f}점 = 밸류 {quality:.0f}점 + 가격 {value:.0f}점\n"
+        msg += f"📊 밸류 {quality:.0f}점 (EPS 모멘텀)\n"
 
         rsi_str = f"RSI {rsi:.0f}" if rsi else "RSI -"
         high_str = f"52주 {from_high:+.0f}%" if from_high else "52주 -"
@@ -2303,15 +2309,68 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         msg += f"⚠️ 리스크: {risk}\n"
         msg += "━━━━━━━━━━━━━━━━━━━\n"
 
-    msg += "\n💡 순위가 높을수록 매수 우선순위 높음\n"
+    # === 핵심추천 섹션 (액션 기반) ===
+    msg += "\n🎯 핵심추천 (지금 매수 가능)\n"
     msg += "━━━━━━━━━━━━━━━━━━━\n"
-    msg += "📊 EPS Momentum v7.1"
+
+    # 전체 종목에서 액션별 필터링
+    buy_actions = {
+        '적극매수': [],
+        '저점매수': [],
+        '강력매수': [],
+    }
+
+    for idx, (_, row) in enumerate(screening_df.iterrows(), 1):
+        action = row.get('action', '')
+        ticker = row['ticker']
+        rsi = row.get('rsi')
+        from_high = row.get('from_52w_high')
+        quality = row.get('quality_score', 0) or 0
+        value = row.get('value_score', 0) or 0
+
+        rsi_str = f"RSI {rsi:.0f}" if rsi else ""
+        high_str = f"52주 {from_high:+.0f}%" if from_high else ""
+
+        if '적극매수' in action:
+            buy_actions['적극매수'].append(f"{ticker}({idx}위) - {rsi_str}, {high_str}")
+        elif '저점매수' in action:
+            buy_actions['저점매수'].append(f"{ticker}({idx}위) - {rsi_str}, {high_str}")
+        elif '강력매수' in action:
+            buy_actions['강력매수'].append(f"{ticker}({idx}위) - {rsi_str}, {high_str}")
+
+    has_recommendation = False
+
+    if buy_actions['강력매수']:
+        msg += "🚀 강력매수 (신고가 돌파)\n"
+        for item in buy_actions['강력매수'][:5]:
+            msg += f"• {item}\n"
+        has_recommendation = True
+
+    if buy_actions['적극매수']:
+        msg += "✅ 적극매수 (눌림목)\n"
+        for item in buy_actions['적극매수'][:5]:
+            msg += f"• {item}\n"
+        has_recommendation = True
+
+    if buy_actions['저점매수']:
+        msg += "💎 저점매수 (과매도 반등)\n"
+        for item in buy_actions['저점매수'][:5]:
+            msg += f"• {item}\n"
+        has_recommendation = True
+
+    if not has_recommendation:
+        msg += "⏸️ 현재 적극 매수 추천 종목 없음\n"
+        msg += "→ 관망 또는 조정 대기\n"
+
+    msg += "━━━━━━━━━━━━━━━━━━━\n"
+    msg += "\n💡 순위가 높을수록 매수 우선순위 높음\n"
+    msg += "📊 EPS Momentum v7.2"
 
     messages.append(msg)
 
     # === 11-26위 메시지 (있으면) ===
     if total_count > 10:
-        msg2 = f"📊 11-26위 종목 분석 (v7.1)\n\n"
+        msg2 = f"📊 11-26위 종목 분석 (v7.2)\n\n"
         msg2 += "━━━━━━━━━━━━━━━━━━━\n"
 
         remaining = screening_df.iloc[10:26]
@@ -2332,7 +2391,7 @@ def create_telegram_message_v71(screening_df, stats, config=None):
 
             msg2 += f"📌 {idx}위 {company} ({ticker}) {sector_kr}\n"
             msg2 += f"💰 ${price:.2f} {change_str}\n"
-            msg2 += f"📊 총 {total:.1f}점 = 밸류 {quality:.0f}점 + 가격 {value:.0f}점\n"
+            msg2 += f"📊 밸류 {quality:.0f}점 (EPS 모멘텀)\n"
 
             rsi_str = f"RSI {rsi:.0f}" if rsi else "RSI -"
             high_str = f"52주 {from_high:+.0f}%" if from_high else "52주 -"
@@ -2347,7 +2406,7 @@ def create_telegram_message_v71(screening_df, stats, config=None):
             msg2 += f"⚠️ 리스크: {risk}\n"
             msg2 += "━━━━━━━━━━━━━━━━━━━\n"
 
-        msg2 += "\n📊 EPS Momentum v7.1"
+        msg2 += "\n📊 EPS Momentum v7.2"
 
         messages.append(msg2)
 
@@ -3137,7 +3196,7 @@ def send_telegram_long(message, config, chat_id=None):
 def main():
     """메인 실행"""
     log("=" * 60)
-    log("EPS Momentum Daily Runner v7.1 - 밸류+가격 100점 체계")
+    log("EPS Momentum Daily Runner v7.2 - 밸류+가격 100점 체계")
     log("=" * 60)
 
     start_time = datetime.now()
