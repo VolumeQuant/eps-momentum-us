@@ -1,4 +1,4 @@
-# EPS Revision Momentum Strategy v7.1.6 - 상세 기술 문서
+# EPS Revision Momentum Strategy v7.1.8 - 상세 기술 문서
 
 ## 목차
 
@@ -1169,4 +1169,4 @@ Score_Slope (변화율 가중 평균)
 
 ---
 
-*문서 버전: v7.1.6 | 최종 업데이트: 2026-02-05*
+*문서 버전: v7.1.8 | 최종 업데이트: 2026-02-05*
