@@ -2020,104 +2020,6 @@ def get_recommendation_category_v71(row):
     return None
 
 
-def get_filtered_news(ticker, max_len=50):
-    """
-    개별 종목의 사업/실적 뉴스를 가져옴 (시세 뉴스 필터링)
-
-    Args:
-        ticker: 종목 티커
-        max_len: 최대 글자 수
-
-    Returns:
-        str or None: 필터링된 뉴스 헤드라인 (한글) 또는 None
-    """
-    import yfinance as yf
-    import re
-
-    # 시세 뉴스 필터링 패턴 (제외할 것들)
-    noise_patterns = [
-        r'\b\d+\.?\d*%\s*(up|down|rise|fall|gain|drop|surge|plunge|jump|slip|climb|decline)',
-        r'(stock|share|shares)\s+(up|down|rise|fall|gain|drop|surge|plunge)',
-        r'(rises|falls|gains|drops|surges|plunges|jumps|slips|climbs|declines)\s+\d+',
-        r'(trading|trades)\s+(up|down|higher|lower)',
-        r'(hits|reaches|touches)\s+(high|low|peak)',
-        r'(volume|trading volume)\s+(spike|surge|jump)',
-        r'VI\s*(발동|triggered)',
-        r'(closes|opens|ends)\s+(up|down|higher|lower)',
-        r'(rallies|tumbles|soars|tanks|spikes)',
-        r'(market cap|valuation)\s+(hits|reaches|tops)',
-        r'^\s*\$?\d+',  # 숫자로 시작하는 뉴스
-        r'price target',
-        r'(upgrades?|downgrades?)\s+to',
-        r'(buy|sell|hold)\s+rating',
-        r'analyst.*(rating|target|estimate)',
-        r'(down|up|fell|rose|gained|lost)\s+\d+\.?\d*%',
-        r'\d+\.?\d*%\s+(down|up|lower|higher|decline|gain)',
-        r'(what\s+changed|why.*moving|why.*falling|why.*rising)',
-        r'(slid|slipped|sank|dropped|plummeted|crashed)',
-        r'(jumped|surged|rocketed|spiked|soared)',
-    ]
-
-    # 실적/사업 관련 키워드
-    business_keywords = [
-        r'earnings', r'revenue', r'profit', r'quarter', r'Q[1-4]',
-        r'guidance', r'forecast', r'outlook',
-        r'launch', r'announce', r'partnership', r'acquisition', r'merger',
-        r'contract', r'deal', r'agreement', r'order',
-        r'FDA', r'approval', r'patent', r'regulatory',
-        r'expansion', r'investment', r'facility', r'production',
-        r'CEO', r'executive', r'leadership', r'restructur',
-        r'dividend', r'buyback', r'split',
-        r'AI', r'chip', r'semiconductor', r'data center',
-    ]
-
-    def is_noise(headline):
-        headline_lower = headline.lower()
-        for pattern in noise_patterns:
-            if re.search(pattern, headline_lower, re.IGNORECASE):
-                return True
-        return False
-
-    def has_business_content(headline):
-        headline_lower = headline.lower()
-        for keyword in business_keywords:
-            if re.search(keyword, headline_lower, re.IGNORECASE):
-                return True
-        return False
-
-    def translate_to_korean(text):
-        try:
-            from googletrans import Translator
-            translator = Translator()
-            result = translator.translate(text, dest='ko')
-            translated = result.text
-            if len(translated) > max_len:
-                translated = translated[:max_len-3] + '...'
-            return translated
-        except Exception:
-            if len(text) > max_len:
-                text = text[:max_len-3] + '...'
-            return text
-
-    try:
-        stock = yf.Ticker(ticker)
-        news = stock.news
-
-        if news and len(news) > 0:
-            for item in news[:5]:  # 최대 5개 뉴스 체크
-                content = item.get('content', {})
-                if isinstance(content, dict):
-                    title = content.get('title', '')
-                    if title:
-                        if is_noise(title):
-                            continue
-                        if has_business_content(title):
-                            return translate_to_korean(title)
-        return None
-    except Exception:
-        return None
-
-
 def create_telegram_message_v71(screening_df, stats, config=None):
     """
     v7.1 텔레그램 메시지 생성 - 최종 형식
@@ -2308,11 +2210,6 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         for bullet in bullets:
             msg += f"• {bullet}\n"
 
-        # 주요 뉴스 (시세 뉴스 필터링)
-        news = get_filtered_news(ticker, max_len=45)
-        if news:
-            msg += f"📰 뉴스: {news}\n"
-
         # 리스크
         risk = generate_risk_v71(row)
         msg += f"⚠️ 리스크: {risk}\n"
@@ -2357,11 +2254,6 @@ def create_telegram_message_v71(screening_df, stats, config=None):
             msg2 += "📝 선정이유:\n"
             for bullet in bullets:
                 msg2 += f"• {bullet}\n"
-
-            # 주요 뉴스 (시세 뉴스 필터링)
-            news = get_filtered_news(ticker, max_len=45)
-            if news:
-                msg2 += f"📰 뉴스: {news}\n"
 
             risk = generate_risk_v71(row)
             msg2 += f"⚠️ 리스크: {risk}\n"
