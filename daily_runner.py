@@ -1935,7 +1935,7 @@ def generate_rationale_bullets_v71(row):
 
 def generate_risk_v71(row):
     """
-    v7.1: 리스크 문구 자동 생성
+    v7.1: 리스크 문구 자동 생성 (밸류/가격 약점 포함)
 
     Returns:
         str: 리스크 문구
@@ -1944,54 +1944,60 @@ def generate_risk_v71(row):
 
     rsi = row.get('rsi')
     from_high = row.get('from_52w_high')
-    quality_score = row.get('quality_score', 0)
-    value_score = row.get('value_score', 0)
+    quality_score = row.get('quality_score', 0) or 0
+    value_score = row.get('value_score', 0) or 0
     sector = row.get('sector', '')
-    price_change = row.get('price_change_pct', 0)
+    price_change = row.get('price_change_pct', 0) or 0
 
-    # RSI 관련
+    # === 가격 측면 리스크 ===
+    # RSI 과매수
     if rsi and rsi >= 75:
-        risks.append("RSI 과매수")
+        risks.append(f"RSI {rsi:.0f} 과매수 주의")
+    elif rsi and rsi >= 65:
+        risks.append(f"RSI {rsi:.0f} 높음")
 
-    # 밸류 낮음
+    # 52주 고점 근접 (조정 가능성)
+    if from_high and from_high > -5:
+        risks.append("고점 근접, 조정 가능")
+
+    # 급락 후 안정 필요
+    if price_change <= -7:
+        risks.append(f"당일 {price_change:.1f}% 급락")
+    elif price_change <= -5:
+        risks.append(f"당일 {price_change:.1f}% 하락")
+
+    # 가격 점수 낮음
+    if value_score < 50:
+        risks.append(f"가격점수 {value_score:.0f}점 (비쌈)")
+
+    # === 밸류 측면 리스크 ===
+    # 밸류 점수 낮음
     if quality_score < 50:
-        risks.append("밸류 낮음")
+        risks.append(f"밸류 {quality_score:.0f}점 (EPS 모멘텀 약함)")
+    elif quality_score < 65:
+        risks.append(f"밸류 {quality_score:.0f}점 (보통)")
 
-    # 급락 관련
-    if price_change and price_change <= -7:
-        risks.append("급락 안정 확인 필요")
-
-    # 신고가 돌파 실패 가능성
-    if from_high and -5 < from_high < 0 and rsi and rsi >= 70:
-        risks.append("돌파 실패 시 조정")
-
-    # 섹터별 리스크 (전체 GICS 섹터)
+    # === 섹터별 리스크 (구체적 설명) ===
     sector_risks = {
-        # 기술/반도체
-        'Semiconductor': '반도체 사이클',
-        'Technology': '기술주 변동성',
-        'Communication Services': '광고/구독 경기 민감',
-        # 소비재
-        'Consumer Cyclical': '경기 민감',
-        'Consumer Defensive': '성장 제한적',
-        # 산업재/소재
-        'Industrials': '경기 사이클',
-        'Basic Materials': '원자재 가격 변동',
-        # 에너지/유틸리티
-        'Energy': '유가 변동',
-        'Utilities': '금리 민감',
-        # 금융/부동산
-        'Financial Services': '금리/신용 리스크',
-        'Real Estate': '금리/공실률',
-        # 헬스케어
-        'Healthcare': '규제/임상 리스크',
+        'Semiconductor': '반도체 수요 사이클 민감',
+        'Technology': '금리 인상시 밸류에이션 부담',
+        'Communication Services': '광고 시장 경기 민감',
+        'Consumer Cyclical': '소비 심리 둔화시 타격',
+        'Consumer Defensive': '성장성 제한적',
+        'Industrials': '경기 침체시 수주 감소',
+        'Basic Materials': '원자재 가격 변동 큼',
+        'Energy': '유가 변동에 실적 연동',
+        'Utilities': '금리 인상시 매력 감소',
+        'Financial Services': '금리/부실채권 리스크',
+        'Real Estate': '금리 인상/공실률 리스크',
+        'Healthcare': 'FDA 승인/규제 불확실성',
     }
     if sector in sector_risks:
         risks.append(sector_risks[sector])
 
-    # 기본 리스크
+    # 기본 리스크 (아무것도 없으면)
     if not risks:
-        risks.append("시장 변동성")
+        risks.append("시장 전반 변동성")
 
     return ", ".join(risks[:2])
 
