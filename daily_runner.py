@@ -96,7 +96,13 @@ def load_config():
         config['telegram_bot_token'] = os.environ['TELEGRAM_BOT_TOKEN']
         config['telegram_enabled'] = True
     if os.environ.get('TELEGRAM_CHAT_ID'):
-        config['telegram_chat_id'] = os.environ['TELEGRAM_CHAT_ID']
+        config['telegram_channel_id'] = os.environ['TELEGRAM_CHAT_ID']  # 채널용
+    if os.environ.get('TELEGRAM_PRIVATE_ID'):
+        config['telegram_private_id'] = os.environ['TELEGRAM_PRIVATE_ID']  # 개인 봇용
+        config['telegram_chat_id'] = os.environ['TELEGRAM_PRIVATE_ID']  # 기본값은 개인
+
+    # GitHub Actions 환경 여부 (채널+봇 동시 전송용)
+    config['is_github_actions'] = bool(os.environ.get('GITHUB_ACTIONS'))
 
     return config
 
@@ -3078,13 +3084,14 @@ def format_telegram_message(screening_df, stats, changes=None, config=None):
     return create_telegram_message_v71(screening_df, stats, config)
 
 
-def send_telegram_long(message, config):
-    """긴 메시지를 여러 개로 분할해서 전송"""
+def send_telegram_long(message, config, chat_id=None):
+    """긴 메시지를 여러 개로 분할해서 전송 (chat_id 지정 가능)"""
     if not config.get('telegram_enabled', False):
         return False
 
     bot_token = config.get('telegram_bot_token', '')
-    chat_id = config.get('telegram_chat_id', '')
+    if chat_id is None:
+        chat_id = config.get('telegram_chat_id', '')
 
     if not bot_token or not chat_id:
         log("텔레그램 설정 불완전", "WARN")
@@ -3164,15 +3171,30 @@ def main():
     if config.get('telegram_enabled', False):
         if not screening_df.empty or stats.get('skipped', False):
             messages = format_telegram_message(screening_df, stats, changes, config)
+
+            # 전송 대상 결정
+            is_github = config.get('is_github_actions', False)
+            private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
+            channel_id = config.get('telegram_channel_id')
+
             # v7.1: 메시지 리스트 순차 전송 (TOP 10, 11-26위 등)
             if isinstance(messages, list):
                 for i, msg in enumerate(messages):
-                    send_telegram_long(msg, config)
-                    log(f"✅ 텔레그램 메시지 {i+1}/{len(messages)} 전송 완료")
+                    # 1. 봇(개인)에게 전송 (항상)
+                    send_telegram_long(msg, config, chat_id=private_id)
+                    log(f"✅ 텔레그램 메시지 {i+1}/{len(messages)} 전송 완료 (봇)")
+
+                    # 2. 채널에도 전송 (GitHub Actions일 때만)
+                    if is_github and channel_id:
+                        send_telegram_long(msg, config, chat_id=channel_id)
+                        log(f"✅ 텔레그램 메시지 {i+1}/{len(messages)} 전송 완료 (채널)")
             else:
                 # 하위 호환: 단일 문자열
-                send_telegram_long(messages, config)
-                log("✅ 텔레그램 User 메시지 전송 완료")
+                send_telegram_long(messages, config, chat_id=private_id)
+                log("✅ 텔레그램 User 메시지 전송 완료 (봇)")
+                if is_github and channel_id:
+                    send_telegram_long(messages, config, chat_id=channel_id)
+                    log("✅ 텔레그램 User 메시지 전송 완료 (채널)")
             log("=" * 60)
 
     # Track 2: 데이터 축적 (User 메시지 전송 후 진행)
@@ -3186,11 +3208,12 @@ def main():
     # 실행 시간 계산
     elapsed = (datetime.now() - start_time).total_seconds()
 
-    # Track 2 완료 → 텔레그램 Admin 메시지 전송
+    # Track 2 완료 → 텔레그램 Admin 메시지 전송 (봇에만, 채널 제외)
     if config.get('telegram_enabled', False):
+        private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
         msg_admin = create_telegram_message_admin(stats, collected, errors, elapsed)
-        send_telegram_long(msg_admin, config)
-        log("✅ 텔레그램 Admin 메시지 전송 완료")
+        send_telegram_long(msg_admin, config, chat_id=private_id)
+        log("✅ 텔레그램 Admin 메시지 전송 완료 (봇만)")
 
     # 완료
     log("=" * 60)
