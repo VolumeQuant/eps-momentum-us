@@ -1949,72 +1949,44 @@ def generate_korean_rationale(row):
 
 def generate_rationale_bullets_v71(row):
     """
-    v7.2.2: 선정이유를 불릿 포인트 리스트로 반환 (점수 제거, 팩트 중심)
+    v7.2.2: 선정이유 - "왜 EPS가 오르나?"에만 집중
+
+    진입액션과 중복되는 기술적 지표 제거
+    펀더멘털(매출/영업익/ROE)만 표시
 
     Returns:
-        list: 2-3개의 선정이유 문자열 리스트
+        list: 2개의 선정이유 문자열 리스트
     """
     bullets = []
 
-    rsi = row.get('rsi')
-    from_high = row.get('from_52w_high')
     is_aligned = row.get('is_aligned', False)
-    volume_spike = row.get('volume_spike', False)
     roe = row.get('roe')
-    peg = row.get('peg')
     rev_growth = row.get('rev_growth')
     op_growth = row.get('op_growth')
-    price_change = row.get('price_change_pct', 0)
 
-    # 1. EPS 추세 관련 (점수 없이)
-    if is_aligned:
-        bullets.append("EPS 추정치 지속 상향")
+    # 1. 실적 성장 (핵심 - 항상 표시)
+    if rev_growth and op_growth:
+        bullets.append(f"매출 {rev_growth:+.0f}%, 영업익 {op_growth:+.0f}%")
+    elif rev_growth:
+        bullets.append(f"매출 {rev_growth:+.0f}% 성장")
+    elif op_growth:
+        bullets.append(f"영업익 {op_growth:+.0f}% 성장")
 
-    # 2. 펀더멘털 관련
+    # 2. ROE (수익성 - 높을 때만)
     if roe and roe >= 50:
-        bullets.append(f"ROE {roe:.0f}% 초고수익")
+        bullets.append(f"ROE {roe:.0f}% (초고수익)")
     elif roe and roe >= 30:
-        bullets.append(f"ROE {roe:.0f}% 고수익")
+        bullets.append(f"ROE {roe:.0f}% (고수익)")
 
-    if op_growth and rev_growth:
-        if op_growth > 100:
-            bullets.append(f"영업익 +{op_growth:.0f}% 폭발 성장")
-        elif op_growth > 50:
-            bullets.append(f"영업익 +{op_growth:.0f}% 고성장")
+    # 3. EPS 정배열 (모멘텀 확인)
+    if is_aligned and len(bullets) < 2:
+        bullets.append("EPS 추정치 상향 지속")
 
-    if peg and peg < 0.5:
-        bullets.append(f"PEG {peg:.2f} 극저평가")
-    elif peg and peg < 1.0:
-        bullets.append(f"PEG {peg:.2f} 저평가")
+    # 최소 1개 보장
+    if len(bullets) == 0:
+        bullets.append("EPS 모멘텀 상승 중")
 
-    # 3. 가격/타이밍 관련
-    if rsi and rsi <= 35:
-        bullets.append(f"RSI {rsi:.0f} 과매도 → 반등 기회")
-    elif rsi and rsi >= 70 and from_high and from_high > -3:
-        bullets.append(f"신고가 돌파 모멘텀")
-    elif rsi and 45 <= rsi <= 55:
-        bullets.append(f"RSI {rsi:.0f} 중립 → 분할 진입 적기")
-
-    if from_high and from_high > -3:
-        bullets.append(f"52주 신고가 {from_high:+.0f}% 돌파 임박")
-    elif from_high and from_high <= -20:
-        bullets.append(f"52주 고점 대비 {from_high:.0f}% 대폭 할인")
-
-    # 4. 당일 등락률 관련
-    if price_change and price_change <= -5:
-        bullets.append(f"{price_change:+.1f}% 급락 → 진입 기회")
-    elif price_change and price_change >= 5:
-        bullets.append(f"{price_change:+.1f}% 급등 (거래량 확인)")
-
-    # 5. 거래량 스파이크
-    if volume_spike:
-        bullets.append("거래량 급증 (20일 평균 1.5배↑)")
-
-    # 최소 2개, 최대 3개 반환
-    if len(bullets) < 2:
-        bullets.append("모멘텀 상승 추세")
-
-    return bullets[:3]
+    return bullets[:2]
 
 
 def generate_risk_v71(row):
