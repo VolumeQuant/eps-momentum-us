@@ -2200,15 +2200,27 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         vix_status = "안정" if vix < 20 else "경계" if vix < 30 else "공포"
         msg += f"• VIX {vix:.1f} ({vix_status})\n"
 
+    # === 매수 가능 종목 필터링 (Option A) ===
+    def is_actionable(row):
+        """매수 가능 여부: 액션이 매수 관련 + RSI < 70"""
+        action = str(row.get('action', ''))
+        rsi = row.get('rsi', 50)
+        is_buy_action = any(x in action for x in ['강력매수', '적극매수', '매수적기', '저점매수'])
+        is_not_overheated = rsi < 70
+        return is_buy_action and is_not_overheated
+
+    actionable_df = screening_df[screening_df.apply(is_actionable, axis=1)].copy()
+    actionable_count = len(actionable_df)
+
     # === 스크리닝 전략 ===
     msg += "\n━━━━━━━━━━━━━━━━━━━\n"
     msg += "          📋 스크리닝 전략\n"
     msg += "━━━━━━━━━━━━━━━━━━━\n"
     msg += f"S&P500 + 나스닥100 + 미드캡400 ({total_scanned}개)\n"
-    msg += f"→ EPS 상향 종목 필터\n"
-    msg += f"→ 매출/영업익 성장 확인\n"
-    msg += f"→ MA200 상회 (상승추세)\n"
-    msg += f"→ 최종 {total_count}개 통과\n"
+    msg += f"→ EPS 상향 + 펀더멘털 필터\n"
+    msg += f"→ {total_count}개 통과\n"
+    msg += f"→ 진입 타이밍 필터 (RSI, 지지선)\n"
+    msg += f"→ 최종 {actionable_count}개 매수 가능 ✅\n"
 
     # === 섹터 분석 ===
     sector_counts = screening_df['sector'].value_counts() if 'sector' in screening_df.columns else pd.Series()
@@ -2243,188 +2255,43 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         etf_str = f" [{sector_etf}]" if sector_etf else ""
         msg += f"{sector_kr}: {count}개 ({pct:.0f}%) {bar}{etf_str}\n"
 
-    # === 오늘의 매수 기회 (핵심 섹션) ===
+    # === 오늘의 매수 종목 요약 ===
     msg += "\n━━━━━━━━━━━━━━━━━━━\n"
-    msg += "       🎯 오늘의 매수 기회\n"
+    msg += "       🎯 오늘의 매수 종목\n"
     msg += "━━━━━━━━━━━━━━━━━━━\n"
 
-    buy_opportunities = {
-        'breakout': [],   # 신고가 돌파
-        'support': [],    # 지지선 반등
-        'oversold': [],   # 급락 반등
-    }
-
-    for idx, (_, row) in enumerate(screening_df.iterrows(), 1):
-        action = row.get('action', '')
-        ticker = row['ticker']
-        company = row.get('company_name', ticker)  # 전체 종목명 사용
-        rsi = row.get('rsi')
-        from_high = row.get('from_52w_high')
-        quality = row.get('quality_score', 0) or 0
-        price = row.get('price', 0)
-        sector = row.get('sector', '')
-
-        item = {
-            'rank': idx, 'ticker': ticker, 'company': company,
-            'quality': quality, 'rsi': rsi, 'from_high': from_high,
-            'price': price, 'action': action, 'sector': sector
-        }
-
-        # RSI 70 이상은 과열 → 매수 기회에서 제외 (모순 방지)
-        if rsi and rsi >= 70:
-            continue  # 과열 종목은 "오늘의 매수 기회"에 표시 안함
-
-        # RSI 35 이하 + 52주 -10% 이상 조정 = 과매도로 우선 분류
-        if rsi and rsi <= 35 and from_high and from_high <= -10:
-            buy_opportunities['oversold'].append(item)
-        elif '강력매수' in action or '돌파' in action:
-            buy_opportunities['breakout'].append(item)
-        elif '적극매수' in action or '매수적기' in action:
-            buy_opportunities['support'].append(item)
-        elif '저점매수' in action:
-            buy_opportunities['oversold'].append(item)
-
-    has_opportunity = False
-
-    # 매수타이밍 설명 함수 (RSI 기반, 간결하게)
-    def get_timing_desc(rsi):
-        """RSI를 짧은 매수타이밍으로 변환"""
-        if rsi is None:
-            return None
-        if rsi >= 70:
-            return f"RSI {rsi:.0f} 과열 → 조정 후 진입"
-        elif rsi <= 30:
-            return f"RSI {rsi:.0f} 과매도 → 반등 기대"
-        elif rsi <= 40:
-            return f"RSI {rsi:.0f} 저점 → 매집 구간"
-        elif rsi >= 60:
-            return f"RSI {rsi:.0f} 상승중 → 추격 주의"
-        else:
-            return f"RSI {rsi:.0f} 중립 → 분할매수 OK"
-
-    if buy_opportunities['breakout']:
-        msg += "\n🚀 신고가 돌파\n\n"
-        for item in buy_opportunities['breakout'][:3]:
-            msg += f"▸ {item['company']} ({item['ticker']})\n"
-            msg += f"   • 근거: 신고가 돌파 + 거래량\n"
-            if item['from_high'] is not None:
-                msg += f"   • 고점대비: {item['from_high']:+.0f}%\n"
-            if item['rsi']:
-                timing = get_timing_desc(item['rsi'])
-                if timing:
-                    msg += f"   • 타이밍: {timing}\n"
-            msg += "\n"
-        has_opportunity = True
-
-    if buy_opportunities['support']:
-        msg += "\n✅ 지지선 반등\n\n"
-        for item in buy_opportunities['support'][:4]:
-            reason = ""
-            if "MA200" in item['action']:
-                reason = "MA200 지지"
-            elif "MA50" in item['action']:
-                reason = "MA50 지지"
-            elif "눌림목" in item['action']:
-                reason = "눌림목 반등"
-            elif "매수적기" in item['action']:
-                reason = "정배열 조정"
-            msg += f"▸ {item['company']} ({item['ticker']})\n"
-            if reason:
-                msg += f"   • 근거: {reason}\n"
-            if item['from_high'] is not None:
-                msg += f"   • 고점대비: {item['from_high']:+.0f}%\n"
-            if item['rsi']:
-                timing = get_timing_desc(item['rsi'])
-                if timing:
-                    msg += f"   • 타이밍: {timing}\n"
-            msg += "\n"
-        has_opportunity = True
-
-    if buy_opportunities['oversold']:
-        msg += "\n💎 급락 반등\n\n"
-        for item in buy_opportunities['oversold'][:3]:
-            msg += f"▸ {item['company']} ({item['ticker']})\n"
-            msg += f"   • 근거: 과매도 급락\n"
-            if item['from_high'] is not None:
-                msg += f"   • 고점대비: {item['from_high']:+.0f}%\n"
-            if item['rsi']:
-                timing = get_timing_desc(item['rsi'])
-                if timing:
-                    msg += f"   • 타이밍: {timing}\n"
-            msg += "\n"
-        has_opportunity = True
-
-    if not has_opportunity:
-        msg += "\n⏸️ 현재 매수 타이밍 없음\n"
-        msg += "대부분 과열 또는 조정 구간 → 관망 권장\n"
+    if actionable_count > 0:
+        tickers = ", ".join(actionable_df['ticker'].tolist()[:10])
+        msg += f"매수 가능 {actionable_count}개: {tickers}\n"
+        msg += "※ 순위 = 매수 우선순위 (상세는 다음 메시지)\n"
+    else:
+        msg += "현재 매수 타이밍 종목 없음\n"
+        msg += "대부분 과열 또는 관망 구간\n"
 
     messages.append(msg)
 
-    # === TOP 10 메시지 (별도 분리) ===
-    msg2 = "━━━━━━━━━━━━━━━━━━━\n"
-    msg2 += "     🏆 EPS 모멘텀 TOP 10\n"
-    msg2 += "━━━━━━━━━━━━━━━━━━━\n"
-    msg2 += "순위 = EPS 상향 모멘텀 기준\n"
-
-    # 순위 아이콘
-    def get_rank_icon(rank):
-        if rank == 1:
-            return "🥇"
-        elif rank == 2:
-            return "🥈"
-        elif rank == 3:
-            return "🥉"
-        else:
-            return "📌"
-
-    # TOP 10 종목
-    top_10 = screening_df.head(10)
-
-    for idx, (_, row) in enumerate(top_10.iterrows(), 1):
-        ticker = row['ticker']
-        company = row.get('company_name', ticker)
-        sector = row.get('sector', 'Other')
-        sector_kr = sector_map.get(sector, sector[:4] if len(sector) > 4 else sector)
-        price = row.get('price', 0)
-        price_change = row.get('price_change_pct', 0)
-        quality = row.get('quality_score', 0) or 0
-        value = row.get('value_score', 0) or 0
-        total = row.get('total_score') or (quality * 0.5 + value * 0.5)
-        rsi = row.get('rsi')
-        from_high = row.get('from_52w_high')
-
-        icon = get_rank_icon(idx)
-        change_str = f"({price_change:+.2f}%)" if price_change else ""
-
-        msg2 += f"\n{icon} {idx}위 {company} ({ticker}) {sector_kr}\n"
-        msg2 += f"💰 ${price:.2f} {change_str}\n"
-        msg2 += f"📊 밸류 {quality:.0f}점 (EPS 모멘텀)\n"
-
-        # 진입액션 표시
-        action = row.get('action', '관망')
-        msg2 += f"📈 진입액션: {action}\n"
-
-        # 선정이유 (불릿 포인트)
-        bullets = generate_rationale_bullets_v71(row)
-        msg2 += "📝 선정이유:\n"
-        for bullet in bullets:
-            msg2 += f"• {bullet}\n"
-
-        # 리스크
-        risk = generate_risk_v71(row)
-        msg2 += f"⚠️ 리스크: {risk}\n"
+    # === 매수 종목 상세 메시지 (actionable_df 사용) ===
+    if actionable_count > 0:
+        msg2 = "━━━━━━━━━━━━━━━━━━━\n"
+        msg2 += f"     🏆 매수 종목 TOP {min(actionable_count, 10)}\n"
         msg2 += "━━━━━━━━━━━━━━━━━━━\n"
+        msg2 += "순위 = 매수 우선순위 (EPS 모멘텀 기준)\n"
 
-    messages.append(msg2)
+        # 순위 아이콘
+        def get_rank_icon(rank):
+            if rank == 1:
+                return "🥇"
+            elif rank == 2:
+                return "🥈"
+            elif rank == 3:
+                return "🥉"
+            else:
+                return "📌"
 
-    # === 11-26위 메시지 (있으면) ===
-    if total_count > 10:
-        msg3 = "━━━━━━━━━━━━━━━━━━━\n"
-        msg3 += "      📊 11-26위 종목 분석\n"
-        msg3 += "━━━━━━━━━━━━━━━━━━━\n"
+        # 매수 가능 종목만 표시 (최대 10개)
+        top_actionable = actionable_df.head(10)
 
-        remaining = screening_df.iloc[10:26]
-        for idx, (_, row) in enumerate(remaining.iterrows(), 11):
+        for idx, (_, row) in enumerate(top_actionable.iterrows(), 1):
             ticker = row['ticker']
             company = row.get('company_name', ticker)
             sector = row.get('sector', 'Other')
@@ -2432,31 +2299,67 @@ def create_telegram_message_v71(screening_df, stats, config=None):
             price = row.get('price', 0)
             price_change = row.get('price_change_pct', 0)
             quality = row.get('quality_score', 0) or 0
-            value = row.get('value_score', 0) or 0
-            total = row.get('total_score') or (quality * 0.5 + value * 0.5)
-            rsi = row.get('rsi')
-            from_high = row.get('from_52w_high')
 
+            icon = get_rank_icon(idx)
             change_str = f"({price_change:+.2f}%)" if price_change else ""
 
-            msg3 += f"\n📌 {idx}위 {company} ({ticker}) {sector_kr}\n"
-            msg3 += f"💰 ${price:.2f} {change_str}\n"
-            msg3 += f"📊 밸류 {quality:.0f}점 (EPS 모멘텀)\n"
+            msg2 += f"\n{icon} {idx}위 {company} ({ticker}) {sector_kr}\n"
+            msg2 += f"💰 ${price:.2f} {change_str}\n"
+            msg2 += f"📊 밸류 {quality:.0f}점 (EPS 모멘텀)\n"
 
             # 진입액션 표시
             action = row.get('action', '관망')
-            msg3 += f"📈 진입액션: {action}\n"
+            msg2 += f"📈 진입액션: {action}\n"
 
+            # 선정이유 (불릿 포인트)
             bullets = generate_rationale_bullets_v71(row)
-            msg3 += "📝 선정이유:\n"
+            msg2 += "📝 선정이유:\n"
             for bullet in bullets:
-                msg3 += f"• {bullet}\n"
+                msg2 += f"• {bullet}\n"
 
+            # 리스크
             risk = generate_risk_v71(row)
-            msg3 += f"⚠️ 리스크: {risk}\n"
+            msg2 += f"⚠️ 리스크: {risk}\n"
+            msg2 += "━━━━━━━━━━━━━━━━━━━\n"
+
+        messages.append(msg2)
+
+        # === 11위 이후 매수 종목 (있으면) ===
+        if actionable_count > 10:
+            msg3 = "━━━━━━━━━━━━━━━━━━━\n"
+            msg3 += f"      📊 {11}~{actionable_count}위 매수 종목\n"
             msg3 += "━━━━━━━━━━━━━━━━━━━\n"
 
-        messages.append(msg3)
+            remaining = actionable_df.iloc[10:]
+            for idx, (_, row) in enumerate(remaining.iterrows(), 11):
+                ticker = row['ticker']
+                company = row.get('company_name', ticker)
+                sector = row.get('sector', 'Other')
+                sector_kr = sector_map.get(sector, sector[:4] if len(sector) > 4 else sector)
+                price = row.get('price', 0)
+                price_change = row.get('price_change_pct', 0)
+                quality = row.get('quality_score', 0) or 0
+
+                change_str = f"({price_change:+.2f}%)" if price_change else ""
+
+                msg3 += f"\n📌 {idx}위 {company} ({ticker}) {sector_kr}\n"
+                msg3 += f"💰 ${price:.2f} {change_str}\n"
+                msg3 += f"📊 밸류 {quality:.0f}점 (EPS 모멘텀)\n"
+
+                # 진입액션 표시
+                action = row.get('action', '관망')
+                msg3 += f"📈 진입액션: {action}\n"
+
+                bullets = generate_rationale_bullets_v71(row)
+                msg3 += "📝 선정이유:\n"
+                for bullet in bullets:
+                    msg3 += f"• {bullet}\n"
+
+                risk = generate_risk_v71(row)
+                msg3 += f"⚠️ 리스크: {risk}\n"
+                msg3 += "━━━━━━━━━━━━━━━━━━━\n"
+
+            messages.append(msg3)
 
     return messages
 
