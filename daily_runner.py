@@ -77,7 +77,7 @@ DEFAULT_CONFIG = {
 
 
 def load_config():
-    """설정 로드 (없으면 기본값 생성)"""
+    """설정 로드 (config.json → 환경변수 순으로 체크)"""
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             config = json.load(f)
@@ -85,12 +85,20 @@ def load_config():
             for key, value in DEFAULT_CONFIG.items():
                 if key not in config:
                     config[key] = value
-            return config
     else:
         with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             json.dump(DEFAULT_CONFIG, f, indent=2, ensure_ascii=False)
         print(f"[INFO] 기본 설정 파일 생성: {CONFIG_PATH}")
-        return DEFAULT_CONFIG
+        config = DEFAULT_CONFIG.copy()
+
+    # 환경변수 오버라이드 (GitHub Actions용)
+    if os.environ.get('TELEGRAM_BOT_TOKEN'):
+        config['telegram_bot_token'] = os.environ['TELEGRAM_BOT_TOKEN']
+        config['telegram_enabled'] = True
+    if os.environ.get('TELEGRAM_CHAT_ID'):
+        config['telegram_chat_id'] = os.environ['TELEGRAM_CHAT_ID']
+
+    return config
 
 
 def log(message, level="INFO"):
