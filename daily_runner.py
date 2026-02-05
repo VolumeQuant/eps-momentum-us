@@ -1965,15 +1965,26 @@ def generate_risk_v71(row):
     if from_high and -5 < from_high < 0 and rsi and rsi >= 70:
         risks.append("돌파 실패 시 조정")
 
-    # 섹터별 리스크
+    # 섹터별 리스크 (전체 GICS 섹터)
     sector_risks = {
-        'Semiconductor': '반도체 변동성',
+        # 기술/반도체
+        'Semiconductor': '반도체 사이클',
         'Technology': '기술주 변동성',
-        'Basic Materials': '원자재 가격 변동',
-        'Energy': '유가 변동',
+        'Communication Services': '광고/구독 경기 민감',
+        # 소비재
         'Consumer Cyclical': '경기 민감',
-        'Healthcare': '규제 리스크',
-        'Financial Services': '금리 민감',
+        'Consumer Defensive': '성장 제한적',
+        # 산업재/소재
+        'Industrials': '경기 사이클',
+        'Basic Materials': '원자재 가격 변동',
+        # 에너지/유틸리티
+        'Energy': '유가 변동',
+        'Utilities': '금리 민감',
+        # 금융/부동산
+        'Financial Services': '금리/신용 리스크',
+        'Real Estate': '금리/공실률',
+        # 헬스케어
+        'Healthcare': '규제/임상 리스크',
     }
     if sector in sector_risks:
         risks.append(sector_risks[sector])
