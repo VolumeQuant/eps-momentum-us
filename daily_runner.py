@@ -1,7 +1,7 @@
 """
-EPS Momentum Daily Runner v6.3 - Quality & Value Scorecard System
+EPS Momentum Daily Runner v7.2 - 밸류+가격 100점 체계 + GitHub Actions 자동화
 
-핵심 철학: "맛있는 사과를 좋은 값에" (Quality + Value)
+핵심 철학: "좋은 사과를 싸게" (밸류 + 가격 균형)
 
 기능:
 1. Track 1: 실시간 스크리닝 → 3-Layer Filtering + Q/V Scorecard
@@ -10,13 +10,12 @@ EPS Momentum Daily Runner v6.3 - Quality & Value Scorecard System
 4. Git 자동 commit/push (선택)
 5. 텔레그램 알림 (User Briefing + Admin Log 분리)
 
-v6.3 주요 변경 (Quality & Value Scorecard):
-- Quality Score (맛, 100점): EPS정배열 + ROE + EPS성장률 + MA200위 + 거래량스파이크
-- Value Score (값, 100점): PEG + Forward PER + 52주고점대비 + RSI눌림목
-- Actionable Score = (Quality × 0.5 + Value × 0.5) × Action Multiplier
-- 거래량 스파이크 감지: 20일 평균 × 1.5 초과 시 신호
-- 실적 D-Day 표시
-- Fake Bottom 경고: RSI 낮지만 MA200 하회
+v7.2 주요 변경:
+- 밸류 100점 + 가격 100점 체계 (총점 = 밸류×50% + 가격×50%)
+- GitHub Actions 자동화 (KST 08:00 매일 실행)
+- 텔레그램 채널/봇 분리 전송
+- 섹터 대분류 분석 + ETF 추천
+- 리스크 자동 생성 (가격/밸류/섹터별)
 
 v6.2 (이전):
 - Action Multiplier로 RSI 과열 종목 페널티
@@ -351,7 +350,7 @@ def run_screening(config, market_regime=None):
     """
     import pandas as pd
 
-    log("Track 1: 실시간 스크리닝 v6.3 (Quality & Value Scorecard) 시작")
+    log("Track 1: 실시간 스크리닝 v7.2 (밸류+가격 100점 체계) 시작")
 
     # === 시장 국면에 따른 동적 필터링 ===
     regime = market_regime.get('regime', 'GREEN') if market_regime else 'GREEN'
@@ -2363,11 +2362,12 @@ def create_telegram_message_admin(stats, collected, errors, execution_time):
     - DB 저장 상태 (Success/Fail)
     - 총 처리 티커 수
     - 실행 시간
-    - v6.3 필터 통계
+    - 필터 통계
+    - 데이터 누적 기간
     """
     today = datetime.now().strftime('%m/%d %H:%M')
 
-    msg = f"🔧 <b>[{today}] EPS v6.3 Admin Log</b>\n"
+    msg = f"🔧 <b>[{today}] EPS v7.2 Admin Log</b>\n"
     msg += f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
     # DB 저장 상태
@@ -2387,21 +2387,38 @@ def create_telegram_message_admin(stats, collected, errors, execution_time):
     msg += f"• 거래량부족: {stats.get('low_volume', 0)}개\n"
     msg += f"• MA200↓: {stats.get('below_ma200', 0)}개\n"
 
-    # v6 신규 통계
-    msg += f"\n🆕 <b>v6.0 필터 통계</b>\n"
+    # 밸류 필터 통계
+    msg += f"\n📉 <b>밸류 필터 통계</b>\n"
     msg += f"• ROE 10% 미만: {stats.get('low_roe', 0)}개\n"
     msg += f"• PER 60 초과: {stats.get('high_per', 0)}개\n"
     msg += f"• 평균 Forward PER: {stats.get('avg_fwd_per', 0)}\n"
     msg += f"• 평균 ROE: {stats.get('avg_roe', 0)}%\n"
 
-    # DB 상태
+    # DB 상태 + 데이터 누적 기간
     db_size = 0
     if DB_PATH.exists():
         db_size = DB_PATH.stat().st_size / (1024 * 1024)
-    msg += f"\n💾 DB Size: {db_size:.1f}MB\n"
+
+    # 데이터 누적 기간 조회
+    data_range = ""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT MIN(date), MAX(date), COUNT(DISTINCT date) FROM eps_snapshots')
+        min_date, max_date, day_count = cursor.fetchone()
+        conn.close()
+        if min_date and max_date:
+            data_range = f"{min_date} ~ {max_date} ({day_count}일)"
+    except:
+        data_range = "조회 실패"
+
+    msg += f"\n💾 <b>DB 상태</b>\n"
+    msg += f"• 크기: {db_size:.1f}MB\n"
+    msg += f"• 누적 기간: {data_range}\n"
 
     msg += f"\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"<i>🤖 EPS Momentum v6.0 Admin</i>"
+    msg += f"<i>🤖 EPS Momentum v7.2 Admin</i>"
 
     return msg
 
