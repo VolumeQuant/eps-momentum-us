@@ -2270,6 +2270,10 @@ def create_telegram_message_v71(screening_df, stats, config=None):
             'price': price, 'action': action, 'sector': sector
         }
 
+        # RSI 70 이상은 과열 → 매수 기회에서 제외 (모순 방지)
+        if rsi and rsi >= 70:
+            continue  # 과열 종목은 "오늘의 매수 기회"에 표시 안함
+
         # RSI 35 이하 + 52주 -10% 이상 조정 = 과매도로 우선 분류
         if rsi and rsi <= 35 and from_high and from_high <= -10:
             buy_opportunities['oversold'].append(item)
@@ -2282,29 +2286,33 @@ def create_telegram_message_v71(screening_df, stats, config=None):
 
     has_opportunity = False
 
-    # RSI 상태 표시 함수
-    def get_rsi_label(rsi):
+    # 매수타이밍 설명 함수 (RSI 기반, 고객 친화적)
+    def get_timing_desc(rsi):
+        """RSI를 고객이 이해하기 쉬운 매수타이밍으로 변환"""
         if rsi is None:
-            return "-"
+            return None
         if rsi >= 70:
-            return f"{rsi:.0f} (과열⚠️)"
+            return f"과열 구간 (RSI {rsi:.0f}) → 조정 후 진입 권장"
         elif rsi <= 30:
-            return f"{rsi:.0f} (과매도🔥)"
+            return f"과매도 구간 (RSI {rsi:.0f}) → 반등 기대"
         elif rsi <= 40:
-            return f"{rsi:.0f} (매수적기✨)"
+            return f"매수 적기 (RSI {rsi:.0f}) → 저점 매집 구간"
         elif rsi >= 60:
-            return f"{rsi:.0f} (중립↑)"
+            return f"상승 추세 (RSI {rsi:.0f}) → 추격 매수 주의"
         else:
-            return f"{rsi:.0f} (중립)"
+            return f"중립 구간 (RSI {rsi:.0f}) → 분할 매수 적합"
 
     if buy_opportunities['breakout']:
         msg += "\n🚀 신고가 돌파\n\n"
         for item in buy_opportunities['breakout'][:3]:
             msg += f"▸ {item['company']} ({item['ticker']})\n"
+            msg += f"   • 진입근거: 52주 신고가 돌파 + 거래량 급증\n"
             if item['from_high'] is not None:
-                msg += f"   • 52주 위치: 고점 대비 {item['from_high']:+.0f}%\n"
+                msg += f"   • 고점대비: {item['from_high']:+.0f}% (신고가 근접)\n"
             if item['rsi']:
-                msg += f"   • RSI: {get_rsi_label(item['rsi'])}\n"
+                timing = get_timing_desc(item['rsi'])
+                if timing:
+                    msg += f"   • 매수타이밍: {timing}\n"
             msg += "\n"
         has_opportunity = True
 
@@ -2313,32 +2321,36 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         for item in buy_opportunities['support'][:4]:
             reason = ""
             if "MA200" in item['action']:
-                reason = "MA200 지지선"
+                reason = "200일 이동평균선 지지 반등"
             elif "MA50" in item['action']:
-                reason = "MA50 지지선"
+                reason = "50일 이동평균선 지지 반등"
             elif "눌림목" in item['action']:
-                reason = "눌림목 구간"
+                reason = "상승추세 중 눌림목 (조정 후 반등)"
             elif "매수적기" in item['action']:
-                reason = "추세 양호"
+                reason = "이평선 정배열 + 건강한 조정"
             msg += f"▸ {item['company']} ({item['ticker']})\n"
             if reason:
                 msg += f"   • 진입근거: {reason}\n"
             if item['from_high'] is not None:
-                msg += f"   • 52주 위치: 고점 대비 {item['from_high']:+.0f}%\n"
+                msg += f"   • 고점대비: {item['from_high']:+.0f}% (매수 여력 있음)\n"
             if item['rsi']:
-                msg += f"   • RSI: {get_rsi_label(item['rsi'])}\n"
+                timing = get_timing_desc(item['rsi'])
+                if timing:
+                    msg += f"   • 매수타이밍: {timing}\n"
             msg += "\n"
         has_opportunity = True
 
     if buy_opportunities['oversold']:
-        msg += "\n💎 급락 반등 (과매도)\n\n"
+        msg += "\n💎 급락 반등\n\n"
         for item in buy_opportunities['oversold'][:3]:
             msg += f"▸ {item['company']} ({item['ticker']})\n"
-            msg += f"   • 진입근거: RSI 과매도 + 급락\n"
+            msg += f"   • 진입근거: 과매도 급락 → 기술적 반등 예상\n"
             if item['from_high'] is not None:
-                msg += f"   • 52주 위치: 고점 대비 {item['from_high']:+.0f}%\n"
+                msg += f"   • 고점대비: {item['from_high']:+.0f}% (저점 매수 기회)\n"
             if item['rsi']:
-                msg += f"   • RSI: {get_rsi_label(item['rsi'])}\n"
+                timing = get_timing_desc(item['rsi'])
+                if timing:
+                    msg += f"   • 매수타이밍: {timing}\n"
             msg += "\n"
         has_opportunity = True
 
