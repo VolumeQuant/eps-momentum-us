@@ -872,21 +872,27 @@ def get_action_label(price, ma_20, ma_200, rsi, from_52w_high=None, volume_spike
     if from_52w_high > -2 and volume_spike:
         return "🚀강력매수 (돌파)"
 
-    # === 4. 적극매수 (MA200 지지) ===
-    # MA200 바로 위 (+0% ~ +3%) + RSI 50 미만 = 장기 지지선 반등
-    if ma_200 and 0 <= ma200_pct <= 3 and rsi < 50:
+    # === 4. 저점매수 (과매도) === RSI 35 이하 우선 체크
+    # RSI 과매도 + 의미있는 조정(-10% 이상)이면 급락 반등 기회
+    # v7.2.1: -15% → -10%로 완화 (GMED 같은 케이스 포착)
+    if rsi <= 35 and from_52w_high <= -10:
+        return "저점매수 (과매도)"
+
+    # === 5. 적극매수 (MA200 지지) ===
+    # MA200 바로 위 (+0% ~ +3%) + RSI 35-50 = 장기 지지선 반등
+    if ma_200 and 0 <= ma200_pct <= 3 and 35 < rsi < 50:
         return "적극매수 (MA200지지)"
 
-    # === 5. 적극매수 (MA50 지지) ===
+    # === 6. 적극매수 (MA50 지지) ===
     # MA50 ±3% + RSI 40-55 + 거래량 스파이크
     if ma_50 and -3 <= ma50_pct <= 3 and 40 <= rsi <= 55 and volume_spike:
         return "적극매수 (MA50지지)"
 
-    # === 6. MA20 대비 +8% 급등 (단기 과열) ===
+    # === 7. MA20 대비 +8% 급등 (단기 과열) ===
     if ma20_pct >= 8:
         return "진입금지 (단기급등)"
 
-    # === 7. RSI 70-84 구간 처리 ===
+    # === 8. RSI 70-84 구간 처리 ===
     if 70 <= rsi < 85:
         is_near_ath = from_52w_high > -5
         if is_near_ath and volume_spike:
@@ -895,10 +901,6 @@ def get_action_label(price, ma_20, ma_200, rsi, from_52w_high=None, volume_spike
             return "관망 (RSI🚀고점)"
         else:
             return "관망 (RSI🚀)"
-
-    # === 8. 저점매수 (과매도 반등) ===
-    if rsi <= 35 and from_52w_high <= -20:
-        return "저점매수 (과매도)"
 
     # === 9. 적극매수 (눌림목) ===
     is_meaningful_correction = -25 <= from_52w_high <= -10
@@ -2268,7 +2270,10 @@ def create_telegram_message_v71(screening_df, stats, config=None):
             'price': price, 'action': action, 'sector': sector
         }
 
-        if '강력매수' in action or '돌파' in action:
+        # RSI 35 이하 + 52주 -10% 이상 조정 = 과매도로 우선 분류
+        if rsi and rsi <= 35 and from_high and from_high <= -10:
+            buy_opportunities['oversold'].append(item)
+        elif '강력매수' in action or '돌파' in action:
             buy_opportunities['breakout'].append(item)
         elif '적극매수' in action or '매수적기' in action:
             buy_opportunities['support'].append(item)
@@ -2296,13 +2301,10 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         msg += "\n🚀 신고가 돌파\n\n"
         for item in buy_opportunities['breakout'][:3]:
             msg += f"▸ {item['company']} ({item['ticker']})\n"
-            info_parts = []
-            if item['from_high']:
-                info_parts.append(f"52주 고점 {item['from_high']:+.0f}%")
+            if item['from_high'] is not None:
+                msg += f"   • 52주 위치: 고점 대비 {item['from_high']:+.0f}%\n"
             if item['rsi']:
-                info_parts.append(f"RSI {get_rsi_label(item['rsi'])}")
-            if info_parts:
-                msg += f"   {' · '.join(info_parts)}\n"
+                msg += f"   • RSI: {get_rsi_label(item['rsi'])}\n"
             msg += "\n"
         has_opportunity = True
 
@@ -2311,37 +2313,32 @@ def create_telegram_message_v71(screening_df, stats, config=None):
         for item in buy_opportunities['support'][:4]:
             reason = ""
             if "MA200" in item['action']:
-                reason = "MA200 지지"
+                reason = "MA200 지지선"
             elif "MA50" in item['action']:
-                reason = "MA50 지지"
+                reason = "MA50 지지선"
             elif "눌림목" in item['action']:
-                reason = "눌림목"
+                reason = "눌림목 구간"
             elif "매수적기" in item['action']:
                 reason = "추세 양호"
             msg += f"▸ {item['company']} ({item['ticker']})\n"
-            info_parts = []
             if reason:
-                info_parts.append(reason)
-            if item['from_high']:
-                info_parts.append(f"52주 {item['from_high']:+.0f}%")
+                msg += f"   • 진입근거: {reason}\n"
+            if item['from_high'] is not None:
+                msg += f"   • 52주 위치: 고점 대비 {item['from_high']:+.0f}%\n"
             if item['rsi']:
-                info_parts.append(f"RSI {get_rsi_label(item['rsi'])}")
-            if info_parts:
-                msg += f"   {' · '.join(info_parts)}\n"
+                msg += f"   • RSI: {get_rsi_label(item['rsi'])}\n"
             msg += "\n"
         has_opportunity = True
 
     if buy_opportunities['oversold']:
-        msg += "\n💎 급락 반등\n\n"
+        msg += "\n💎 급락 반등 (과매도)\n\n"
         for item in buy_opportunities['oversold'][:3]:
             msg += f"▸ {item['company']} ({item['ticker']})\n"
-            info_parts = []
-            if item['from_high']:
-                info_parts.append(f"52주 {item['from_high']:+.0f}%")
+            msg += f"   • 진입근거: RSI 과매도 + 급락\n"
+            if item['from_high'] is not None:
+                msg += f"   • 52주 위치: 고점 대비 {item['from_high']:+.0f}%\n"
             if item['rsi']:
-                info_parts.append(f"RSI {get_rsi_label(item['rsi'])}")
-            if info_parts:
-                msg += f"   {' · '.join(info_parts)}\n"
+                msg += f"   • RSI: {get_rsi_label(item['rsi'])}\n"
             msg += "\n"
         has_opportunity = True
 
