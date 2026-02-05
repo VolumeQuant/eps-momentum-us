@@ -13,7 +13,14 @@
       "Bash(schtasks /create:*)",
       "Bash(timeout:*)",
       "Bash(powershell -command \"Get-Content ''C:\\\\Users\\\\jkw88\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--dev-claude-code-eps-momentum-us\\\\tasks\\\\b71327e.output'' -Tail 30 2>$null\")",
-      "Bash(git remote add:*)"
+      "Bash(git remote add:*)",
+      "Bash(python -c:*)",
+      "Bash(\"C:\\\\Users\\\\user\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" --version)",
+      "Bash(\"C:\\\\Users\\\\user\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\":*)",
+      "Bash(\"C:\\\\Users\\\\user\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" -m pip install googletrans==4.0.0-rc1 --quiet)",
+      "Bash(\"C:\\\\Users\\\\user\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" -c \"from googletrans import Translator; t = Translator\\(\\); print\\(''googletrans OK''\\)\")",
+      "Bash(\"C:\\\\Users\\\\user\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" daily_runner.py)",
+      "Bash(\"C:\\\\Users\\\\user\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" -u daily_runner.py)"
     ]
   }
 }

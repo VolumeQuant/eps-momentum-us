@@ -735,17 +735,19 @@ def calculate_value_score(peg, fwd_per, from_52w_high, rsi):
         elif fwd_per < 60:
             score += 5   # 고평가
 
-    # 3. 52주 고점 대비 (25점)
+    # 3. 52주 고점 대비 (25점) - 더 엄격한 기준
     if from_52w_high is not None:
         drawdown = abs(from_52w_high)
-        if drawdown >= 25:
-            score += 25  # 큰 조정
-        elif drawdown >= 15:
-            score += 20  # 의미있는 조정
+        if drawdown >= 40:
+            score += 25  # 진짜 떨이세일 (40% 이상 하락)
+        elif drawdown >= 30:
+            score += 20  # 큰 조정
+        elif drawdown >= 20:
+            score += 15  # 의미있는 조정
         elif drawdown >= 10:
-            score += 15  # 적당한 조정
+            score += 10  # 적당한 조정
         elif drawdown >= 5:
-            score += 8   # 소폭 조정
+            score += 5   # 소폭 조정
         # 5% 미만은 0점 (고점 근처)
 
     # 4. RSI 눌림목 (15점)

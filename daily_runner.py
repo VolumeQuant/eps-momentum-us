@@ -100,11 +100,11 @@ def log(message, level="INFO"):
 
 def check_market_regime():
     """
-    시장 국면 3단계 진단 - SPY + VIX 기반
+    시장 국면 3단계 진단 - S&P 500, 나스닥, VIX 기반
 
     진단 기준 (우선순위 순):
-    🔴 RED (위험/매매중단): SPY < MA50 OR VIX >= 30
-    🟡 YELLOW (경계/기준강화): SPY < MA20 OR VIX >= 20
+    🔴 RED (위험/매매중단): S&P500 < MA50 OR 나스닥 < MA50 OR VIX >= 30
+    🟡 YELLOW (경계/기준강화): S&P500 < MA20 OR 나스닥 < MA20 OR VIX >= 20
     🟢 GREEN (정상/적극매매): 위 조건에 해당하지 않음
 
     Returns:
@@ -114,6 +114,12 @@ def check_market_regime():
             'spy_price': float,
             'spy_ma20': float,
             'spy_ma50': float,
+            'spx_price': float,
+            'spx_ma20': float,
+            'spx_ma50': float,
+            'ndx_price': float,
+            'ndx_ma20': float,
+            'ndx_ma50': float,
             'vix': float
         }
     """
@@ -123,26 +129,35 @@ def check_market_regime():
     default_result = {
         'regime': 'YELLOW',
         'reason': '데이터 로드 실패 - 보수적 접근',
-        'spy_price': None,
-        'spy_ma20': None,
-        'spy_ma50': None,
+        'spy_price': None, 'spy_ma20': None, 'spy_ma50': None,
+        'spx_price': None, 'spx_ma20': None, 'spx_ma50': None,
+        'ndx_price': None, 'ndx_ma20': None, 'ndx_ma50': None,
         'vix': None
     }
 
     try:
-        # SPY 데이터
+        # S&P 500 (^GSPC)
+        spx = yf.Ticker('^GSPC')
+        spx_hist = spx.history(period='3mo')
+        spx_price = spx_hist['Close'].iloc[-1] if len(spx_hist) >= 50 else None
+        spx_ma20 = spx_hist['Close'].tail(20).mean() if len(spx_hist) >= 20 else None
+        spx_ma50 = spx_hist['Close'].tail(50).mean() if len(spx_hist) >= 50 else None
+
+        # 나스닥 (^IXIC)
+        ndx = yf.Ticker('^IXIC')
+        ndx_hist = ndx.history(period='3mo')
+        ndx_price = ndx_hist['Close'].iloc[-1] if len(ndx_hist) >= 50 else None
+        ndx_ma20 = ndx_hist['Close'].tail(20).mean() if len(ndx_hist) >= 20 else None
+        ndx_ma50 = ndx_hist['Close'].tail(50).mean() if len(ndx_hist) >= 50 else None
+
+        # SPY (ETF, 보조)
         spy = yf.Ticker('SPY')
         spy_hist = spy.history(period='3mo')
+        spy_price = spy_hist['Close'].iloc[-1] if len(spy_hist) >= 50 else None
+        spy_ma20 = spy_hist['Close'].tail(20).mean() if len(spy_hist) >= 20 else None
+        spy_ma50 = spy_hist['Close'].tail(50).mean() if len(spy_hist) >= 50 else None
 
-        if len(spy_hist) < 50:
-            log("SPY 데이터 부족, 보수적으로 YELLOW 적용", "WARN")
-            return default_result
-
-        spy_price = spy_hist['Close'].iloc[-1]
-        spy_ma20 = spy_hist['Close'].tail(20).mean()
-        spy_ma50 = spy_hist['Close'].tail(50).mean()
-
-        # VIX 데이터
+        # VIX
         vix = None
         try:
             vix_ticker = yf.Ticker('^VIX')
@@ -150,29 +165,47 @@ def check_market_regime():
             if len(vix_hist) > 0:
                 vix = vix_hist['Close'].iloc[-1]
         except:
-            log("VIX 데이터 로드 실패, SPY만으로 판단", "WARN")
+            log("VIX 데이터 로드 실패", "WARN")
+
+        # 데이터 검증
+        if spx_price is None or ndx_price is None:
+            log("S&P 500 또는 나스닥 데이터 부족, 보수적으로 YELLOW 적용", "WARN")
+            return default_result
 
         # === 진단 로직 (우선순위 순) ===
+        regime = 'GREEN'
+        reasons = []
 
-        # 🔴 RED: SPY < MA50 OR VIX >= 30
-        if spy_price < spy_ma50:
+        # 🔴 RED 체크
+        if spx_ma50 and spx_price < spx_ma50:
             regime = 'RED'
-            reason = f'SPY ${spy_price:.0f} MA50 ${spy_ma50:.0f} 하회'
-        elif vix is not None and vix >= 30:
+            reasons.append(f'S&P500 ${spx_price:.0f} < MA50 ${spx_ma50:.0f}')
+        if ndx_ma50 and ndx_price < ndx_ma50:
             regime = 'RED'
-            reason = f'VIX {vix:.1f} (공포 구간)'
-        # 🟡 YELLOW: SPY < MA20 OR VIX >= 20
-        elif spy_price < spy_ma20:
-            regime = 'YELLOW'
-            reason = f'SPY ${spy_price:.0f} MA20 ${spy_ma20:.0f} 하회'
-        elif vix is not None and vix >= 20:
-            regime = 'YELLOW'
-            reason = f'VIX {vix:.1f} (경계 구간)'
-        # 🟢 GREEN: 정상
-        else:
-            regime = 'GREEN'
-            vix_str = f', VIX {vix:.1f}' if vix else ''
-            reason = f'SPY ${spy_price:.0f} 정상{vix_str}'
+            reasons.append(f'나스닥 {ndx_price:.0f} < MA50 {ndx_ma50:.0f}')
+        if vix is not None and vix >= 30:
+            regime = 'RED'
+            reasons.append(f'VIX {vix:.1f} (공포)')
+
+        # 🟡 YELLOW 체크 (RED가 아닐 때만)
+        if regime != 'RED':
+            if spx_ma20 and spx_price < spx_ma20:
+                regime = 'YELLOW'
+                reasons.append(f'S&P500 ${spx_price:.0f} < MA20 ${spx_ma20:.0f}')
+            if ndx_ma20 and ndx_price < ndx_ma20:
+                regime = 'YELLOW'
+                reasons.append(f'나스닥 {ndx_price:.0f} < MA20 {ndx_ma20:.0f}')
+            if vix is not None and vix >= 20:
+                regime = 'YELLOW'
+                reasons.append(f'VIX {vix:.1f} (경계)')
+
+        # 🟢 GREEN (정상)
+        if regime == 'GREEN':
+            reasons.append(f'S&P500 ${spx_price:.0f}, 나스닥 {ndx_price:.0f} 정상')
+            if vix:
+                reasons.append(f'VIX {vix:.1f}')
+
+        reason = ', '.join(reasons)
 
         # 로그
         emoji = {'RED': '🔴', 'YELLOW': '🟡', 'GREEN': '🟢'}[regime]
@@ -181,9 +214,15 @@ def check_market_regime():
         return {
             'regime': regime,
             'reason': reason,
-            'spy_price': round(spy_price, 2),
-            'spy_ma20': round(spy_ma20, 2),
-            'spy_ma50': round(spy_ma50, 2),
+            'spy_price': round(spy_price, 2) if spy_price else None,
+            'spy_ma20': round(spy_ma20, 2) if spy_ma20 else None,
+            'spy_ma50': round(spy_ma50, 2) if spy_ma50 else None,
+            'spx_price': round(spx_price, 2) if spx_price else None,
+            'spx_ma20': round(spx_ma20, 2) if spx_ma20 else None,
+            'spx_ma50': round(spx_ma50, 2) if spx_ma50 else None,
+            'ndx_price': round(ndx_price, 2) if ndx_price else None,
+            'ndx_ma20': round(ndx_ma20, 2) if ndx_ma20 else None,
+            'ndx_ma50': round(ndx_ma50, 2) if ndx_ma50 else None,
             'vix': round(vix, 1) if vix else None
         }
 
@@ -321,7 +360,11 @@ def run_screening(config, market_regime=None):
             'trend_exit_tickers': [],  # 추세 이탈 종목 리스트
         }
 
+        processed = 0
         for ticker, idx_name in all_tickers.items():
+            processed += 1
+            if processed % 50 == 0:
+                log(f"  진행: {processed}/{len(all_tickers)} 종목 처리 중...")
             try:
                 stock = yf.Ticker(ticker)
                 trend = stock.eps_trend
@@ -637,6 +680,9 @@ def run_screening(config, market_regime=None):
 
             except Exception as e:
                 stats['data_error'] += 1
+                # 에러 로그 (너무 많으면 첫 10개만)
+                if stats['data_error'] <= 10:
+                    log(f"  {ticker} 데이터 에러 (skip): {str(e)[:100]}", "DEBUG")
                 continue
 
         # 결과 저장
@@ -1958,17 +2004,29 @@ def get_stock_insight(ticker, max_chars=50):
     }
 
     def translate_to_korean(text, max_len=60):
-        """영어 텍스트를 한국어로 번역"""
+        """영어 텍스트를 한국어로 번역 (googletrans 사용)"""
         try:
             from googletrans import Translator
+            import time
             translator = Translator()
-            result = translator.translate(text, src='en', dest='ko')
-            translated = result.text
-            if len(translated) > max_len:
-                translated = translated[:max_len-3] + '...'
-            return translated
+            # 타임아웃 설정 및 재시도
+            for attempt in range(2):
+                try:
+                    result = translator.translate(text, src='en', dest='ko')
+                    translated = result.text
+                    if len(translated) > max_len:
+                        translated = translated[:max_len-3] + '...'
+                    return translated
+                except Exception:
+                    if attempt == 0:
+                        time.sleep(0.5)  # 첫 실패시 대기 후 재시도
+                    continue
+            # 두 번 모두 실패시 원문 반환
+            if len(text) > max_len:
+                text = text[:max_len-3] + '...'
+            return text
         except Exception:
-            # 번역 실패시 원문 반환 (길이 제한)
+            # 번역 라이브러리 없을 시 원문 반환
             if len(text) > max_len:
                 text = text[:max_len-3] + '...'
             return text
@@ -2047,6 +2105,12 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     spy_price = market_regime.get('spy_price') if market_regime else None
     spy_ma20 = market_regime.get('spy_ma20') if market_regime else None
     spy_ma50 = market_regime.get('spy_ma50') if market_regime else None
+    spx_price = market_regime.get('spx_price') if market_regime else None
+    spx_ma20 = market_regime.get('spx_ma20') if market_regime else None
+    spx_ma50 = market_regime.get('spx_ma50') if market_regime else None
+    ndx_price = market_regime.get('ndx_price') if market_regime else None
+    ndx_ma20 = market_regime.get('ndx_ma20') if market_regime else None
+    ndx_ma50 = market_regime.get('ndx_ma50') if market_regime else None
     vix = market_regime.get('vix') if market_regime else None
     skipped = stats.get('skipped', False)
 
@@ -2062,12 +2126,13 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
         msg += f"🚨 <b>[경고] 시장 위험 감지</b>\n"
         msg += f"📍 사유: {reason}\n\n"
 
-        if spy_price and spy_ma50:
-            msg += f"📊 SPY: ${spy_price:.0f}\n"
-            msg += f"   • MA20: ${spy_ma20:.0f}\n"
-            msg += f"   • MA50: ${spy_ma50:.0f}\n"
+        msg += f"📊 <b>주요 지수 현황</b>\n"
+        if spx_price and spx_ma50:
+            msg += f"• S&P 500: {spx_price:.0f} (MA20: {spx_ma20:.0f}, MA50: {spx_ma50:.0f})\n"
+        if ndx_price and ndx_ma50:
+            msg += f"• 나스닥: {ndx_price:.0f} (MA20: {ndx_ma20:.0f}, MA50: {ndx_ma50:.0f})\n"
         if vix:
-            msg += f"   • VIX: {vix:.1f}\n"
+            msg += f"• VIX: {vix:.1f}\n"
 
         msg += f"\n━━━━━━━━━━━━━━━━━━━━━━\n"
         msg += f"⛔ <b>오늘의 추천 종목 없음</b>\n"
@@ -2091,23 +2156,47 @@ def create_telegram_message(screening_df, stats, changes=None, config=None):
     regime_emoji = {'YELLOW': '🟡', 'GREEN': '🟢'}[regime]
     regime_text = {'YELLOW': 'YELLOW (경계)', 'GREEN': 'GREEN (상승장)'}[regime]
 
-    msg = f"🇺🇸 <b>미국주식 퀀트 랭킹 v7.0</b>\n"
+    # 총 스캔 종목 수 (NASDAQ100 + S&P500 + S&P400 = 917개)
+    total_scanned = stats.get('total', 917)
+
+    msg = f"🇺🇸 <b>미국주식 퀀트 랭킹 v7.0.6</b>\n"
     msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"📅 {today_full} 마감 | 총 {total_count}개 통과\n"
-    msg += f"🚦 <b>시장: {regime_emoji} {regime_text}</b>"
+    msg += f"📅 {today_full} 마감\n"
+    msg += f"📊 <b>{total_scanned}개 중 {total_count}개 통과</b> ({total_count/total_scanned*100:.1f}%)\n"
+    msg += f"🚦 <b>시장: {regime_emoji} {regime_text}</b>\n"
 
-    if spy_price:
-        msg += f" | SPY ${spy_price:.0f}"
-        if vix:
-            msg += f" | VIX {vix:.1f}"
-    msg += "\n"
+    # 주요 지수 표시
+    indices_str = []
+    if spx_price:
+        indices_str.append(f"S&P500 {spx_price:.0f}")
+    if ndx_price:
+        indices_str.append(f"나스닥 {ndx_price:.0f}")
+    if vix:
+        indices_str.append(f"VIX {vix:.1f}")
+    if indices_str:
+        msg += f"📈 {' | '.join(indices_str)}\n"
 
-    msg += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    # v7.0 전략 설명 섹션
+    # v7.0.6 전략 설명 섹션 (상세)
     msg += "<b>📋 전략: EPS Growth + RSI Dual Track</b>\n"
-    msg += "• 펀더멘털: EPS 전망치 상향 (실적 우상향)\n"
-    msg += "• 타이밍: RSI 눌림목(Dip) &amp; 신고가 돌파(Momentum)\n\n"
+    msg += "<b>━━━━━━━━━━━━━━━━━━━━━━</b>\n\n"
+
+    msg += "<b>💎 펀더멘털 (Quality 100점)</b>\n"
+    msg += "• EPS 모멘텀 (30점): 컨센서스 상향 추세\n"
+    msg += "  └ Current &gt; 7일전 &gt; 30일전 (정배열)\n"
+    msg += "• ROE 품질 (25점): 30%+ / 20%+ / 10%+\n"
+    msg += "• EPS 성장률 (20점): 20%+ / 10%+ / 5%+\n"
+    msg += "• 추세 (15점): MA200 위 = 상승 추세\n"
+    msg += "• 거래량 (10점): 20일 평균 × 1.5 돌파\n\n"
+
+    msg += "<b>💰 타이밍 (Value 100점)</b>\n"
+    msg += "• PEG 평가 (35점): &lt;1.0 / &lt;1.5 / &lt;2.0\n"
+    msg += "• Forward PER (25점): &lt;15 / &lt;25 / &lt;40\n"
+    msg += "• 52주 고점대비 (25점): -25% / -15% / -10%\n"
+    msg += "• RSI 눌림목 (15점): 30-45 / 45-55\n\n"
+
+    msg += "<b>🎯 종합점수 = (펀더멘털×0.5 + 타이밍×0.5) × 액션배수</b>\n\n"
 
     # v7.0.5: ETF 추천 섹션 (전체 종목 섹터 분석)
     from sector_analysis import get_sector_etf_recommendation, format_etf_recommendation_text
@@ -2496,7 +2585,7 @@ def send_telegram_long(message, config):
 def main():
     """메인 실행"""
     log("=" * 60)
-    log("EPS Momentum Daily Runner v6.3 - Quality & Value Scorecard")
+    log("EPS Momentum Daily Runner v7.0.6 - EPS Growth + RSI Dual Track")
     log("=" * 60)
 
     start_time = datetime.now()
@@ -2509,17 +2598,30 @@ def main():
     market_regime = check_market_regime()
 
     # Track 1: 스크리닝 (시장 국면 전달)
+    log("=" * 60)
+    log("Track 1: 실시간 스크리닝 시작")
+    log("=" * 60)
     screening_df, stats = run_screening(config, market_regime)
 
-    # Track 2: 데이터 축적
-    collected, errors = run_data_collection(config)
-
-    # 리포트 생성
+    # Track 1 리포트 생성
     changes = None
     if not screening_df.empty:
         md_path, html_path = generate_report(screening_df, stats, config)
         changes = get_portfolio_changes(screening_df, config)
         log(f"편입: {len(changes['added'])}개, 편출: {len(changes['removed'])}개")
+
+    # Track 1 완료 → 텔레그램 User 메시지 즉시 전송
+    if config.get('telegram_enabled', False):
+        if not screening_df.empty or stats.get('skipped', False):
+            msg_user = format_telegram_message(screening_df, stats, changes, config)
+            send_telegram_long(msg_user, config)
+            log("✅ 텔레그램 User 메시지 전송 완료")
+            log("=" * 60)
+
+    # Track 2: 데이터 축적 (User 메시지 전송 후 진행)
+    log("Track 2: 전체 데이터 축적 시작")
+    log("=" * 60)
+    collected, errors = run_data_collection(config)
 
     # Git commit/push
     git_commit_push(config)
@@ -2527,21 +2629,15 @@ def main():
     # 실행 시간 계산
     elapsed = (datetime.now() - start_time).total_seconds()
 
-    # 텔레그램 알림 (User + Admin 분리)
+    # Track 2 완료 → 텔레그램 Admin 메시지 전송
     if config.get('telegram_enabled', False):
-        # Track 1: User Briefing (종목 추천)
-        if not screening_df.empty or stats.get('skipped', False):
-            msg_user = format_telegram_message(screening_df, stats, changes, config)
-            send_telegram_long(msg_user, config)
-            log("텔레그램 User 메시지 전송 완료")
-
-        # Track 2: Admin Log (시스템 상태)
         msg_admin = create_telegram_message_admin(stats, collected, errors, elapsed)
         send_telegram_long(msg_admin, config)
-        log("텔레그램 Admin 메시지 전송 완료")
+        log("✅ 텔레그램 Admin 메시지 전송 완료")
 
     # 완료
-    log(f"전체 완료: {elapsed:.1f}초 소요")
+    log("=" * 60)
+    log(f"✅ 전체 완료: {elapsed:.1f}초 소요")
     log("=" * 60)
 
     return 0
