@@ -333,20 +333,22 @@ def create_part1_message(df, top_n=30):
     """Part 1: 이익 모멘텀 랭킹 메시지 생성 (90일 이익변화율 순)"""
     import pandas as pd
 
-    lines = ['📊 <b>이익 모멘텀 랭킹</b>\n']
-    lines.append(f'{"#":>2}  {"종목명(티커)":<20} {"업종":<8} {"이익변화":>8}  추세(90d/60d/30d/7d)')
-    lines.append('-' * 65)
+    today_str = datetime.now().strftime('%Y.%m.%d')
+
+    lines = [f'📊 <b>이익 모멘텀 Top {top_n}</b>']
+    lines.append(f'{today_str} · 90일 이익추정치 변화율 순\n')
 
     for _, row in df.head(top_n).iterrows():
         rank = int(row['rank'])
-        name_ticker = f"{row['short_name']}({row['ticker']})"
-        industry = row.get('industry', '')[:8]
+        ticker = row['ticker']
+        industry = row.get('industry', '')
         eps_chg = row.get('eps_change_90d')
-        eps_chg_str = f"{eps_chg:+.1f}%" if pd.notna(eps_chg) else 'N/A'
+        eps_str = f"{eps_chg:+.1f}%" if pd.notna(eps_chg) else '-'
         trend = row.get('trend', '')
-        trend_spaced = ' '.join(trend) if trend else ''
 
-        lines.append(f"{rank:>2}  {name_ticker:<20} {industry:<8} {eps_chg_str:>8}  {trend_spaced}")
+        lines.append(f'{rank}. <b>{ticker}</b> {eps_str} {trend} <i>{industry}</i>')
+
+    lines.append(f'\n<i>↑↓ = 90d · 60d · 30d · 7d 구간 방향</i>')
 
     return '\n'.join(lines)
 
@@ -354,6 +356,8 @@ def create_part1_message(df, top_n=30):
 def create_part2_message(df, top_n=30):
     """Part 2: 매수 후보 메시지 생성 (괴리율 순, Score > 3 필터)"""
     import pandas as pd
+
+    today_str = datetime.now().strftime('%Y.%m.%d')
 
     # Score > 3 필터
     filtered = df[df['score'] > 3].copy()
@@ -368,23 +372,24 @@ def create_part2_message(df, top_n=30):
     # 괴리율 오름차순 (더 마이너스 = 더 좋은 매수 기회)
     filtered = filtered.sort_values('fwd_pe_chg').head(top_n)
 
-    lines = ['💰 <b>매수 후보</b> (이익↑ 주가 덜 반영)\n']
-    lines.append(f'{"#":>2}  {"종목명(티커)":<20} {"업종":<8} {"이익변화":>8} {"주가변화":>8} {"괴리율":>8}  추세(90d/60d/30d/7d)')
-    lines.append('-' * 85)
+    lines = [f'💰 <b>매수 후보 Top {min(top_n, len(filtered))}</b>']
+    lines.append(f'{today_str} · 이익은 올랐는데 주가가 덜 따라간 종목\n')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
-        name_ticker = f"{row['short_name']}({row['ticker']})"
-        industry = row.get('industry', '')[:8]
-        eps_chg = row.get('eps_change_90d')
-        eps_chg_str = f"{eps_chg:+.1f}%" if pd.notna(eps_chg) else 'N/A'
-        price_chg = row.get('price_chg')
-        price_chg_str = f"{price_chg:+.1f}%" if pd.notna(price_chg) else 'N/A'
-        pe_chg = row.get('fwd_pe_chg')
-        pe_chg_str = f"{pe_chg:+.1f}%" if pd.notna(pe_chg) else 'N/A'
+        ticker = row['ticker']
+        industry = row.get('industry', '')
         trend = row.get('trend', '')
-        trend_spaced = ' '.join(trend) if trend else ''
+        eps_chg = row.get('eps_change_90d')
+        eps_str = f"{eps_chg:+.1f}%" if pd.notna(eps_chg) else '-'
+        price_chg = row.get('price_chg')
+        price_str = f"{price_chg:+.1f}%" if pd.notna(price_chg) else '-'
+        pe_chg = row.get('fwd_pe_chg')
+        gap_str = f"{pe_chg:+.1f}%" if pd.notna(pe_chg) else '-'
 
-        lines.append(f"{idx+1:>2}  {name_ticker:<20} {industry:<8} {eps_chg_str:>8} {price_chg_str:>8} {pe_chg_str:>8}  {trend_spaced}")
+        lines.append(f'{idx+1}. <b>{ticker}</b> <i>{industry}</i> {trend}')
+        lines.append(f'    이익 {eps_str} · 주가 {price_str} · 갭 {gap_str}')
+
+    lines.append(f'\n<i>갭 = Fwd PE 변화율, 마이너스일수록 저평가</i>')
 
     return '\n'.join(lines)
 
@@ -396,20 +401,22 @@ def create_turnaround_message(df, top_n=10):
     if df is None or df.empty:
         return None
 
-    lines = ['⚡ <b>턴어라운드 주목</b> (|EPS|&lt;$1 구간)\n']
-    lines.append(f'{"#":>2}  {"종목명(티커)":<20} {"업종":<8} {"EPS(90일전→현재)":>20}  추세(90d/60d/30d/7d)')
-    lines.append('-' * 75)
+    today_str = datetime.now().strftime('%Y.%m.%d')
+
+    lines = [f'⚡ <b>턴어라운드 주목</b>']
+    lines.append(f'{today_str} · 적자축소·흑자전환 신호 (|EPS| &lt; $1)\n')
 
     for idx, (_, row) in enumerate(df.head(top_n).iterrows()):
-        name_ticker = f"{row['short_name']}({row['ticker']})"
-        industry = row.get('industry', '')[:8]
+        ticker = row['ticker']
+        industry = row.get('industry', '')
+        trend = row.get('trend', '')
         ntm_90d = row.get('ntm_90d', 0)
         ntm_cur = row.get('ntm_cur', 0)
-        eps_str = f"${ntm_90d:.2f} → ${ntm_cur:.2f}"
-        trend = row.get('trend', '')
-        trend_spaced = ' '.join(trend) if trend else ''
 
-        lines.append(f"{idx+1:>2}  {name_ticker:<20} {industry:<8} {eps_str:>20}  {trend_spaced}")
+        lines.append(f'{idx+1}. <b>{ticker}</b> <i>{industry}</i> {trend}')
+        lines.append(f'    ${ntm_90d:.2f} → ${ntm_cur:.2f}')
+
+    lines.append(f'\n<i>90일 전 EPS → 현재 EPS</i>')
 
     return '\n'.join(lines)
 
@@ -420,35 +427,33 @@ def create_system_log_message(stats, elapsed, config):
     if HAS_PYTZ:
         kst = pytz.timezone('Asia/Seoul')
         now = datetime.now(kst)
-    time_str = now.strftime('%Y-%m-%d %H:%M KST')
+    time_str = now.strftime('%Y.%m.%d %H:%M')
 
     env = 'GitHub Actions' if config.get('is_github_actions') else 'Local'
     minutes = int(elapsed // 60)
     seconds = int(elapsed % 60)
 
-    lines = [f'🔧 <b>시스템 실행 로그</b> ({time_str})\n']
-    lines.append(f'실행환경: {env}')
-    lines.append(f'소요시간: {minutes}분 {seconds}초\n')
-
-    lines.append('[데이터 수집]')
-    lines.append(f"유니버스: {stats.get('universe', 0)}개")
-    success = stats.get('total_collected', 0)
-    err = stats.get('error_count', 0)
-    lines.append(f"성공: {success} | 에러: {err}")
-    error_tickers = stats.get('error_tickers', [])
-    if error_tickers:
-        lines.append(f"에러 종목: {', '.join(error_tickers)}")
-
-    lines.append(f"\n[DB 적재 - ntm_screening]")
-    lines.append('컬럼: date, ticker, rank, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, is_turnaround')
     main_cnt = stats.get('main_count', 0)
     turn_cnt = stats.get('turnaround_count', 0)
-    lines.append(f"메인: {main_cnt}건 | 턴어라운드: {turn_cnt}건 | 합계: {main_cnt + turn_cnt}건")
+    err = stats.get('error_count', 0)
 
-    lines.append(f"\n[스코어 분포]")
-    lines.append(f"이익변화 > 0: {stats.get('score_gt0', 0)} ({stats.get('score_gt0', 0) * 100 // max(main_cnt, 1)}%)")
-    lines.append(f"이익변화 > 3: {stats.get('score_gt3', 0)} ({stats.get('score_gt3', 0) * 100 // max(main_cnt, 1)}%)")
-    lines.append(f"정배열(↑↑↑↑): {stats.get('aligned_count', 0)}")
+    lines = [f'🔧 <b>시스템 로그</b>']
+    lines.append(f'{time_str} KST · {env}\n')
+
+    lines.append(f'수집 {main_cnt + turn_cnt}/{stats.get("universe", 0)} (에러 {err})')
+    lines.append(f'├ 메인 {main_cnt}')
+    lines.append(f'└ 턴어라운드 {turn_cnt}')
+
+    if err > 0:
+        error_tickers = stats.get('error_tickers', [])
+        lines.append(f'에러: {", ".join(error_tickers)}')
+
+    lines.append('')
+    lines.append(f'Score &gt; 0: {stats.get("score_gt0", 0)} ({stats.get("score_gt0", 0) * 100 // max(main_cnt, 1)}%)')
+    lines.append(f'Score &gt; 3: {stats.get("score_gt3", 0)} ({stats.get("score_gt3", 0) * 100 // max(main_cnt, 1)}%)')
+    lines.append(f'정배열 ↑↑↑↑: {stats.get("aligned_count", 0)}')
+
+    lines.append(f'\n소요: {minutes}분 {seconds}초')
 
     return '\n'.join(lines)
 
