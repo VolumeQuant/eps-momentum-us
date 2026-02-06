@@ -329,26 +329,72 @@ def git_commit_push(config):
 # 텔레그램 메시지 생성
 # ============================================================
 
+def get_last_business_day():
+    """가장 최근 미국 영업일 날짜"""
+    if HAS_PYTZ:
+        eastern = pytz.timezone('US/Eastern')
+        now_et = datetime.now(eastern)
+    else:
+        now_et = datetime.now() - timedelta(hours=14)
+
+    d = now_et.date()
+    # 평일 장마감 후(16시 이후)면 오늘이 영업일
+    if d.weekday() < 5 and now_et.hour >= 16:
+        return d
+    # 그 외: 전일로 가서 가장 최근 평일 찾기
+    d -= timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def get_today_kst():
+    """오늘 날짜 (KST)"""
+    if HAS_PYTZ:
+        kst = pytz.timezone('Asia/Seoul')
+        return datetime.now(kst).date()
+    return datetime.now().date()
+
+
 def create_part1_message(df, top_n=30):
     """Part 1: 이익 모멘텀 랭킹 메시지 생성 (90일 이익변화율 순)"""
     import pandas as pd
 
-    today_str = datetime.now().strftime('%Y.%m.%d')
+    today = get_today_kst()
+    biz_day = get_last_business_day()
+    today_str = today.strftime('%m월%d일')
+    biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
-    lines = [f'📊 <b>이익 모멘텀 Top {top_n}</b>']
-    lines.append(f'{today_str} · 90일 이익추정치 변화율 순\n')
+    lines = []
+    lines.append(f'안녕하세요! 오늘({today_str}) 미국주식 EPS 모멘텀 리포트입니다 📊')
+    lines.append('')
+    lines.append('━━━━━━━━━━━━━━━━━━━')
+    lines.append('      📈 이익 모멘텀 Top 30')
+    lines.append('━━━━━━━━━━━━━━━━━━━')
+    lines.append(f'📅 {biz_str} (미국장 기준)')
+    lines.append('90일간 이익 추정치 변화율 순')
+    lines.append('')
+
+    medals = {1: '🥇', 2: '🥈', 3: '🥉'}
 
     for _, row in df.head(top_n).iterrows():
         rank = int(row['rank'])
         ticker = row['ticker']
+        name = row.get('short_name', ticker)
         industry = row.get('industry', '')
         eps_chg = row.get('eps_change_90d')
         eps_str = f"{eps_chg:+.1f}%" if pd.notna(eps_chg) else '-'
         trend = row.get('trend', '')
 
-        lines.append(f'{rank}. <b>{ticker}</b> {eps_str} {trend} <i>{industry}</i>')
+        icon = medals.get(rank, '📌')
+        lines.append(f'{icon} <b>{rank}위</b> {name} ({ticker}) <i>{industry}</i>')
+        lines.append(f'    이익변화 <b>{eps_str}</b> {trend}')
 
-    lines.append(f'\n<i>↑↓ = 90d · 60d · 30d · 7d 구간 방향</i>')
+        if rank == 3:
+            lines.append('')
+
+    lines.append('')
+    lines.append('<i>추세 ↑↓ = 90d · 60d · 30d · 7d 구간별 이익 변화 방향</i>')
 
     return '\n'.join(lines)
 
@@ -357,7 +403,10 @@ def create_part2_message(df, top_n=30):
     """Part 2: 매수 후보 메시지 생성 (괴리율 순, Score > 3 필터)"""
     import pandas as pd
 
-    today_str = datetime.now().strftime('%Y.%m.%d')
+    today = get_today_kst()
+    biz_day = get_last_business_day()
+    today_str = today.strftime('%m월%d일')
+    biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
     # Score > 3 필터
     filtered = df[df['score'] > 3].copy()
@@ -372,11 +421,24 @@ def create_part2_message(df, top_n=30):
     # 괴리율 오름차순 (더 마이너스 = 더 좋은 매수 기회)
     filtered = filtered.sort_values('fwd_pe_chg').head(top_n)
 
-    lines = [f'💰 <b>매수 후보 Top {min(top_n, len(filtered))}</b>']
-    lines.append(f'{today_str} · 이익은 올랐는데 주가가 덜 따라간 종목\n')
+    count = min(top_n, len(filtered))
+
+    lines = []
+    lines.append(f'안녕하세요! 오늘({today_str}) 미국주식 매수 후보 리포트입니다 💰')
+    lines.append('')
+    lines.append('━━━━━━━━━━━━━━━━━━━')
+    lines.append(f'      💰 매수 후보 Top {count}')
+    lines.append('━━━━━━━━━━━━━━━━━━━')
+    lines.append(f'📅 {biz_str} (미국장 기준)')
+    lines.append('이익은 올랐는데 주가가 덜 따라간 종목')
+    lines.append('')
+
+    medals = {1: '🥇', 2: '🥈', 3: '🥉'}
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
+        rank = idx + 1
         ticker = row['ticker']
+        name = row.get('short_name', ticker)
         industry = row.get('industry', '')
         trend = row.get('trend', '')
         eps_chg = row.get('eps_change_90d')
@@ -384,12 +446,17 @@ def create_part2_message(df, top_n=30):
         price_chg = row.get('price_chg')
         price_str = f"{price_chg:+.1f}%" if pd.notna(price_chg) else '-'
         pe_chg = row.get('fwd_pe_chg')
-        gap_str = f"{pe_chg:+.1f}%" if pd.notna(pe_chg) else '-'
+        pe_str = f"{pe_chg:+.1f}%" if pd.notna(pe_chg) else '-'
 
-        lines.append(f'{idx+1}. <b>{ticker}</b> <i>{industry}</i> {trend}')
-        lines.append(f'    이익 {eps_str} · 주가 {price_str} · 갭 {gap_str}')
+        icon = medals.get(rank, '📌')
+        lines.append(f'{icon} <b>{rank}위</b> {name} ({ticker}) <i>{industry}</i>')
+        lines.append(f'    이익변화 {eps_str} · 주가변화 {price_str} · 괴리율 <b>{pe_str}</b> {trend}')
 
-    lines.append(f'\n<i>갭 = Fwd PE 변화율, 마이너스일수록 저평가</i>')
+        if rank == 3:
+            lines.append('')
+
+    lines.append('')
+    lines.append('<i>괴리율 = Fwd PE 변화율, 마이너스일수록 저평가</i>')
 
     return '\n'.join(lines)
 
@@ -401,22 +468,37 @@ def create_turnaround_message(df, top_n=10):
     if df is None or df.empty:
         return None
 
-    today_str = datetime.now().strftime('%Y.%m.%d')
+    biz_day = get_last_business_day()
+    biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
-    lines = [f'⚡ <b>턴어라운드 주목</b>']
-    lines.append(f'{today_str} · 적자축소·흑자전환 신호 (|EPS| &lt; $1)\n')
+    lines = []
+    lines.append('━━━━━━━━━━━━━━━━━━━')
+    lines.append('      ⚡ 턴어라운드 주목')
+    lines.append('━━━━━━━━━━━━━━━━━━━')
+    lines.append(f'📅 {biz_str} (미국장 기준)')
+    lines.append('적자축소·흑자전환 신호 종목 (|EPS| &lt; $1)')
+    lines.append('')
+
+    medals = {1: '🥇', 2: '🥈', 3: '🥉'}
 
     for idx, (_, row) in enumerate(df.head(top_n).iterrows()):
+        rank = idx + 1
         ticker = row['ticker']
+        name = row.get('short_name', ticker)
         industry = row.get('industry', '')
         trend = row.get('trend', '')
         ntm_90d = row.get('ntm_90d', 0)
         ntm_cur = row.get('ntm_cur', 0)
 
-        lines.append(f'{idx+1}. <b>{ticker}</b> <i>{industry}</i> {trend}')
-        lines.append(f'    ${ntm_90d:.2f} → ${ntm_cur:.2f}')
+        icon = medals.get(rank, '📌')
+        lines.append(f'{icon} <b>{rank}위</b> {name} ({ticker}) <i>{industry}</i>')
+        lines.append(f'    EPS ${ntm_90d:.2f} → ${ntm_cur:.2f} {trend}')
 
-    lines.append(f'\n<i>90일 전 EPS → 현재 EPS</i>')
+        if rank == 3:
+            lines.append('')
+
+    lines.append('')
+    lines.append('<i>90일 전 EPS → 현재 EPS 추이</i>')
 
     return '\n'.join(lines)
 
