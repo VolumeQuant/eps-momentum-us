@@ -150,9 +150,11 @@ def run_ntm_collection(config):
     completed_count = [0]
 
     def process_ticker(ticker):
-        """개별 종목 처리 (스레드 워커)"""
+        """개별 종목 처리 (스레드 워커, 독립 세션)"""
+        import requests
         try:
-            stock = yf.Ticker(ticker)
+            session = requests.Session()
+            stock = yf.Ticker(ticker, session=session)
 
             # NTM EPS 계산
             ntm = calculate_ntm_eps(stock, today)
