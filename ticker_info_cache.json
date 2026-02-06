@@ -1,0 +1,3654 @@
+{
+  "A": {
+    "shortName": "Agilent Technologies, Inc.",
+    "industry": "진단연구"
+  },
+  "AA": {
+    "shortName": "Alcoa Corporation",
+    "industry": "알루미늄"
+  },
+  "AAL": {
+    "shortName": "American Airlines Group, Inc.",
+    "industry": "항공"
+  },
+  "AAON": {
+    "shortName": "AAON, Inc.",
+    "industry": "건축자재"
+  },
+  "AAPL": {
+    "shortName": "Apple Inc.",
+    "industry": "가전"
+  },
+  "ABBV": {
+    "shortName": "AbbVie Inc.",
+    "industry": "대형제약"
+  },
+  "ABNB": {
+    "shortName": "Airbnb, Inc.",
+    "industry": "여행"
+  },
+  "ABT": {
+    "shortName": "Abbott Laboratories",
+    "industry": "의료기기"
+  },
+  "ACGL": {
+    "shortName": "Arch Capital Group Ltd.",
+    "industry": "종합보험"
+  },
+  "ACI": {
+    "shortName": "Albertsons Companies, Inc.",
+    "industry": "식료품점"
+  },
+  "ACM": {
+    "shortName": "AECOM",
+    "industry": "건설"
+  },
+  "ACN": {
+    "shortName": "Accenture plc",
+    "industry": "IT서비스"
+  },
+  "ADBE": {
+    "shortName": "Adobe Inc.",
+    "industry": "응용SW"
+  },
+  "ADC": {
+    "shortName": "Agree Realty Corporation",
+    "industry": "리츠소매"
+  },
+  "ADI": {
+    "shortName": "Analog Devices, Inc.",
+    "industry": "반도체"
+  },
+  "ADM": {
+    "shortName": "Archer-Daniels-Midland Company",
+    "industry": "농산물"
+  },
+  "ADP": {
+    "shortName": "Automatic Data Processing, Inc.",
+    "industry": "응용SW"
+  },
+  "ADSK": {
+    "shortName": "Autodesk, Inc.",
+    "industry": "응용SW"
+  },
+  "AEE": {
+    "shortName": "Ameren Corporation",
+    "industry": "전력"
+  },
+  "AEIS": {
+    "shortName": "Advanced Energy Industries, Inc",
+    "industry": "전기장비"
+  },
+  "AEP": {
+    "shortName": "American Electric Power Company",
+    "industry": "전력"
+  },
+  "AES": {
+    "shortName": "The AES Corporation",
+    "industry": "유틸복합"
+  },
+  "AFG": {
+    "shortName": "American Financial Group, Inc.",
+    "industry": "손해보험"
+  },
+  "AFL": {
+    "shortName": "AFLAC Incorporated",
+    "industry": "생명보험"
+  },
+  "AGCO": {
+    "shortName": "AGCO Corporation",
+    "industry": "중장비"
+  },
+  "AHR": {
+    "shortName": "American Healthcare REIT, Inc.",
+    "industry": "리츠의료"
+  },
+  "AIG": {
+    "shortName": "American International Group, I",
+    "industry": "종합보험"
+  },
+  "AIT": {
+    "shortName": "Applied Industrial Technologies",
+    "industry": "산업유통"
+  },
+  "AIZ": {
+    "shortName": "Assurant, Inc.",
+    "industry": "손해보험"
+  },
+  "AJG": {
+    "shortName": "Arthur J. Gallagher & Co.",
+    "industry": "보험중개"
+  },
+  "AKAM": {
+    "shortName": "Akamai Technologies, Inc.",
+    "industry": "인프라SW"
+  },
+  "ALB": {
+    "shortName": "Albemarle Corporation",
+    "industry": "특수화학"
+  },
+  "ALGM": {
+    "shortName": "Allegro MicroSystems, Inc.",
+    "industry": "반도체"
+  },
+  "ALGN": {
+    "shortName": "Align Technology, Inc.",
+    "industry": "의료용품"
+  },
+  "ALK": {
+    "shortName": "Alaska Air Group, Inc.",
+    "industry": "항공"
+  },
+  "ALL": {
+    "shortName": "Allstate Corporation (The)",
+    "industry": "손해보험"
+  },
+  "ALLE": {
+    "shortName": "Allegion plc",
+    "industry": "보안"
+  },
+  "ALLY": {
+    "shortName": "Ally Financial Inc.",
+    "industry": "신용서비스"
+  },
+  "ALNY": {
+    "shortName": "Alnylam Pharmaceuticals, Inc.",
+    "industry": "바이오"
+  },
+  "ALV": {
+    "shortName": "Autoliv, Inc.",
+    "industry": "자동차부품"
+  },
+  "AM": {
+    "shortName": "Antero Midstream Corporation",
+    "industry": "석유미드스트림"
+  },
+  "AMAT": {
+    "shortName": "Applied Materials, Inc.",
+    "industry": "반도체장비"
+  },
+  "AMCR": {
+    "shortName": "Amcor plc",
+    "industry": "포장재"
+  },
+  "AMD": {
+    "shortName": "Advanced Micro Devices, Inc.",
+    "industry": "반도체"
+  },
+  "AME": {
+    "shortName": "AMETEK, Inc.",
+    "industry": "산업기계"
+  },
+  "AMG": {
+    "shortName": "Affiliated Managers Group, Inc.",
+    "industry": "자산운용"
+  },
+  "AMGN": {
+    "shortName": "Amgen Inc.",
+    "industry": "대형제약"
+  },
+  "AMH": {
+    "shortName": "American Homes 4 Rent",
+    "industry": "리츠주거"
+  },
+  "AMKR": {
+    "shortName": "Amkor Technology, Inc.",
+    "industry": "반도체장비"
+  },
+  "AMP": {
+    "shortName": "Ameriprise Financial, Inc.",
+    "industry": "자산운용"
+  },
+  "AMT": {
+    "shortName": "American Tower Corporation (REI",
+    "industry": "리츠특수"
+  },
+  "AMZN": {
+    "shortName": "Amazon.com, Inc.",
+    "industry": "온라인유통"
+  },
+  "AN": {
+    "shortName": "AutoNation, Inc.",
+    "industry": "자동차딜러"
+  },
+  "ANET": {
+    "shortName": "Arista Networks, Inc.",
+    "industry": "HW"
+  },
+  "ANF": {
+    "shortName": "Abercrombie & Fitch Company",
+    "industry": "의류소매"
+  },
+  "AON": {
+    "shortName": "Aon plc",
+    "industry": "보험중개"
+  },
+  "AOS": {
+    "shortName": "A.O. Smith Corporation",
+    "industry": "산업기계"
+  },
+  "APA": {
+    "shortName": "APA Corporation",
+    "industry": "석유가스"
+  },
+  "APD": {
+    "shortName": "Air Products and Chemicals, Inc",
+    "industry": "특수화학"
+  },
+  "APG": {
+    "shortName": "APi Group Corporation",
+    "industry": "건설"
+  },
+  "APH": {
+    "shortName": "Amphenol Corporation",
+    "industry": "전자부품"
+  },
+  "APO": {
+    "shortName": "Apollo Global Management, Inc. ",
+    "industry": "자산운용"
+  },
+  "APP": {
+    "shortName": "Applovin Corporation",
+    "industry": "광고"
+  },
+  "APPF": {
+    "shortName": "AppFolio, Inc.",
+    "industry": "응용SW"
+  },
+  "APTV": {
+    "shortName": "Aptiv PLC",
+    "industry": "자동차부품"
+  },
+  "AR": {
+    "shortName": "Antero Resources Corporation",
+    "industry": "석유가스"
+  },
+  "ARE": {
+    "shortName": "Alexandria Real Estate Equities",
+    "industry": "리츠오피스"
+  },
+  "ARES": {
+    "shortName": "Ares Management Corporation",
+    "industry": "자산운용"
+  },
+  "ARM": {
+    "shortName": "Arm Holdings plc",
+    "industry": "반도체"
+  },
+  "ARMK": {
+    "shortName": "Aramark",
+    "industry": "비즈니스서비스"
+  },
+  "ARW": {
+    "shortName": "Arrow Electronics, Inc.",
+    "industry": "전자유통"
+  },
+  "ASB": {
+    "shortName": "Associated Banc-Corp",
+    "industry": "지역은행"
+  },
+  "ASGN": {
+    "shortName": "ASGN Incorporated",
+    "industry": "IT서비스"
+  },
+  "ASH": {
+    "shortName": "Ashland Inc.",
+    "industry": "특수화학"
+  },
+  "ASML": {
+    "shortName": "ASML Holding N.V. - New York Re",
+    "industry": "반도체장비"
+  },
+  "ATI": {
+    "shortName": "ATI Inc.",
+    "industry": "금속가공"
+  },
+  "ATO": {
+    "shortName": "Atmos Energy Corporation",
+    "industry": "가스"
+  },
+  "ATR": {
+    "shortName": "AptarGroup, Inc.",
+    "industry": "의료용품"
+  },
+  "AVAV": {
+    "shortName": "AeroVironment, Inc.",
+    "industry": "방산"
+  },
+  "AVB": {
+    "shortName": "AvalonBay Communities, Inc.",
+    "industry": "리츠주거"
+  },
+  "AVGO": {
+    "shortName": "Broadcom Inc.",
+    "industry": "반도체"
+  },
+  "AVNT": {
+    "shortName": "Avient Corporation",
+    "industry": "특수화학"
+  },
+  "AVT": {
+    "shortName": "Avnet, Inc.",
+    "industry": "전자유통"
+  },
+  "AVTR": {
+    "shortName": "Avantor, Inc.",
+    "industry": "의료용품"
+  },
+  "AVY": {
+    "shortName": "Avery Dennison Corporation",
+    "industry": "포장재"
+  },
+  "AWK": {
+    "shortName": "American Water Works Company, I",
+    "industry": "수도"
+  },
+  "AXON": {
+    "shortName": "Axon Enterprise, Inc.",
+    "industry": "방산"
+  },
+  "AXP": {
+    "shortName": "American Express Company",
+    "industry": "신용서비스"
+  },
+  "AXTA": {
+    "shortName": "Axalta Coating Systems Ltd.",
+    "industry": "특수화학"
+  },
+  "AYI": {
+    "shortName": "Acuity Inc.",
+    "industry": "전기장비"
+  },
+  "AZO": {
+    "shortName": "AutoZone, Inc.",
+    "industry": "자동차부품"
+  },
+  "BA": {
+    "shortName": "Boeing Company (The)",
+    "industry": "방산"
+  },
+  "BAC": {
+    "shortName": "Bank of America Corporation",
+    "industry": "대형은행"
+  },
+  "BAH": {
+    "shortName": "Booz Allen Hamilton Holding Cor",
+    "industry": "컨설팅"
+  },
+  "BALL": {
+    "shortName": "Ball Corporation",
+    "industry": "포장재"
+  },
+  "BAX": {
+    "shortName": "Baxter International Inc.",
+    "industry": "의료용품"
+  },
+  "BBWI": {
+    "shortName": "Bath & Body Works, Inc.",
+    "industry": "전문소매"
+  },
+  "BBY": {
+    "shortName": "Best Buy Co., Inc.",
+    "industry": "전문소매"
+  },
+  "BC": {
+    "shortName": "Brunswick Corporation",
+    "industry": "레저차량"
+  },
+  "BCO": {
+    "shortName": "Brinks Company (The)",
+    "industry": "보안"
+  },
+  "BDC": {
+    "shortName": "Belden Inc",
+    "industry": "통신장비"
+  },
+  "BDX": {
+    "shortName": "Becton, Dickinson and Company",
+    "industry": "의료용품"
+  },
+  "BEN": {
+    "shortName": "Franklin Resources, Inc.",
+    "industry": "자산운용"
+  },
+  "BF-B": {
+    "shortName": "Brown Forman Inc",
+    "industry": "주류"
+  },
+  "BG": {
+    "shortName": "Bunge Limited",
+    "industry": "농산물"
+  },
+  "BHF": {
+    "shortName": "Brighthouse Financial, Inc.",
+    "industry": "생명보험"
+  },
+  "BIIB": {
+    "shortName": "Biogen Inc.",
+    "industry": "대형제약"
+  },
+  "BILL": {
+    "shortName": "BILL Holdings, Inc.",
+    "industry": "응용SW"
+  },
+  "BIO": {
+    "shortName": "Bio-Rad Laboratories, Inc.",
+    "industry": "의료기기"
+  },
+  "BJ": {
+    "shortName": "BJ's Wholesale Club Holdings, I",
+    "industry": "할인점"
+  },
+  "BK": {
+    "shortName": "The Bank of New York Mellon Cor",
+    "industry": "대형은행"
+  },
+  "BKH": {
+    "shortName": "Black Hills Corporation",
+    "industry": "가스"
+  },
+  "BKNG": {
+    "shortName": "Booking Holdings Inc. Common St",
+    "industry": "여행"
+  },
+  "BKR": {
+    "shortName": "Baker Hughes Company",
+    "industry": "석유장비"
+  },
+  "BLD": {
+    "shortName": "TopBuild Corp.",
+    "industry": "건설"
+  },
+  "BLDR": {
+    "shortName": "Builders FirstSource, Inc.",
+    "industry": "건축자재"
+  },
+  "BLK": {
+    "shortName": "BlackRock, Inc.",
+    "industry": "자산운용"
+  },
+  "BLKB": {
+    "shortName": "Blackbaud, Inc.",
+    "industry": "응용SW"
+  },
+  "BMRN": {
+    "shortName": "BioMarin Pharmaceutical Inc.",
+    "industry": "바이오"
+  },
+  "BMY": {
+    "shortName": "Bristol-Myers Squibb Company",
+    "industry": "대형제약"
+  },
+  "BR": {
+    "shortName": "Broadridge Financial Solutions,",
+    "industry": "IT서비스"
+  },
+  "BRBR": {
+    "shortName": "BellRing Brands, Inc.",
+    "industry": "식품"
+  },
+  "BRK-B": {
+    "shortName": "Berkshire Hathaway Inc. New",
+    "industry": "종합보험"
+  },
+  "BRKR": {
+    "shortName": "Bruker Corporation",
+    "industry": "의료기기"
+  },
+  "BRO": {
+    "shortName": "Brown & Brown, Inc.",
+    "industry": "보험중개"
+  },
+  "BROS": {
+    "shortName": "Dutch Bros Inc.",
+    "industry": "외식"
+  },
+  "BRX": {
+    "shortName": "Brixmor Property Group Inc.",
+    "industry": "리츠소매"
+  },
+  "BSX": {
+    "shortName": "Boston Scientific Corporation",
+    "industry": "의료기기"
+  },
+  "BSY": {
+    "shortName": "Bentley Systems, Incorporated",
+    "industry": "응용SW"
+  },
+  "BURL": {
+    "shortName": "Burlington Stores, Inc.",
+    "industry": "의류소매"
+  },
+  "BWA": {
+    "shortName": "BorgWarner Inc.",
+    "industry": "자동차부품"
+  },
+  "BWXT": {
+    "shortName": "BWX Technologies, Inc.",
+    "industry": "방산"
+  },
+  "BX": {
+    "shortName": "Blackstone Inc.",
+    "industry": "자산운용"
+  },
+  "BXP": {
+    "shortName": "BXP, Inc.",
+    "industry": "리츠오피스"
+  },
+  "BYD": {
+    "shortName": "Boyd Gaming Corporation",
+    "industry": "리조트카지노"
+  },
+  "C": {
+    "shortName": "Citigroup, Inc.",
+    "industry": "대형은행"
+  },
+  "CACI": {
+    "shortName": "CACI International, Inc.",
+    "industry": "IT서비스"
+  },
+  "CAG": {
+    "shortName": "ConAgra Brands, Inc.",
+    "industry": "식품"
+  },
+  "CAH": {
+    "shortName": "Cardinal Health, Inc.",
+    "industry": "의약유통"
+  },
+  "CAR": {
+    "shortName": "Avis Budget Group, Inc.",
+    "industry": "렌탈리스"
+  },
+  "CARR": {
+    "shortName": "Carrier Global Corporation",
+    "industry": "건축자재"
+  },
+  "CART": {
+    "shortName": "Maplebear Inc.",
+    "industry": "온라인유통"
+  },
+  "CASY": {
+    "shortName": "Caseys General Stores, Inc.",
+    "industry": "전문소매"
+  },
+  "CAT": {
+    "shortName": "Caterpillar, Inc.",
+    "industry": "중장비"
+  },
+  "CAVA": {
+    "shortName": "CAVA Group, Inc.",
+    "industry": "외식"
+  },
+  "CB": {
+    "shortName": "Chubb Limited",
+    "industry": "손해보험"
+  },
+  "CBOE": {
+    "shortName": "Cboe Global Markets, Inc.",
+    "industry": "금융데이터"
+  },
+  "CBRE": {
+    "shortName": "CBRE Group Inc",
+    "industry": "부동산서비스"
+  },
+  "CBSH": {
+    "shortName": "Commerce Bancshares, Inc.",
+    "industry": "지역은행"
+  },
+  "CBT": {
+    "shortName": "Cabot Corporation",
+    "industry": "특수화학"
+  },
+  "CCEP": {
+    "shortName": "Coca-Cola Europacific Partners ",
+    "industry": "음료"
+  },
+  "CCI": {
+    "shortName": "Crown Castle Inc.",
+    "industry": "리츠특수"
+  },
+  "CCK": {
+    "shortName": "Crown Holdings, Inc.",
+    "industry": "포장재"
+  },
+  "CCL": {
+    "shortName": "Carnival Corporation",
+    "industry": "여행"
+  },
+  "CDNS": {
+    "shortName": "Cadence Design Systems, Inc.",
+    "industry": "응용SW"
+  },
+  "CDP": {
+    "shortName": "COPT Defense Properties",
+    "industry": "리츠오피스"
+  },
+  "CDW": {
+    "shortName": "CDW Corporation",
+    "industry": "IT서비스"
+  },
+  "CEG": {
+    "shortName": "Constellation Energy Corporatio",
+    "industry": "독립발전"
+  },
+  "CELH": {
+    "shortName": "Celsius Holdings, Inc.",
+    "industry": "음료"
+  },
+  "CF": {
+    "shortName": "CF Industries Holdings, Inc.",
+    "industry": "농업"
+  },
+  "CFG": {
+    "shortName": "Citizens Financial Group, Inc.",
+    "industry": "지역은행"
+  },
+  "CFR": {
+    "shortName": "Cullen/Frost Bankers, Inc.",
+    "industry": "지역은행"
+  },
+  "CG": {
+    "shortName": "The Carlyle Group Inc.",
+    "industry": "자산운용"
+  },
+  "CGNX": {
+    "shortName": "Cognex Corporation",
+    "industry": "계측기기"
+  },
+  "CHD": {
+    "shortName": "Church & Dwight Company, Inc.",
+    "industry": "생활용품"
+  },
+  "CHDN": {
+    "shortName": "Churchill Downs, Incorporated",
+    "industry": "도박"
+  },
+  "CHE": {
+    "shortName": "Chemed Corp",
+    "industry": "의료시설"
+  },
+  "CHH": {
+    "shortName": "Choice Hotels International, In",
+    "industry": "숙박"
+  },
+  "CHRD": {
+    "shortName": "Chord Energy Corporation",
+    "industry": "석유가스"
+  },
+  "CHRW": {
+    "shortName": "C.H. Robinson Worldwide, Inc.",
+    "industry": "물류"
+  },
+  "CHTR": {
+    "shortName": "Charter Communications, Inc.",
+    "industry": "통신"
+  },
+  "CHWY": {
+    "shortName": "Chewy, Inc.",
+    "industry": "온라인유통"
+  },
+  "CI": {
+    "shortName": "The Cigna Group",
+    "industry": "건강보험"
+  },
+  "CIEN": {
+    "shortName": "Ciena Corporation",
+    "industry": "통신장비"
+  },
+  "CINF": {
+    "shortName": "Cincinnati Financial Corporatio",
+    "industry": "손해보험"
+  },
+  "CL": {
+    "shortName": "Colgate-Palmolive Company",
+    "industry": "생활용품"
+  },
+  "CLF": {
+    "shortName": "Cleveland-Cliffs Inc.",
+    "industry": "철강"
+  },
+  "CLH": {
+    "shortName": "Clean Harbors, Inc.",
+    "industry": "폐기물"
+  },
+  "CLX": {
+    "shortName": "Clorox Company (The)",
+    "industry": "생활용품"
+  },
+  "CMC": {
+    "shortName": "Commercial Metals Company",
+    "industry": "철강"
+  },
+  "CMCSA": {
+    "shortName": "Comcast Corporation",
+    "industry": "통신"
+  },
+  "CME": {
+    "shortName": "CME Group Inc.",
+    "industry": "금융데이터"
+  },
+  "CMG": {
+    "shortName": "Chipotle Mexican Grill, Inc.",
+    "industry": "외식"
+  },
+  "CMI": {
+    "shortName": "Cummins Inc.",
+    "industry": "산업기계"
+  },
+  "CMS": {
+    "shortName": "CMS Energy Corporation",
+    "industry": "전력"
+  },
+  "CNC": {
+    "shortName": "Centene Corporation",
+    "industry": "건강보험"
+  },
+  "CNH": {
+    "shortName": "CNH Industrial N.V.",
+    "industry": "중장비"
+  },
+  "CNM": {
+    "shortName": "Core & Main, Inc.",
+    "industry": "산업유통"
+  },
+  "CNO": {
+    "shortName": "CNO Financial Group, Inc.",
+    "industry": "생명보험"
+  },
+  "CNP": {
+    "shortName": "CenterPoint Energy, Inc (Holdin",
+    "industry": "전력"
+  },
+  "CNX": {
+    "shortName": "CNX Resources Corporation",
+    "industry": "석유가스"
+  },
+  "CNXC": {
+    "shortName": "Concentrix Corporation",
+    "industry": "IT서비스"
+  },
+  "COF": {
+    "shortName": "Capital One Financial Corporati",
+    "industry": "신용서비스"
+  },
+  "COHR": {
+    "shortName": "Coherent Corp.",
+    "industry": "계측기기"
+  },
+  "COIN": {
+    "shortName": "Coinbase Global, Inc. - 3",
+    "industry": "금융데이터"
+  },
+  "COLB": {
+    "shortName": "Columbia Banking System, Inc.",
+    "industry": "지역은행"
+  },
+  "COLM": {
+    "shortName": "Columbia Sportswear Company",
+    "industry": "의류제조"
+  },
+  "COO": {
+    "shortName": "The Cooper Companies, Inc.",
+    "industry": "의료용품"
+  },
+  "COP": {
+    "shortName": "ConocoPhillips",
+    "industry": "석유가스"
+  },
+  "COR": {
+    "shortName": "Cencora, Inc.",
+    "industry": "의약유통"
+  },
+  "COST": {
+    "shortName": "Costco Wholesale Corporation",
+    "industry": "할인점"
+  },
+  "COTY": {
+    "shortName": "Coty Inc.",
+    "industry": "생활용품"
+  },
+  "CPAY": {
+    "shortName": "Corpay, Inc.",
+    "industry": "인프라SW"
+  },
+  "CPB": {
+    "shortName": "The Campbell's Company",
+    "industry": "식품"
+  },
+  "CPRI": {
+    "shortName": "Capri Holdings Limited",
+    "industry": "명품"
+  },
+  "CPRT": {
+    "shortName": "Copart, Inc.",
+    "industry": "비즈니스서비스"
+  },
+  "CPT": {
+    "shortName": "Camden Property Trust",
+    "industry": "리츠주거"
+  },
+  "CR": {
+    "shortName": "Crane Company",
+    "industry": "산업기계"
+  },
+  "CRBG": {
+    "shortName": "Corebridge Financial Inc.",
+    "industry": "자산운용"
+  },
+  "CRH": {
+    "shortName": "CRH PLC",
+    "industry": "건자재"
+  },
+  "CRL": {
+    "shortName": "Charles River Laboratories Inte",
+    "industry": "진단연구"
+  },
+  "CRM": {
+    "shortName": "Salesforce, Inc.",
+    "industry": "응용SW"
+  },
+  "CROX": {
+    "shortName": "Crocs, Inc.",
+    "industry": "신발잡화"
+  },
+  "CRS": {
+    "shortName": "Carpenter Technology Corporatio",
+    "industry": "금속가공"
+  },
+  "CRUS": {
+    "shortName": "Cirrus Logic, Inc.",
+    "industry": "반도체"
+  },
+  "CRWD": {
+    "shortName": "CrowdStrike Holdings, Inc.",
+    "industry": "인프라SW"
+  },
+  "CSCO": {
+    "shortName": "Cisco Systems, Inc.",
+    "industry": "통신장비"
+  },
+  "CSGP": {
+    "shortName": "CoStar Group, Inc.",
+    "industry": "부동산서비스"
+  },
+  "CSL": {
+    "shortName": "Carlisle Companies Incorporated",
+    "industry": "건축자재"
+  },
+  "CSX": {
+    "shortName": "CSX Corporation",
+    "industry": "철도"
+  },
+  "CTAS": {
+    "shortName": "Cintas Corporation",
+    "industry": "비즈니스서비스"
+  },
+  "CTRA": {
+    "shortName": "Coterra Energy Inc.",
+    "industry": "석유가스"
+  },
+  "CTSH": {
+    "shortName": "Cognizant Technology Solutions ",
+    "industry": "IT서비스"
+  },
+  "CTVA": {
+    "shortName": "Corteva, Inc.",
+    "industry": "농업"
+  },
+  "CUBE": {
+    "shortName": "CubeSmart",
+    "industry": "리츠산업"
+  },
+  "CUZ": {
+    "shortName": "Cousins Properties Incorporated",
+    "industry": "리츠오피스"
+  },
+  "CVLT": {
+    "shortName": "Commvault Systems, Inc.",
+    "industry": "응용SW"
+  },
+  "CVNA": {
+    "shortName": "Carvana Co.",
+    "industry": "자동차딜러"
+  },
+  "CVS": {
+    "shortName": "CVS Health Corporation",
+    "industry": "건강보험"
+  },
+  "CVX": {
+    "shortName": "Chevron Corporation",
+    "industry": "석유종합"
+  },
+  "CW": {
+    "shortName": "Curtiss-Wright Corporation",
+    "industry": "방산"
+  },
+  "CXT": {
+    "shortName": "Crane NXT, Co.",
+    "industry": "산업기계"
+  },
+  "CYTK": {
+    "shortName": "Cytokinetics, Incorporated",
+    "industry": "바이오"
+  },
+  "D": {
+    "shortName": "Dominion Energy, Inc.",
+    "industry": "전력"
+  },
+  "DAL": {
+    "shortName": "Delta Air Lines, Inc.",
+    "industry": "항공"
+  },
+  "DAR": {
+    "shortName": "Darling Ingredients Inc.",
+    "industry": "식품"
+  },
+  "DASH": {
+    "shortName": "DoorDash, Inc.",
+    "industry": "온라인유통"
+  },
+  "DAY": {
+    "shortName": "Dayforce, Inc.",
+    "industry": "응용SW"
+  },
+  "DBX": {
+    "shortName": "Dropbox, Inc.",
+    "industry": "인프라SW"
+  },
+  "DCI": {
+    "shortName": "Donaldson Company, Inc.",
+    "industry": "산업기계"
+  },
+  "DD": {
+    "shortName": "DuPont de Nemours, Inc.",
+    "industry": "특수화학"
+  },
+  "DDOG": {
+    "shortName": "Datadog, Inc.",
+    "industry": "응용SW"
+  },
+  "DE": {
+    "shortName": "Deere & Company",
+    "industry": "중장비"
+  },
+  "DECK": {
+    "shortName": "Deckers Outdoor Corporation",
+    "industry": "신발잡화"
+  },
+  "DELL": {
+    "shortName": "Dell Technologies Inc.",
+    "industry": "HW"
+  },
+  "DG": {
+    "shortName": "Dollar General Corporation",
+    "industry": "할인점"
+  },
+  "DGX": {
+    "shortName": "Quest Diagnostics Incorporated",
+    "industry": "진단연구"
+  },
+  "DHI": {
+    "shortName": "D.R. Horton, Inc.",
+    "industry": "주택건설"
+  },
+  "DHR": {
+    "shortName": "Danaher Corporation",
+    "industry": "진단연구"
+  },
+  "DINO": {
+    "shortName": "HF Sinclair Corporation",
+    "industry": "석유정제"
+  },
+  "DIS": {
+    "shortName": "Walt Disney Company (The)",
+    "industry": "엔터"
+  },
+  "DKS": {
+    "shortName": "Dick's Sporting Goods Inc",
+    "industry": "전문소매"
+  },
+  "DLB": {
+    "shortName": "Dolby Laboratories",
+    "industry": "비즈니스서비스"
+  },
+  "DLR": {
+    "shortName": "Digital Realty Trust, Inc.",
+    "industry": "리츠특수"
+  },
+  "DLTR": {
+    "shortName": "Dollar Tree, Inc.",
+    "industry": "할인점"
+  },
+  "DOC": {
+    "shortName": "Healthpeak Properties, Inc.",
+    "industry": "리츠의료"
+  },
+  "DOCS": {
+    "shortName": "Doximity, Inc.",
+    "industry": "의료정보"
+  },
+  "DOCU": {
+    "shortName": "DocuSign, Inc.",
+    "industry": "응용SW"
+  },
+  "DOV": {
+    "shortName": "Dover Corporation",
+    "industry": "산업기계"
+  },
+  "DOW": {
+    "shortName": "Dow Inc.",
+    "industry": "화학"
+  },
+  "DPZ": {
+    "shortName": "Domino's Pizza Inc",
+    "industry": "외식"
+  },
+  "DRI": {
+    "shortName": "Darden Restaurants, Inc.",
+    "industry": "외식"
+  },
+  "DT": {
+    "shortName": "Dynatrace, Inc.",
+    "industry": "응용SW"
+  },
+  "DTE": {
+    "shortName": "DTE Energy Company",
+    "industry": "전력"
+  },
+  "DTM": {
+    "shortName": "DT Midstream, Inc.",
+    "industry": "석유미드스트림"
+  },
+  "DUK": {
+    "shortName": "Duke Energy Corporation (Holdin",
+    "industry": "전력"
+  },
+  "DUOL": {
+    "shortName": "Duolingo, Inc.",
+    "industry": "응용SW"
+  },
+  "DVA": {
+    "shortName": "DaVita Inc.",
+    "industry": "의료시설"
+  },
+  "DVN": {
+    "shortName": "Devon Energy Corporation",
+    "industry": "석유가스"
+  },
+  "DXCM": {
+    "shortName": "DexCom, Inc.",
+    "industry": "의료기기"
+  },
+  "DY": {
+    "shortName": "Dycom Industries, Inc.",
+    "industry": "건설"
+  },
+  "EA": {
+    "shortName": "Electronic Arts Inc.",
+    "industry": "게임"
+  },
+  "EBAY": {
+    "shortName": "eBay Inc.",
+    "industry": "온라인유통"
+  },
+  "ECL": {
+    "shortName": "Ecolab Inc.",
+    "industry": "특수화학"
+  },
+  "ED": {
+    "shortName": "Consolidated Edison, Inc.",
+    "industry": "전력"
+  },
+  "EEFT": {
+    "shortName": "Euronet Worldwide, Inc.",
+    "industry": "인프라SW"
+  },
+  "EFX": {
+    "shortName": "Equifax, Inc.",
+    "industry": "컨설팅"
+  },
+  "EG": {
+    "shortName": "Everest Group, Ltd.",
+    "industry": "재보험"
+  },
+  "EGP": {
+    "shortName": "EastGroup Properties, Inc.",
+    "industry": "리츠산업"
+  },
+  "EHC": {
+    "shortName": "Encompass Health Corporation",
+    "industry": "의료시설"
+  },
+  "EIX": {
+    "shortName": "Edison International",
+    "industry": "전력"
+  },
+  "EL": {
+    "shortName": "Estee Lauder Companies, Inc. (T",
+    "industry": "생활용품"
+  },
+  "ELAN": {
+    "shortName": "Elanco Animal Health Incorporat",
+    "industry": "특수제약"
+  },
+  "ELF": {
+    "shortName": "e.l.f. Beauty, Inc.",
+    "industry": "생활용품"
+  },
+  "ELS": {
+    "shortName": "Equity Lifestyle Properties, In",
+    "industry": "리츠주거"
+  },
+  "ELV": {
+    "shortName": "Elevance Health, Inc.",
+    "industry": "건강보험"
+  },
+  "EME": {
+    "shortName": "EMCOR Group, Inc.",
+    "industry": "건설"
+  },
+  "EMR": {
+    "shortName": "Emerson Electric Company",
+    "industry": "산업기계"
+  },
+  "ENS": {
+    "shortName": "EnerSys",
+    "industry": "전기장비"
+  },
+  "ENSG": {
+    "shortName": "The Ensign Group, Inc.",
+    "industry": "의료시설"
+  },
+  "ENTG": {
+    "shortName": "Entegris, Inc.",
+    "industry": "반도체장비"
+  },
+  "EOG": {
+    "shortName": "EOG Resources, Inc.",
+    "industry": "석유가스"
+  },
+  "EPAM": {
+    "shortName": "EPAM Systems, Inc.",
+    "industry": "IT서비스"
+  },
+  "EPR": {
+    "shortName": "EPR Properties",
+    "industry": "리츠특수"
+  },
+  "EQH": {
+    "shortName": "Equitable Holdings, Inc.",
+    "industry": "자산운용"
+  },
+  "EQIX": {
+    "shortName": "Equinix, Inc.",
+    "industry": "리츠특수"
+  },
+  "EQR": {
+    "shortName": "Equity Residential",
+    "industry": "리츠주거"
+  },
+  "EQT": {
+    "shortName": "EQT Corporation",
+    "industry": "석유가스"
+  },
+  "ERIE": {
+    "shortName": "Erie Indemnity Company",
+    "industry": "보험중개"
+  },
+  "ES": {
+    "shortName": "Eversource Energy (D/B/A)",
+    "industry": "전력"
+  },
+  "ESAB": {
+    "shortName": "ESAB Corporation",
+    "industry": "금속가공"
+  },
+  "ESNT": {
+    "shortName": "Essent Group Ltd.",
+    "industry": "특수보험"
+  },
+  "ESS": {
+    "shortName": "Essex Property Trust, Inc.",
+    "industry": "리츠주거"
+  },
+  "ETN": {
+    "shortName": "Eaton Corporation, PLC",
+    "industry": "산업기계"
+  },
+  "ETR": {
+    "shortName": "Entergy Corporation",
+    "industry": "전력"
+  },
+  "EVR": {
+    "shortName": "Evercore Inc.",
+    "industry": "자본시장"
+  },
+  "EVRG": {
+    "shortName": "Evergy, Inc.",
+    "industry": "전력"
+  },
+  "EW": {
+    "shortName": "Edwards Lifesciences Corporatio",
+    "industry": "의료기기"
+  },
+  "EWBC": {
+    "shortName": "East West Bancorp, Inc.",
+    "industry": "지역은행"
+  },
+  "EXC": {
+    "shortName": "Exelon Corporation",
+    "industry": "전력"
+  },
+  "EXE": {
+    "shortName": "Expand Energy Corporation",
+    "industry": "석유가스"
+  },
+  "EXEL": {
+    "shortName": "Exelixis, Inc.",
+    "industry": "바이오"
+  },
+  "EXLS": {
+    "shortName": "ExlService Holdings, Inc.",
+    "industry": "IT서비스"
+  },
+  "EXP": {
+    "shortName": "Eagle Materials Inc",
+    "industry": "건자재"
+  },
+  "EXPD": {
+    "shortName": "Expeditors International of Was",
+    "industry": "물류"
+  },
+  "EXPE": {
+    "shortName": "Expedia Group, Inc.",
+    "industry": "여행"
+  },
+  "EXPO": {
+    "shortName": "Exponent, Inc.",
+    "industry": "건설"
+  },
+  "EXR": {
+    "shortName": "Extra Space Storage Inc",
+    "industry": "리츠산업"
+  },
+  "F": {
+    "shortName": "Ford Motor Company",
+    "industry": "자동차"
+  },
+  "FAF": {
+    "shortName": "First American Corporation (New",
+    "industry": "특수보험"
+  },
+  "FANG": {
+    "shortName": "Diamondback Energy, Inc.",
+    "industry": "석유가스"
+  },
+  "FAST": {
+    "shortName": "Fastenal Company",
+    "industry": "산업유통"
+  },
+  "FBIN": {
+    "shortName": "Fortune Brands Innovations, Inc",
+    "industry": "건축자재"
+  },
+  "FCFS": {
+    "shortName": "FirstCash Holdings, Inc.",
+    "industry": "신용서비스"
+  },
+  "FCN": {
+    "shortName": "FTI Consulting, Inc.",
+    "industry": "컨설팅"
+  },
+  "FCX": {
+    "shortName": "Freeport-McMoRan, Inc.",
+    "industry": "구리"
+  },
+  "FDS": {
+    "shortName": "FactSet Research Systems Inc.",
+    "industry": "금융데이터"
+  },
+  "FDX": {
+    "shortName": "FedEx Corporation",
+    "industry": "물류"
+  },
+  "FE": {
+    "shortName": "FirstEnergy Corp.",
+    "industry": "전력"
+  },
+  "FER": {
+    "shortName": "Ferrovial SE",
+    "industry": "건설"
+  },
+  "FFIN": {
+    "shortName": "First Financial Bankshares, Inc",
+    "industry": "지역은행"
+  },
+  "FFIV": {
+    "shortName": "F5, Inc.",
+    "industry": "인프라SW"
+  },
+  "FHI": {
+    "shortName": "Federated Hermes, Inc.",
+    "industry": "자산운용"
+  },
+  "FHN": {
+    "shortName": "First Horizon Corporation",
+    "industry": "지역은행"
+  },
+  "FICO": {
+    "shortName": "Fair Isaac Corporation",
+    "industry": "응용SW"
+  },
+  "FIS": {
+    "shortName": "Fidelity National Information S",
+    "industry": "IT서비스"
+  },
+  "FISV": {
+    "shortName": "Fiserv, Inc.",
+    "industry": "기타"
+  },
+  "FITB": {
+    "shortName": "Fifth Third Bancorp",
+    "industry": "지역은행"
+  },
+  "FIVE": {
+    "shortName": "Five Below, Inc.",
+    "industry": "전문소매"
+  },
+  "FIX": {
+    "shortName": "Comfort Systems USA, Inc.",
+    "industry": "건설"
+  },
+  "FLEX": {
+    "shortName": "Flex Ltd.",
+    "industry": "전자부품"
+  },
+  "FLG": {
+    "shortName": "Flagstar Bank, N.A.",
+    "industry": "지역은행"
+  },
+  "FLO": {
+    "shortName": "Flowers Foods, Inc.",
+    "industry": "식품"
+  },
+  "FLR": {
+    "shortName": "Fluor Corporation",
+    "industry": "건설"
+  },
+  "FLS": {
+    "shortName": "Flowserve Corporation",
+    "industry": "산업기계"
+  },
+  "FN": {
+    "shortName": "Fabrinet",
+    "industry": "전자부품"
+  },
+  "FNB": {
+    "shortName": "F.N.B. Corporation",
+    "industry": "지역은행"
+  },
+  "FND": {
+    "shortName": "Floor & Decor Holdings, Inc.",
+    "industry": "홈인테리어"
+  },
+  "FNF": {
+    "shortName": "Fidelity National Financial, In",
+    "industry": "특수보험"
+  },
+  "FOUR": {
+    "shortName": "Shift4 Payments, Inc.",
+    "industry": "인프라SW"
+  },
+  "FOXA": {
+    "shortName": "Fox Corporation",
+    "industry": "엔터"
+  },
+  "FR": {
+    "shortName": "First Industrial Realty Trust, ",
+    "industry": "리츠산업"
+  },
+  "FRT": {
+    "shortName": "Federal Realty Investment Trust",
+    "industry": "리츠소매"
+  },
+  "FSLR": {
+    "shortName": "First Solar, Inc.",
+    "industry": "태양광"
+  },
+  "FTI": {
+    "shortName": "TechnipFMC plc",
+    "industry": "석유장비"
+  },
+  "FTNT": {
+    "shortName": "Fortinet, Inc.",
+    "industry": "인프라SW"
+  },
+  "FTV": {
+    "shortName": "Fortive Corporation",
+    "industry": "계측기기"
+  },
+  "G": {
+    "shortName": "Genpact Limited",
+    "industry": "IT서비스"
+  },
+  "GAP": {
+    "shortName": "Gap, Inc. (The)",
+    "industry": "의류소매"
+  },
+  "GATX": {
+    "shortName": "GATX Corporation",
+    "industry": "렌탈리스"
+  },
+  "GBCI": {
+    "shortName": "Glacier Bancorp, Inc.",
+    "industry": "지역은행"
+  },
+  "GD": {
+    "shortName": "General Dynamics Corporation",
+    "industry": "방산"
+  },
+  "GDDY": {
+    "shortName": "GoDaddy Inc.",
+    "industry": "인프라SW"
+  },
+  "GE": {
+    "shortName": "GE Aerospace",
+    "industry": "방산"
+  },
+  "GEF": {
+    "shortName": "Greif Inc.",
+    "industry": "포장재"
+  },
+  "GEHC": {
+    "shortName": "GE HealthCare Technologies Inc.",
+    "industry": "의료기기"
+  },
+  "GEN": {
+    "shortName": "Gen Digital Inc.",
+    "industry": "인프라SW"
+  },
+  "GEV": {
+    "shortName": "GE Vernova Inc.",
+    "industry": "산업기계"
+  },
+  "GGG": {
+    "shortName": "Graco Inc.",
+    "industry": "산업기계"
+  },
+  "GHC": {
+    "shortName": "Graham Holdings Company",
+    "industry": "교육"
+  },
+  "GILD": {
+    "shortName": "Gilead Sciences, Inc.",
+    "industry": "대형제약"
+  },
+  "GIS": {
+    "shortName": "General Mills, Inc.",
+    "industry": "식품"
+  },
+  "GL": {
+    "shortName": "Globe Life Inc.",
+    "industry": "생명보험"
+  },
+  "GLPI": {
+    "shortName": "Gaming and Leisure Properties, ",
+    "industry": "리츠특수"
+  },
+  "GLW": {
+    "shortName": "Corning Incorporated",
+    "industry": "전자부품"
+  },
+  "GM": {
+    "shortName": "General Motors Company",
+    "industry": "자동차"
+  },
+  "GME": {
+    "shortName": "GameStop Corporation",
+    "industry": "전문소매"
+  },
+  "GMED": {
+    "shortName": "Globus Medical, Inc.",
+    "industry": "의료기기"
+  },
+  "GNRC": {
+    "shortName": "Generac Holdlings Inc.",
+    "industry": "산업기계"
+  },
+  "GNTX": {
+    "shortName": "Gentex Corporation",
+    "industry": "자동차부품"
+  },
+  "GOOG": {
+    "shortName": "Alphabet Inc.",
+    "industry": "인터넷"
+  },
+  "GOOGL": {
+    "shortName": "Alphabet Inc.",
+    "industry": "인터넷"
+  },
+  "GPC": {
+    "shortName": "Genuine Parts Company",
+    "industry": "자동차부품"
+  },
+  "GPK": {
+    "shortName": "Graphic Packaging Holding Compa",
+    "industry": "포장재"
+  },
+  "GPN": {
+    "shortName": "Global Payments Inc.",
+    "industry": "비즈니스서비스"
+  },
+  "GRMN": {
+    "shortName": "Garmin Ltd.",
+    "industry": "계측기기"
+  },
+  "GS": {
+    "shortName": "Goldman Sachs Group, Inc. (The)",
+    "industry": "자본시장"
+  },
+  "GT": {
+    "shortName": "The Goodyear Tire & Rubber Comp",
+    "industry": "자동차부품"
+  },
+  "GTLS": {
+    "shortName": "Chart Industries, Inc.",
+    "industry": "산업기계"
+  },
+  "GTM": {
+    "shortName": "ZoomInfo Technologies Inc.",
+    "industry": "응용SW"
+  },
+  "GWRE": {
+    "shortName": "Guidewire Software, Inc.",
+    "industry": "응용SW"
+  },
+  "GWW": {
+    "shortName": "W.W. Grainger, Inc.",
+    "industry": "산업유통"
+  },
+  "GXO": {
+    "shortName": "GXO Logistics, Inc.",
+    "industry": "물류"
+  },
+  "H": {
+    "shortName": "Hyatt Hotels Corporation",
+    "industry": "숙박"
+  },
+  "HAE": {
+    "shortName": "Haemonetics Corporation",
+    "industry": "의료기기"
+  },
+  "HAL": {
+    "shortName": "Halliburton Company",
+    "industry": "석유장비"
+  },
+  "HALO": {
+    "shortName": "Halozyme Therapeutics, Inc.",
+    "industry": "바이오"
+  },
+  "HAS": {
+    "shortName": "Hasbro, Inc.",
+    "industry": "레저"
+  },
+  "HBAN": {
+    "shortName": "Huntington Bancshares Incorpora",
+    "industry": "지역은행"
+  },
+  "HCA": {
+    "shortName": "HCA Healthcare, Inc.",
+    "industry": "의료시설"
+  },
+  "HD": {
+    "shortName": "Home Depot, Inc. (The)",
+    "industry": "홈인테리어"
+  },
+  "HGV": {
+    "shortName": "Hilton Grand Vacations Inc.",
+    "industry": "리조트카지노"
+  },
+  "HIG": {
+    "shortName": "The Hartford Insurance Group, I",
+    "industry": "종합보험"
+  },
+  "HII": {
+    "shortName": "Huntington Ingalls Industries, ",
+    "industry": "방산"
+  },
+  "HIMS": {
+    "shortName": "Hims & Hers Health, Inc.",
+    "industry": "특수제약"
+  },
+  "HL": {
+    "shortName": "Hecla Mining Company",
+    "industry": "귀금속"
+  },
+  "HLI": {
+    "shortName": "Houlihan Lokey, Inc.",
+    "industry": "자본시장"
+  },
+  "HLNE": {
+    "shortName": "Hamilton Lane Incorporated",
+    "industry": "자산운용"
+  },
+  "HLT": {
+    "shortName": "Hilton Worldwide Holdings Inc.",
+    "industry": "숙박"
+  },
+  "HOG": {
+    "shortName": "Harley-Davidson, Inc.",
+    "industry": "레저차량"
+  },
+  "HOLX": {
+    "shortName": "Hologic, Inc.",
+    "industry": "의료용품"
+  },
+  "HOMB": {
+    "shortName": "Home BancShares, Inc.",
+    "industry": "지역은행"
+  },
+  "HON": {
+    "shortName": "Honeywell International Inc.",
+    "industry": "복합기업"
+  },
+  "HOOD": {
+    "shortName": "Robinhood Markets, Inc.",
+    "industry": "자본시장"
+  },
+  "HPE": {
+    "shortName": "Hewlett Packard Enterprise Comp",
+    "industry": "통신장비"
+  },
+  "HPQ": {
+    "shortName": "HP Inc.",
+    "industry": "HW"
+  },
+  "HQY": {
+    "shortName": "HealthEquity, Inc.",
+    "industry": "의료정보"
+  },
+  "HR": {
+    "shortName": "Healthcare Realty Trust Incorpo",
+    "industry": "리츠의료"
+  },
+  "HRB": {
+    "shortName": "H&R Block, Inc.",
+    "industry": "생활서비스"
+  },
+  "HRL": {
+    "shortName": "Hormel Foods Corporation",
+    "industry": "식품"
+  },
+  "HSIC": {
+    "shortName": "Henry Schein, Inc.",
+    "industry": "의약유통"
+  },
+  "HST": {
+    "shortName": "Host Hotels & Resorts, Inc.",
+    "industry": "리츠호텔"
+  },
+  "HSY": {
+    "shortName": "The Hershey Company",
+    "industry": "제과"
+  },
+  "HUBB": {
+    "shortName": "Hubbell Inc",
+    "industry": "전기장비"
+  },
+  "HUM": {
+    "shortName": "Humana Inc.",
+    "industry": "건강보험"
+  },
+  "HWC": {
+    "shortName": "Hancock Whitney Corporation",
+    "industry": "지역은행"
+  },
+  "HWM": {
+    "shortName": "Howmet Aerospace Inc.",
+    "industry": "방산"
+  },
+  "HXL": {
+    "shortName": "Hexcel Corporation",
+    "industry": "방산"
+  },
+  "IBKR": {
+    "shortName": "Interactive Brokers Group, Inc.",
+    "industry": "자본시장"
+  },
+  "IBM": {
+    "shortName": "International Business Machines",
+    "industry": "IT서비스"
+  },
+  "IBOC": {
+    "shortName": "International Bancshares Corpor",
+    "industry": "지역은행"
+  },
+  "ICE": {
+    "shortName": "Intercontinental Exchange Inc.",
+    "industry": "금융데이터"
+  },
+  "IDA": {
+    "shortName": "IDACORP, Inc.",
+    "industry": "전력"
+  },
+  "IDXX": {
+    "shortName": "IDEXX Laboratories, Inc.",
+    "industry": "진단연구"
+  },
+  "IEX": {
+    "shortName": "IDEX Corporation",
+    "industry": "산업기계"
+  },
+  "IFF": {
+    "shortName": "International Flavors & Fragran",
+    "industry": "특수화학"
+  },
+  "ILMN": {
+    "shortName": "Illumina, Inc.",
+    "industry": "진단연구"
+  },
+  "INCY": {
+    "shortName": "Incyte Corporation",
+    "industry": "바이오"
+  },
+  "INGR": {
+    "shortName": "Ingredion Incorporated",
+    "industry": "식품"
+  },
+  "INSM": {
+    "shortName": "Insmed Incorporated",
+    "industry": "바이오"
+  },
+  "INTC": {
+    "shortName": "Intel Corporation",
+    "industry": "반도체"
+  },
+  "INTU": {
+    "shortName": "Intuit Inc.",
+    "industry": "응용SW"
+  },
+  "INVH": {
+    "shortName": "Invitation Homes Inc.",
+    "industry": "리츠주거"
+  },
+  "IP": {
+    "shortName": "International Paper Company",
+    "industry": "포장재"
+  },
+  "IPGP": {
+    "shortName": "IPG Photonics Corporation",
+    "industry": "반도체장비"
+  },
+  "IQV": {
+    "shortName": "IQVIA Holdings, Inc.",
+    "industry": "진단연구"
+  },
+  "IR": {
+    "shortName": "Ingersoll Rand Inc.",
+    "industry": "산업기계"
+  },
+  "IRM": {
+    "shortName": "Iron Mountain Incorporated (Del",
+    "industry": "리츠특수"
+  },
+  "IRT": {
+    "shortName": "Independence Realty Trust, Inc.",
+    "industry": "리츠주거"
+  },
+  "ISRG": {
+    "shortName": "Intuitive Surgical, Inc.",
+    "industry": "의료용품"
+  },
+  "IT": {
+    "shortName": "Gartner, Inc.",
+    "industry": "IT서비스"
+  },
+  "ITT": {
+    "shortName": "ITT Inc.",
+    "industry": "산업기계"
+  },
+  "ITW": {
+    "shortName": "Illinois Tool Works Inc.",
+    "industry": "산업기계"
+  },
+  "IVZ": {
+    "shortName": "Invesco Ltd",
+    "industry": "자산운용"
+  },
+  "J": {
+    "shortName": "Jacobs Solutions Inc.",
+    "industry": "건설"
+  },
+  "JAZZ": {
+    "shortName": "Jazz Pharmaceuticals plc",
+    "industry": "바이오"
+  },
+  "JBHT": {
+    "shortName": "J.B. Hunt Transport Services, I",
+    "industry": "물류"
+  },
+  "JBL": {
+    "shortName": "Jabil Inc.",
+    "industry": "전자부품"
+  },
+  "JCI": {
+    "shortName": "Johnson Controls International ",
+    "industry": "건축자재"
+  },
+  "JEF": {
+    "shortName": "Jefferies Financial Group Inc.",
+    "industry": "자본시장"
+  },
+  "JHG": {
+    "shortName": "Janus Henderson Group plc",
+    "industry": "자산운용"
+  },
+  "JKHY": {
+    "shortName": "Jack Henry & Associates, Inc.",
+    "industry": "IT서비스"
+  },
+  "JLL": {
+    "shortName": "Jones Lang LaSalle Incorporated",
+    "industry": "부동산서비스"
+  },
+  "JNJ": {
+    "shortName": "Johnson & Johnson",
+    "industry": "대형제약"
+  },
+  "JPM": {
+    "shortName": "JP Morgan Chase & Co.",
+    "industry": "대형은행"
+  },
+  "KBH": {
+    "shortName": "KB Home",
+    "industry": "주택건설"
+  },
+  "KBR": {
+    "shortName": "KBR, Inc.",
+    "industry": "건설"
+  },
+  "KD": {
+    "shortName": "Kyndryl Holdings, Inc.",
+    "industry": "IT서비스"
+  },
+  "KDP": {
+    "shortName": "Keurig Dr Pepper Inc.",
+    "industry": "음료"
+  },
+  "KEX": {
+    "shortName": "Kirby Corporation",
+    "industry": "해운"
+  },
+  "KEY": {
+    "shortName": "KeyCorp",
+    "industry": "지역은행"
+  },
+  "KEYS": {
+    "shortName": "Keysight Technologies Inc.",
+    "industry": "계측기기"
+  },
+  "KHC": {
+    "shortName": "The Kraft Heinz Company",
+    "industry": "식품"
+  },
+  "KIM": {
+    "shortName": "Kimco Realty Corporation (HC)",
+    "industry": "리츠소매"
+  },
+  "KKR": {
+    "shortName": "KKR & Co. Inc.",
+    "industry": "자산운용"
+  },
+  "KLAC": {
+    "shortName": "KLA Corporation",
+    "industry": "반도체장비"
+  },
+  "KMB": {
+    "shortName": "Kimberly-Clark Corporation",
+    "industry": "생활용품"
+  },
+  "KMI": {
+    "shortName": "Kinder Morgan, Inc.",
+    "industry": "석유미드스트림"
+  },
+  "KMPR": {
+    "shortName": "Kemper Corporation",
+    "industry": "손해보험"
+  },
+  "KNF": {
+    "shortName": "Knife Riv Holding Co.",
+    "industry": "건자재"
+  },
+  "KNSL": {
+    "shortName": "Kinsale Capital Group, Inc.",
+    "industry": "손해보험"
+  },
+  "KNX": {
+    "shortName": "Knight-Swift Transportation Hol",
+    "industry": "트럭운송"
+  },
+  "KO": {
+    "shortName": "Coca-Cola Company (The)",
+    "industry": "음료"
+  },
+  "KR": {
+    "shortName": "Kroger Company (The)",
+    "industry": "식료품점"
+  },
+  "KRC": {
+    "shortName": "Kilroy Realty Corporation",
+    "industry": "리츠오피스"
+  },
+  "KRG": {
+    "shortName": "Kite Realty Group Trust",
+    "industry": "리츠소매"
+  },
+  "KTOS": {
+    "shortName": "Kratos Defense & Security Solut",
+    "industry": "방산"
+  },
+  "KVUE": {
+    "shortName": "Kenvue Inc.",
+    "industry": "생활용품"
+  },
+  "LAD": {
+    "shortName": "Lithia Motors, Inc.",
+    "industry": "자동차딜러"
+  },
+  "LAMR": {
+    "shortName": "Lamar Advertising Company",
+    "industry": "리츠특수"
+  },
+  "LDOS": {
+    "shortName": "Leidos Holdings, Inc.",
+    "industry": "IT서비스"
+  },
+  "LEA": {
+    "shortName": "Lear Corporation",
+    "industry": "자동차부품"
+  },
+  "LECO": {
+    "shortName": "Lincoln Electric Holdings, Inc.",
+    "industry": "공구"
+  },
+  "LEN": {
+    "shortName": "Lennar Corporation",
+    "industry": "주택건설"
+  },
+  "LFUS": {
+    "shortName": "Littelfuse, Inc.",
+    "industry": "전자부품"
+  },
+  "LH": {
+    "shortName": "Labcorp Holdings Inc.",
+    "industry": "진단연구"
+  },
+  "LHX": {
+    "shortName": "L3Harris Technologies, Inc.",
+    "industry": "방산"
+  },
+  "LII": {
+    "shortName": "Lennox International, Inc.",
+    "industry": "건축자재"
+  },
+  "LIN": {
+    "shortName": "Linde plc",
+    "industry": "특수화학"
+  },
+  "LITE": {
+    "shortName": "Lumentum Holdings Inc.",
+    "industry": "통신장비"
+  },
+  "LIVN": {
+    "shortName": "LivaNova PLC",
+    "industry": "의료기기"
+  },
+  "LLY": {
+    "shortName": "Eli Lilly and Company",
+    "industry": "대형제약"
+  },
+  "LMT": {
+    "shortName": "Lockheed Martin Corporation",
+    "industry": "방산"
+  },
+  "LNT": {
+    "shortName": "Alliant Energy Corporation",
+    "industry": "전력"
+  },
+  "LNTH": {
+    "shortName": "Lantheus Holdings, Inc.",
+    "industry": "특수제약"
+  },
+  "LOPE": {
+    "shortName": "Grand Canyon Education, Inc.",
+    "industry": "교육"
+  },
+  "LOW": {
+    "shortName": "Lowe's Companies, Inc.",
+    "industry": "홈인테리어"
+  },
+  "LPX": {
+    "shortName": "Louisiana-Pacific Corporation",
+    "industry": "건축자재"
+  },
+  "LRCX": {
+    "shortName": "Lam Research Corporation",
+    "industry": "반도체장비"
+  },
+  "LSCC": {
+    "shortName": "Lattice Semiconductor Corporati",
+    "industry": "반도체"
+  },
+  "LSTR": {
+    "shortName": "Landstar System, Inc.",
+    "industry": "물류"
+  },
+  "LULU": {
+    "shortName": "lululemon athletica inc.",
+    "industry": "의류소매"
+  },
+  "LUV": {
+    "shortName": "Southwest Airlines Company",
+    "industry": "항공"
+  },
+  "LVS": {
+    "shortName": "Las Vegas Sands Corp.",
+    "industry": "리조트카지노"
+  },
+  "LW": {
+    "shortName": "Lamb Weston Holdings, Inc.",
+    "industry": "식품"
+  },
+  "LYB": {
+    "shortName": "LyondellBasell Industries NV",
+    "industry": "특수화학"
+  },
+  "LYV": {
+    "shortName": "Live Nation Entertainment, Inc.",
+    "industry": "엔터"
+  },
+  "M": {
+    "shortName": "Macy's Inc",
+    "industry": "백화점"
+  },
+  "MA": {
+    "shortName": "Mastercard Incorporated",
+    "industry": "신용서비스"
+  },
+  "MAA": {
+    "shortName": "Mid-America Apartment Communiti",
+    "industry": "리츠주거"
+  },
+  "MANH": {
+    "shortName": "Manhattan Associates, Inc.",
+    "industry": "응용SW"
+  },
+  "MAR": {
+    "shortName": "Marriott International",
+    "industry": "숙박"
+  },
+  "MAS": {
+    "shortName": "Masco Corporation",
+    "industry": "건축자재"
+  },
+  "MASI": {
+    "shortName": "Masimo Corporation",
+    "industry": "의료기기"
+  },
+  "MAT": {
+    "shortName": "Mattel, Inc.",
+    "industry": "레저"
+  },
+  "MCD": {
+    "shortName": "McDonald's Corporation",
+    "industry": "외식"
+  },
+  "MCHP": {
+    "shortName": "Microchip Technology Incorporat",
+    "industry": "반도체"
+  },
+  "MCK": {
+    "shortName": "McKesson Corporation",
+    "industry": "의약유통"
+  },
+  "MCO": {
+    "shortName": "Moody's Corporation",
+    "industry": "금융데이터"
+  },
+  "MDLZ": {
+    "shortName": "Mondelez International, Inc.",
+    "industry": "제과"
+  },
+  "MDT": {
+    "shortName": "Medtronic plc.",
+    "industry": "의료기기"
+  },
+  "MEDP": {
+    "shortName": "Medpace Holdings, Inc.",
+    "industry": "진단연구"
+  },
+  "MELI": {
+    "shortName": "MercadoLibre, Inc.",
+    "industry": "온라인유통"
+  },
+  "MET": {
+    "shortName": "MetLife, Inc.",
+    "industry": "생명보험"
+  },
+  "META": {
+    "shortName": "Meta Platforms, Inc.",
+    "industry": "인터넷"
+  },
+  "MGM": {
+    "shortName": "MGM Resorts International",
+    "industry": "리조트카지노"
+  },
+  "MIDD": {
+    "shortName": "The Middleby Corporation",
+    "industry": "산업기계"
+  },
+  "MKC": {
+    "shortName": "McCormick & Company, Incorporat",
+    "industry": "식품"
+  },
+  "MKSI": {
+    "shortName": "MKS Inc.",
+    "industry": "계측기기"
+  },
+  "MLI": {
+    "shortName": "Mueller Industries, Inc.",
+    "industry": "금속가공"
+  },
+  "MLM": {
+    "shortName": "Martin Marietta Materials, Inc.",
+    "industry": "건자재"
+  },
+  "MMM": {
+    "shortName": "3M Company",
+    "industry": "복합기업"
+  },
+  "MMS": {
+    "shortName": "Maximus, Inc.",
+    "industry": "비즈니스서비스"
+  },
+  "MNST": {
+    "shortName": "Monster Beverage Corporation",
+    "industry": "음료"
+  },
+  "MO": {
+    "shortName": "Altria Group, Inc.",
+    "industry": "담배"
+  },
+  "MOH": {
+    "shortName": "Molina Healthcare Inc",
+    "industry": "건강보험"
+  },
+  "MORN": {
+    "shortName": "Morningstar, Inc.",
+    "industry": "금융데이터"
+  },
+  "MOS": {
+    "shortName": "Mosaic Company (The)",
+    "industry": "농업"
+  },
+  "MP": {
+    "shortName": "MP Materials Corp.",
+    "industry": "산업금속"
+  },
+  "MPC": {
+    "shortName": "Marathon Petroleum Corporation",
+    "industry": "석유정제"
+  },
+  "MPWR": {
+    "shortName": "Monolithic Power Systems, Inc.",
+    "industry": "반도체"
+  },
+  "MRK": {
+    "shortName": "Merck & Company, Inc.",
+    "industry": "대형제약"
+  },
+  "MRNA": {
+    "shortName": "Moderna, Inc.",
+    "industry": "바이오"
+  },
+  "MRSH": {
+    "shortName": "Marsh",
+    "industry": "보험중개"
+  },
+  "MRVL": {
+    "shortName": "Marvell Technology, Inc.",
+    "industry": "반도체"
+  },
+  "MS": {
+    "shortName": "Morgan Stanley",
+    "industry": "자본시장"
+  },
+  "MSA": {
+    "shortName": "MSA Safety Incorporated",
+    "industry": "보안"
+  },
+  "MSCI": {
+    "shortName": "MSCI Inc.",
+    "industry": "금융데이터"
+  },
+  "MSFT": {
+    "shortName": "Microsoft Corporation",
+    "industry": "인프라SW"
+  },
+  "MSI": {
+    "shortName": "Motorola Solutions, Inc.",
+    "industry": "통신장비"
+  },
+  "MSM": {
+    "shortName": "MSC Industrial Direct Company, ",
+    "industry": "산업유통"
+  },
+  "MSTR": {
+    "shortName": "Strategy Inc",
+    "industry": "응용SW"
+  },
+  "MTB": {
+    "shortName": "M&T Bank Corporation",
+    "industry": "지역은행"
+  },
+  "MTCH": {
+    "shortName": "Match Group, Inc.",
+    "industry": "인터넷"
+  },
+  "MTD": {
+    "shortName": "Mettler-Toledo International, I",
+    "industry": "진단연구"
+  },
+  "MTDR": {
+    "shortName": "Matador Resources Company",
+    "industry": "석유가스"
+  },
+  "MTG": {
+    "shortName": "MGIC Investment Corporation",
+    "industry": "특수보험"
+  },
+  "MTN": {
+    "shortName": "Vail Resorts, Inc.",
+    "industry": "리조트카지노"
+  },
+  "MTSI": {
+    "shortName": "MACOM Technology Solutions Hold",
+    "industry": "반도체"
+  },
+  "MTZ": {
+    "shortName": "MasTec, Inc.",
+    "industry": "건설"
+  },
+  "MU": {
+    "shortName": "Micron Technology, Inc.",
+    "industry": "반도체"
+  },
+  "MUR": {
+    "shortName": "Murphy Oil Corporation",
+    "industry": "석유가스"
+  },
+  "MUSA": {
+    "shortName": "Murphy USA Inc.",
+    "industry": "전문소매"
+  },
+  "MZTI": {
+    "shortName": "The Marzetti Company",
+    "industry": "식품"
+  },
+  "NBIX": {
+    "shortName": "Neurocrine Biosciences, Inc.",
+    "industry": "특수제약"
+  },
+  "NCLH": {
+    "shortName": "Norwegian Cruise Line Holdings ",
+    "industry": "여행"
+  },
+  "NDAQ": {
+    "shortName": "Nasdaq, Inc.",
+    "industry": "금융데이터"
+  },
+  "NDSN": {
+    "shortName": "Nordson Corporation",
+    "industry": "산업기계"
+  },
+  "NEE": {
+    "shortName": "NextEra Energy, Inc.",
+    "industry": "전력"
+  },
+  "NEM": {
+    "shortName": "Newmont Corporation",
+    "industry": "금"
+  },
+  "NFG": {
+    "shortName": "National Fuel Gas Company",
+    "industry": "석유종합"
+  },
+  "NFLX": {
+    "shortName": "Netflix, Inc.",
+    "industry": "엔터"
+  },
+  "NI": {
+    "shortName": "NiSource Inc",
+    "industry": "가스"
+  },
+  "NJR": {
+    "shortName": "NewJersey Resources Corporation",
+    "industry": "가스"
+  },
+  "NKE": {
+    "shortName": "Nike, Inc.",
+    "industry": "신발잡화"
+  },
+  "NLY": {
+    "shortName": "Annaly Capital Management Inc.",
+    "industry": "리츠모기지"
+  },
+  "NNN": {
+    "shortName": "NNN REIT, Inc.",
+    "industry": "리츠소매"
+  },
+  "NOC": {
+    "shortName": "Northrop Grumman Corporation",
+    "industry": "방산"
+  },
+  "NOV": {
+    "shortName": "NOV Inc.",
+    "industry": "석유장비"
+  },
+  "NOVT": {
+    "shortName": "Novanta Inc.",
+    "industry": "계측기기"
+  },
+  "NOW": {
+    "shortName": "ServiceNow, Inc.",
+    "industry": "응용SW"
+  },
+  "NRG": {
+    "shortName": "NRG Energy, Inc.",
+    "industry": "독립발전"
+  },
+  "NSA": {
+    "shortName": "National Storage Affiliates Tru",
+    "industry": "리츠산업"
+  },
+  "NSC": {
+    "shortName": "Norfolk Southern Corporation",
+    "industry": "철도"
+  },
+  "NTAP": {
+    "shortName": "NetApp, Inc.",
+    "industry": "인프라SW"
+  },
+  "NTNX": {
+    "shortName": "Nutanix, Inc.",
+    "industry": "인프라SW"
+  },
+  "NTRS": {
+    "shortName": "Northern Trust Corporation",
+    "industry": "자산운용"
+  },
+  "NUE": {
+    "shortName": "Nucor Corporation",
+    "industry": "철강"
+  },
+  "NVDA": {
+    "shortName": "NVIDIA Corporation",
+    "industry": "반도체"
+  },
+  "NVR": {
+    "shortName": "NVR, Inc.",
+    "industry": "주택건설"
+  },
+  "NVST": {
+    "shortName": "Envista Holdings Corporation",
+    "industry": "의료용품"
+  },
+  "NVT": {
+    "shortName": "nVent Electric plc",
+    "industry": "전기장비"
+  },
+  "NWE": {
+    "shortName": "NorthWestern Energy Group, Inc.",
+    "industry": "전력"
+  },
+  "NWS": {
+    "shortName": "News Corporation",
+    "industry": "엔터"
+  },
+  "NWSA": {
+    "shortName": "News Corporation",
+    "industry": "엔터"
+  },
+  "NXPI": {
+    "shortName": "NXP Semiconductors N.V.",
+    "industry": "반도체"
+  },
+  "NXST": {
+    "shortName": "Nexstar Media Group, Inc.",
+    "industry": "방송"
+  },
+  "NXT": {
+    "shortName": "Nextpower Inc.",
+    "industry": "태양광"
+  },
+  "NYT": {
+    "shortName": "New York Times Company (The)",
+    "industry": "출판"
+  },
+  "O": {
+    "shortName": "Realty Income Corporation",
+    "industry": "리츠소매"
+  },
+  "OC": {
+    "shortName": "Owens Corning Inc",
+    "industry": "건축자재"
+  },
+  "ODFL": {
+    "shortName": "Old Dominion Freight Line, Inc.",
+    "industry": "트럭운송"
+  },
+  "OGE": {
+    "shortName": "OGE Energy Corp",
+    "industry": "전력"
+  },
+  "OGS": {
+    "shortName": "ONE Gas, Inc.",
+    "industry": "가스"
+  },
+  "OHI": {
+    "shortName": "Omega Healthcare Investors, Inc",
+    "industry": "리츠의료"
+  },
+  "OKE": {
+    "shortName": "ONEOK, Inc.",
+    "industry": "석유미드스트림"
+  },
+  "OKTA": {
+    "shortName": "Okta, Inc.",
+    "industry": "인프라SW"
+  },
+  "OLED": {
+    "shortName": "Universal Display Corporation",
+    "industry": "전자부품"
+  },
+  "OLLI": {
+    "shortName": "Ollie's Bargain Outlet Holdings",
+    "industry": "할인점"
+  },
+  "OLN": {
+    "shortName": "Olin Corporation",
+    "industry": "화학"
+  },
+  "OMC": {
+    "shortName": "Omnicom Group Inc.",
+    "industry": "광고"
+  },
+  "ON": {
+    "shortName": "ON Semiconductor Corporation",
+    "industry": "반도체"
+  },
+  "ONB": {
+    "shortName": "Old National Bancorp",
+    "industry": "지역은행"
+  },
+  "ONTO": {
+    "shortName": "Onto Innovation Inc.",
+    "industry": "반도체장비"
+  },
+  "OPCH": {
+    "shortName": "Option Care Health, Inc.",
+    "industry": "의료시설"
+  },
+  "ORA": {
+    "shortName": "Ormat Technologies, Inc.",
+    "industry": "신재생"
+  },
+  "ORCL": {
+    "shortName": "Oracle Corporation",
+    "industry": "인프라SW"
+  },
+  "ORI": {
+    "shortName": "Old Republic International Corp",
+    "industry": "손해보험"
+  },
+  "ORLY": {
+    "shortName": "O'Reilly Automotive, Inc.",
+    "industry": "자동차부품"
+  },
+  "OSK": {
+    "shortName": "Oshkosh Corporation (Holding Co",
+    "industry": "중장비"
+  },
+  "OTIS": {
+    "shortName": "Otis Worldwide Corporation",
+    "industry": "산업기계"
+  },
+  "OVV": {
+    "shortName": "Ovintiv Inc. (DE)",
+    "industry": "석유가스"
+  },
+  "OXY": {
+    "shortName": "Occidental Petroleum Corporatio",
+    "industry": "석유가스"
+  },
+  "OZK": {
+    "shortName": "Bank OZK",
+    "industry": "지역은행"
+  },
+  "PAG": {
+    "shortName": "Penske Automotive Group, Inc.",
+    "industry": "자동차딜러"
+  },
+  "PANW": {
+    "shortName": "Palo Alto Networks, Inc.",
+    "industry": "인프라SW"
+  },
+  "PATH": {
+    "shortName": "UiPath, Inc.",
+    "industry": "인프라SW"
+  },
+  "PAYC": {
+    "shortName": "Paycom Software, Inc.",
+    "industry": "응용SW"
+  },
+  "PAYX": {
+    "shortName": "Paychex, Inc.",
+    "industry": "응용SW"
+  },
+  "PB": {
+    "shortName": "Prosperity Bancshares, Inc.",
+    "industry": "지역은행"
+  },
+  "PBF": {
+    "shortName": "PBF Energy Inc.",
+    "industry": "석유정제"
+  },
+  "PCAR": {
+    "shortName": "PACCAR Inc.",
+    "industry": "중장비"
+  },
+  "PCG": {
+    "shortName": "Pacific Gas & Electric Co.",
+    "industry": "전력"
+  },
+  "PCTY": {
+    "shortName": "Paylocity Holding Corporation",
+    "industry": "응용SW"
+  },
+  "PDD": {
+    "shortName": "PDD Holdings Inc.",
+    "industry": "온라인유통"
+  },
+  "PEG": {
+    "shortName": "Public Service Enterprise Group",
+    "industry": "전력"
+  },
+  "PEGA": {
+    "shortName": "Pegasystems Inc.",
+    "industry": "응용SW"
+  },
+  "PEN": {
+    "shortName": "Penumbra, Inc.",
+    "industry": "의료기기"
+  },
+  "PEP": {
+    "shortName": "Pepsico, Inc.",
+    "industry": "음료"
+  },
+  "PFE": {
+    "shortName": "Pfizer, Inc.",
+    "industry": "대형제약"
+  },
+  "PFG": {
+    "shortName": "Principal Financial Group Inc",
+    "industry": "자산운용"
+  },
+  "PFGC": {
+    "shortName": "Performance Food Group Company",
+    "industry": "식품유통"
+  },
+  "PG": {
+    "shortName": "Procter & Gamble Company (The)",
+    "industry": "생활용품"
+  },
+  "PGR": {
+    "shortName": "Progressive Corporation (The)",
+    "industry": "손해보험"
+  },
+  "PH": {
+    "shortName": "Parker-Hannifin Corporation",
+    "industry": "산업기계"
+  },
+  "PHM": {
+    "shortName": "PulteGroup, Inc.",
+    "industry": "주택건설"
+  },
+  "PII": {
+    "shortName": "Polaris Inc.",
+    "industry": "레저차량"
+  },
+  "PINS": {
+    "shortName": "Pinterest, Inc.",
+    "industry": "인터넷"
+  },
+  "PK": {
+    "shortName": "Park Hotels & Resorts Inc.",
+    "industry": "리츠호텔"
+  },
+  "PKG": {
+    "shortName": "Packaging Corporation of Americ",
+    "industry": "포장재"
+  },
+  "PLD": {
+    "shortName": "Prologis, Inc.",
+    "industry": "리츠산업"
+  },
+  "PLNT": {
+    "shortName": "Planet Fitness, Inc.",
+    "industry": "레저"
+  },
+  "PLTR": {
+    "shortName": "Palantir Technologies Inc.",
+    "industry": "인프라SW"
+  },
+  "PM": {
+    "shortName": "Philip Morris International Inc",
+    "industry": "담배"
+  },
+  "PNC": {
+    "shortName": "PNC Financial Services Group, I",
+    "industry": "지역은행"
+  },
+  "PNFP": {
+    "shortName": "Pinnacle Financial Partners, In",
+    "industry": "지역은행"
+  },
+  "PNR": {
+    "shortName": "Pentair plc.",
+    "industry": "산업기계"
+  },
+  "PNW": {
+    "shortName": "Pinnacle West Capital Corporati",
+    "industry": "전력"
+  },
+  "PODD": {
+    "shortName": "Insulet Corporation",
+    "industry": "의료기기"
+  },
+  "POOL": {
+    "shortName": "Pool Corporation",
+    "industry": "산업유통"
+  },
+  "POR": {
+    "shortName": "Portland General Electric Co",
+    "industry": "전력"
+  },
+  "POST": {
+    "shortName": "Post Holdings, Inc.",
+    "industry": "식품"
+  },
+  "PPC": {
+    "shortName": "Pilgrim's Pride Corporation",
+    "industry": "식품"
+  },
+  "PPG": {
+    "shortName": "PPG Industries, Inc.",
+    "industry": "특수화학"
+  },
+  "PPL": {
+    "shortName": "PPL Corporation",
+    "industry": "전력"
+  },
+  "PR": {
+    "shortName": "Permian Resources Corporation",
+    "industry": "석유가스"
+  },
+  "PRI": {
+    "shortName": "Primerica, Inc.",
+    "industry": "생명보험"
+  },
+  "PRU": {
+    "shortName": "Prudential Financial, Inc.",
+    "industry": "생명보험"
+  },
+  "PSA": {
+    "shortName": "Public Storage",
+    "industry": "리츠산업"
+  },
+  "PSKY": {
+    "shortName": "Paramount Skydance Corporation",
+    "industry": "엔터"
+  },
+  "PSN": {
+    "shortName": "Parsons Corporation",
+    "industry": "IT서비스"
+  },
+  "PSTG": {
+    "shortName": "Pure Storage, Inc.",
+    "industry": "HW"
+  },
+  "PSX": {
+    "shortName": "Phillips 66",
+    "industry": "석유정제"
+  },
+  "PTC": {
+    "shortName": "PTC Inc.",
+    "industry": "응용SW"
+  },
+  "PVH": {
+    "shortName": "PVH Corp.",
+    "industry": "의류제조"
+  },
+  "PWR": {
+    "shortName": "Quanta Services, Inc.",
+    "industry": "건설"
+  },
+  "PYPL": {
+    "shortName": "PayPal Holdings, Inc.",
+    "industry": "신용서비스"
+  },
+  "Q": {
+    "shortName": "Qnity Electronics, Inc.",
+    "industry": "반도체장비"
+  },
+  "QCOM": {
+    "shortName": "QUALCOMM Incorporated",
+    "industry": "반도체"
+  },
+  "QLYS": {
+    "shortName": "Qualys, Inc.",
+    "industry": "인프라SW"
+  },
+  "R": {
+    "shortName": "Ryder System, Inc.",
+    "industry": "렌탈리스"
+  },
+  "RBA": {
+    "shortName": "RB Global, Inc.",
+    "industry": "비즈니스서비스"
+  },
+  "RBC": {
+    "shortName": "RBC Bearings Incorporated",
+    "industry": "공구"
+  },
+  "RCL": {
+    "shortName": "Royal Caribbean Cruises Ltd.",
+    "industry": "여행"
+  },
+  "REG": {
+    "shortName": "Regency Centers Corporation",
+    "industry": "리츠소매"
+  },
+  "REGN": {
+    "shortName": "Regeneron Pharmaceuticals, Inc.",
+    "industry": "바이오"
+  },
+  "REXR": {
+    "shortName": "Rexford Industrial Realty, Inc.",
+    "industry": "리츠산업"
+  },
+  "RF": {
+    "shortName": "Regions Financial Corporation",
+    "industry": "지역은행"
+  },
+  "RGA": {
+    "shortName": "Reinsurance Group of America, I",
+    "industry": "재보험"
+  },
+  "RGEN": {
+    "shortName": "Repligen Corporation",
+    "industry": "의료용품"
+  },
+  "RGLD": {
+    "shortName": "Royal Gold, Inc.",
+    "industry": "금"
+  },
+  "RH": {
+    "shortName": "RH",
+    "industry": "전문소매"
+  },
+  "RJF": {
+    "shortName": "Raymond James Financial, Inc.",
+    "industry": "자산운용"
+  },
+  "RL": {
+    "shortName": "Ralph Lauren Corporation",
+    "industry": "의류제조"
+  },
+  "RLI": {
+    "shortName": "RLI Corp.",
+    "industry": "손해보험"
+  },
+  "RMBS": {
+    "shortName": "Rambus, Inc.",
+    "industry": "반도체"
+  },
+  "RMD": {
+    "shortName": "ResMed Inc.",
+    "industry": "의료용품"
+  },
+  "RNR": {
+    "shortName": "RenaissanceRe Holdings Ltd.",
+    "industry": "재보험"
+  },
+  "ROIV": {
+    "shortName": "Roivant Sciences Ltd.",
+    "industry": "바이오"
+  },
+  "ROK": {
+    "shortName": "Rockwell Automation, Inc.",
+    "industry": "산업기계"
+  },
+  "ROL": {
+    "shortName": "Rollins, Inc.",
+    "industry": "생활서비스"
+  },
+  "ROP": {
+    "shortName": "Roper Technologies, Inc.",
+    "industry": "응용SW"
+  },
+  "ROST": {
+    "shortName": "Ross Stores, Inc.",
+    "industry": "의류소매"
+  },
+  "RPM": {
+    "shortName": "RPM International Inc.",
+    "industry": "특수화학"
+  },
+  "RRC": {
+    "shortName": "Range Resources Corporation",
+    "industry": "석유가스"
+  },
+  "RRX": {
+    "shortName": "Regal Rexnord Corporation",
+    "industry": "산업기계"
+  },
+  "RS": {
+    "shortName": "Reliance, Inc.",
+    "industry": "철강"
+  },
+  "RSG": {
+    "shortName": "Republic Services, Inc.",
+    "industry": "폐기물"
+  },
+  "RTX": {
+    "shortName": "RTX Corporation",
+    "industry": "방산"
+  },
+  "RVTY": {
+    "shortName": "Revvity, Inc.",
+    "industry": "진단연구"
+  },
+  "RYAN": {
+    "shortName": "Ryan Specialty Holdings, Inc.",
+    "industry": "특수보험"
+  },
+  "RYN": {
+    "shortName": "Rayonier Inc. REIT",
+    "industry": "리츠특수"
+  },
+  "SAIA": {
+    "shortName": "Saia, Inc.",
+    "industry": "트럭운송"
+  },
+  "SAIC": {
+    "shortName": "Science Applications Internatio",
+    "industry": "IT서비스"
+  },
+  "SAM": {
+    "shortName": "Boston Beer Company, Inc. (The)",
+    "industry": "맥주"
+  },
+  "SARO": {
+    "shortName": "StandardAero, Inc.",
+    "industry": "방산"
+  },
+  "SATS": {
+    "shortName": "EchoStar Corporation",
+    "industry": "통신"
+  },
+  "SBAC": {
+    "shortName": "SBA Communications Corporation",
+    "industry": "리츠특수"
+  },
+  "SBRA": {
+    "shortName": "Sabra Health Care REIT, Inc.",
+    "industry": "리츠의료"
+  },
+  "SBUX": {
+    "shortName": "Starbucks Corporation",
+    "industry": "외식"
+  },
+  "SCHW": {
+    "shortName": "Charles Schwab Corporation (The",
+    "industry": "자본시장"
+  },
+  "SCI": {
+    "shortName": "Service Corporation Internation",
+    "industry": "생활서비스"
+  },
+  "SEIC": {
+    "shortName": "SEI Investments Company",
+    "industry": "자산운용"
+  },
+  "SF": {
+    "shortName": "Stifel Financial Corporation",
+    "industry": "자본시장"
+  },
+  "SFM": {
+    "shortName": "Sprouts Farmers Market, Inc.",
+    "industry": "식료품점"
+  },
+  "SGI": {
+    "shortName": "Somnigroup International Inc.",
+    "industry": "가구가전"
+  },
+  "SHC": {
+    "shortName": "Sotera Health Company",
+    "industry": "진단연구"
+  },
+  "SHOP": {
+    "shortName": "Shopify Inc.",
+    "industry": "응용SW"
+  },
+  "SHW": {
+    "shortName": "Sherwin-Williams Company (The)",
+    "industry": "특수화학"
+  },
+  "SIGI": {
+    "shortName": "Selective Insurance Group, Inc.",
+    "industry": "손해보험"
+  },
+  "SJM": {
+    "shortName": "The J.M. Smucker Company",
+    "industry": "식품"
+  },
+  "SLAB": {
+    "shortName": "Silicon Laboratories, Inc.",
+    "industry": "반도체"
+  },
+  "SLB": {
+    "shortName": "SLB Limited",
+    "industry": "석유장비"
+  },
+  "SLGN": {
+    "shortName": "Silgan Holdings Inc.",
+    "industry": "포장재"
+  },
+  "SLM": {
+    "shortName": "SLM Corporation",
+    "industry": "신용서비스"
+  },
+  "SMCI": {
+    "shortName": "Super Micro Computer, Inc.",
+    "industry": "HW"
+  },
+  "SMG": {
+    "shortName": "Scotts Miracle-Gro Company (The",
+    "industry": "농업"
+  },
+  "SNA": {
+    "shortName": "Snap-On Incorporated",
+    "industry": "공구"
+  },
+  "SNDK": {
+    "shortName": "Sandisk Corporation",
+    "industry": "HW"
+  },
+  "SNPS": {
+    "shortName": "Synopsys, Inc.",
+    "industry": "인프라SW"
+  },
+  "SNX": {
+    "shortName": "TD SYNNEX Corporation",
+    "industry": "전자유통"
+  },
+  "SO": {
+    "shortName": "Southern Company (The)",
+    "industry": "전력"
+  },
+  "SOLV": {
+    "shortName": "Solventum Corporation",
+    "industry": "의료용품"
+  },
+  "SON": {
+    "shortName": "Sonoco Products Company",
+    "industry": "포장재"
+  },
+  "SPG": {
+    "shortName": "Simon Property Group, Inc.",
+    "industry": "리츠소매"
+  },
+  "SPGI": {
+    "shortName": "S&P Global Inc.",
+    "industry": "금융데이터"
+  },
+  "SPXC": {
+    "shortName": "SPX Technologies, Inc.",
+    "industry": "건축자재"
+  },
+  "SR": {
+    "shortName": "Spire Inc.",
+    "industry": "가스"
+  },
+  "SRE": {
+    "shortName": "DBA Sempra",
+    "industry": "유틸복합"
+  },
+  "SSB": {
+    "shortName": "SouthState Bank Corporation",
+    "industry": "지역은행"
+  },
+  "SSD": {
+    "shortName": "Simpson Manufacturing Company, ",
+    "industry": "목재"
+  },
+  "ST": {
+    "shortName": "Sensata Technologies Holding pl",
+    "industry": "계측기기"
+  },
+  "STAG": {
+    "shortName": "Stag Industrial, Inc.",
+    "industry": "리츠산업"
+  },
+  "STE": {
+    "shortName": "STERIS plc (Ireland)",
+    "industry": "의료기기"
+  },
+  "STLD": {
+    "shortName": "Steel Dynamics, Inc.",
+    "industry": "철강"
+  },
+  "STRL": {
+    "shortName": "Sterling Infrastructure, Inc.",
+    "industry": "건설"
+  },
+  "STT": {
+    "shortName": "State Street Corporation",
+    "industry": "자산운용"
+  },
+  "STWD": {
+    "shortName": "STARWOOD PROPERTY TRUST, INC. S",
+    "industry": "리츠모기지"
+  },
+  "STX": {
+    "shortName": "Seagate Technology Holdings PLC",
+    "industry": "HW"
+  },
+  "STZ": {
+    "shortName": "Constellation Brands, Inc.",
+    "industry": "맥주"
+  },
+  "SW": {
+    "shortName": "Smurfit WestRock plc",
+    "industry": "포장재"
+  },
+  "SWK": {
+    "shortName": "Stanley Black & Decker, Inc.",
+    "industry": "공구"
+  },
+  "SWKS": {
+    "shortName": "Skyworks Solutions, Inc.",
+    "industry": "반도체"
+  },
+  "SWX": {
+    "shortName": "Southwest Gas Holdings, Inc.",
+    "industry": "가스"
+  },
+  "SYF": {
+    "shortName": "Synchrony Financial",
+    "industry": "신용서비스"
+  },
+  "SYK": {
+    "shortName": "Stryker Corporation",
+    "industry": "의료기기"
+  },
+  "SYNA": {
+    "shortName": "Synaptics Incorporated",
+    "industry": "반도체"
+  },
+  "SYY": {
+    "shortName": "Sysco Corporation",
+    "industry": "식품유통"
+  },
+  "T": {
+    "shortName": "AT&T Inc.",
+    "industry": "통신"
+  },
+  "TAP": {
+    "shortName": "Molson Coors Beverage Company",
+    "industry": "맥주"
+  },
+  "TCBI": {
+    "shortName": "Texas Capital Bancshares, Inc.",
+    "industry": "지역은행"
+  },
+  "TDG": {
+    "shortName": "Transdigm Group Incorporated",
+    "industry": "방산"
+  },
+  "TDY": {
+    "shortName": "Teledyne Technologies Incorpora",
+    "industry": "계측기기"
+  },
+  "TEAM": {
+    "shortName": "Atlassian Corporation",
+    "industry": "응용SW"
+  },
+  "TECH": {
+    "shortName": "Bio-Techne Corp",
+    "industry": "바이오"
+  },
+  "TEL": {
+    "shortName": "TE Connectivity plc",
+    "industry": "전자부품"
+  },
+  "TER": {
+    "shortName": "Teradyne, Inc.",
+    "industry": "반도체장비"
+  },
+  "TEX": {
+    "shortName": "Terex Corporation",
+    "industry": "중장비"
+  },
+  "TFC": {
+    "shortName": "Truist Financial Corporation",
+    "industry": "지역은행"
+  },
+  "TGT": {
+    "shortName": "Target Corporation",
+    "industry": "할인점"
+  },
+  "THC": {
+    "shortName": "Tenet Healthcare Corporation",
+    "industry": "의료시설"
+  },
+  "THG": {
+    "shortName": "Hanover Insurance Group Inc",
+    "industry": "손해보험"
+  },
+  "THO": {
+    "shortName": "Thor Industries, Inc.",
+    "industry": "레저차량"
+  },
+  "TJX": {
+    "shortName": "TJX Companies, Inc. (The)",
+    "industry": "의류소매"
+  },
+  "TKO": {
+    "shortName": "TKO Group Holdings, Inc.",
+    "industry": "엔터"
+  },
+  "TKR": {
+    "shortName": "Timken Company (The)",
+    "industry": "공구"
+  },
+  "TLN": {
+    "shortName": "Talen Energy Corporation",
+    "industry": "독립발전"
+  },
+  "TMHC": {
+    "shortName": "Taylor Morrison Home Corporatio",
+    "industry": "주택건설"
+  },
+  "TMO": {
+    "shortName": "Thermo Fisher Scientific Inc",
+    "industry": "진단연구"
+  },
+  "TMUS": {
+    "shortName": "T-Mobile US, Inc.",
+    "industry": "통신"
+  },
+  "TNL": {
+    "shortName": "Travel   Leisure Co.",
+    "industry": "여행"
+  },
+  "TOL": {
+    "shortName": "Toll Brothers, Inc.",
+    "industry": "주택건설"
+  },
+  "TPL": {
+    "shortName": "Texas Pacific Land Corporation",
+    "industry": "석유가스"
+  },
+  "TPR": {
+    "shortName": "Tapestry, Inc.",
+    "industry": "명품"
+  },
+  "TREX": {
+    "shortName": "Trex Company, Inc.",
+    "industry": "건축자재"
+  },
+  "TRGP": {
+    "shortName": "Targa Resources, Inc.",
+    "industry": "석유미드스트림"
+  },
+  "TRI": {
+    "shortName": "Thomson Reuters Corp",
+    "industry": "비즈니스서비스"
+  },
+  "TRMB": {
+    "shortName": "Trimble Inc.",
+    "industry": "계측기기"
+  },
+  "TROW": {
+    "shortName": "T. Rowe Price Group, Inc.",
+    "industry": "자산운용"
+  },
+  "TRU": {
+    "shortName": "TransUnion",
+    "industry": "금융데이터"
+  },
+  "TRV": {
+    "shortName": "The Travelers Companies, Inc.",
+    "industry": "손해보험"
+  },
+  "TSCO": {
+    "shortName": "Tractor Supply Company",
+    "industry": "전문소매"
+  },
+  "TSLA": {
+    "shortName": "Tesla, Inc.",
+    "industry": "자동차"
+  },
+  "TSN": {
+    "shortName": "Tyson Foods, Inc.",
+    "industry": "농산물"
+  },
+  "TT": {
+    "shortName": "Trane Technologies plc",
+    "industry": "건축자재"
+  },
+  "TTC": {
+    "shortName": "Toro Company (The)",
+    "industry": "공구"
+  },
+  "TTD": {
+    "shortName": "The Trade Desk, Inc.",
+    "industry": "광고"
+  },
+  "TTEK": {
+    "shortName": "Tetra Tech, Inc.",
+    "industry": "건설"
+  },
+  "TTMI": {
+    "shortName": "TTM Technologies, Inc.",
+    "industry": "전자부품"
+  },
+  "TTWO": {
+    "shortName": "Take-Two Interactive Software, ",
+    "industry": "게임"
+  },
+  "TWLO": {
+    "shortName": "Twilio Inc.",
+    "industry": "인프라SW"
+  },
+  "TXN": {
+    "shortName": "Texas Instruments Incorporated",
+    "industry": "반도체"
+  },
+  "TXNM": {
+    "shortName": "TXNM Energy, Inc.",
+    "industry": "전력"
+  },
+  "TXRH": {
+    "shortName": "Texas Roadhouse, Inc.",
+    "industry": "외식"
+  },
+  "TXT": {
+    "shortName": "Textron Inc.",
+    "industry": "방산"
+  },
+  "TYL": {
+    "shortName": "Tyler Technologies, Inc.",
+    "industry": "응용SW"
+  },
+  "UAL": {
+    "shortName": "United Airlines Holdings, Inc.",
+    "industry": "항공"
+  },
+  "UBER": {
+    "shortName": "Uber Technologies, Inc.",
+    "industry": "응용SW"
+  },
+  "UBSI": {
+    "shortName": "United Bankshares, Inc.",
+    "industry": "지역은행"
+  },
+  "UDR": {
+    "shortName": "UDR, Inc.",
+    "industry": "리츠주거"
+  },
+  "UFPI": {
+    "shortName": "UFP Industries, Inc.",
+    "industry": "목재"
+  },
+  "UGI": {
+    "shortName": "UGI Corporation",
+    "industry": "가스"
+  },
+  "UHS": {
+    "shortName": "Universal Health Services, Inc.",
+    "industry": "의료시설"
+  },
+  "ULS": {
+    "shortName": "UL Solutions Inc.",
+    "industry": "비즈니스서비스"
+  },
+  "ULTA": {
+    "shortName": "Ulta Beauty, Inc.",
+    "industry": "전문소매"
+  },
+  "UMBF": {
+    "shortName": "UMB Financial Corporation",
+    "industry": "지역은행"
+  },
+  "UNH": {
+    "shortName": "UnitedHealth Group Incorporated",
+    "industry": "건강보험"
+  },
+  "UNM": {
+    "shortName": "Unum Group",
+    "industry": "생명보험"
+  },
+  "UNP": {
+    "shortName": "Union Pacific Corporation",
+    "industry": "철도"
+  },
+  "UPS": {
+    "shortName": "United Parcel Service, Inc.",
+    "industry": "물류"
+  },
+  "URI": {
+    "shortName": "United Rentals, Inc.",
+    "industry": "렌탈리스"
+  },
+  "USB": {
+    "shortName": "U.S. Bancorp",
+    "industry": "지역은행"
+  },
+  "USFD": {
+    "shortName": "US Foods Holding Corp.",
+    "industry": "식품유통"
+  },
+  "UTHR": {
+    "shortName": "United Therapeutics Corporation",
+    "industry": "특수제약"
+  },
+  "V": {
+    "shortName": "Visa Inc.",
+    "industry": "신용서비스"
+  },
+  "VAL": {
+    "shortName": "Valaris Limited",
+    "industry": "석유장비"
+  },
+  "VC": {
+    "shortName": "Visteon Corporation",
+    "industry": "자동차부품"
+  },
+  "VFC": {
+    "shortName": "V.F. Corporation",
+    "industry": "의류제조"
+  },
+  "VICI": {
+    "shortName": "VICI Properties Inc.",
+    "industry": "리츠복합"
+  },
+  "VLO": {
+    "shortName": "Valero Energy Corporation",
+    "industry": "석유정제"
+  },
+  "VLTO": {
+    "shortName": "Veralto Corp",
+    "industry": "환경"
+  },
+  "VLY": {
+    "shortName": "Valley National Bancorp",
+    "industry": "지역은행"
+  },
+  "VMC": {
+    "shortName": "Vulcan Materials Company (Holdi",
+    "industry": "건자재"
+  },
+  "VMI": {
+    "shortName": "Valmont Industries, Inc.",
+    "industry": "복합기업"
+  },
+  "VNO": {
+    "shortName": "Vornado Realty Trust",
+    "industry": "리츠오피스"
+  },
+  "VNOM": {
+    "shortName": "Viper Energy, Inc.",
+    "industry": "석유미드스트림"
+  },
+  "VNT": {
+    "shortName": "Vontier Corporation",
+    "industry": "계측기기"
+  },
+  "VOYA": {
+    "shortName": "Voya Financial, Inc.",
+    "industry": "금융지주"
+  },
+  "VRSK": {
+    "shortName": "Verisk Analytics, Inc.",
+    "industry": "컨설팅"
+  },
+  "VRSN": {
+    "shortName": "VeriSign, Inc.",
+    "industry": "인프라SW"
+  },
+  "VRTX": {
+    "shortName": "Vertex Pharmaceuticals Incorpor",
+    "industry": "바이오"
+  },
+  "VST": {
+    "shortName": "Vistra Corp.",
+    "industry": "독립발전"
+  },
+  "VTR": {
+    "shortName": "Ventas, Inc.",
+    "industry": "리츠의료"
+  },
+  "VTRS": {
+    "shortName": "Viatris Inc.",
+    "industry": "특수제약"
+  },
+  "VVV": {
+    "shortName": "Valvoline Inc.",
+    "industry": "자동차딜러"
+  },
+  "VZ": {
+    "shortName": "Verizon Communications Inc.",
+    "industry": "통신"
+  },
+  "WAB": {
+    "shortName": "Westinghouse Air Brake Technolo",
+    "industry": "철도"
+  },
+  "WAL": {
+    "shortName": "Western Alliance Bancorporation",
+    "industry": "지역은행"
+  },
+  "WAT": {
+    "shortName": "Waters Corporation",
+    "industry": "진단연구"
+  },
+  "WBD": {
+    "shortName": "Warner Bros. Discovery, Inc. - ",
+    "industry": "엔터"
+  },
+  "WBS": {
+    "shortName": "Webster Financial Corporation",
+    "industry": "지역은행"
+  },
+  "WCC": {
+    "shortName": "WESCO International, Inc.",
+    "industry": "산업유통"
+  },
+  "WDAY": {
+    "shortName": "Workday, Inc.",
+    "industry": "응용SW"
+  },
+  "WDC": {
+    "shortName": "Western Digital Corporation",
+    "industry": "HW"
+  },
+  "WEC": {
+    "shortName": "WEC Energy Group, Inc.",
+    "industry": "전력"
+  },
+  "WELL": {
+    "shortName": "Welltower Inc.",
+    "industry": "리츠의료"
+  },
+  "WEX": {
+    "shortName": "WEX Inc.",
+    "industry": "인프라SW"
+  },
+  "WFC": {
+    "shortName": "Wells Fargo & Company",
+    "industry": "대형은행"
+  },
+  "WFRD": {
+    "shortName": "Weatherford International plc",
+    "industry": "석유장비"
+  },
+  "WH": {
+    "shortName": "Wyndham Hotels & Resorts, Inc.",
+    "industry": "숙박"
+  },
+  "WHR": {
+    "shortName": "Whirlpool Corporation",
+    "industry": "가구가전"
+  },
+  "WING": {
+    "shortName": "Wingstop Inc.",
+    "industry": "외식"
+  },
+  "WLK": {
+    "shortName": "Westlake Corporation",
+    "industry": "특수화학"
+  },
+  "WM": {
+    "shortName": "Waste Management, Inc.",
+    "industry": "폐기물"
+  },
+  "WMB": {
+    "shortName": "Williams Companies, Inc. (The)",
+    "industry": "석유미드스트림"
+  },
+  "WMG": {
+    "shortName": "Warner Music Group Corp.",
+    "industry": "엔터"
+  },
+  "WMS": {
+    "shortName": "Advanced Drainage Systems, Inc.",
+    "industry": "건축자재"
+  },
+  "WMT": {
+    "shortName": "Walmart Inc.",
+    "industry": "할인점"
+  },
+  "WPC": {
+    "shortName": "W. P. Carey Inc. REIT",
+    "industry": "리츠복합"
+  },
+  "WRB": {
+    "shortName": "W.R. Berkley Corporation",
+    "industry": "손해보험"
+  },
+  "WSM": {
+    "shortName": "Williams-Sonoma, Inc.",
+    "industry": "전문소매"
+  },
+  "WSO": {
+    "shortName": "Watsco, Inc.",
+    "industry": "산업유통"
+  },
+  "WST": {
+    "shortName": "West Pharmaceutical Services, I",
+    "industry": "의료용품"
+  },
+  "WTFC": {
+    "shortName": "Wintrust Financial Corporation",
+    "industry": "지역은행"
+  },
+  "WTRG": {
+    "shortName": "Essential Utilities, Inc.",
+    "industry": "수도"
+  },
+  "WTS": {
+    "shortName": "Watts Water Technologies, Inc.",
+    "industry": "산업기계"
+  },
+  "WTW": {
+    "shortName": "Willis Towers Watson Public Lim",
+    "industry": "보험중개"
+  },
+  "WWD": {
+    "shortName": "Woodward, Inc.",
+    "industry": "방산"
+  },
+  "WY": {
+    "shortName": "Weyerhaeuser Company",
+    "industry": "리츠특수"
+  },
+  "WYNN": {
+    "shortName": "Wynn Resorts, Limited",
+    "industry": "리조트카지노"
+  },
+  "XEL": {
+    "shortName": "Xcel Energy Inc.",
+    "industry": "전력"
+  },
+  "XOM": {
+    "shortName": "Exxon Mobil Corporation",
+    "industry": "석유종합"
+  },
+  "XPO": {
+    "shortName": "XPO, Inc.",
+    "industry": "트럭운송"
+  },
+  "XRAY": {
+    "shortName": "DENTSPLY SIRONA Inc.",
+    "industry": "의료용품"
+  },
+  "XYL": {
+    "shortName": "Xylem Inc.",
+    "industry": "산업기계"
+  },
+  "XYZ": {
+    "shortName": "Block, Inc.",
+    "industry": "인프라SW"
+  },
+  "YETI": {
+    "shortName": "YETI Holdings, Inc.",
+    "industry": "레저"
+  },
+  "YUM": {
+    "shortName": "Yum! Brands, Inc.",
+    "industry": "외식"
+  },
+  "ZBH": {
+    "shortName": "Zimmer Biomet Holdings, Inc.",
+    "industry": "의료기기"
+  },
+  "ZBRA": {
+    "shortName": "Zebra Technologies Corporation",
+    "industry": "통신장비"
+  },
+  "ZION": {
+    "shortName": "Zions Bancorporation N.A.",
+    "industry": "지역은행"
+  },
+  "ZS": {
+    "shortName": "Zscaler, Inc.",
+    "industry": "인프라SW"
+  },
+  "ZTS": {
+    "shortName": "Zoetis Inc.",
+    "industry": "특수제약"
+  }
+}

@@ -121,15 +121,18 @@ def init_ntm_database():
 
 
 def run_ntm_collection(config):
-    """NTM EPS 전 종목 수집 & DB 적재 (멀티스레드)
+    """NTM EPS 전 종목 수집 & DB 적재
+
+    최적화:
+    - 가격 데이터: yf.download() 일괄 다운로드 (내장 스레딩)
+    - 종목 정보: JSON 캐시 (shortName, industry)
+    - EPS 데이터: 순차 처리 (yfinance 스레딩 비호환)
 
     Returns:
         tuple (results_df, turnaround_df, stats_dict)
     """
     import yfinance as yf
     import pandas as pd
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import threading
 
     from eps_momentum_system import (
         INDICES, INDUSTRY_MAP,
@@ -145,100 +148,27 @@ def run_ntm_collection(config):
     all_tickers = sorted(set(t for tlist in INDICES.values() for t in tlist))
     log(f"유니버스: {len(all_tickers)}개 종목")
 
-    # 진행 상황 추적 (스레드 안전)
-    progress_lock = threading.Lock()
-    completed_count = [0]
-
-    def process_ticker(ticker):
-        """개별 종목 처리 (스레드 워커, 독립 세션)"""
-        import requests
+    # Step 1: 종목 정보 캐시 로드
+    cache_path = PROJECT_ROOT / 'ticker_info_cache.json'
+    ticker_cache = {}
+    if cache_path.exists():
         try:
-            session = requests.Session()
-            stock = yf.Ticker(ticker, session=session)
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                ticker_cache = json.load(f)
+            log(f"종목 정보 캐시 로드: {len(ticker_cache)}개")
+        except Exception:
+            ticker_cache = {}
 
-            # NTM EPS 계산
-            ntm = calculate_ntm_eps(stock, today)
-            if ntm is None:
-                return {'ticker': ticker, 'status': 'no_data'}
+    # Step 2: 가격 데이터 일괄 다운로드
+    log("가격 데이터 일괄 다운로드 중...")
+    hist_all = None
+    try:
+        hist_all = yf.download(all_tickers, period='6mo', threads=True, progress=False)
+        log("가격 다운로드 완료")
+    except Exception as e:
+        log(f"일괄 다운로드 실패: {e}, 개별 다운로드로 전환", "WARN")
 
-            # Score 계산
-            score, seg1, seg2, seg3, seg4, is_turnaround = calculate_ntm_score(ntm)
-            eps_change_90d = calculate_eps_change_90d(ntm)
-            trend = get_trend_arrows(seg1, seg2, seg3, seg4)
-
-            # 종목 정보
-            info = stock.info
-            short_name = info.get('shortName', ticker)
-            industry_en = info.get('industry', 'N/A')
-            industry_kr = INDUSTRY_MAP.get(industry_en, industry_en)
-
-            # 가격 & Fwd P/E
-            fwd_pe_now = None
-            fwd_pe_chg = None
-            price_chg = None
-
-            try:
-                hist = stock.history(period='6mo')
-                if len(hist) >= 60:
-                    p_now = hist['Close'].iloc[-1]
-                    target_date = today - timedelta(days=90)
-                    hist_dt = hist.index.tz_localize(None)
-                    idx90 = (hist_dt - target_date).map(lambda x: abs(x.days)).argmin()
-                    p_90d = hist['Close'].iloc[idx90]
-                    price_chg = (p_now - p_90d) / p_90d * 100
-
-                    nc = ntm['current']
-                    n90 = ntm['90d']
-                    if nc > 0:
-                        fwd_pe_now = p_now / nc
-                    if nc > 0 and n90 > 0:
-                        fwd_pe_90d = p_90d / n90
-                        fwd_pe_chg = (fwd_pe_now - fwd_pe_90d) / fwd_pe_90d * 100
-            except Exception:
-                pass
-
-            return {
-                'ticker': ticker, 'status': 'ok',
-                'short_name': short_name, 'industry': industry_kr,
-                'score': score,
-                'seg1': seg1, 'seg2': seg2, 'seg3': seg3, 'seg4': seg4,
-                'ntm': ntm, 'eps_change_90d': eps_change_90d, 'trend': trend,
-                'is_turnaround': is_turnaround,
-                'price_chg': price_chg, 'fwd_pe': fwd_pe_now, 'fwd_pe_chg': fwd_pe_chg,
-            }
-
-        except Exception as e:
-            return {'ticker': ticker, 'status': 'error', 'error': str(e)}
-
-    def process_ticker_safe(ticker):
-        """에러 시 재시도 (최대 2회)"""
-        import time
-        for attempt in range(3):
-            result = process_ticker(ticker)
-            if result['status'] != 'error':
-                return result
-            # 401 Unauthorized → crumb 만료, 재시도
-            if 'Unauthorized' in result.get('error', '') or '401' in result.get('error', ''):
-                time.sleep(1 + attempt)
-                continue
-            return result  # 다른 에러는 재시도 안함
-        return result
-
-    # 멀티스레드 수집
-    log("병렬 수집 시작 (3 스레드)")
-    raw_results = []
-
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(process_ticker_safe, t): t for t in all_tickers}
-
-        for future in as_completed(futures):
-            raw_results.append(future.result())
-            with progress_lock:
-                completed_count[0] += 1
-                if completed_count[0] % 100 == 0:
-                    log(f"  수집 진행: {completed_count[0]}/{len(all_tickers)}")
-
-    # 결과 분류 + DB 일괄 적재
+    # Step 3: 종목별 EPS 데이터 순차 수집
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
@@ -246,52 +176,132 @@ def run_ntm_collection(config):
     turnaround = []
     no_data = []
     errors = []
+    cache_updated = False
 
-    for r in raw_results:
-        if r['status'] == 'no_data':
-            no_data.append(r['ticker'])
+    for i, ticker in enumerate(all_tickers):
+        if (i + 1) % 100 == 0:
+            log(f"  수집 진행: {i+1}/{len(all_tickers)} (메인: {len(results)}, 턴어라운드: {len(turnaround)})")
+            conn.commit()
+
+        try:
+            stock = yf.Ticker(ticker)
+
+            # NTM EPS 계산
+            ntm = calculate_ntm_eps(stock, today)
+            if ntm is None:
+                no_data.append(ticker)
+                continue
+
+            # Score 계산
+            score, seg1, seg2, seg3, seg4, is_turnaround = calculate_ntm_score(ntm)
+            eps_change_90d = calculate_eps_change_90d(ntm)
+            trend = get_trend_arrows(seg1, seg2, seg3, seg4)
+
+            # DB 적재
+            cursor.execute('''
+                INSERT OR REPLACE INTO ntm_screening
+                (date, ticker, rank, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, is_turnaround)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (today_str, ticker, 0, score,
+                  ntm['current'], ntm['7d'], ntm['30d'], ntm['60d'], ntm['90d'],
+                  1 if is_turnaround else 0))
+
+            # 종목 정보 (캐시 우선, 없으면 API 호출)
+            if ticker in ticker_cache:
+                short_name = ticker_cache[ticker]['shortName']
+                industry_kr = ticker_cache[ticker]['industry']
+            else:
+                info = stock.info
+                short_name = info.get('shortName', ticker)
+                industry_en = info.get('industry', 'N/A')
+                industry_kr = INDUSTRY_MAP.get(industry_en, industry_en)
+                ticker_cache[ticker] = {'shortName': short_name, 'industry': industry_kr}
+                cache_updated = True
+
+            # 가격 & 다중 주기 괴리율 (일괄 다운로드 데이터 사용)
+            fwd_pe_now = None
+            fwd_pe_chg = None  # 가중평균 괴리율
+            price_chg = None
+
+            try:
+                if hist_all is not None:
+                    hist = hist_all['Close'][ticker].dropna()
+                else:
+                    h = stock.history(period='6mo')
+                    hist = h['Close']
+
+                if len(hist) >= 60:
+                    p_now = hist.iloc[-1]
+                    hist_dt = hist.index.tz_localize(None) if hist.index.tz else hist.index
+
+                    # 각 시점의 주가 찾기
+                    prices = {}
+                    for days, key in [(7, '7d'), (30, '30d'), (60, '60d'), (90, '90d')]:
+                        target = today - timedelta(days=days)
+                        idx = (hist_dt - target).map(lambda x: abs(x.days)).argmin()
+                        prices[key] = hist.iloc[idx]
+
+                    # 90일 주가변화율
+                    price_chg = (p_now - prices['90d']) / prices['90d'] * 100
+
+                    # 현재 Fwd PE
+                    nc = ntm['current']
+                    if nc > 0:
+                        fwd_pe_now = p_now / nc
+
+                    # 각 주기별 괴리율 → 가중평균
+                    weights = {'7d': 0.4, '30d': 0.3, '60d': 0.2, '90d': 0.1}
+                    weighted_sum = 0.0
+                    total_weight = 0.0
+
+                    for key, w in weights.items():
+                        ntm_val = ntm[key]
+                        if nc > 0 and ntm_val > 0 and prices[key] > 0:
+                            fwd_pe_then = prices[key] / ntm_val
+                            pe_chg_period = (fwd_pe_now - fwd_pe_then) / fwd_pe_then * 100
+                            weighted_sum += w * pe_chg_period
+                            total_weight += w
+
+                    if total_weight > 0:
+                        fwd_pe_chg = weighted_sum / total_weight
+            except Exception:
+                pass
+
+            row = {
+                'ticker': ticker,
+                'short_name': short_name,
+                'industry': industry_kr,
+                'score': score,
+                'seg1': seg1, 'seg2': seg2, 'seg3': seg3, 'seg4': seg4,
+                'ntm_cur': ntm['current'],
+                'ntm_7d': ntm['7d'],
+                'ntm_30d': ntm['30d'],
+                'ntm_60d': ntm['60d'],
+                'ntm_90d': ntm['90d'],
+                'eps_change_90d': eps_change_90d,
+                'trend': trend,
+                'price_chg': price_chg,
+                'fwd_pe': fwd_pe_now,
+                'fwd_pe_chg': fwd_pe_chg,
+                'is_turnaround': is_turnaround,
+            }
+
+            if is_turnaround:
+                turnaround.append(row)
+            else:
+                results.append(row)
+
+        except Exception as e:
+            errors.append((ticker, str(e)))
             continue
-        if r['status'] == 'error':
-            errors.append((r['ticker'], r.get('error', '')))
-            continue
-
-        ticker = r['ticker']
-        ntm = r['ntm']
-
-        # DB 적재
-        cursor.execute('''
-            INSERT OR REPLACE INTO ntm_screening
-            (date, ticker, rank, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, is_turnaround)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (today_str, ticker, 0, r['score'],
-              ntm['current'], ntm['7d'], ntm['30d'], ntm['60d'], ntm['90d'],
-              1 if r['is_turnaround'] else 0))
-
-        row = {
-            'ticker': ticker,
-            'short_name': r['short_name'],
-            'industry': r['industry'],
-            'score': r['score'],
-            'seg1': r['seg1'], 'seg2': r['seg2'], 'seg3': r['seg3'], 'seg4': r['seg4'],
-            'ntm_cur': ntm['current'],
-            'ntm_7d': ntm['7d'],
-            'ntm_30d': ntm['30d'],
-            'ntm_60d': ntm['60d'],
-            'ntm_90d': ntm['90d'],
-            'eps_change_90d': r['eps_change_90d'],
-            'trend': r['trend'],
-            'price_chg': r['price_chg'],
-            'fwd_pe': r['fwd_pe'],
-            'fwd_pe_chg': r['fwd_pe_chg'],
-            'is_turnaround': r['is_turnaround'],
-        }
-
-        if r['is_turnaround']:
-            turnaround.append(row)
-        else:
-            results.append(row)
 
     conn.commit()
+
+    # 종목 정보 캐시 저장
+    if cache_updated:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(ticker_cache, f, ensure_ascii=False, indent=2)
+        log(f"종목 정보 캐시 저장: {len(ticker_cache)}개")
 
     # 메인 랭킹: 90일 이익변화율 순 정렬 + rank 업데이트
     results_df = pd.DataFrame(results)
@@ -506,7 +516,7 @@ def create_part2_message(df, top_n=30):
             lines.append('')
 
     lines.append('')
-    lines.append('<i>괴리율 = Fwd PE 변화율, 마이너스일수록 저평가</i>')
+    lines.append('<i>괴리율 = 7d~90d Fwd PE 변화율 가중평균 (최근↑), 마이너스일수록 저평가</i>')
 
     return '\n'.join(lines)
 
