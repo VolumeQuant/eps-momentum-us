@@ -208,12 +208,26 @@ def run_ntm_collection(config):
         except Exception as e:
             return {'ticker': ticker, 'status': 'error', 'error': str(e)}
 
+    def process_ticker_safe(ticker):
+        """에러 시 재시도 (최대 2회)"""
+        import time
+        for attempt in range(3):
+            result = process_ticker(ticker)
+            if result['status'] != 'error':
+                return result
+            # 401 Unauthorized → crumb 만료, 재시도
+            if 'Unauthorized' in result.get('error', '') or '401' in result.get('error', ''):
+                time.sleep(1 + attempt)
+                continue
+            return result  # 다른 에러는 재시도 안함
+        return result
+
     # 멀티스레드 수집
-    log("병렬 수집 시작 (5 스레드)")
+    log("병렬 수집 시작 (3 스레드)")
     raw_results = []
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(process_ticker, t): t for t in all_tickers}
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {executor.submit(process_ticker_safe, t): t for t in all_tickers}
 
         for future in as_completed(futures):
             raw_results.append(future.result())
