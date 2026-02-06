@@ -76,7 +76,8 @@
       "Bash(\"C:/Users/user/miniconda3/envs/volumequant/python.exe\" -c \"\nimport sqlite3\nconn = sqlite3.connect\\(''C:/dev/claude code/eps-momentum-us/eps_momentum_data.db''\\)\ncursor = conn.cursor\\(\\)\ncursor.execute\\(''SELECT MIN\\(date\\), MAX\\(date\\), COUNT\\(DISTINCT date\\) FROM eps_snapshots''\\)\nmin_date, max_date, count = cursor.fetchone\\(\\)\nprint\\(f''시작일: {min_date}''\\)\nprint\\(f''종료일: {max_date}''\\)\nprint\\(f''누적 일수: {count}일''\\)\nconn.close\\(\\)\n\")",
       "Bash(sqlite3:*)",
       "Bash(find:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "WebSearch"
     ]
   }
 }

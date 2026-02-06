@@ -121,13 +121,15 @@ def init_ntm_database():
 
 
 def run_ntm_collection(config):
-    """NTM EPS 전 종목 수집 & DB 적재
+    """NTM EPS 전 종목 수집 & DB 적재 (멀티스레드)
 
     Returns:
         tuple (results_df, turnaround_df, stats_dict)
     """
     import yfinance as yf
     import pandas as pd
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
 
     from eps_momentum_system import (
         INDICES, INDUSTRY_MAP,
@@ -143,53 +145,32 @@ def run_ntm_collection(config):
     all_tickers = sorted(set(t for tlist in INDICES.values() for t in tlist))
     log(f"유니버스: {len(all_tickers)}개 종목")
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    # 진행 상황 추적 (스레드 안전)
+    progress_lock = threading.Lock()
+    completed_count = [0]
 
-    results = []
-    turnaround = []
-    no_data = []
-    errors = []
-
-    for i, ticker in enumerate(all_tickers):
-        if (i + 1) % 100 == 0:
-            log(f"  수집 진행: {i+1}/{len(all_tickers)} (메인: {len(results)}, 턴어라운드: {len(turnaround)})")
-            conn.commit()
-
+    def process_ticker(ticker):
+        """개별 종목 처리 (스레드 워커)"""
         try:
             stock = yf.Ticker(ticker)
 
             # NTM EPS 계산
             ntm = calculate_ntm_eps(stock, today)
             if ntm is None:
-                no_data.append(ticker)
-                continue
+                return {'ticker': ticker, 'status': 'no_data'}
 
             # Score 계산
             score, seg1, seg2, seg3, seg4, is_turnaround = calculate_ntm_score(ntm)
-
-            # 90일 이익변화율
             eps_change_90d = calculate_eps_change_90d(ntm)
-
-            # 추세 화살표
             trend = get_trend_arrows(seg1, seg2, seg3, seg4)
 
-            # DB 적재
-            cursor.execute('''
-                INSERT OR REPLACE INTO ntm_screening
-                (date, ticker, rank, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, is_turnaround)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (today_str, ticker, 0, score,
-                  ntm['current'], ntm['7d'], ntm['30d'], ntm['60d'], ntm['90d'],
-                  1 if is_turnaround else 0))
-
-            # 종목 정보 (메시지 표시용)
+            # 종목 정보
             info = stock.info
             short_name = info.get('shortName', ticker)
             industry_en = info.get('industry', 'N/A')
             industry_kr = INDUSTRY_MAP.get(industry_en, industry_en)
 
-            # 가격 & Fwd P/E (Part 2용)
+            # 가격 & Fwd P/E
             fwd_pe_now = None
             fwd_pe_chg = None
             price_chg = None
@@ -214,33 +195,85 @@ def run_ntm_collection(config):
             except Exception:
                 pass
 
-            row = {
-                'ticker': ticker,
-                'short_name': short_name,
-                'industry': industry_kr,
+            return {
+                'ticker': ticker, 'status': 'ok',
+                'short_name': short_name, 'industry': industry_kr,
                 'score': score,
                 'seg1': seg1, 'seg2': seg2, 'seg3': seg3, 'seg4': seg4,
-                'ntm_cur': ntm['current'],
-                'ntm_7d': ntm['7d'],
-                'ntm_30d': ntm['30d'],
-                'ntm_60d': ntm['60d'],
-                'ntm_90d': ntm['90d'],
-                'eps_change_90d': eps_change_90d,
-                'trend': trend,
-                'price_chg': price_chg,
-                'fwd_pe': fwd_pe_now,
-                'fwd_pe_chg': fwd_pe_chg,
+                'ntm': ntm, 'eps_change_90d': eps_change_90d, 'trend': trend,
                 'is_turnaround': is_turnaround,
+                'price_chg': price_chg, 'fwd_pe': fwd_pe_now, 'fwd_pe_chg': fwd_pe_chg,
             }
 
-            if is_turnaround:
-                turnaround.append(row)
-            else:
-                results.append(row)
-
         except Exception as e:
-            errors.append((ticker, str(e)))
+            return {'ticker': ticker, 'status': 'error', 'error': str(e)}
+
+    # 멀티스레드 수집
+    log("병렬 수집 시작 (5 스레드)")
+    raw_results = []
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(process_ticker, t): t for t in all_tickers}
+
+        for future in as_completed(futures):
+            raw_results.append(future.result())
+            with progress_lock:
+                completed_count[0] += 1
+                if completed_count[0] % 100 == 0:
+                    log(f"  수집 진행: {completed_count[0]}/{len(all_tickers)}")
+
+    # 결과 분류 + DB 일괄 적재
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    results = []
+    turnaround = []
+    no_data = []
+    errors = []
+
+    for r in raw_results:
+        if r['status'] == 'no_data':
+            no_data.append(r['ticker'])
             continue
+        if r['status'] == 'error':
+            errors.append((r['ticker'], r.get('error', '')))
+            continue
+
+        ticker = r['ticker']
+        ntm = r['ntm']
+
+        # DB 적재
+        cursor.execute('''
+            INSERT OR REPLACE INTO ntm_screening
+            (date, ticker, rank, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, is_turnaround)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (today_str, ticker, 0, r['score'],
+              ntm['current'], ntm['7d'], ntm['30d'], ntm['60d'], ntm['90d'],
+              1 if r['is_turnaround'] else 0))
+
+        row = {
+            'ticker': ticker,
+            'short_name': r['short_name'],
+            'industry': r['industry'],
+            'score': r['score'],
+            'seg1': r['seg1'], 'seg2': r['seg2'], 'seg3': r['seg3'], 'seg4': r['seg4'],
+            'ntm_cur': ntm['current'],
+            'ntm_7d': ntm['7d'],
+            'ntm_30d': ntm['30d'],
+            'ntm_60d': ntm['60d'],
+            'ntm_90d': ntm['90d'],
+            'eps_change_90d': r['eps_change_90d'],
+            'trend': r['trend'],
+            'price_chg': r['price_chg'],
+            'fwd_pe': r['fwd_pe'],
+            'fwd_pe_chg': r['fwd_pe_chg'],
+            'is_turnaround': r['is_turnaround'],
+        }
+
+        if r['is_turnaround']:
+            turnaround.append(row)
+        else:
+            results.append(row)
 
     conn.commit()
 
@@ -388,13 +421,13 @@ def create_part1_message(df, top_n=30):
 
         icon = medals.get(rank, '📌')
         lines.append(f'{icon} <b>{rank}위</b> {name} ({ticker}) <i>{industry}</i>')
-        lines.append(f'    이익변화 <b>{eps_str}</b> {trend}')
+        lines.append(f'    이익변화 <b>{eps_str}</b> · 추세(90d/60d/30d/7d) {trend}')
 
         if rank == 3:
             lines.append('')
 
     lines.append('')
-    lines.append('<i>추세 ↑↓ = 90d · 60d · 30d · 7d 구간별 이익 변화 방향</i>')
+    lines.append('<i>추세 ↑↓ = 각 구간별 이익 추정치 변화 방향</i>')
 
     return '\n'.join(lines)
 
@@ -450,7 +483,8 @@ def create_part2_message(df, top_n=30):
 
         icon = medals.get(rank, '📌')
         lines.append(f'{icon} <b>{rank}위</b> {name} ({ticker}) <i>{industry}</i>')
-        lines.append(f'    이익변화 {eps_str} · 주가변화 {price_str} · 괴리율 <b>{pe_str}</b> {trend}')
+        lines.append(f'    이익변화 {eps_str} · 주가변화 {price_str} · 괴리율 <b>{pe_str}</b>')
+        lines.append(f'    추세(90d/60d/30d/7d) {trend}')
 
         if rank == 3:
             lines.append('')
@@ -492,7 +526,7 @@ def create_turnaround_message(df, top_n=10):
 
         icon = medals.get(rank, '📌')
         lines.append(f'{icon} <b>{rank}위</b> {name} ({ticker}) <i>{industry}</i>')
-        lines.append(f'    EPS ${ntm_90d:.2f} → ${ntm_cur:.2f} {trend}')
+        lines.append(f'    EPS ${ntm_90d:.2f} → ${ntm_cur:.2f} · 추세(90d/60d/30d/7d) {trend}')
 
         if rank == 3:
             lines.append('')
