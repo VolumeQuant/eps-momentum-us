@@ -2,9 +2,9 @@ name: Daily EPS Momentum Screening
 
 on:
   schedule:
-    # 매일 UTC 23:00 = KST 08:00 (다음날)
+    # 매일 UTC 22:30 = KST 07:30 (지연 감안 08:00 도착 목표)
     # 월~금만 실행 (토/일 미국장 휴장)
-    - cron: '0 23 * * 0-4'  # 일~목 UTC = 월~금 KST 아침
+    - cron: '30 22 * * 0-4'  # 일~목 UTC = 월~금 KST 아침
   workflow_dispatch:  # 수동 실행 가능
 
 permissions:
