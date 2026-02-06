@@ -1,325 +1,435 @@
-# Session Handoff: 전략 개선 논의 (2026-02-06)
+# Session Handoff: 전략 개선 논의
 
-> 이 문서는 2026-02-06 직장 PC에서 진행한 심층 전략 논의를 정리한 것입니다.
-> 집 PC에서 이어서 작업할 수 있도록 **대화 흐름, 결정 사항, 미결 사항**을 상세히 기록합니다.
+> **v1**: 2026-02-06 직장 PC — 구조적 문제 발견, score_321 개선 논의
+> **v2**: 2026-02-06 집 PC — NTM EPS 전환 결정, DB/Score/랭킹 전면 재설계
+> **v3**: 2026-02-06 집 PC — 풀 유니버스 시뮬레이션, 이상치 처리, Part 2 재설계
+> **v4**: 2026-02-06 집 PC — 텔레그램 포맷 확정, 발송 채널 분리, 업종 매핑
 
 ---
 
-## 1. 문제 발견 과정 (MSFT 추적기)
+## Phase 1: 문제 발견 (직장 PC)
 
 ### 1-1. 시작점: "마이크로소프트는 왜 안 나오는 거야?"
 
 텔레그램 메시지에서 MSFT를 한 번도 본 적 없다는 의문에서 시작.
 
-### 1-2. 첫 번째 오류: Top 20 커트라인
+### 1-2. Track 1 vs Track 2 필터 불일치
 
-처음에는 score_321 기준 Top 20만 뽑아서 분석했는데, 실제 시스템은 Top 20으로 자르지 않음.
-- 실제 흐름: 917개 유니버스 → Track 1 필터링 → ~24개 통과 → is_actionable ~10개 표시
-- MSFT의 score_321은 9.5점으로 passed_screen 기준으로는 **매일 통과**하고 있었음
+**Track 1 (텔레그램)**: 10단계 필터 → ~24개 통과
+**Track 2 (DB)**: 2단계 필터 → ~265개 passed
 
-### 1-3. DB vs 텔레그램 불일치 발견
+MSFT는 EPS 모멘텀(score 9.5)은 좋지만, **Price < MA200**에서 Track 1 탈락.
+→ "무엇을 보유할까"와 "언제 살까"가 같은 필터에 혼재된 구조적 문제.
 
-| 날짜 | CSV 종목수 | DB passed 종목수 |
-|------|-----------|-----------------|
-| 1/31 | ~125 | 125 |
-| 2/1 | 69 | 262 |
-| 2/5 | **23** | **265** |
-
-DB에는 265개가 passed인데, CSV(텔레그램)에는 23개만 나옴.
-
-### 1-4. 근본 원인: Track 1 vs Track 2 필터 차이
-
-**Track 1 (텔레그램/CSV) 필터 체인** — `daily_runner.py:324 run_screening()`:
-1. EPS 데이터 존재
-2. Kill Switch: 7d 대비 -1% 이상 하락 시 탈락
-3. Score >= min_score (GREEN: 4.0, YELLOW: 6.0, RED: 8.0)
-4. Dollar Volume >= $20M
-5. **Price > MA200** ← MSFT 여기서 탈락!
-6. 실적 발표 Blackout
-7. ROE > 10%
-8. Forward PER < 60
-9. PEG < max_peg
-10. is_actionable: RSI < 70 AND 매수 액션
-
-**Track 2 (DB) 필터** — `daily_runner.py:953 run_data_collection()`:
-1. score_321 >= 4.0
-2. Dollar Volume >= $20M
-3. → 끝. 나머지는 passed_screen 플래그만 설정
-
-**결론: MSFT는 EPS 모멘텀(score 9.5, aligned)은 좋지만, 가격이 MA200 아래($414 < MA200)여서 Track 1에서 "추세이탈"로 탈락. 텔레그램에 표시 자체가 안 됨.**
-
----
-
-## 2. 발견된 구조적 문제점
-
-### 문제 1: "무엇을 보유할까"와 "언제 살까"의 혼재
-
-- score_321 (EPS 모멘텀) = 장기 관점, 주 단위로 변화
-- MA200, RSI, action = 단기 진입 타이밍, 매일 변화
-- **같은 필터 체인에 넣어서 장기 좋은 종목이 단기 신호로 탈락**
-- MSFT, AVGO(RSI 31) 같은 종목이 "좋은데 안 보이는" 상황 발생
-
-### 문제 2: DB 데이터 미활용
-
-- Track 2가 917개 전체 유니버스를 매일 수집하고 있음 (좋은 점!)
-- 하지만 텔레그램은 Track 1 결과(~24개)만 사용
-- DB 히스토리 데이터로 지속성 분석 가능한데 전혀 활용 안 함
-
-### 문제 3: Track 2 DB 누락 컬럼
-
-DB INSERT 구문(`daily_runner.py:1154-1167`)에 빠진 컬럼들:
-- **action_type**: 스키마에는 있지만(`line 1035`) INSERT에 안 넣음 → 항상 NULL
-- **ma_50, ma_200**: Track 1에서는 계산하지만 Track 2에서는 저장 안 함
-- **atr, stop_loss**: 스키마에 있지만 저장 안 함
-
-### 문제 4: 1/31, 2/3, 2/4 데이터 불완전
-
-| 날짜 | DB 레코드 | 상태 |
-|------|----------|------|
-| 1/31 | 432/917 | 수집 중간 중단 추정 |
-| 2/1 | 917 | 정상 |
-| 2/2 | 917 | 정상 |
-| 2/3 | 52 | CSV 복구 (passed만) |
-| 2/4 | 2 | CSV 복구 (YELLOW 모드) |
-| 2/5 | 917 | 정상 |
-
----
-
-## 3. score_321 공식 개선 논의
-
-### 3-1. 기존 score_321의 문제
+### 1-3. score_321 공식의 문제
 
 ```python
-# 기존 방식 (eps_momentum_system.py:436 calculate_momentum_score_v3)
-score = 0
-if current > d7:  score += 3    # 방향만 봄, 크기 무시
-if d7 > d30:      score += 2    # 0.01% 올라도 +2, 10% 올라도 +2
-if d30 > d60:     score += 1
-# 90d는 아예 안 봄!
-
-score += eps_chg_60d / 5        # 60일 변화율을 5로 나눠서 보너스 (임의)
-
-if current > d7 > d30 > d60:
-    score += 3                  # 정배열 보너스 (4단계만)
+# 기존 방식: binary 방향 + 임의 스케일링 + 90d 미사용
+if current > d7:  score += 3    # 0.01% 올라도 +3, 10% 올라도 +3
+score += eps_chg_60d / 5        # 임의 스케일링
+# 90d는 아예 안 봄 → TTWO(90d -34%)를 못 잡음
 ```
 
-**문제점 상세:**
+---
 
-1. **방향 점수가 binary** — current > 7d이면 무조건 +3. 0.01% 올라도 +3, 10% 올라도 +3
-2. **변화율 보너스가 `/5`** — 임의 스케일링. 변화율 큰 종목은 이게 점수의 대부분:
-   ```
-   MU:   방향6 + 정배열3 = 9점  vs  변화율 23.6점  → 변화율이 72%
-   MSFT: 방향6 + 정배열3 = 9점  vs  변화율 0.5점   → 방향이 95%
-   같은 공식인데 종목에 따라 점수의 의미가 완전히 달라짐
-   ```
-3. **90d 미사용** — 장기 지속성 판단 불가
-4. **TTWO 사례**: 90d→60d에서 -34% 급락했는데 기존 점수는 11.58 (높음!)
+## Phase 2: 근본적 재설계 (집 PC)
 
-### 3-2. 새 점수 공식 (결정됨 ✅)
+### 2-1. +1y 컬럼의 치명적 문제 발견
+
+현재 시스템은 `trend.loc['+1y']`로 EPS를 가져오는데, **`+1y`가 가리키는 실제 연도가 종목마다 다름:**
+
+| 종목 | +1y endDate | 0y endDate | 원인 |
+|------|-----------|-----------|------|
+| AMZN | **2027**-12-31 | 2026-12-31 | FY2025 발표 완료, 롤오버 |
+| CRWV | **2026**-12-31 | 2025-12-31 | FY2025 미발표 |
+| AAPL | **2027**-09-30 | 2026-09-30 | 9월 결산 |
+
+**→ +1y끼리 비교하면 2026년과 2027년 EPS가 뒤섞인 엉터리 랭킹**
+
+**확인 방법**: `stock._analysis._earnings_trend` 리스트의 각 항목에 `endDate` 필드 존재
+
+### 2-2. 해결: NTM (Forward 12M) EPS 도입
+
+**0y와 +1y를 endDate 기반 시간 가중치로 블렌딩:**
 
 ```python
-# 새 방식: 구간별 변화율 균등 합산
-seg1 = (current - 7d)  / |7d|  × 100   # 최근 7일 변화율
-seg2 = (7d - 30d)      / |30d| × 100   # 7~30일 구간 변화율
-seg3 = (30d - 60d)     / |60d| × 100   # 30~60일 구간 변화율
-seg4 = (60d - 90d)     / |90d| × 100   # 60~90일 구간 변화율
+# 각 시점(ref_date)마다 앞으로 12개월 윈도우를 계산
+window_start = ref_date
+window_end = ref_date + 365일
 
-score = seg1 + seg2 + seg3 + seg4      # 균등 합산, 가중치 없음
+# 0y, +1y 각각의 겹치는 기간으로 가중치 산출
+w0 = overlap(window, 0y_fiscal_year) / total_overlap
+w1 = overlap(window, +1y_fiscal_year) / total_overlap
+
+NTM_EPS = w0 × (0y EPS) + w1 × (+1y EPS)
 ```
 
-### 3-3. 왜 가중치 없이 균등 합산인가
+**핵심: 5개 시점 각각 가중치를 재계산**
+- NTM_current: 오늘 기준 가중치로 블렌딩
+- NTM_7d: 7일 전 기준 가중치로 블렌딩
+- NTM_30d: 30일 전 기준 가중치로 블렌딩
+- NTM_60d: 60일 전 기준 가중치로 블렌딩
+- NTM_90d: 90일 전 기준 가중치로 블렌딩
 
-각 구간은 고유한 역할이 있음:
-- **seg4 (60d→90d)**: 장기 방향성 — 3개월 전부터의 큰 흐름
-- **seg3 (30d→60d)**: 중기 추세 — 모멘텀 본격화 구간
-- **seg2 (7d→30d)**: 단기 추세 — 최근 1달간 가속/감속
-- **seg1 (cur→7d)**: 최신 신호 — 직전 1주 변화
-
-**검증 결과 (가중치 불필요 확인):**
-- SNDK/ALB: 90d 구간이 가장 큰 변화 (턴어라운드) → 최근 가중치 높이면 놓침
-- MSTR: 7d -7.7% 하락 → 최근 가중치 높이면 과잉 반응
-- TTWO: 90d -34% → 과거 가중치 낮추면 묻힘
-
-**자연스러운 속성:**
-- 전부 양수여야 진짜 좋은 종목 (= 5단계 정배열: current > 7d > 30d > 60d > 90d)
-- 하나라도 크게 마이너스면 감점
-- 별도 정배열 보너스 불필요 (모든 seg 양수 = 정배열)
-- 별도 이상치 필터 불필요 (SNDK, ALB는 실제 턴어라운드)
-
-### 3-4. Persistence Score 불필요 판단
-
-초기에는 "DB에서 N일간 상위권 유지 횟수"로 Persistence Score를 만들려고 했으나:
-- EPS 컨센서스는 하루 만에 급변하지 않음 → 매일 상위권인 건 당연
-- score_321의 raw EPS 시계열(current, 7d, 30d, 60d, 90d) 자체가 이미 90일 지속성 증거
-- 새 점수 공식이 구간별 변화율을 직접 합산하므로 지속성이 자동 반영됨
-- **DB 누적 데이터의 진짜 가치는 별도 점수가 아니라 "score 시계열 추적"**:
-  - score 변화 방향 (가속/감속)
-  - 신규 상위권 진입 감지
-  - 이탈 감지
-
-### 3-5. 시뮬레이션 결과 (2026-02-05 데이터, 913개 종목)
-
-**새 점수 TOP 10:**
-
-| # | Ticker | New | Old | 5단계 정배열 | 핵심 구간 |
-|---|--------|-----|-----|:---:|-----------|
-| 1 | SNDK | 313.5 | N/A* | V | 7d:+185%, 90d:+106% |
-| 2 | ALB | 295.7 | N/A* | V | 전 구간 +47~137% |
-| 3 | MU | 111.8 | 32.6 | V | 60d:+92.5% |
-| 4 | MSTR | 82.0 | N/A** | X | 7d:-7.7% (하락 시작) |
-| 5 | PBF | 80.4 | N/A | X | 90d:+91% |
-| 6 | GME | 71.4 | 22.8 | X | 7d:+38% |
-| 7 | LITE | 58.6 | 17.1 | X | 7d:+44% |
-| 8 | AA | 46.2 | 17.4 | V | 60d:+25% |
-| 9 | CMC | 37.8 | 16.6 | V | 30d:+21% |
-| 10 | LUV | 34.4 | 16.2 | V | 7d:+18% |
-
-*N/A: 기존 이상치 필터(eps_chg_60d > 200%)에 의해 제외되었던 종목. 실제 턴어라운드.
-**N/A: Kill Switch(7d -1% 하락)에 의해 제외. 실제로 하락 시작.
-
-**주요 순위 변동:**
-- SNDK, ALB: 기존엔 이상치로 제외 → 새 공식에서 정상 포착 (실제 턴어라운드)
-- TTWO: 기존 #14 → 새 #854 (90d -34% 하락 반영!)
-- MSFT: 기존 #78 → 새 #205 (90d 구간 -0.01%로 약간 감점)
-
-**TTWO 상세 (90d 포함 효과):**
+**검증 결과 (MSFT, 6월 결산):**
 ```
-eps_90d: 5.058 → eps_60d: 3.334 → eps_30d: 3.725 → eps_7d: 3.765 → current: 4.196
-seg4: -34.1%  seg3: +11.7%  seg2: +0.8%  seg1: +11.4%
-기존 score: 13.08 (높음! 60d까지만 보니까 회복 구간만 반영)
-새 score: -11.8 (90d 급락이 정확히 반영됨)
+시점       0y(FY26)    w0      +1y(FY27)   w1      NTM EPS
+current    17.202    39.6%  +  19.025    60.4%  =  18.304
+7d ago     17.235    41.5%  +  18.997    58.5%  =  18.266
+30d ago    15.678    47.8%  +  18.545    52.2%  =  17.175
+60d ago    15.633    56.0%  +  18.531    44.0%  =  16.907
+90d ago    15.661    64.3%  +  18.557    35.7%  =  16.696
 ```
+- **NTM 모멘텀: +9.63%** (기존 +1y만: +2.52%) — 0y의 강한 상향이 반영됨
 
-**점수 분포:**
-```
-Total: 913개
-Score > 0:  479개 (52%)
-Score > 5:  119개
-Score > 10:  49개
-Score > 20:  24개
-5단계 정배열: 110개
-Min: -256.8, Max: 313.5, Median: 0.12
-```
-
----
-
-## 4. 결정된 사항 ✅
-
-### 4-1. 텔레그램 메시지 2-Track 분리
-
-```
-[Part 1] 핵심 보유 후보 — EPS 모멘텀 기반, MA200/RSI 무관
-         순수 EPS 변화율만으로 판단
-[Part 2] 오늘의 진입 타이밍 — Part 1 종목 중 기술적 진입 조건 맞는 것
-         기존 is_actionable과 유사
-```
-
-### 4-2. 새 점수 공식
+### 2-3. Score 공식 (NTM 기반, 내부 로직)
 
 ```python
-score = seg1 + seg2 + seg3 + seg4  # 구간별 변화율 균등 합산
+seg1 = (NTM_current - NTM_7d)  / |NTM_7d|  × 100   # 최근 7일
+seg2 = (NTM_7d - NTM_30d)     / |NTM_30d| × 100   # 7~30일 구간
+seg3 = (NTM_30d - NTM_60d)    / |NTM_60d| × 100   # 30~60일 구간
+seg4 = (NTM_60d - NTM_90d)    / |NTM_90d| × 100   # 60~90일 구간
+
+score = seg1 + seg2 + seg3 + seg4
 ```
-- 90d까지 포함
-- 가중치 없이 균등 합산
-- 별도 정배열 보너스 불필요
-- 별도 이상치 필터 불필요
 
-### 4-3. "상위권" 기준 재정의
+**4개 구간이 겹치지 않는 독립 구간으로 90일 전체를 커버:**
+```
+|----seg4----|----seg3----|----seg2----|--seg1--|
+90d         60d         30d          7d      today
+```
 
-- 기존 passed_screen(265개)은 너무 넓고, Top 20은 너무 좁음
-- 새로운 의미있는 커트라인 필요 (구체 기준은 미결)
+**주의**: Score는 내부 DB 저장/필터링용. 고객 표시에는 **90일 이익변화율** 사용 (아래 Phase 4 참고).
 
----
+### 2-4. 패턴 (추세 화살표)
 
-## 5. 미결 사항 / 추가 논의 필요 ❓
+seg 방향을 화살표로 시각화. **순서: 과거→현재 (왼→오)**
+```
+추세(90d/60d/30d/7d)
+     ↑   ↑   ↑   ↑
+    seg4 seg3 seg2 seg1
+```
 
-### 5-1. "상위권" 커트라인 결정
-
-어떤 기준으로 상위권을 정의할지:
-- **옵션 A**: Top N (예: Top 30, Top 50)
-- **옵션 B**: Score 절대값 (예: Score > 10, Score > 20)
-- **옵션 C**: 5단계 정배열 + Score > X
-
-시뮬레이션 참고: Score > 10이면 49개, > 20이면 24개, 5단계 정배열은 110개
-
-### 5-2. Kill Switch 유지 여부
-
-기존: 7d 대비 -1% 하락 시 아예 제외 (score = None)
-- 새 공식에서는 seg1이 마이너스가 되어 자연 감점됨
-- Kill Switch를 별도로 유지할 필요가 있을까?
-- MSTR 사례: 7d -7.7%인데 과거 모멘텀이 좋아서 여전히 #4
-  → Kill Switch 없으면 이런 종목이 상위에 올라옴
-  → 하지만 이건 "과거에 좋았던 종목이 꺾이기 시작"이라는 유의미한 정보
-
-### 5-3. Track 2 DB 보완 범위
-
-- action_type 저장 추가 → 구현 필요
-- ma_50, ma_200 저장 추가 → API 호출 추가 (history 1y 필요, 종목당 ~0.5초)
-- data_quality 플래그 추가 여부 (FULL/PARTIAL/CSV_ONLY)
-- 수집 시간 영향: 917개 × 0.5초 = ~8분 추가
-
-### 5-4. 텔레그램 Part 1 구체적 포맷
-
-- 몇 개 종목까지 표시할지
-- 어떤 정보를 표시할지 (score, 구간별 변화율, 정배열 여부 등)
-- 업데이트 빈도 (매일? 변동 시?)
-
-### 5-5. 기존 quality_score(100점 체계)와의 관계
-
-- 현재 텔레그램 랭킹은 `quality_score` 사용 (`daily_runner.py:709`)
-- `quality_score`는 `eps_momentum_system.py:617 calculate_quality_score()`
-- 새 점수 공식과 `quality_score`의 관계 정리 필요:
-  - 새 공식으로 대체?
-  - 병행 사용?
-  - quality_score는 폐기?
+주요 패턴:
+| 패턴 | seg 방향 | 의미 |
+|------|---------|------|
+| 꾸준한 상향 | ↑↑↑↑ | 가장 신뢰 높은 시그널 |
+| V자 회복 | ↓↑↑↑ | 턴어라운드 |
+| 턴어라운드 | ↓↓↑↑ | 최근 전환, 초기 단계 |
+| 꺾임 | ↑↑↑↓ | 모멘텀 하락 시작. 경고 |
+| 하락전환 | ↑↑↓↓ | 하락 가속 |
+| 역배열 | ↓↓↓↓ | 지속 하향. 회피 |
+| 혼조 | 기타 | 방향 불명확 |
 
 ---
 
-## 6. 기술 참고
+## Phase 3: 시뮬레이션 & Part 2 재설계 (집 PC)
 
-### 주요 파일 및 수정 대상
+### 3-1. 유니버스 정리
 
-| 파일 | 위치 | 역할 | 수정 내용 |
-|------|------|------|----------|
-| `eps_momentum_system.py` | line 436 | `calculate_momentum_score_v3()` | 새 공식으로 교체 |
-| `daily_runner.py` | line 324 | `run_screening()` — Track 1 | 2-Track 메시지 구현 |
-| `daily_runner.py` | line 953 | `run_data_collection()` — Track 2 | 누락 컬럼 추가 |
-| `daily_runner.py` | line 1154 | DB INSERT 구문 | action_type, ma_50, ma_200 추가 |
-| `daily_runner.py` | line 844 | `get_action_label()` | Track 2에서도 호출 필요 |
-| `daily_runner.py` | line 2182 | `is_actionable()` | Part 2용 유지 |
-| `daily_runner.py` | line 709 | `total_score = quality_score` | 새 점수 반영 여부 결정 |
-| `eps_momentum_system.py` | line 617 | `calculate_quality_score()` | 새 공식과의 관계 정리 |
+- **현행 유지**: NASDAQ 100 + S&P 500 + S&P 400 MidCap = **915개**
+- **FOX 제거**: FOX(Class B)는 eps_trend 데이터 없음, FOXA(Class A)가 커버 → `INDICES['SP500']`에서 제거 완료
+- GOOG/GOOGL 둘 다 유지 (Class A/C 별도 상장)
 
-### DB 현황 (eps_momentum_data.db)
+### 3-2. 이상치 처리: |NTM EPS| < $1.00 분리
 
-- 2/3, 2/4 데이터 CSV에서 복구 완료 (passed만, 전체 유니버스 아님)
-- DB 변경사항 있음 (복구 데이터 포함) → 커밋 필요
+**문제 발견**: 1차 시뮬레이션에서 ALB 스코어 54,065 (NTM_90d ≈ $0.01 → 분모 폭발)
 
-### 분석에 사용한 스크립트 (scratchpad, git 미포함)
+**검토한 대안들:**
+| 방법 | 결과 | 문제점 |
+|------|------|--------|
+| 세그먼트 캡 (±200%) | ALB 800점 | 여전히 SNDK(322)보다 높음 — 부당 |
+| 최소 분모 ($0.50) | ALB 521점 | 여전히 비정상적으로 높음 |
+| Z-Score 정규화 | 분포 기반 | 1-2개 이상치가 전체 분포를 왜곡 |
+| **|NTM| < $1.00 분리** ✅ | **깔끔하게 해결** | 없음 |
 
+**최종 결정: $1.00 최소 EPS 기준**
+- 5개 NTM 값(current, 7d, 30d, 60d, 90d) 중 **하나라도** |EPS| < $1.00이면 → **"턴어라운드" 카테고리**로 분리
+- 메인 랭킹에서 제외, 별도 섹션으로 표시
+- **근거**: NTM EPS가 $1 미만인 종목은 성장률 계산이 의미 없음 (0.01→0.02가 +100%)
+
+### 3-3. 풀 유니버스 시뮬레이션 결과 (2026-02-06)
+
+**기본 통계:**
+```
+전체 유니버스: 916개 (FOX 제거 전)
+데이터 있음:   913개
+데이터 없음:     0개
+에러:            3개 (COKE, L, NEU — endDate 파싱 에러)
+```
+
+**$1 필터 적용 후:**
+```
+메인 랭킹:    861개 (|NTM| >= $1.00)
+턴어라운드:    52개 (|NTM| < $1.00)
+```
+
+**Score 분포 (메인 861개):**
+```
+Score >  0:  596 (69%)
+Score >  1:  506 (59%)
+Score >  2:  389 (45%)
+Score >  3:  310 (36%)
+Score >  5:  177 (21%)
+Score > 10:   74 (9%)
+Score > 20:   31 (4%)
+Min=-98.19, Max=322.15, Median=1.26
+정배열: 236
+```
+
+### 3-4. Part 2: Forward P/E 변화율 (= 괴리율)
+
+**기존 Part 2 (폐기):** MA200, RSI 기반 기술적 진입 타이밍
+**새 Part 2:** EPS 개선이 아직 주가에 반영 안 된 종목 찾기
+
+**핵심 지표: Forward P/E 90일 변화율 (고객 표시명: "괴리율")**
+```python
+Fwd_PE_now = Price_now / NTM_current
+Fwd_PE_90d = Price_90d / NTM_90d
+괴리율 = (Fwd_PE_now - Fwd_PE_90d) / Fwd_PE_90d × 100
+```
+
+**해석:**
+- **괴리율 마이너스** = EPS 상향 > 주가 상승 → "아직 덜 반영됨" → **매수 기회**
+- **괴리율 플러스** = 주가 상승 > EPS 상향 → "이미 선반영됨" → 추격 매수 위험
+
+---
+
+## Phase 4: 텔레그램 포맷 & 발송 채널 확정 ← NEW
+
+### 4-1. Part 1 순위 기준 변경
+
+**기존**: Score(seg합산) 기준 정렬
+**변경**: **90일 이익변화율** 기준 정렬
+```python
+이익변화 = (NTM_current - NTM_90d) / |NTM_90d| × 100
+```
+
+**이유**: Score는 % 단위가 아니라 고객에게 혼란. 90일 변화율이 직관적.
+추세 화살표(↑↑↑↑)가 구간별 패턴을 이미 보여주므로 Score의 구간별 장점은 유지됨.
+
+**Score는 내부 로직으로만 사용**: DB 저장, Part 2 필터링(Score > 3) 등.
+
+### 4-2. 업종 분류
+
+- yfinance의 `industry` 필드 사용 (130개 고유값)
+- 한글 축약 매핑 테이블 1회 생성 (예: Semiconductors → 반도체, Software-Application → 응용SW)
+- 매핑 안 된 건 영어 그대로 표시
+
+### 4-3. 텔레그램 메시지 포맷
+
+**Part 1: 이익 모멘텀 랭킹** (Top 30)
+```
+📊 이익 모멘텀 랭킹
+
+ #  종목명(티커)          업종     이익변화  추세(90d/60d/30d/7d)
+ 1  Sandisk(SNDK)        반도체   +660.5%      ↑ ↑ ↑ ↑
+ 2  Micron(MU)           반도체   +116.0%      ↑ ↑ ↑ ↑
+ 3  MicroStrategy(MSTR)  응용SW    +96.6%      ↑ ↓ ↑ ↑
+ 5  Southwest(LUV)       항공      +32.1%      ↑ ↑ ↑ ↑
+22  Nvidia(NVDA)         반도체    +24.1%      ↑ ↑ ↑ ↑
+```
+
+**Part 2: 매수 후보** (Top 30, Score > 3 필터, 괴리율 순 정렬)
+```
+💰 매수 후보 (이익↑ 주가 덜 반영)
+
+ #  종목명(티커)          업종     이익변화  주가변화  괴리율   추세(90d/60d/30d/7d)
+ 1  MicroStrategy(MSTR)  응용SW    +96.6%   -49.0%  -74.1%      ↑ ↓ ↑ ↑
+ 2  Sandisk(SNDK)        반도체   +660.5%  +153.8%  -66.6%      ↑ ↑ ↑ ↑
+ 3  Palantir(PLTR)       인프라SW  +36.6%   -24.3%  -44.6%      ↑ ↑ ↑ ↑
+```
+
+**턴어라운드 섹션** (Top 10)
+```
+⚡ 턴어라운드 주목 (|EPS|<$1 구간)
+
+ 종목명(티커)          업종     EPS(90일전→현재)  추세(90d/60d/30d/7d)
+ Palantir(PLTR)       인프라SW  -$0.50 → $0.20       ↑ ↑ ↑ ↑
+ Cleveland(CLF)       철강     -$0.30 → $0.20       ↓ ↓ ↑ ↑
+```
+
+**시스템 로그**
+```
+🔧 시스템 실행 로그 (2026-02-06 07:30 KST)
+
+실행환경: GitHub Actions / Local
+소요시간: 12분 34초
+
+[데이터 수집]
+유니버스: 915개
+성공: 912 | 에러: 3
+에러 종목: COKE, L, NEU
+
+[DB 적재 - ntm_screening]
+컬럼: date, ticker, rank, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, is_turnaround
+메인: 860건 | 턴어라운드: 52건 | 합계: 912건
+
+[스코어 분포]
+이익변화 > 0: 596 (69%)
+이익변화 > 3: 310 (36%)
+정배열(↑↑↑↑): 236
+
+[발송 결과]
+Part1 모멘텀 랭킹 30건 → 개인봇 ✓
+Part2 매수후보 30건 → 채널 ✓
+턴어라운드 10건 → 채널 ✓
+```
+
+### 4-4. 발송 채널
+
+| 메시지 | 로컬 실행 | GitHub Actions |
+|--------|----------|---------------|
+| 시스템 로그 | 개인봇 | 개인봇 |
+| Part 1 (모멘텀 랭킹) | 개인봇 | 개인봇 |
+| Part 2 (매수 후보) | 개인봇 | **채널** |
+| 턴어라운드 | 개인봇 | **채널** |
+
+### 4-5. 실행 스케줄
+
+- **GitHub Actions**: 매일 KST 07:30 (미국 장마감 ET 16:00 = KST 06:00, 데이터 안정화 후 1.5시간)
+- **로컬**: 수동 실행 (개인봇에만 발송)
+
+---
+
+## 결정된 사항 ✅
+
+1. **+1y → NTM EPS 전환**: endDate 기반 시간 가중 블렌딩
+2. **Score = seg1+seg2+seg3+seg4**: 내부 DB 저장/필터링용
+3. **고객 표시는 90일 이익변화율**: (NTM_cur - NTM_90d) / |NTM_90d| × 100
+4. **Part 1 정렬: 90일 이익변화율 순** (Score 아님)
+5. **Part 2 정렬: 괴리율 순** (Fwd P/E 90일 변화율)
+6. **Part 2 필터: Score > 3** (310개, 상위 36%)
+7. **DB는 전 종목 저장**: 915개 전체 (나중에 순위 진입/이탈 추적 가능)
+8. **패턴은 별도 저장 불필요**: 5개 NTM 값에서 재계산
+9. **|NTM EPS| < $1.00 → 턴어라운드 분리**: 메인 랭킹에서 제외, 별도 표시
+10. **FOX 제거**: eps_trend 없음, FOXA가 커버
+11. **Fwd PE / 괴리율은 DB 미저장**: NTM 값 + Yahoo 주가에서 파생 가능
+12. **업종: yfinance industry** → 한글 축약 매핑
+13. **종목 표기: 종목명(티커)** 형식
+14. **추세 헤더: 추세(90d/60d/30d/7d)** — 화살표 순서 = 과거→현재
+15. **Part 1: Top 30, 로컬/개인봇에만 발송**
+16. **Part 2: Top 30, GitHub Actions시 채널 발송**
+17. **턴어라운드: Top 10, GitHub Actions시 채널 발송** (EPS 절대값 표시)
+18. **시스템 로그: 개인봇에만 발송** (DB 적재 컬럼명 포함)
+19. **실행 스케줄: KST 07:30 GitHub Actions**
+20. **에러 종목: skip** (로그만 남김)
+21. **기존 eps_snapshots 테이블: 삭제**
+
+---
+
+## 미결 사항 ❓
+
+### 1. 기존 코드 마이그레이션
+- eps_momentum_system.py: `calculate_momentum_score_v3()` → NTM 기반으로 전면 교체
+- daily_runner.py: `run_screening()`, `run_data_collection()` 수정
+- 에러 종목(COKE, L, NEU) endDate=None 처리
+
+### 2. 업종 한글 매핑 테이블
+- 130개 industry → 한글 축약 매핑 생성 필요
+- 구현 시 초안 자동 생성 후 수동 보정
+
+---
+
+## 폐기 대상 (기존 시스템)
+
+| 항목 | 이유 |
+|------|------|
+| score_321 | NTM Score로 대체 |
+| quality_score (100점) | NTM Score로 대체 |
+| Kill Switch (7d -1%) | seg1이 자연 감점 |
+| 이상치 필터 (60d > 200%) | $1 기준으로 턴어라운드 분리 |
+| passed_screen 플래그 | score 랭킹으로 대체 |
+| 기존 eps_snapshots 테이블 | ntm_screening으로 대체, **삭제** |
+| MA200/RSI/action 로직 | Part 2에서 괴리율로 대체 |
+| get_action_label() | 폐기 |
+| is_actionable() | 폐기 |
+
+---
+
+## DB 스키마 (새)
+
+```sql
+CREATE TABLE ntm_screening (
+    date        TEXT,     -- 스크리닝 날짜
+    ticker      TEXT,     -- 종목
+    rank        INTEGER,  -- 그날의 순위 (90일 이익변화율 기준)
+    score       REAL,     -- seg1+seg2+seg3+seg4 (내부 필터링용)
+    ntm_current REAL,     -- NTM EPS 현재 추정치
+    ntm_7d      REAL,     -- NTM EPS 7일 전 추정치
+    ntm_30d     REAL,     -- NTM EPS 30일 전 추정치
+    ntm_60d     REAL,     -- NTM EPS 60일 전 추정치
+    ntm_90d     REAL,     -- NTM EPS 90일 전 추정치
+    is_turnaround INTEGER DEFAULT 0,  -- |NTM| < $1.00 여부
+    PRIMARY KEY (date, ticker)
+);
+```
+
+**설계 근거:**
+- 원본 5개 NTM 값 보존 → 나중에 공식 바꿔도 재계산 가능
+- 전 종목 저장 → 순위 진입/이탈 추적, 3개월 후 수익률 상관관계 분석
+- 패턴/괴리율은 5개 값에서 파생 → 별도 컬럼 불필요
+- is_turnaround 플래그로 메인/턴어라운드 구분
+
+---
+
+## 기술 참고
+
+### 데이터 접근 방법
+
+```python
+# NTM 계산에 필요한 데이터
+stock = yf.Ticker(ticker)
+eps_trend = stock.eps_trend                    # 5개 시점 × 4개 기간
+raw_trend = stock._analysis._earnings_trend    # endDate 포함
+
+# endDate 추출
+for item in raw_trend:
+    period = item['period']      # '0y', '+1y'
+    end_date = item['endDate']   # '2026-12-31'
+
+# 업종 정보
+industry = stock.info.get('industry', 'N/A')   # ex: "Semiconductors"
+```
+
+### NTM 계산 핵심 코드
+
+```python
+# 각 snapshot별 시간 가중 NTM 계산
+snapshots = {'current': 0, '7daysAgo': 7, '30daysAgo': 30, '60daysAgo': 60, '90daysAgo': 90}
+for col, days_ago in snapshots.items():
+    ref = today - timedelta(days=days_ago)
+    we = ref + timedelta(days=365)
+    o0d = max(0, (min(we, fy0_end) - max(ref, fy0_start)).days)
+    o1d = max(0, (min(we, fy1_end) - max(ref, fy1_start)).days)
+    total = o0d + o1d
+    ntm[col] = (o0d/total) * eps_0y + (o1d/total) * eps_1y
+
+# 턴어라운드 판별
+is_turnaround = any(abs(v) < 1.0 for v in ntm.values())
+
+# 고객 표시용 90일 이익변화율 (Part 1 정렬 기준)
+이익변화 = (ntm_current - ntm_90d) / abs(ntm_90d) * 100
+
+# 괴리율 (Part 2 정렬 기준)
+fwd_pe_now = price_now / ntm_current
+fwd_pe_90d = price_90d / ntm_90d
+괴리율 = (fwd_pe_now - fwd_pe_90d) / fwd_pe_90d * 100
+```
+
+### 시뮬레이션 스크립트 (참고용)
 | 스크립트 | 용도 |
 |---------|------|
-| `new_score_sim.py` | 새 점수 공식 시뮬레이션 (2/5 913개) |
-| `check_outliers.py` | SNDK, ALB, MSTR, MU, TTWO EPS 상세 |
-| `persistence_full.py` | 전체 passed 종목 지속성 분석 |
-| `check_msft_action.py` | MSFT action_type/is_actionable 분석 |
-| `check_msft.py` | MSFT score_321 순위 분석 |
-| `check_db_coverage.py` | DB 수집 범위 vs 유니버스 크기 |
-| `pure_eps_adj.py` | Top 20 지속성 분석 (2/4 제외) |
-| `recover_db.py` | 2/3, 2/4 CSV→DB 복구 스크립트 |
+| `ntm_simulation.py` | 1차 시뮬레이션 (이상치 미처리) |
+| `ntm_sim.py` | 1차 정리 버전 |
+| `ntm_sim2.py` | 2차 시뮬레이션 ($1 필터 + Part 2 Fwd PE) |
+| `collect_industries.py` | 유니버스 업종 수집 (130개 고유 industry) |
+| 직장 PC: `new_score_sim.py` | 새 점수 공식 시뮬레이션 |
+| 직장 PC: `check_outliers.py` | SNDK, ALB, MSTR, MU, TTWO EPS 상세 |
 
 ---
 
-## 7. 핵심 인사이트 요약
-
-1. **EPS 모멘텀과 진입 타이밍은 분리해야 한다** — 같은 필터 체인에 넣으면 장기 좋은 종목이 단기 신호로 사라짐 (MSFT 사례)
-2. **score_321의 raw EPS 시계열 자체가 이미 지속성 지표** — 별도 Persistence Score보다 구간별 변화율 합산이 더 직관적
-3. **90d 데이터를 반드시 포함해야 한다** — TTWO(90d -34% 하락)을 기존은 못 잡았음
-4. **가중치 없이 균등 합산이 최적** — 각 구간이 고유한 역할, 편향 없이 반영해야 함
-5. **이상치 필터가 오히려 기회를 놓치게 한다** — SNDK, ALB 같은 턴어라운드 종목이 기존에 제외됨
-6. **DB 917개 전체 수집은 이미 되고 있다** — 활용만 하면 됨
-
----
-
-*작성: Claude Opus 4.6 | 2026-02-06*
-*다음 세션에서 이 문서를 참고하여 구현 진행*
+*v1 작성: Claude Opus 4.6 | 2026-02-06 직장 PC*
+*v2 업데이트: Claude Opus 4.6 | 2026-02-06 집 PC*
+*v3 업데이트: Claude Opus 4.6 | 2026-02-06 집 PC — 시뮬레이션 결과 & Part 2 재설계*
+*v4 업데이트: Claude Opus 4.6 | 2026-02-06 집 PC — 텔레그램 포맷 & 발송 채널 확정*
