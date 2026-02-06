@@ -73,7 +73,10 @@
       "Bash(git stash:*)",
       "Bash(git stash pop:*)",
       "Bash(\"C:/Users/user/miniconda3/envs/volumequant/python.exe\" -c \"\nimport urllib.request\nimport urllib.parse\n\nbot_token = ''7948087946:AAGVHj7FdBxr0LRJzQTzfEp0HadzAtoXs-8''\nprivate_id = ''7580571403''\n\nurl = f''https://api.telegram.org/bot{bot_token}/sendMessage''\ndata = urllib.parse.urlencode\\({\n    ''chat_id'': private_id,\n    ''text'': ''테스트 메시지입니다. 로컬에서 봇에만 전송되는지 확인용.'',\n    ''parse_mode'': ''HTML''\n}\\).encode\\(\\)\n\nreq = urllib.request.Request\\(url, data=data\\)\nresponse = urllib.request.urlopen\\(req, timeout=10\\)\nprint\\(''전송 성공!'' if response.status == 200 else ''실패''\\)\n\")",
-      "Bash(\"C:/Users/user/miniconda3/envs/volumequant/python.exe\" -c \"\nimport sqlite3\nconn = sqlite3.connect\\(''C:/dev/claude code/eps-momentum-us/eps_momentum_data.db''\\)\ncursor = conn.cursor\\(\\)\ncursor.execute\\(''SELECT MIN\\(date\\), MAX\\(date\\), COUNT\\(DISTINCT date\\) FROM eps_snapshots''\\)\nmin_date, max_date, count = cursor.fetchone\\(\\)\nprint\\(f''시작일: {min_date}''\\)\nprint\\(f''종료일: {max_date}''\\)\nprint\\(f''누적 일수: {count}일''\\)\nconn.close\\(\\)\n\")"
+      "Bash(\"C:/Users/user/miniconda3/envs/volumequant/python.exe\" -c \"\nimport sqlite3\nconn = sqlite3.connect\\(''C:/dev/claude code/eps-momentum-us/eps_momentum_data.db''\\)\ncursor = conn.cursor\\(\\)\ncursor.execute\\(''SELECT MIN\\(date\\), MAX\\(date\\), COUNT\\(DISTINCT date\\) FROM eps_snapshots''\\)\nmin_date, max_date, count = cursor.fetchone\\(\\)\nprint\\(f''시작일: {min_date}''\\)\nprint\\(f''종료일: {max_date}''\\)\nprint\\(f''누적 일수: {count}일''\\)\nconn.close\\(\\)\n\")",
+      "Bash(sqlite3:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)"
     ]
   }
 }
