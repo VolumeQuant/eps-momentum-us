@@ -1,6 +1,6 @@
 # EPS Momentum System v8.0 - NTM EPS (US Stocks)
 
-Forward 12개월 EPS(NTM EPS) 기반 모멘텀 시스템. 이익 추정치 변화율로 종목을 선별하고, 주가 미반영 종목을 매수 후보로 제시.
+Forward 12개월 EPS(NTM EPS) 기반 모멘텀 시스템. 이익 추정치 변화율로 종목을 선별하고, 주가 미반영 종목을 매수 후보로 제시. AI(Gemini)가 매수 후보를 리스크 검증.
 
 ## 핵심 전략
 
@@ -9,7 +9,7 @@ yfinance의 0y/+1y EPS를 **endDate 기반 시간 가중치**로 블렌딩하여
 기존 +1y 컬럼은 종목마다 가리키는 연도가 달라 비교가 불가능했으나, NTM으로 통일.
 
 ### 이중 랭킹 시스템
-- **Part 1 (EPS 모멘텀 랭킹)**: Score 순 — EPS 전망치가 가장 꾸준히 개선되는 기업
+- **Part 1 (EPS 모멘텀 랭킹)**: EPS 점수 순 — EPS 전망치가 가장 강하게 개선되는 기업
 - **Part 2 (매수 후보)**: 괴리율 순 (가중평균 Fwd P/E 변화) — EPS 개선이 아직 주가에 반영 안 된 종목
   - 필터: Score > 3, EPS 변화율 > 0, Fwd PE > 0
   - EPS/주가 변화율: 가중평균 (7d×40% + 30d×30% + 60d×20% + 90d×10%)
@@ -41,6 +41,16 @@ Score 기반 15개 카테고리 설명 함께 표시 (예: "강세 지속", "최
 `abs(NTM_current) < $1.00` 또는 `abs(NTM_90d) < $1.00`인 종목은 별도 카테고리.
 양 끝점(현재 & 90일 전) 모두 체크하여 저 베이스 왜곡 방지. Score > 3 필터 적용, 전체 표시. EPS 절대값(90d→현재) 표시.
 
+### AI 종합 분석 (Gemini 2.5 Flash)
+Part 2 매수 후보 30종목을 Gemini 2.5 Flash + Google Search Grounding으로 리스크 검증.
+시스템이 못 보는 6가지 영역을 AI가 보완:
+1. EPS 상향의 품질 (매출 성장 vs 비용 절감 vs 일회성)
+2. 주가 미반영 이유 (기회 vs 함정)
+3. 밸류에이션 (동종업계 대비 Fwd PE)
+4. 재무 건전성 (부채, FCF)
+5. 실적 발표 타이밍
+6. 내부자/기관 동향
+
 ## 유니버스
 
 NASDAQ 100 + S&P 500 + S&P 400 MidCap = **916개 종목** (중복 제거)
@@ -52,9 +62,10 @@ NASDAQ 100 + S&P 500 + S&P 400 MidCap = **916개 종목** (중복 제거)
 | Part 1 EPS 모멘텀 랭킹 | Top 30, EPS 점수 순 | 개인봇 | **채널** |
 | Part 2 매수 후보 (핵심) | Top 30, 괴리율 순 | 개인봇 | **채널** |
 | 턴어라운드 | Score > 3 전체, EPS 절대값 | 개인봇 | **채널** |
+| AI 종합 분석 | 매수 후보 리스크 검증 | 개인봇 | 개인봇 |
 | 시스템 로그 | DB 적재 결과, 분포 통계 | 개인봇 | 개인봇 |
 
-발송 순서: Part 1 → 턴어라운드 → **Part 2** (핵심이 마지막 = 가장 먼저 눈에 띔)
+발송 순서: Part 1 → 턴어라운드 → **Part 2** → AI 분석 → 시스템 로그
 
 모든 메시지에 **"읽는 법" 가이드를 헤더**에 배치하여 고객이 데이터 전에 해석법을 먼저 파악.
 
@@ -81,23 +92,29 @@ python daily_runner.py
 # KST 07:30 자동 실행 (cron: '30 22 * * 0-4' UTC)
 ```
 
+### 환경변수 (GitHub Secrets)
+- `TELEGRAM_BOT_TOKEN`: 텔레그램 봇 토큰
+- `TELEGRAM_CHAT_ID`: 채널 ID
+- `TELEGRAM_PRIVATE_ID`: 개인봇 ID
+- `GEMINI_API_KEY`: Google AI Studio API 키
+
 ## 파일 구조
 
 ```
 eps_momentum_system.py   # INDICES, INDUSTRY_MAP, NTM 계산 함수, get_trend_lights()
-daily_runner.py          # 데이터 수집, 텔레그램 메시지, main()
-config.json              # 텔레그램 토큰, Git 설정
+daily_runner.py          # 데이터 수집, AI 분석, 텔레그램 메시지, main()
+config.json              # 텔레그램 토큰, Gemini API 키, Git 설정 (.gitignore)
 run_daily.bat            # Windows 로컬 실행 스크립트
 requirements.txt         # Python 패키지 의존성
 ticker_info_cache.json   # 종목 이름/업종 캐시 (자동 생성)
-SESSION_HANDOFF.md       # 설계 결정 히스토리 (v1~v6)
+SESSION_HANDOFF.md       # 설계 결정 히스토리
 ```
 
 ## 버전 히스토리
 
 | 버전 | 날짜 | 변경 |
 |------|------|------|
-| v8.0 | 2026-02-07 | NTM EPS 전환, 이중 랭킹, 턴어라운드 분리, 트래픽 라이트 UI, ⚠️ 경고 시스템 |
+| v8.0 | 2026-02-07 | NTM EPS 전환, 이중 랭킹, 턴어라운드 분리, 트래픽 라이트 UI, ⚠️ 경고, Gemini AI 리스크 검증 |
 | v7.2 | 2026-02-05 | 밸류+가격 100점 체계, GitHub Actions 자동화 |
 | v7.1 | 2026-02-03 | 텔레그램 채널/봇 분리, 메시지 간소화 |
 | v7.0 | 2026-02-01 | Super Momentum, Exit Strategy, Sector Booster |

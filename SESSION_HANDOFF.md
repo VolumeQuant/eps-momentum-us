@@ -6,6 +6,8 @@
 > **v4**: 2026-02-06 집 PC — 텔레그램 포맷 확정, 발송 채널 분리, 업종 매핑
 > **v5**: 2026-02-07 집 PC — 모바일 UI 리디자인, 고객 친화적 말투
 > **v6**: 2026-02-07 집 PC — 트래픽 라이트, ⚠️ 경고, Part 2 EPS>0 필터, 코드 정리
+> **v7**: 2026-02-07 집 PC — 4단계 신호등, Score 정렬, 가중평균, MD 정리
+> **v8**: 2026-02-07 집 PC — Gemini 2.5 Flash AI 리스크 검증 도입
 
 ---
 
@@ -421,6 +423,52 @@ eps_chg_weighted = weighted_avg(eps_change_per_period, weights)
 price_chg_weighted = weighted_avg(price_change_per_period, weights)
 ```
 
+---
+
+## Phase 7: AI 리스크 검증 도입 (v8)
+
+### 7-1. LLM 선정
+
+- Claude Max 구독($110/월)은 API 접근 불포함 → GitHub Actions 자동화 불가
+- Gemini Pro 구독 보유, but Gemini 2.5 Pro 무료 티어 quota=0 (429 RESOURCE_EXHAUSTED)
+- **Gemini 2.5 Flash**: 무료 티어 사용 가능, 1.5 Pro보다 성능 우수 → 채택
+
+### 7-2. AI 역할 정의: "추천"이 아닌 "검증"
+
+시스템이 이미 매수 후보를 선별했으므로, AI의 역할은 **리스크 검증/필터링**:
+- "사도 되는 것" vs "사면 안 되는 것" 판별
+- 시스템이 못 보는 6가지 영역 보완:
+  ① EPS 품질 (매출 성장 vs 비용절감 vs 일회성)
+  ② 악재 유무 (소송, 규제, 경쟁, 대주주 매도)
+  ③ 밸류에이션 (동종업계 대비 Fwd PE)
+  ④ 재무 건전성 (부채, FCF)
+  ⑤ 실적 발표 타이밍
+  ⑥ 내부자/기관 동향
+
+### 7-3. 프롬프트 설계 (5회 반복)
+
+- v1: "추천 5개" → 너무 단순
+- v2: 6개 체크포인트 추가 → 섹터 분석 리포트가 되어버림
+- v3: 사용자 "섹터분석을 하라는게 아니야" → 방향 수정
+- v4: "추천" → "검증/필터링"으로 역할 전환
+- v5 (최종): 시스템 설명 + 검증 관점 6개 + 출력 형식 3000자
+
+핵심 결정:
+- Part 2가 검증 대상, Part 1/Turnaround는 참고 데이터
+- EPS%/주가% 수치는 시스템 내부 가중평균이므로 AI가 인용 금지
+- Google Search Grounding으로 실시간 웹 검색 활성화
+
+### 7-4. 메시지 체계 변경
+
+4종 → 5종: Part 1 → 턴어라운드 → Part 2 → **AI 종합 분석** → 시스템 로그
+AI 분석은 개인봇에만 전송 (로컬/GitHub Actions 모두)
+
+### 7-5. 기술 구현
+
+- SDK: `google-genai>=1.0.0` (NOT google-generativeai)
+- Markdown→HTML 변환: `**bold**` → `<b>`, `*italic*` → `<i>`, `#` headers strip
+- `run_ai_analysis()` 함수: daily_runner.py lines 681-793
+
 ### 시뮬레이션 스크립트 (개발 시 사용, 현재 프로젝트에 미포함)
 개발 과정에서 ntm_simulation.py, ntm_sim.py, ntm_sim2.py, collect_industries.py 등을 사용.
 프로덕션 코드(daily_runner.py + eps_momentum_system.py)에 모두 반영 완료되어 삭제됨.
@@ -434,3 +482,4 @@ price_chg_weighted = weighted_avg(price_change_per_period, weights)
 *v5 업데이트: Claude Opus 4.6 | 2026-02-07 집 PC — 모바일 UI 리디자인, 고객 친화적 말투*
 *v6 업데이트: Claude Opus 4.6 | 2026-02-07 집 PC — 트래픽 라이트, ⚠️ 경고, EPS>0 필터, 코드 정리*
 *v7 업데이트: Claude Opus 4.6 | 2026-02-07 집 PC — 4단계 신호등, Score 정렬, 가중평균, 친절한 말투, MD 정리*
+*v8 업데이트: Claude Opus 4.6 | 2026-02-07 집 PC — Gemini 2.5 Flash AI 리스크 검증, Google Search Grounding, 5종 메시지 체계*

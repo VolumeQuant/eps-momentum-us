@@ -3,10 +3,11 @@ EPS Momentum Daily Runner v8.0 - NTM EPS 시스템
 
 기능:
 1. NTM EPS 전 종목 수집 & DB 적재
-2. 텔레그램 메시지 4종 생성 & 발송
-   - Part 1: 이익 모멘텀 랭킹 (개인봇)
+2. 텔레그램 메시지 5종 생성 & 발송
+   - Part 1: 이익 모멘텀 랭킹 (채널/개인봇)
    - Part 2: 매수 후보 (채널/개인봇)
    - 턴어라운드 (채널/개인봇)
+   - AI 종합 분석 (개인봇) — Gemini 2.5 Flash + Google Search
    - 시스템 로그 (개인봇)
 3. Git 자동 commit/push
 
@@ -447,7 +448,7 @@ def get_today_kst():
 
 
 def create_part1_message(df, top_n=30):
-    """Part 1: 이익 모멘텀 랭킹 메시지 생성 (90일 이익변화율 순)"""
+    """Part 1: 이익 모멘텀 랭킹 메시지 생성 (EPS 점수 순)"""
     import pandas as pd
 
     today = get_today_kst()
@@ -534,7 +535,7 @@ def create_part2_message(df, top_n=30):
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
     lines.append('EPS 전망치는 좋아졌는데')
-    lines.append('주가가 아직 못 따라간 종목입니다.')
+    lines.append('주가가 아직 못 따라간 종목이에요.')
     lines.append('시장이 아직 반영 못 한 기회일 수 있어요.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
@@ -679,11 +680,11 @@ def create_system_log_message(stats, elapsed, config):
 
 
 # ============================================================
-# AI 종합 분석 (Gemini Pro + Google Search)
+# AI 종합 분석 (Gemini 2.5 Flash + Google Search)
 # ============================================================
 
 def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config):
-    """Gemini Pro로 종목 종합 분석 (뉴스/실적/재무 검색 포함)"""
+    """Gemini 2.5 Flash로 매수 후보 리스크 검증 (Google Search Grounding)"""
     api_key = config.get('gemini_api_key', '')
     if not api_key:
         log("GEMINI_API_KEY 미설정 — AI 분석 스킵", "WARN")
@@ -704,35 +705,46 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config):
         def strip_html(text):
             return re.sub(r'<[^>]+>', '', text or '')
 
-        context = f"""[EPS 모멘텀 Top 30]
-{strip_html(msg_part1)}
+        prompt = f"""너는 투자 리스크 검증 애널리스트야.
+자동 스크리닝 시스템이 뽑은 매수 후보 30종목을 검증해서
+"사도 되는 것"과 "사면 안 되는 것"을 판별해줘.
 
-[매수 후보 Top 30]
+[시스템 요약]
+이 시스템은 월가 애널리스트들의 EPS 전망치(향후 12개월) 변화를 추적해.
+매수 후보 = EPS 전망치는 올랐는데 주가가 아직 안 따라온 종목 (괴리율 순).
+1위 = 가장 저평가 가능성이 높은 종목.
+신호등(🟢🔵🟡🔴) = EPS 변화 방향 (왼쪽=과거→오른쪽=최근, 🟢=강한상승, 🔴=하락).
+⚠️ = 주가 급락이 EPS 대비 과도한 종목 (함정 가능성).
+추세 설명 = 신호등 패턴 기반 자동 판정 (강세 지속, 최근 꺾임, 반등 등).
+※ 데이터의 EPS%/주가% 수치는 시스템 내부 가중평균이야. 실제 값이 아니니 인용하지 마.
+
+[검증 대상: 매수 후보 Top 30]
 {strip_html(msg_part2)}
 
-[턴어라운드]
-{strip_html(msg_turnaround)}"""
+[참고: EPS 모멘텀 Top 30 — EPS 상승 강도 순위]
+{strip_html(msg_part1)}
 
-        prompt = f"""너는 미국 주식 애널리스트야. 아래는 EPS 전망치 변화 기반 종목 스크리닝 결과야.
+[참고: 턴어라운드 — 적자→흑자 전환 가능 종목]
+{strip_html(msg_turnaround)}
 
-{context}
+[네가 할 일]
+Top 30 각 종목을 웹 검색해서 사면 안 되는 이유가 있는지 찾아.
+사도 되는 종목은 왜 괜찮은지 근거를 제시해.
 
-위 종목들 중에서 실제 매수 매력도가 높은 종목 5개를 골라줘.
+검증 관점:
+① EPS 품질: 매출 성장인지, 비용 절감/자사주 매입/일회성인지
+② 악재 유무: 소송, 규제, 경쟁 심화, 업종 악재, 대주주 매도 등
+③ 밸류에이션: 동종업계 대비 Fwd PE가 합리적인지
+④ 재무 건전성: 부채비율, FCF, 이자보상배율
+⑤ 실적 발표: earnings date 임박 여부
+⑥ 내부자/기관: insider trading, 기관 비중 변화
++ 이 외 중요한 정보가 있으면 자유롭게 추가해.
 
-판단 기준 (Google 검색으로 최신 정보 확인):
-1. 최근 실적 발표 (earnings surprise, 가이던스)
-2. 업황 뉴스 (수요 전망, 경쟁 환경, 규제)
-3. 재무 건전성 (매출 성장, 영업이익률, 부채)
-4. EPS 상향 근거의 지속 가능성
-
-출력 형식 (한국어, 간결하게):
-각 종목마다:
-- 종목명 (티커)
-- 추천 이유 (2-3줄)
-- 리스크 (1줄)
-
-마지막에 오늘 시장 전반 분위기 한 줄 코멘트 추가.
-총 분량은 2000자 이내로."""
+[출력 형식] 한국어, 친절한 말투(~예요/~해요)
+1. 시장 한줄평: Top 30 섹터 구성에서 읽히는 오늘의 시장 테마
+2. 매수 유효: 검증 통과한 종목과 근거 (수는 자유)
+3. 매수 주의: 함정일 수 있는 종목과 구체적 이유 (2-3개)
+총 3000자 이내."""
 
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         response = client.models.generate_content(

@@ -96,7 +96,8 @@
       "Bash(\"C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" -c \"import google.generativeai; print\\(google.generativeai.__version__\\)\")",
       "Bash(\"C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" -m pip install google-genai)",
       "WebFetch(domain:ai.google.dev)",
-      "Bash(\"C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\":*)"
+      "Bash(\"C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\":*)",
+      "Bash(powershell -Command:*)"
     ]
   }
 }
