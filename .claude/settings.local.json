@@ -82,7 +82,11 @@
       "Bash(xargs ls:*)",
       "Bash(sort:*)",
       "Bash(python3:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(conda env list:*)",
+      "Bash(\"C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" -c \"import sys; print\\(sys.executable\\); print\\(sys.version\\)\")",
+      "Bash(\"C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" -c:*)",
+      "Bash(\"C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe\" -c \"\nimport sys\nsys.path.insert\\(0, r''C:\\\\dev\\\\claude-code\\\\eps-momentum-us''\\)\nfrom daily_runner import load_config\nfrom eps_momentum_system import INDICES, INDUSTRY_MAP, calculate_ntm_eps, calculate_ntm_score, get_trend_lights\nprint\\(''All imports successful''\\)\nprint\\(f''INDICES count: {sum\\(len\\(v\\) for v in INDICES.values\\(\\)\\)}''\\)\nprint\\(f''INDUSTRY_MAP count: {len\\(INDUSTRY_MAP\\)}''\\)\nprint\\(f''Python: {sys.executable}''\\)\n\")"
     ]
   }
 }

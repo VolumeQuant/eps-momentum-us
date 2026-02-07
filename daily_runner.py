@@ -49,7 +49,6 @@ DEFAULT_CONFIG = {
     "telegram_chat_id": "",
     "telegram_channel_id": "",
     "telegram_private_id": "",
-    "indices": ["NASDAQ_100", "SP500", "SP400_MidCap"],
 }
 
 
@@ -285,8 +284,8 @@ def run_ntm_collection(config):
 
                     if total_weight > 0:
                         fwd_pe_chg = weighted_sum / total_weight
-            except Exception:
-                pass
+            except Exception as e:
+                log(f"  {ticker} 가격/PE 계산 실패: {e}", "WARN")
 
             row = {
                 'ticker': ticker,
@@ -453,7 +452,7 @@ def create_part1_message(df, top_n=30):
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
     lines = []
-    lines.append(f'안녕하세요! 오늘({today_str}) EPS 모멘텀 리포트입니다 📊')
+    lines.append(f'안녕하세요! 오늘({today_str}) EPS 모멘텀 리포트예요 📊')
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'      📈 EPS 모멘텀 Top {top_n}')
@@ -467,11 +466,11 @@ def create_part1_message(df, top_n=30):
     lines.append('주가 상승의 강력한 선행 신호예요.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('Score는 최근 90일간 EPS 전망치가')
-    lines.append('얼마나 꾸준히 올랐는지 보여주는 점수예요.')
-    lines.append('90일을 4구간으로 나눠 각 구간의')
-    lines.append('변화율을 합산해서 계산해요.')
-    lines.append('점수가 높을수록 꾸준히 오르고 있다는 뜻이에요!')
+    lines.append('EPS 점수는 최근 90일간 EPS 전망치의')
+    lines.append('각 구간별 상승률을 모두 더한 값이에요.')
+    lines.append('(90일→60일→30일→7일, 총 4구간)')
+    lines.append('상승률이 클수록, 여러 구간에서 올랐을수록')
+    lines.append('점수가 높아져요!')
     lines.append('')
     lines.append('신호등 🟢🔵🟡🔴 = 구간별 변화 강도')
     lines.append('🟢 강한 상승(2%↑) 🔵 양호(0.5~2%)')
@@ -489,7 +488,7 @@ def create_part1_message(df, top_n=30):
         lights = row.get('trend_lights', '')
         desc = row.get('trend_desc', '')
 
-        lines.append(f'<b>{rank}위</b> · Score <b>{score:.1f}</b>')
+        lines.append(f'<b>{rank}위</b> · EPS 점수 <b>{score:.1f}</b>')
         lines.append(f'{name} ({ticker}) <i>{industry}</i>')
         lines.append(f'{lights} {desc}')
         lines.append('')
