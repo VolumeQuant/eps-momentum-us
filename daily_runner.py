@@ -488,8 +488,8 @@ def create_part1_message(df, top_n=30):
         lights = row.get('trend_lights', '')
         desc = row.get('trend_desc', '')
 
-        lines.append(f'<b>{rank}위</b> · EPS 점수 <b>{score:.1f}</b>')
-        lines.append(f'{name} ({ticker}) <i>{industry}</i>')
+        lines.append(f'<b>{rank}위</b> {name} ({ticker})')
+        lines.append(f'<i>{industry}</i> · EPS 점수 <b>{score:.1f}</b>')
         lines.append(f'{lights} {desc}')
         lines.append('')
 
@@ -570,8 +570,8 @@ def create_part2_message(df, top_n=30):
                 is_warning = True
 
         warn_mark = ' ⚠️' if is_warning else ''
-        lines.append(f'<b>{rank}위</b> · EPS {eps_str} · 주가 {price_str}{warn_mark}')
-        lines.append(f'{name} ({ticker}) <i>{industry}</i>')
+        lines.append(f'<b>{rank}위</b> {name} ({ticker})')
+        lines.append(f'<i>{industry}</i> · EPS {eps_str} · 주가 {price_str}{warn_mark}')
         lines.append(f'{lights} {desc}')
 
         if is_warning:
@@ -623,8 +623,8 @@ def create_turnaround_message(df, top_n=10):
         ntm_90d = row.get('ntm_90d', 0)
         ntm_cur = row.get('ntm_cur', 0)
 
-        lines.append(f'<b>{rank}위</b> · EPS ${ntm_90d:.2f} → ${ntm_cur:.2f}')
-        lines.append(f'{name} ({ticker}) <i>{industry}</i>')
+        lines.append(f'<b>{rank}위</b> {name} ({ticker})')
+        lines.append(f'<i>{industry}</i> · EPS ${ntm_90d:.2f} → ${ntm_cur:.2f}')
         lines.append(f'{lights} {desc}')
         lines.append('')
 
