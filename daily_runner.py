@@ -77,6 +77,10 @@ def load_config():
 
     config['is_github_actions'] = bool(os.environ.get('GITHUB_ACTIONS'))
 
+    # Gemini API 키 (AI 분석용)
+    if os.environ.get('GEMINI_API_KEY'):
+        config['gemini_api_key'] = os.environ['GEMINI_API_KEY']
+
     return config
 
 
@@ -675,6 +679,110 @@ def create_system_log_message(stats, elapsed, config):
 
 
 # ============================================================
+# AI 종합 분석 (Gemini Pro + Google Search)
+# ============================================================
+
+def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config):
+    """Gemini Pro로 종목 종합 분석 (뉴스/실적/재무 검색 포함)"""
+    api_key = config.get('gemini_api_key', '')
+    if not api_key:
+        log("GEMINI_API_KEY 미설정 — AI 분석 스킵", "WARN")
+        return None
+
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        log("google-genai 패키지 미설치 — AI 분석 스킵", "WARN")
+        return None
+
+    try:
+        client = genai.Client(api_key=api_key)
+
+        # 3개 메시지 합치기 (HTML 태그 제거하여 토큰 절약)
+        import re
+        def strip_html(text):
+            return re.sub(r'<[^>]+>', '', text or '')
+
+        context = f"""[EPS 모멘텀 Top 30]
+{strip_html(msg_part1)}
+
+[매수 후보 Top 30]
+{strip_html(msg_part2)}
+
+[턴어라운드]
+{strip_html(msg_turnaround)}"""
+
+        prompt = f"""너는 미국 주식 애널리스트야. 아래는 EPS 전망치 변화 기반 종목 스크리닝 결과야.
+
+{context}
+
+위 종목들 중에서 실제 매수 매력도가 높은 종목 5개를 골라줘.
+
+판단 기준 (Google 검색으로 최신 정보 확인):
+1. 최근 실적 발표 (earnings surprise, 가이던스)
+2. 업황 뉴스 (수요 전망, 경쟁 환경, 규제)
+3. 재무 건전성 (매출 성장, 영업이익률, 부채)
+4. EPS 상향 근거의 지속 가능성
+
+출력 형식 (한국어, 간결하게):
+각 종목마다:
+- 종목명 (티커)
+- 추천 이유 (2-3줄)
+- 리스크 (1줄)
+
+마지막에 오늘 시장 전반 분위기 한 줄 코멘트 추가.
+총 분량은 2000자 이내로."""
+
+        grounding_tool = types.Tool(google_search=types.GoogleSearch())
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[grounding_tool],
+                temperature=0.7,
+            ),
+        )
+
+        analysis_text = response.text
+        if not analysis_text:
+            log("Gemini 응답이 비어있음", "WARN")
+            return None
+
+        # Markdown → Telegram HTML 변환
+        analysis_html = analysis_text
+        analysis_html = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', analysis_html)  # **bold**
+        analysis_html = re.sub(r'\*(.+?)\*', r'<i>\1</i>', analysis_html)      # *italic*
+        analysis_html = re.sub(r'#{1,3}\s*', '', analysis_html)                # ### headings
+        analysis_html = analysis_html.replace('---', '━━━')                    # hr
+
+        # 텔레그램 메시지 포맷팅
+        now = datetime.now()
+        if HAS_PYTZ:
+            kst = pytz.timezone('Asia/Seoul')
+            now = datetime.now(kst)
+
+        lines = []
+        lines.append('━━━━━━━━━━━━━━━━━━━')
+        lines.append('      🤖 AI 종합 분석')
+        lines.append('━━━━━━━━━━━━━━━━━━━')
+        lines.append(f'📅 {now.strftime("%Y년 %m월 %d일")}')
+        lines.append('')
+        lines.append('EPS 모멘텀 데이터 + 최신 뉴스/실적/재무를')
+        lines.append('종합 분석한 AI 참고 의견이에요.')
+        lines.append('투자 판단은 본인 책임이에요!')
+        lines.append('')
+        lines.append(analysis_html)
+
+        log("AI 종합 분석 완료")
+        return '\n'.join(lines)
+
+    except Exception as e:
+        log(f"AI 분석 실패: {e}", "ERROR")
+        return None
+
+
+# ============================================================
 # 텔레그램 전송
 # ============================================================
 
@@ -787,6 +895,12 @@ def main():
             target = channel_id if (is_github and channel_id) else private_id
             send_telegram_long(msg_part2, config, chat_id=target)
             log(f"Part 2 (매수 후보) 전송 완료 → {'채널' if target == channel_id else '개인봇'}")
+
+        # AI 종합 분석 → 개인봇에만
+        msg_ai = run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config)
+        if msg_ai:
+            send_telegram_long(msg_ai, config, chat_id=private_id)
+            log("AI 종합 분석 전송 완료 → 개인봇")
 
         # 시스템 로그 → 개인봇에만 (항상)
         send_telegram_long(msg_log, config, chat_id=private_id)
