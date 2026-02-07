@@ -2,9 +2,9 @@ name: Daily EPS Momentum Screening
 
 on:
   schedule:
-    # 매일 UTC 22:30 = KST 07:30 (지연 감안 08:00 도착 목표)
-    # 월~금만 실행 (토/일 미국장 휴장)
-    - cron: '30 22 * * 0-4'  # 일~목 UTC = 월~금 KST 아침
+    # 매일 UTC 22:30 = KST 07:30
+    # 일~목 UTC 22:30 = 월~금 KST 07:30
+    - cron: '30 22 * * 0-4'
   workflow_dispatch:  # 수동 실행 가능
 
 permissions:
@@ -26,6 +26,11 @@ jobs:
         fetch-depth: 0
         token: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Configure git
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -45,9 +50,7 @@ jobs:
 
     - name: Commit and push results
       run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
         git add -A
-        git diff --staged --quiet || git commit -m "Daily screening: $(date -u +%Y-%m-%d)"
+        git diff --staged --quiet || git commit -m "Daily update: $(date -u +%Y-%m-%d)"
         git pull --rebase origin master || true
         git push

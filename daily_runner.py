@@ -222,6 +222,8 @@ def run_ntm_collection(config):
             fwd_pe_now = None
             fwd_pe_chg = None  # 가중평균 괴리율
             price_chg = None
+            price_chg_weighted = None
+            eps_chg_weighted = None
 
             try:
                 if hist_all is not None:
@@ -241,8 +243,27 @@ def run_ntm_collection(config):
                         idx = (hist_dt - target).map(lambda x: abs(x.days)).argmin()
                         prices[key] = hist.iloc[idx]
 
-                    # 90일 주가변화율
+                    # 90일 주가변화율 (내부용)
                     price_chg = (p_now - prices['90d']) / prices['90d'] * 100
+
+                    # 가중평균 주가변화율 (Part 2 표시용)
+                    price_w = {'7d': 0.4, '30d': 0.3, '60d': 0.2, '90d': 0.1}
+                    pw_sum = sum(
+                        w * (p_now - prices[k]) / prices[k] * 100
+                        for k, w in price_w.items() if prices[k] > 0
+                    )
+                    pw_total = sum(w for k, w in price_w.items() if prices[k] > 0)
+                    price_chg_weighted = pw_sum / pw_total if pw_total > 0 else None
+
+                    # 가중평균 EPS변화율 (Part 2 표시용)
+                    nc_val = ntm['current']
+                    eps_w = {'7d': 0.4, '30d': 0.3, '60d': 0.2, '90d': 0.1}
+                    ew_sum = sum(
+                        w * (nc_val - ntm[k]) / abs(ntm[k]) * 100
+                        for k, w in eps_w.items() if ntm[k] != 0
+                    )
+                    ew_total = sum(w for k, w in eps_w.items() if ntm[k] != 0)
+                    eps_chg_weighted = ew_sum / ew_total if ew_total > 0 else None
 
                     # 현재 Fwd PE
                     nc = ntm['current']
@@ -282,6 +303,8 @@ def run_ntm_collection(config):
                 'trend_lights': trend_lights,
                 'trend_desc': trend_desc,
                 'price_chg': price_chg,
+                'price_chg_weighted': price_chg_weighted,
+                'eps_chg_weighted': eps_chg_weighted,
                 'fwd_pe': fwd_pe_now,
                 'fwd_pe_chg': fwd_pe_chg,
                 'is_turnaround': is_turnaround,
@@ -304,10 +327,10 @@ def run_ntm_collection(config):
             json.dump(ticker_cache, f, ensure_ascii=False, indent=2)
         log(f"종목 정보 캐시 저장: {len(ticker_cache)}개")
 
-    # 메인 랭킹: 90일 이익변화율 순 정렬 + rank 업데이트
+    # 메인 랭킹: Score 순 정렬 + rank 업데이트
     results_df = pd.DataFrame(results)
     if not results_df.empty:
-        results_df = results_df.sort_values('eps_change_90d', ascending=False).reset_index(drop=True)
+        results_df = results_df.sort_values('score', ascending=False).reset_index(drop=True)
         results_df['rank'] = results_df.index + 1
 
         for _, row in results_df.iterrows():
@@ -338,7 +361,7 @@ def run_ntm_collection(config):
     if not results_df.empty:
         stats['score_gt0'] = int((results_df['score'] > 0).sum())
         stats['score_gt3'] = int((results_df['score'] > 3).sum())
-        stats['aligned_count'] = int((results_df['trend_lights'] == '🟢🟢🟢🟢').sum())
+        stats['aligned_count'] = int((results_df['trend_lights'].str.count('🟢') == 4).sum())
 
     log(f"수집 완료: 메인 {len(results)}, 턴어라운드 {len(turnaround)}, "
         f"데이터없음 {len(no_data)}, 에러 {len(errors)}")
@@ -430,44 +453,46 @@ def create_part1_message(df, top_n=30):
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
     lines = []
-    lines.append(f'안녕하세요! 오늘({today_str}) 이익 모멘텀 리포트입니다 📊')
+    lines.append(f'안녕하세요! 오늘({today_str}) EPS 모멘텀 리포트입니다 📊')
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f'      📈 이익 모멘텀 Top {top_n}')
+    lines.append(f'      📈 EPS 모멘텀 Top {top_n}')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
-    lines.append('월가 애널리스트들이 이익 전망을')
-    lines.append('가장 많이 올린 기업 순위입니다.')
-    lines.append('이익 전망 상향은 실적 서프라이즈와')
+    lines.append('월가 애널리스트들의')
+    lines.append('EPS 전망치(향후 12개월 주당순이익 예상)를')
+    lines.append('가장 많이 올린 기업 순위예요.')
+    lines.append('EPS 전망치 상향은 실적 서프라이즈와')
     lines.append('주가 상승의 강력한 선행 신호예요.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('이익변화 = 90일간 애널리스트 이익 전망 변화율')
-    lines.append('🟢강한 개선  🟡소폭 개선  🔴하락')
-    lines.append('(구간 순서: 90d → 60d → 30d → 7d)')
-    lines.append('🟢가 많을수록 꾸준히 오르는 중,')
-    lines.append('오른쪽 🟢가 많으면 최근 가속 신호예요.')
+    lines.append('Score는 최근 90일간 EPS 전망치가')
+    lines.append('얼마나 꾸준히 올랐는지 보여주는 점수예요.')
+    lines.append('90일을 4구간으로 나눠 각 구간의')
+    lines.append('변화율을 합산해서 계산해요.')
+    lines.append('점수가 높을수록 꾸준히 오르고 있다는 뜻이에요!')
     lines.append('')
-
-    medals = {1: '🥇', 2: '🥈', 3: '🥉'}
+    lines.append('신호등 🟢🔵🟡🔴 = 구간별 변화 강도')
+    lines.append('🟢 강한 상승(2%↑) 🔵 양호(0.5~2%)')
+    lines.append('🟡 보합(0~0.5%) 🔴 하락(0%↓)')
+    lines.append('왼쪽부터 90일전→60일→30일→최근 7일 순이에요.')
+    lines.append('오른쪽에 🟢🔵가 있으면 최근 가속 중!')
+    lines.append('')
 
     for _, row in df.head(top_n).iterrows():
         rank = int(row['rank'])
         ticker = row['ticker']
         name = row.get('short_name', ticker)
         industry = row.get('industry', '')
-        eps_chg = row.get('eps_change_90d')
-        eps_str = f"{eps_chg:+.1f}%" if pd.notna(eps_chg) else '-'
+        score = row.get('score', 0)
         lights = row.get('trend_lights', '')
         desc = row.get('trend_desc', '')
 
-        icon = medals.get(rank, '📌')
-        lines.append(f'{icon} <b>{rank}위</b> {name} ({ticker}) <i>{industry}</i>')
-        lines.append(f'    이익변화 <b>{eps_str}</b> · {lights} {desc}')
-
-        if rank == 3:
-            lines.append('')
+        lines.append(f'<b>{rank}위</b> · Score <b>{score:.1f}</b>')
+        lines.append(f'{name} ({ticker}) <i>{industry}</i>')
+        lines.append(f'{lights} {desc}')
+        lines.append('')
 
     return '\n'.join(lines)
 
@@ -498,26 +523,32 @@ def create_part2_message(df, top_n=30):
     count = min(top_n, len(filtered))
 
     lines = []
-    lines.append(f'오늘({today_str}) 매수 후보 리포트입니다 💰')
+    lines.append(f'오늘({today_str}) 매수 후보 리포트예요 💰')
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'      💰 매수 후보 Top {count}')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
-    lines.append('이익 전망은 좋아졌는데')
+    lines.append('EPS 전망치는 좋아졌는데')
     lines.append('주가가 아직 못 따라간 종목입니다.')
     lines.append('시장이 아직 반영 못 한 기회일 수 있어요.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('이익/주가 = 90일간 변화율')
-    lines.append('이익은 오르고 주가는 덜 올랐다면')
-    lines.append('아직 저평가 구간일 가능성이 있어요.')
-    lines.append('🟢가 많을수록 이익 개선이 탄탄한 종목이에요.')
-    lines.append('⚠️ = 주가 하락이 이익 대비 과도한 종목')
+    lines.append('EPS와 주가 옆의 %는 최근 변화율이에요.')
+    lines.append('7일~90일 변화를 가중평균한 값으로,')
+    lines.append('최근 변화일수록 비중이 커요.')
+    lines.append('(7일 40% · 30일 30% · 60일 20% · 90일 10%)')
     lines.append('')
-
-    medals = {1: '🥇', 2: '🥈', 3: '🥉'}
+    lines.append('EPS는 오르는데 주가가 덜 따라왔다면,')
+    lines.append('그 차이가 클수록 저평가 가능성이 높아요.')
+    lines.append('')
+    lines.append('🟢 강한 상승(2%↑) 🔵 양호(0.5~2%)')
+    lines.append('🟡 보합(0~0.5%) 🔴 하락(0%↓)')
+    lines.append('🟢🔵가 많을수록 EPS 개선이 탄탄한 종목이에요.')
+    lines.append('⚠️ = 주가 하락 폭이 EPS 개선에 비해')
+    lines.append('과도하게 큰 종목이에요. 뉴스를 확인하세요.')
+    lines.append('')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
@@ -526,29 +557,28 @@ def create_part2_message(df, top_n=30):
         industry = row.get('industry', '')
         lights = row.get('trend_lights', '')
         desc = row.get('trend_desc', '')
-        eps_chg = row.get('eps_change_90d')
-        eps_str = f"{eps_chg:+.1f}%" if pd.notna(eps_chg) else '-'
-        price_chg = row.get('price_chg')
-        price_str = f"{price_chg:+.1f}%" if pd.notna(price_chg) else '-'
+        eps_chg_w = row.get('eps_chg_weighted')
+        eps_str = f"{eps_chg_w:+.1f}%" if pd.notna(eps_chg_w) else '-'
+        price_chg_w = row.get('price_chg_weighted')
+        price_str = f"{price_chg_w:+.1f}%" if pd.notna(price_chg_w) else '-'
 
-        # ⚠️ 판별: 이익 > 0이고 주가 < 0일 때, |주가변화| / |이익변화| > 5
+        # ⚠️ 판별: EPS > 0이고 주가 < 0일 때, |주가변화| / |EPS변화| > 5
         is_warning = False
-        if (pd.notna(eps_chg) and pd.notna(price_chg)
-                and eps_chg > 0 and price_chg < 0):
-            ratio = abs(price_chg) / abs(eps_chg)
+        if (pd.notna(eps_chg_w) and pd.notna(price_chg_w)
+                and eps_chg_w > 0 and price_chg_w < 0):
+            ratio = abs(price_chg_w) / abs(eps_chg_w)
             if ratio > 5:
                 is_warning = True
 
-        icon = '⚠️' if is_warning else medals.get(rank, '📌')
-        lines.append(f'{icon} <b>{rank}위</b> {name} ({ticker}) <i>{industry}</i>')
-        lines.append(f'    이익 {eps_str} · 주가 {price_str}')
-        lines.append(f'    {lights} {desc}')
+        warn_mark = ' ⚠️' if is_warning else ''
+        lines.append(f'<b>{rank}위</b> · EPS {eps_str} · 주가 {price_str}{warn_mark}')
+        lines.append(f'{name} ({ticker}) <i>{industry}</i>')
+        lines.append(f'{lights} {desc}')
 
         if is_warning:
-            lines.append(f'    주가 하락이 이익 대비 과도합니다. 확인 필요.')
+            lines.append('⚠️ 주가 하락이 EPS 개선 대비 과도해요.')
 
-        if rank == 3:
-            lines.append('')
+        lines.append('')
 
     lines.append('')
     lines.append('주가 하락에는 항상 이유가 있을 수 있으니')
@@ -573,16 +603,16 @@ def create_turnaround_message(df, top_n=10):
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
-    lines.append('적자가 빠르게 줄거나 흑자 전환 가능성이')
-    lines.append('보이는 기업입니다. 성공하면 큰 수익이')
-    lines.append('가능하지만 리스크도 큰 종목들이에요.')
+    lines.append('적자가 빠르게 줄거나, 흑자 전환 가능성이')
+    lines.append('보이는 기업이에요. 턴어라운드에 성공하면')
+    lines.append('큰 수익이 가능하지만, 리스크도 높아요.')
     lines.append('')
-    lines.append('💡 EPS = 90일 전 → 현재 이익 전망')
-    lines.append('마이너스(-)에서 플러스(+)로 바뀌면')
-    lines.append('흑자 전환 신호예요.')
+    lines.append('💡 <b>읽는 법</b>')
+    lines.append('EPS 옆 숫자 = 90일 전 → 현재 EPS 전망치')
+    lines.append('예: $-0.50 → $0.20이면')
+    lines.append('적자에서 흑자 전환이 예상되는 신호예요.')
+    lines.append('마이너스(-)가 플러스(+)로 바뀌면 주목!')
     lines.append('')
-
-    medals = {1: '🥇', 2: '🥈', 3: '🥉'}
 
     for idx, (_, row) in enumerate(df.head(top_n).iterrows()):
         rank = idx + 1
@@ -594,13 +624,10 @@ def create_turnaround_message(df, top_n=10):
         ntm_90d = row.get('ntm_90d', 0)
         ntm_cur = row.get('ntm_cur', 0)
 
-        icon = medals.get(rank, '📌')
-        lines.append(f'{icon} <b>{rank}위</b> {name} ({ticker}) <i>{industry}</i>')
-        lines.append(f'    EPS ${ntm_90d:.2f} → ${ntm_cur:.2f}')
-        lines.append(f'    {lights} {desc}')
-
-        if rank == 3:
-            lines.append('')
+        lines.append(f'<b>{rank}위</b> · EPS ${ntm_90d:.2f} → ${ntm_cur:.2f}')
+        lines.append(f'{name} ({ticker}) <i>{industry}</i>')
+        lines.append(f'{lights} {desc}')
+        lines.append('')
 
     return '\n'.join(lines)
 
@@ -635,7 +662,7 @@ def create_system_log_message(stats, elapsed, config):
     lines.append('')
     lines.append(f'Score &gt; 0: {stats.get("score_gt0", 0)} ({stats.get("score_gt0", 0) * 100 // max(main_cnt, 1)}%)')
     lines.append(f'Score &gt; 3: {stats.get("score_gt3", 0)} ({stats.get("score_gt3", 0) * 100 // max(main_cnt, 1)}%)')
-    lines.append(f'강세 지속 🟢🟢🟢🟢: {stats.get("aligned_count", 0)}')
+    lines.append(f'강세 지속(전구간 🟢): {stats.get("aligned_count", 0)}')
 
     lines.append(f'\n소요: {minutes}분 {seconds}초')
 

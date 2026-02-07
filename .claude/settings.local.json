@@ -81,7 +81,8 @@
       "Bash(C:Usersjkw88miniconda3envsvolumequantpython.exe daily_runner.py)",
       "Bash(xargs ls:*)",
       "Bash(sort:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(git rm:*)"
     ]
   }
 }
