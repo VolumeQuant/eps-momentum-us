@@ -522,7 +522,7 @@ def create_part2_message(df, top_n=30):
     count = min(top_n, len(filtered))
 
     lines = []
-    lines.append(f'오늘({today_str}) 매수 후보 리포트예요 💰')
+    lines.append(f'오늘({today_str})의 핵심 리포트예요 💰')
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'      💰 매수 후보 Top {count}')
@@ -586,19 +586,25 @@ def create_part2_message(df, top_n=30):
     return '\n'.join(lines)
 
 
-def create_turnaround_message(df, top_n=10):
-    """턴어라운드 주목 메시지 생성 (|EPS| < $1.00 구간)"""
+def create_turnaround_message(df, top_n=None):
+    """턴어라운드 주목 메시지 생성 (|EPS| < $1.00, Score > 3 필터)"""
     import pandas as pd
 
     if df is None or df.empty:
         return None
 
+    # Score > 3 필터 (EPS가 실제로 개선 중인 종목만)
+    filtered = df[df['score'] > 3].copy()
+    if filtered.empty:
+        return None
+
     biz_day = get_last_business_day()
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
+    count = len(filtered)
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('      ⚡ 턴어라운드 주목')
+    lines.append(f'      ⚡ 턴어라운드 주목 ({count}종목)')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
@@ -613,7 +619,7 @@ def create_turnaround_message(df, top_n=10):
     lines.append('마이너스(-)가 플러스(+)로 바뀌면 주목!')
     lines.append('')
 
-    for idx, (_, row) in enumerate(df.head(top_n).iterrows()):
+    for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
         ticker = row['ticker']
         name = row.get('short_name', ticker)
@@ -762,23 +768,25 @@ def main():
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
         channel_id = config.get('telegram_channel_id')
 
-        # Part 1 (모멘텀 랭킹) → GitHub Actions: 채널+개인봇 / 로컬: 개인봇
+        # 발송 순서: Part 1 → 턴어라운드 → Part 2 (핵심이 마지막 = 가장 먼저 눈에 띔)
+
+        # Part 1 (모멘텀 랭킹)
         if msg_part1:
             target = channel_id if (is_github and channel_id) else private_id
             send_telegram_long(msg_part1, config, chat_id=target)
             log(f"Part 1 (모멘텀 랭킹) 전송 완료 → {'채널' if target == channel_id else '개인봇'}")
 
-        # Part 2 (매수 후보) → GitHub Actions: 채널 / 로컬: 개인봇
-        if msg_part2:
-            target = channel_id if (is_github and channel_id) else private_id
-            send_telegram_long(msg_part2, config, chat_id=target)
-            log(f"Part 2 (매수 후보) 전송 완료 → {'채널' if target == channel_id else '개인봇'}")
-
-        # 턴어라운드 → GitHub Actions: 채널 / 로컬: 개인봇
+        # 턴어라운드
         if msg_turnaround:
             target = channel_id if (is_github and channel_id) else private_id
             send_telegram_long(msg_turnaround, config, chat_id=target)
             log(f"턴어라운드 전송 완료 → {'채널' if target == channel_id else '개인봇'}")
+
+        # Part 2 (매수 후보) — 핵심 리포트, 마지막 발송
+        if msg_part2:
+            target = channel_id if (is_github and channel_id) else private_id
+            send_telegram_long(msg_part2, config, chat_id=target)
+            log(f"Part 2 (매수 후보) 전송 완료 → {'채널' if target == channel_id else '개인봇'}")
 
         # 시스템 로그 → 개인봇에만 (항상)
         send_telegram_long(msg_log, config, chat_id=private_id)
