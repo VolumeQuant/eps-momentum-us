@@ -712,11 +712,13 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config):
 [시스템 요약]
 이 시스템은 월가 애널리스트들의 EPS 전망치(향후 12개월) 변화를 추적해.
 매수 후보 = EPS 전망치는 올랐는데 주가가 아직 안 따라온 종목 (괴리율 순).
-1위 = 가장 저평가 가능성이 높은 종목.
+순위가 높을수록 주가가 EPS 대비 많이 빠진 종목이야. → 왜 빠졌는지가 핵심!
 신호등(🟢🔵🟡🔴) = EPS 변화 방향 (왼쪽=과거→오른쪽=최근, 🟢=강한상승, 🔴=하락).
-⚠️ = 주가 급락이 EPS 대비 과도한 종목 (함정 가능성).
+⚠️ = 주가 급락이 EPS 대비 과도한 종목 (함정 가능성). → 반드시 깊이 파볼 것!
 추세 설명 = 신호등 패턴 기반 자동 판정 (강세 지속, 최근 꺾임, 반등 등).
-※ 데이터의 EPS%/주가% 수치는 시스템 내부 가중평균이야. 실제 값이 아니니 인용하지 마.
+
+⚠️ 절대 금지: 데이터의 EPS%/주가% 수치는 시스템 내부 가중평균이야.
+실제 EPS나 주가 등락률이 아니야. 절대로 이 수치를 인용하거나 언급하지 마.
 
 [검증 대상: 매수 후보 Top 30]
 {strip_html(msg_part2)}
@@ -731,19 +733,27 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config):
 Top 30 각 종목을 웹 검색해서 사면 안 되는 이유가 있는지 찾아.
 사도 되는 종목은 왜 괜찮은지 근거를 제시해.
 
+핵심 원칙:
+- 순위가 높은 종목 = 주가가 많이 빠진 종목. "왜 빠졌는지"를 반드시 웹 검색으로 찾아.
+  기회(과매도)인지 함정(구조적 악재)인지 판별하는 게 가장 중요해.
+- ⚠️ 경고가 붙은 종목은 특히 깊이 조사해. 주가 급락 원인을 구체적으로 밝혀.
+- 같은 업종 종목이 여러 개면, 업종 전체 트렌드인지 개별 이슈인지 구분해.
+
 검증 관점:
 ① EPS 품질: 매출 성장인지, 비용 절감/자사주 매입/일회성인지
-② 악재 유무: 소송, 규제, 경쟁 심화, 업종 악재, 대주주 매도 등
+② 주가 하락 원인: 소송, 규제, 경쟁 심화, 업종 악재, 대주주 매도, 가이던스 하향 등
 ③ 밸류에이션: 동종업계 대비 Fwd PE가 합리적인지
 ④ 재무 건전성: 부채비율, FCF, 이자보상배율
-⑤ 실적 발표: earnings date 임박 여부
+⑤ 실적 발표: earnings date 임박 시 "어닝 갬블" 리스크 명시
 ⑥ 내부자/기관: insider trading, 기관 비중 변화
 + 이 외 중요한 정보가 있으면 자유롭게 추가해.
 
 [출력 형식] 한국어, 친절한 말투(~예요/~해요)
 1. 시장 한줄평: Top 30 섹터 구성에서 읽히는 오늘의 시장 테마
-2. 매수 유효: 검증 통과한 종목과 근거 (수는 자유)
-3. 매수 주의: 함정일 수 있는 종목과 구체적 이유 (2-3개)
+2. 매수 유효: 검증 통과한 종목과 근거 (종목마다 빈 줄로 구분)
+3. 매수 주의: 함정일 수 있는 종목과 구체적 이유 (종목마다 빈 줄로 구분)
+※ 종목별 분석 사이에 반드시 빈 줄을 넣어서 가독성을 확보해.
+※ 데이터의 EPS%/주가% 수치는 절대 인용하지 마. 웹 검색으로 찾은 실제 정보만 사용해.
 총 3000자 이내."""
 
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
@@ -763,8 +773,13 @@ Top 30 각 종목을 웹 검색해서 사면 안 되는 이유가 있는지 찾�
 
         # Markdown → Telegram HTML 변환
         analysis_html = analysis_text
+        # 1. HTML 특수문자 이스케이프 (Telegram HTML 파서 호환)
+        analysis_html = analysis_html.replace('&', '&amp;')
+        analysis_html = analysis_html.replace('<', '&lt;')
+        analysis_html = analysis_html.replace('>', '&gt;')
+        # 2. Markdown → HTML 태그 변환
         analysis_html = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', analysis_html)  # **bold**
-        analysis_html = re.sub(r'\*(.+?)\*', r'<i>\1</i>', analysis_html)      # *italic*
+        analysis_html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', analysis_html)  # *italic* (리스트 항목 제외)
         analysis_html = re.sub(r'#{1,3}\s*', '', analysis_html)                # ### headings
         analysis_html = analysis_html.replace('---', '━━━')                    # hr
 
