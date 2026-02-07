@@ -378,8 +378,9 @@ def calculate_ntm_score(ntm_values):
     n60 = ntm_values['60d']
     n90 = ntm_values['90d']
 
-    # 턴어라운드 판별: 5개 값 중 하나라도 |EPS| < $1.00
-    is_turnaround = any(abs(v) < MIN_NTM_EPS for v in [nc, n7, n30, n60, n90])
+    # 턴어라운드 판별: 현재 또는 90일전 |EPS| < $1.00
+    # (기저가 낮으면 변화율이 과대 계산되므로)
+    is_turnaround = abs(nc) < MIN_NTM_EPS or abs(n90) < MIN_NTM_EPS
 
     # 각 segment 변화율 계산
     seg1 = (nc - n7) / abs(n7) * 100 if n7 != 0 else 0
@@ -410,16 +411,85 @@ def calculate_eps_change_90d(ntm_values):
     return (nc - n90) / abs(n90) * 100
 
 
-def get_trend_arrows(seg1, seg2, seg3, seg4):
-    """추세 화살표 생성 (90d/60d/30d/7d 순서 = 과거→현재)
+def get_trend_lights(seg1, seg2, seg3, seg4):
+    """추세 신호등 생성 (90d/60d/30d/7d 순서 = 과거→현재)
 
     Args:
-        seg1-seg4: calculate_ntm_score()에서 반환된 segment 값
+        seg1-seg4: calculate_ntm_score()에서 반환된 segment 값 (%)
 
     Returns:
-        str: 예) "↑↑↑↓"
+        tuple: (lights_str, description)
+            lights_str: 예) "🟢🟢🟡🟡"
+            description: 예) "둔화"
     """
-    arrows = []
-    for seg in [seg4, seg3, seg2, seg1]:  # 과거→현재 순서
-        arrows.append('↑' if seg > 0 else '↓')
-    return ''.join(arrows)
+    segs = [seg4, seg3, seg2, seg1]  # 과거→현재 순서
+
+    # 신호등: 🟢 >2%, 🟡 0~2%, 🔴 <0%
+    lights = []
+    for s in segs:
+        if s > 2:
+            lights.append('🟢')
+        elif s >= 0:
+            lights.append('🟡')
+        else:
+            lights.append('🔴')
+
+    lights_str = ''.join(lights)
+
+    # 추세 설명
+    green_count = lights.count('🟢')
+    yellow_count = lights.count('🟡')
+    red_count = lights.count('🔴')
+    recent = lights[2:]  # 30d, 7d
+    old = lights[:2]     # 90d, 60d
+
+    recent_greens = recent.count('🟢')
+    recent_reds = recent.count('🔴')
+    old_greens = old.count('🟢')
+    old_reds = old.count('🔴')
+
+    # 전체 양수/음수 개수
+    pos_count = sum(1 for s in segs if s > 0)
+
+    if red_count >= 3:
+        desc = '하락세'
+    elif green_count == 4:
+        desc = '강세 지속'
+    elif green_count >= 3 and recent_reds == 0:
+        desc = '소폭 감속' if recent_greens < old_greens else '강세 지속'
+    elif old_greens >= 2 and recent_greens == 0 and recent_reds == 0:
+        desc = '둔화'
+    elif old_reds >= 1 and recent_greens >= 1 and recent_reds == 0:
+        desc = '반등'
+    elif recent_reds >= 1 and old_greens >= 1:
+        desc = '최근 꺾임'
+    elif red_count == 0 and green_count == 0:
+        desc = '거의 정체'
+    elif red_count == 0 and green_count >= 2:
+        # 녹색 2개+, 적색 없음 — 위치에 따라 분류
+        if recent_greens >= old_greens:
+            desc = '가속'
+        else:
+            desc = '감속'
+    elif red_count == 0 and green_count == 1:
+        desc = '소폭 개선'
+    elif red_count == 1 and green_count >= 2:
+        desc = '일시 조정'
+    elif red_count >= 1 and pos_count >= 3:
+        desc = '변동 개선'
+    elif green_count == 0 and red_count >= 1:
+        # 녹색 없음, 노랑+빨강 혼합
+        if lights[-1] == '🔴':
+            desc = '최근 약세'
+        elif old_reds >= 1 and recent_reds == 0:
+            desc = '회복 중'
+        elif red_count == 1:
+            desc = '일시 조정'
+        else:
+            desc = '등락 반복'
+    elif red_count >= 2 and green_count >= 1:
+        desc = '혼조'
+    else:
+        desc = '개선 중'
+
+    return lights_str, desc

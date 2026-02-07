@@ -77,7 +77,11 @@
       "Bash(sqlite3:*)",
       "Bash(find:*)",
       "Bash(grep:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(C:Usersjkw88miniconda3envsvolumequantpython.exe daily_runner.py)",
+      "Bash(xargs ls:*)",
+      "Bash(sort:*)",
+      "Bash(python3:*)"
     ]
   }
 }

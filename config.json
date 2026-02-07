@@ -3,8 +3,8 @@
   "git_remote": "origin",
   "git_branch": "master",
   "telegram_enabled": true,
-  "telegram_bot_token": "7948087946:AAGVHj7FdBxr0LRJzQTzfEp0HadzAtoXs-8",
-  "telegram_chat_id": "7580571403",
+  "telegram_bot_token": "",
+  "telegram_chat_id": "",
   "indices": [
     "NASDAQ_100",
     "SP500",

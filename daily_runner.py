@@ -137,7 +137,7 @@ def run_ntm_collection(config):
     from eps_momentum_system import (
         INDICES, INDUSTRY_MAP,
         calculate_ntm_eps, calculate_ntm_score, calculate_eps_change_90d,
-        get_trend_arrows,
+        get_trend_lights,
     )
 
     init_ntm_database()
@@ -195,7 +195,7 @@ def run_ntm_collection(config):
             # Score 계산
             score, seg1, seg2, seg3, seg4, is_turnaround = calculate_ntm_score(ntm)
             eps_change_90d = calculate_eps_change_90d(ntm)
-            trend = get_trend_arrows(seg1, seg2, seg3, seg4)
+            trend_lights, trend_desc = get_trend_lights(seg1, seg2, seg3, seg4)
 
             # DB 적재
             cursor.execute('''
@@ -279,7 +279,8 @@ def run_ntm_collection(config):
                 'ntm_60d': ntm['60d'],
                 'ntm_90d': ntm['90d'],
                 'eps_change_90d': eps_change_90d,
-                'trend': trend,
+                'trend_lights': trend_lights,
+                'trend_desc': trend_desc,
                 'price_chg': price_chg,
                 'fwd_pe': fwd_pe_now,
                 'fwd_pe_chg': fwd_pe_chg,
@@ -337,7 +338,7 @@ def run_ntm_collection(config):
     if not results_df.empty:
         stats['score_gt0'] = int((results_df['score'] > 0).sum())
         stats['score_gt3'] = int((results_df['score'] > 3).sum())
-        stats['aligned_count'] = int((results_df['trend'] == '↑↑↑↑').sum())
+        stats['aligned_count'] = int((results_df['trend_lights'] == '🟢🟢🟢🟢').sum())
 
     log(f"수집 완료: 메인 {len(results)}, 턴어라운드 {len(turnaround)}, "
         f"데이터없음 {len(no_data)}, 에러 {len(errors)}")
@@ -350,10 +351,14 @@ def run_ntm_collection(config):
 # ============================================================
 
 def git_commit_push(config):
-    """Git 자동 commit/push"""
+    """Git 자동 commit/push (GitHub Actions에서는 워크플로우가 처리)"""
     if not config.get('git_enabled', False):
         log("Git 동기화 비활성화됨")
         return False
+
+    if config.get('is_github_actions', False):
+        log("GitHub Actions 환경 — 워크플로우에서 Git 처리")
+        return True
 
     log("Git commit/push 시작")
 
@@ -373,7 +378,7 @@ def git_commit_push(config):
             return True
 
         remote = config.get('git_remote', 'origin')
-        branch = config.get('git_branch', 'main')
+        branch = config.get('git_branch', 'master')
         subprocess.run(['git', 'push', remote, branch], cwd=PROJECT_ROOT, check=True, capture_output=True)
 
         log("Git push 완료")
@@ -425,13 +430,24 @@ def create_part1_message(df, top_n=30):
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
     lines = []
-    lines.append(f'안녕하세요! 오늘({today_str}) 미국주식 EPS 모멘텀 리포트입니다 📊')
+    lines.append(f'안녕하세요! 오늘({today_str}) 이익 모멘텀 리포트입니다 📊')
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('      📈 이익 모멘텀 Top 30')
+    lines.append(f'      📈 이익 모멘텀 Top {top_n}')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
-    lines.append('90일간 이익 추정치 변화율 순')
+    lines.append('')
+    lines.append('월가 애널리스트들이 이익 전망을')
+    lines.append('가장 많이 올린 기업 순위입니다.')
+    lines.append('이익 전망 상향은 실적 서프라이즈와')
+    lines.append('주가 상승의 강력한 선행 신호예요.')
+    lines.append('')
+    lines.append('💡 <b>읽는 법</b>')
+    lines.append('이익변화 = 90일간 애널리스트 이익 전망 변화율')
+    lines.append('🟢강한 개선  🟡소폭 개선  🔴하락')
+    lines.append('(구간 순서: 90d → 60d → 30d → 7d)')
+    lines.append('🟢가 많을수록 꾸준히 오르는 중,')
+    lines.append('오른쪽 🟢가 많으면 최근 가속 신호예요.')
     lines.append('')
 
     medals = {1: '🥇', 2: '🥈', 3: '🥉'}
@@ -443,17 +459,15 @@ def create_part1_message(df, top_n=30):
         industry = row.get('industry', '')
         eps_chg = row.get('eps_change_90d')
         eps_str = f"{eps_chg:+.1f}%" if pd.notna(eps_chg) else '-'
-        trend = row.get('trend', '')
+        lights = row.get('trend_lights', '')
+        desc = row.get('trend_desc', '')
 
         icon = medals.get(rank, '📌')
         lines.append(f'{icon} <b>{rank}위</b> {name} ({ticker}) <i>{industry}</i>')
-        lines.append(f'    이익변화 <b>{eps_str}</b> · 추세(90d/60d/30d/7d) {trend}')
+        lines.append(f'    이익변화 <b>{eps_str}</b> · {lights} {desc}')
 
         if rank == 3:
             lines.append('')
-
-    lines.append('')
-    lines.append('<i>추세 ↑↓ = 각 구간별 이익 추정치 변화 방향</i>')
 
     return '\n'.join(lines)
 
@@ -470,11 +484,12 @@ def create_part2_message(df, top_n=30):
     # Score > 3 필터
     filtered = df[df['score'] > 3].copy()
 
-    # 괴리율(fwd_pe_chg) 있는 것만 + Fwd PE > 0
+    # 괴리율(fwd_pe_chg) 있는 것만 + Fwd PE > 0 + EPS 변화 양수
     filtered = filtered[
         filtered['fwd_pe_chg'].notna() &
         filtered['fwd_pe'].notna() &
-        (filtered['fwd_pe'] > 0)
+        (filtered['fwd_pe'] > 0) &
+        (filtered['eps_change_90d'] > 0)
     ].copy()
 
     # 괴리율 오름차순 (더 마이너스 = 더 좋은 매수 기회)
@@ -483,13 +498,23 @@ def create_part2_message(df, top_n=30):
     count = min(top_n, len(filtered))
 
     lines = []
-    lines.append(f'안녕하세요! 오늘({today_str}) 미국주식 매수 후보 리포트입니다 💰')
+    lines.append(f'오늘({today_str}) 매수 후보 리포트입니다 💰')
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'      💰 매수 후보 Top {count}')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
-    lines.append('이익은 올랐는데 주가가 덜 따라간 종목')
+    lines.append('')
+    lines.append('이익 전망은 좋아졌는데')
+    lines.append('주가가 아직 못 따라간 종목입니다.')
+    lines.append('시장이 아직 반영 못 한 기회일 수 있어요.')
+    lines.append('')
+    lines.append('💡 <b>읽는 법</b>')
+    lines.append('이익/주가 = 90일간 변화율')
+    lines.append('이익은 오르고 주가는 덜 올랐다면')
+    lines.append('아직 저평가 구간일 가능성이 있어요.')
+    lines.append('🟢가 많을수록 이익 개선이 탄탄한 종목이에요.')
+    lines.append('⚠️ = 주가 하락이 이익 대비 과도한 종목')
     lines.append('')
 
     medals = {1: '🥇', 2: '🥈', 3: '🥉'}
@@ -499,24 +524,35 @@ def create_part2_message(df, top_n=30):
         ticker = row['ticker']
         name = row.get('short_name', ticker)
         industry = row.get('industry', '')
-        trend = row.get('trend', '')
+        lights = row.get('trend_lights', '')
+        desc = row.get('trend_desc', '')
         eps_chg = row.get('eps_change_90d')
         eps_str = f"{eps_chg:+.1f}%" if pd.notna(eps_chg) else '-'
         price_chg = row.get('price_chg')
         price_str = f"{price_chg:+.1f}%" if pd.notna(price_chg) else '-'
-        pe_chg = row.get('fwd_pe_chg')
-        pe_str = f"{pe_chg:+.1f}%" if pd.notna(pe_chg) else '-'
 
-        icon = medals.get(rank, '📌')
+        # ⚠️ 판별: 이익 > 0이고 주가 < 0일 때, |주가변화| / |이익변화| > 5
+        is_warning = False
+        if (pd.notna(eps_chg) and pd.notna(price_chg)
+                and eps_chg > 0 and price_chg < 0):
+            ratio = abs(price_chg) / abs(eps_chg)
+            if ratio > 5:
+                is_warning = True
+
+        icon = '⚠️' if is_warning else medals.get(rank, '📌')
         lines.append(f'{icon} <b>{rank}위</b> {name} ({ticker}) <i>{industry}</i>')
-        lines.append(f'    이익변화 {eps_str} · 주가변화 {price_str} · 괴리율 <b>{pe_str}</b>')
-        lines.append(f'    추세(90d/60d/30d/7d) {trend}')
+        lines.append(f'    이익 {eps_str} · 주가 {price_str}')
+        lines.append(f'    {lights} {desc}')
+
+        if is_warning:
+            lines.append(f'    주가 하락이 이익 대비 과도합니다. 확인 필요.')
 
         if rank == 3:
             lines.append('')
 
     lines.append('')
-    lines.append('<i>괴리율 = 7d~90d Fwd PE 변화율 가중평균 (최근↑), 마이너스일수록 저평가</i>')
+    lines.append('주가 하락에는 항상 이유가 있을 수 있으니')
+    lines.append('뉴스와 실적 발표 일정을 꼭 확인하세요.')
 
     return '\n'.join(lines)
 
@@ -536,7 +572,14 @@ def create_turnaround_message(df, top_n=10):
     lines.append('      ⚡ 턴어라운드 주목')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
-    lines.append('적자축소·흑자전환 신호 종목 (|EPS| &lt; $1)')
+    lines.append('')
+    lines.append('적자가 빠르게 줄거나 흑자 전환 가능성이')
+    lines.append('보이는 기업입니다. 성공하면 큰 수익이')
+    lines.append('가능하지만 리스크도 큰 종목들이에요.')
+    lines.append('')
+    lines.append('💡 EPS = 90일 전 → 현재 이익 전망')
+    lines.append('마이너스(-)에서 플러스(+)로 바뀌면')
+    lines.append('흑자 전환 신호예요.')
     lines.append('')
 
     medals = {1: '🥇', 2: '🥈', 3: '🥉'}
@@ -546,19 +589,18 @@ def create_turnaround_message(df, top_n=10):
         ticker = row['ticker']
         name = row.get('short_name', ticker)
         industry = row.get('industry', '')
-        trend = row.get('trend', '')
+        lights = row.get('trend_lights', '')
+        desc = row.get('trend_desc', '')
         ntm_90d = row.get('ntm_90d', 0)
         ntm_cur = row.get('ntm_cur', 0)
 
         icon = medals.get(rank, '📌')
         lines.append(f'{icon} <b>{rank}위</b> {name} ({ticker}) <i>{industry}</i>')
-        lines.append(f'    EPS ${ntm_90d:.2f} → ${ntm_cur:.2f} · 추세(90d/60d/30d/7d) {trend}')
+        lines.append(f'    EPS ${ntm_90d:.2f} → ${ntm_cur:.2f}')
+        lines.append(f'    {lights} {desc}')
 
         if rank == 3:
             lines.append('')
-
-    lines.append('')
-    lines.append('<i>90일 전 EPS → 현재 EPS 추이</i>')
 
     return '\n'.join(lines)
 
@@ -593,7 +635,7 @@ def create_system_log_message(stats, elapsed, config):
     lines.append('')
     lines.append(f'Score &gt; 0: {stats.get("score_gt0", 0)} ({stats.get("score_gt0", 0) * 100 // max(main_cnt, 1)}%)')
     lines.append(f'Score &gt; 3: {stats.get("score_gt3", 0)} ({stats.get("score_gt3", 0) * 100 // max(main_cnt, 1)}%)')
-    lines.append(f'정배열 ↑↑↑↑: {stats.get("aligned_count", 0)}')
+    lines.append(f'강세 지속 🟢🟢🟢🟢: {stats.get("aligned_count", 0)}')
 
     lines.append(f'\n소요: {minutes}분 {seconds}초')
 
@@ -694,10 +736,11 @@ def main():
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
         channel_id = config.get('telegram_channel_id')
 
-        # Part 1 (모멘텀 랭킹) → 개인봇에만 (항상)
+        # Part 1 (모멘텀 랭킹) → GitHub Actions: 채널+개인봇 / 로컬: 개인봇
         if msg_part1:
-            send_telegram_long(msg_part1, config, chat_id=private_id)
-            log("Part 1 (모멘텀 랭킹) 전송 완료 → 개인봇")
+            target = channel_id if (is_github and channel_id) else private_id
+            send_telegram_long(msg_part1, config, chat_id=target)
+            log(f"Part 1 (모멘텀 랭킹) 전송 완료 → {'채널' if target == channel_id else '개인봇'}")
 
         # Part 2 (매수 후보) → GitHub Actions: 채널 / 로컬: 개인봇
         if msg_part2:
