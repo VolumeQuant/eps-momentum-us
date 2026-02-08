@@ -653,7 +653,7 @@ def create_system_log_message(stats, elapsed, config):
 # ============================================================
 
 def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=None):
-    """AI 브리핑 — 매수 후보 뉴스 기반 리스크 체크 (검색은 코드가, 분석은 AI가)"""
+    """AI 브리핑 — 정량 위험 신호 기반 리스크 해석 (데이터는 코드가, 해석은 AI가)"""
     api_key = config.get('gemini_api_key', '')
     if not api_key:
         log("GEMINI_API_KEY 미설정 — AI 분석 스킵", "WARN")
@@ -672,41 +672,77 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
         import re
         import yfinance as yf
 
-        # Part 2 종목 추출 (기존 필터 로직)
-        part2_stocks = []
-        if results_df is not None and not results_df.empty:
-            filtered = results_df[results_df['adj_score'] > 9].copy()
-            filtered = filtered[
-                filtered['fwd_pe_chg'].notna() &
-                filtered['fwd_pe'].notna() &
-                (filtered['fwd_pe'] > 0) &
-                (filtered['eps_change_90d'] > 0)
-            ].copy()
-            filtered = filtered.sort_values('fwd_pe_chg').head(30)
-            for _, row in filtered.iterrows():
-                part2_stocks.append((row['ticker'], row.get('short_name', row['ticker']), row.get('industry', 'N/A')))
+        # Part 2 종목 추출 + 위험 신호 수집
+        if results_df is None or results_df.empty:
+            log("results_df 없음 — AI 분석 스킵", "WARN")
+            return None
 
-        if not part2_stocks:
+        filtered = results_df[results_df['adj_score'] > 9].copy()
+        filtered = filtered[
+            filtered['fwd_pe_chg'].notna() &
+            filtered['fwd_pe'].notna() &
+            (filtered['fwd_pe'] > 0) &
+            (filtered['eps_change_90d'] > 0)
+        ].copy()
+        filtered = filtered.sort_values('fwd_pe_chg').head(30)
+
+        if filtered.empty:
             log("Part 2 종목 없음 — AI 분석 스킵", "WARN")
             return None
 
-        stock_count = len(part2_stocks)
+        stock_count = len(filtered)
         today_dt = datetime.now()
         today_str = today_dt.strftime('%Y-%m-%d')
         today_date = today_dt.date()
-        week_ago = (today_dt - timedelta(days=7)).date()
         two_weeks_date = (today_dt + timedelta(days=14)).date()
 
-        # 종목별 뉴스 + 어닝 일정 수집 (같은 Ticker 객체 재사용)
-        log("뉴스 & 어닝 일정 수집 중...")
-        news_by_ticker = {}
+        # 종목별 위험 신호 구성
+        log("위험 신호 & 어닝 일정 수집 중...")
+        signal_lines = []
         earnings_tickers = []
 
-        for ticker, short_name, industry in part2_stocks:
+        for _, row in filtered.iterrows():
+            ticker = row['ticker']
+            name = row.get('short_name', ticker)
+            industry = row.get('industry', '')
+            adj_score = row.get('adj_score', 0)
+            eps_chg = row.get('eps_change_90d', 0) or 0
+            price_chg = row.get('price_chg', 0) or 0
+            fwd_pe = row.get('fwd_pe', 0) or 0
+            rev_up = int(row.get('rev_up30', 0) or 0)
+            rev_down = int(row.get('rev_down30', 0) or 0)
+            lights = row.get('trend_lights', '')
+            desc = row.get('trend_desc', '')
+            direction = row.get('direction', 0) or 0
+            eps_w = row.get('eps_chg_weighted', 0) or 0
+            price_w = row.get('price_chg_weighted', 0) or 0
+
+            # 위험 신호 플래그
+            flags = []
+
+            # 1. 애널리스트 하향
+            if rev_down >= 3:
+                flags.append(f"🔻 의견 하향 {rev_down}건 (상향 {rev_up}건)")
+            elif rev_down >= 1 and rev_down >= rev_up:
+                flags.append(f"📉 의견 하향 {rev_down}건 ≥ 상향 {rev_up}건")
+
+            # 2. 주가 급락 vs EPS 상승 (⚠️ 플래그)
+            if eps_w > 0 and price_w < 0 and abs(price_w) / max(abs(eps_w), 0.01) > 5:
+                flags.append(f"⚠️ EPS +{eps_chg:.1f}% vs 주가 {price_chg:+.1f}% (극단적 괴리)")
+            elif price_chg < -20:
+                flags.append(f"📉 주가 90일 {price_chg:+.1f}% 급락")
+
+            # 3. 패턴 꺾임 (추세 전환, 최근 꺾임)
+            if direction < -10:
+                flags.append(f"↘️ 모멘텀 감속 중 (direction {direction:+.1f})")
+
+            # 4. 고평가
+            if fwd_pe > 50:
+                flags.append(f"💰 Fwd PE {fwd_pe:.1f}배 (고평가)")
+
+            # 5. 어닝 임박
             try:
                 stock = yf.Ticker(ticker)
-
-                # 어닝 일정
                 cal = stock.calendar
                 if cal is not None:
                     earn_dates = cal.get('Earnings Date', [])
@@ -716,113 +752,63 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
                         if hasattr(ed, 'date'):
                             ed = ed.date()
                         if today_date <= ed <= two_weeks_date:
-                            earnings_tickers.append(f"{ticker} {ed.month}/{ed.day}")
+                            flags.append(f"📅 어닝 {ed.month}/{ed.day}")
+                            earnings_tickers.append(f"{name} ({ticker}) {ed.month}/{ed.day}")
                             break
-
-                # 뉴스 수집 (최근 7일, 최대 5건)
-                news_items = []
-                raw_news = stock.news or []
-                for item in raw_news[:5]:
-                    c = item.get('content', {})
-                    title = c.get('title', '')
-                    summary = c.get('summary', '')
-                    pub_date = c.get('pubDate', '')[:10]
-                    provider = c.get('provider', {}).get('displayName', '')
-
-                    if not title:
-                        continue
-
-                    # 7일 이내 필터
-                    try:
-                        from datetime import date as date_type
-                        pub = datetime.strptime(pub_date, '%Y-%m-%d').date()
-                        if pub < week_ago:
-                            continue
-                    except (ValueError, TypeError):
-                        pass  # 날짜 파싱 실패시 포함
-
-                    news_items.append({
-                        'title': title,
-                        'summary': summary,
-                        'date': pub_date,
-                        'provider': provider,
-                    })
-
-                if news_items:
-                    news_by_ticker[ticker] = news_items
-
             except Exception:
                 pass
 
-        log(f"뉴스 수집 완료: {len(news_by_ticker)}/{stock_count}종목, "
-            f"2주내 어닝: {len(earnings_tickers)}종목")
+            # 종목 라인 구성
+            header = f"{name} ({ticker}) · {industry} · {lights} {desc} · 점수 {adj_score:.1f}"
+            header += f"\n  EPS {eps_chg:+.1f}% / 주가 {price_chg:+.1f}% · 의견 ↑{rev_up} ↓{rev_down} · Fwd PE {fwd_pe:.1f}"
 
+            if flags:
+                header += "\n  " + " | ".join(flags)
+            else:
+                header += "\n  (위험 신호 없음)"
+
+            signal_lines.append(header)
+
+        signals_data = '\n\n'.join(signal_lines)
         earnings_info = ' · '.join(earnings_tickers) if earnings_tickers else '해당 없음'
 
-        # 뉴스 데이터 포맷팅
-        news_sections = []
-        no_news_tickers = []
-        for ticker, short_name, industry in part2_stocks:
-            if ticker in news_by_ticker:
-                lines = [f"[{short_name} ({ticker}) — {industry}]"]
-                for n in news_by_ticker[ticker]:
-                    date_short = n['date'][5:].replace('-', '/')  # "02/08"
-                    lines.append(f"- [{date_short}] {n['title']}")
-                    if n['summary']:
-                        lines.append(f"  > {n['summary'][:100]}")
-                news_sections.append('\n'.join(lines))
-            else:
-                no_news_tickers.append(f"{short_name} ({ticker})")
-
-        news_data = '\n\n'.join(news_sections) if news_sections else '뉴스 없음'
-
-        # 티커 목록 (리스크 미발견 분류용)
-        all_tickers_str = ' · '.join(f"{n} ({t})" for t, n, _ in part2_stocks)
+        log(f"위험 신호 수집 완료: {stock_count}종목, 어닝 {len(earnings_tickers)}종목")
 
         prompt = f"""오늘 날짜: {today_str}
 
-아래는 EPS 모멘텀 시스템이 선정한 매수 후보 {stock_count}종목과, 각 종목의 최근 뉴스야.
-이 종목들은 EPS 전망치가 상향 중인 좋은 종목이야. 네 역할은 "진짜 위험한 리스크"만 찾아내는 거야.
+아래는 EPS 모멘텀 시스템의 매수 후보 {stock_count}종목과 각 종목의 정량적 위험 신호야.
+이 종목들은 EPS 전망치가 상향 중이라 선정된 거야.
+네 역할: 위험 신호를 해석해서 "사면 위험한 종목"을 고객에게 알려주는 거야.
 
-[매수 후보 전체]
-{all_tickers_str}
+[종목별 데이터 & 위험 신호 — 시스템이 계산한 팩트]
+{signals_data}
 
-[종목별 최근 뉴스 — 코드가 Yahoo Finance에서 수집]
-{news_data}
+[위험 신호 설명]
+🔻 의견 하향 N건 = 30일간 N명의 애널리스트가 EPS 전망치를 낮춤
+📉 의견 하향 ≥ 상향 = 하향 애널리스트가 상향보다 같거나 많음
+⚠️ 극단적 괴리 = EPS는 올랐는데 주가가 훨씬 더 빠짐 (시장이 뭔가를 알고 있을 수 있음)
+📉 주가 급락 = 90일간 주가 -20% 이상 하락
+↘️ 모멘텀 감속 = 최근 EPS 상향 속도가 과거보다 크게 둔화
+💰 고평가 = Forward PE 50배 초과
+📅 어닝 = 2주 내 실적 발표 예정 (발표 전후 변동성 주의)
 
-[어닝 일정 — 코드가 yfinance에서 확인 완료]
-{earnings_info}
-
-[출력 규칙]
-언어: 한국어, 친절한 말투(~예요/~해요)
-총 1500자 이내. 간결하게.
+[출력 형식] 한국어, 친절한 말투(~예요/~해요). 총 1500자 이내.
 
 📰 시장 동향
-어제 미국 시장 마감 동향과 금주 주요 이벤트를 Google 검색해서 2~3줄로 요약해줘.
+어제 미국 시장 마감과 금주 주요 이벤트를 Google 검색해서 2~3줄 요약.
 
-⚠️ 리스크 체크
-위 뉴스에서 매수 판단을 바꿀 만한 심각한 리스크만 골라줘.
-
-리스크로 인정하는 것 (엄격 기준):
-- 애널리스트 다운그레이드 또는 목표가 대폭 하향
-- 어닝 미스, 가이던스 하향, 실적 경고
-- 소송, 규제 조치, SEC 조사, 내부자 대량 매도
-- 회사 고유의 구체적 악재 (제품 리콜, 계약 해지 등)
-
-리스크가 아닌 것 (무시해야 함):
-- 단순 주가 하락 (원인 없는 하락은 리스크가 아님, 매수 기회일 수 있음)
-- "경쟁 심화", "변동성", "관세 우려" 같은 업종/시장 전체 이슈
-- 공급 부족 (수요 과잉의 반증일 수 있음)
-- 사소한 운영 이슈, 고객 불만, 일반적 뉴스
-- 뉴스에 없는 내용을 추측하거나 지어내는 것
-
-형식: 각 종목 1줄, 종목명(티커) — 리스크 요약 (날짜)
+⚠️ 매수 주의 종목
+위 위험 신호를 종합해서 매수를 재고할 만한 종목을 골라줘.
+각 종목 1~2줄: 종목명(티커) — 무엇이 위험한지, 왜 주의해야 하는지 설명.
+위험 신호가 없는 종목은 절대 여기에 넣지 마.
+시스템 데이터에 없는 내용을 추측하거나 지어내지 마.
 
 📅 어닝 주의
-위 [어닝 일정]을 그대로 표시. 수정/추가 금지. "해당 없음"이면 이 섹션 생략.
+{earnings_info}
+(위 내용 그대로 표시. 수정/추가 금지. "해당 없음"이면 이 섹션 생략.)
 
-✅ 리스크 미발견
-⚠️에 해당하지 않는 나머지 종목을 종목명(티커) 형식으로 · 구분하여 한 줄 나열."""
+✅ 위험 신호 없음
+위험 신호가 없는 종목을 종목명(티커) 형식으로 · 구분하여 한 줄 나열."""
 
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         response = client.models.generate_content(
@@ -878,8 +864,8 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {now.strftime("%Y년 %m월 %d일")}')
         lines.append('')
-        lines.append('매수 후보의 최근 뉴스를 AI가 분석해서')
-        lines.append('리스크를 체크했어요. 참고용이에요!')
+        lines.append('매수 후보의 위험 신호를 AI가 해석했어요.')
+        lines.append('투자 판단의 참고용이에요!')
         lines.append('')
         lines.append(analysis_html)
 
