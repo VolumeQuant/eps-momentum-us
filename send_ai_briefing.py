@@ -41,14 +41,9 @@ def main():
 
     log(f"AI 브리핑 생성 완료 ({len(msg_ai)}자)")
 
-    # 텔레그램 발송 — 채널 + 개인봇
+    # 텔레그램 발송 — 개인봇에만 (테스트)
     if config.get('telegram_enabled', False):
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
-        channel_id = config.get('telegram_channel_id')
-
-        if channel_id:
-            send_telegram_long(msg_ai, config, chat_id=channel_id)
-            log("AI 브리핑 전송 완료 → 채널")
 
         if private_id:
             send_telegram_long(msg_ai, config, chat_id=private_id)
