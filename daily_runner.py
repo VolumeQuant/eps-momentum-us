@@ -653,7 +653,7 @@ def create_system_log_message(stats, elapsed, config):
 # ============================================================
 
 def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=None):
-    """Gemini 2.5 Flash 뉴스 스캐너 - 매수 후보 리스크 체크 (Google Search Grounding)"""
+    """AI 브리핑 — 매수 후보 뉴스 기반 리스크 체크 (검색은 코드가, 분석은 AI가)"""
     api_key = config.get('gemini_api_key', '')
     if not api_key:
         log("GEMINI_API_KEY 미설정 — AI 분석 스킵", "WARN")
@@ -670,11 +670,10 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
         client = genai.Client(api_key=api_key)
 
         import re
-        import pandas as pd
+        import yfinance as yf
 
-        # Part 2 종목 구조화 (ticker + industry + sector grouping)
+        # Part 2 종목 추출 (기존 필터 로직)
         part2_stocks = []
-        sector_groups = {}
         if results_df is not None and not results_df.empty:
             filtered = results_df[results_df['adj_score'] > 9].copy()
             filtered = filtered[
@@ -685,120 +684,143 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
             ].copy()
             filtered = filtered.sort_values('fwd_pe_chg').head(30)
             for _, row in filtered.iterrows():
-                ticker = row['ticker']
-                industry = row.get('industry', 'N/A')
-                part2_stocks.append((ticker, industry))
-                sector_groups.setdefault(industry, []).append(ticker)
+                part2_stocks.append((row['ticker'], row.get('industry', 'N/A')))
 
-        # 종목 리스트 포맷팅
+        if not part2_stocks:
+            log("Part 2 종목 없음 — AI 분석 스킵", "WARN")
+            return None
+
         stock_count = len(part2_stocks)
-
-        # 업종별 분포 요약
-        sector_summary = ' / '.join(
-            f"{s} {len(tickers)}개"
-            for s, tickers in sorted(sector_groups.items(), key=lambda x: -len(x[1]))
-        )
-
-        # 날짜 정보
         today_dt = datetime.now()
         today_str = today_dt.strftime('%Y-%m-%d')
+        today_date = today_dt.date()
+        week_ago = (today_dt - timedelta(days=7)).date()
+        two_weeks_date = (today_dt + timedelta(days=14)).date()
 
-        # 어닝 일정: yfinance에서 직접 조회 (할루시네이션 방지)
+        # 종목별 뉴스 + 어닝 일정 수집 (같은 Ticker 객체 재사용)
+        log("뉴스 & 어닝 일정 수집 중...")
+        news_by_ticker = {}
         earnings_tickers = []
-        if part2_stocks:
-            import yfinance as yf
-            today_date = today_dt.date()
-            two_weeks_date = (today_dt + timedelta(days=14)).date()
-            log("어닝 일정 조회 중...")
-            for ticker, _ in part2_stocks:
-                try:
-                    stock = yf.Ticker(ticker)
-                    cal = stock.calendar
-                    if cal is not None:
-                        earn_dates = cal.get('Earnings Date', [])
-                        if not isinstance(earn_dates, list):
-                            earn_dates = [earn_dates]
-                        for ed in earn_dates:
-                            if hasattr(ed, 'date'):
-                                ed = ed.date()
-                            if today_date <= ed <= two_weeks_date:
-                                earnings_tickers.append(f"{ticker} {ed.month}/{ed.day}")
-                                break
-                except Exception:
-                    pass
-            log(f"2주내 어닝 예정: {len(earnings_tickers)}종목")
+
+        for ticker, industry in part2_stocks:
+            try:
+                stock = yf.Ticker(ticker)
+
+                # 어닝 일정
+                cal = stock.calendar
+                if cal is not None:
+                    earn_dates = cal.get('Earnings Date', [])
+                    if not isinstance(earn_dates, list):
+                        earn_dates = [earn_dates]
+                    for ed in earn_dates:
+                        if hasattr(ed, 'date'):
+                            ed = ed.date()
+                        if today_date <= ed <= two_weeks_date:
+                            earnings_tickers.append(f"{ticker} {ed.month}/{ed.day}")
+                            break
+
+                # 뉴스 수집 (최근 7일, 최대 5건)
+                news_items = []
+                raw_news = stock.news or []
+                for item in raw_news[:5]:
+                    c = item.get('content', {})
+                    title = c.get('title', '')
+                    summary = c.get('summary', '')
+                    pub_date = c.get('pubDate', '')[:10]
+                    provider = c.get('provider', {}).get('displayName', '')
+
+                    if not title:
+                        continue
+
+                    # 7일 이내 필터
+                    try:
+                        from datetime import date as date_type
+                        pub = datetime.strptime(pub_date, '%Y-%m-%d').date()
+                        if pub < week_ago:
+                            continue
+                    except (ValueError, TypeError):
+                        pass  # 날짜 파싱 실패시 포함
+
+                    news_items.append({
+                        'title': title,
+                        'summary': summary,
+                        'date': pub_date,
+                        'provider': provider,
+                    })
+
+                if news_items:
+                    news_by_ticker[ticker] = news_items
+
+            except Exception:
+                pass
+
+        log(f"뉴스 수집 완료: {len(news_by_ticker)}/{stock_count}종목, "
+            f"2주내 어닝: {len(earnings_tickers)}종목")
+
         earnings_info = ' · '.join(earnings_tickers) if earnings_tickers else '해당 없음'
 
-        # Part 2 데이터: results_df에서 직접 구성 (msg_part2 폴백)
-        import pandas as pd_ai
-        data_lines = []
-        if part2_stocks and results_df is not None and not results_df.empty:
-            filtered_ai = results_df[results_df['adj_score'] > 9].copy()
-            filtered_ai = filtered_ai[
-                filtered_ai['fwd_pe_chg'].notna() &
-                filtered_ai['fwd_pe'].notna() &
-                (filtered_ai['fwd_pe'] > 0) &
-                (filtered_ai['eps_change_90d'] > 0)
-            ].copy()
-            filtered_ai = filtered_ai.sort_values('fwd_pe_chg').head(30)
-            for idx, (_, row) in enumerate(filtered_ai.iterrows()):
-                t = row['ticker']
-                ind = row.get('industry', '')
-                asc = row.get('adj_score', 0)
-                lights = row.get('trend_lights', '')
-                desc = row.get('trend_desc', '')
-                eps_c = row.get('eps_change_90d', 0) or 0
-                price_c = row.get('price_chg', 0) or 0
-                pe_c = row.get('fwd_pe_chg', 0) or 0
-                rup = int(row.get('rev_up30', 0) or 0)
-                rdn = int(row.get('rev_down30', 0) or 0)
-                warn = ' ⚠️' if (row.get('eps_chg_weighted', 0) or 0) > 0 and (row.get('price_chg_weighted', 0) or 0) < 0 and abs((row.get('price_chg_weighted', 0) or 0)) / max(abs((row.get('eps_chg_weighted', 0) or 0)), 0.01) > 5 else ''
-                data_lines.append(
-                    f"{idx+1}. {t} ({ind}) {lights} {desc} · "
-                    f"점수 {asc:.1f} · EPS {eps_c:+.1f}% · 주가 {price_c:+.1f}% · "
-                    f"괴리 {pe_c:+.1f} · 의견 ↑{rup} ↓{rdn}{warn}"
-                )
-        if data_lines:
-            part2_data = '\n'.join(data_lines)
-        elif msg_part2:
-            def strip_html(text):
-                return re.sub(r'<[^>]+>', '', text or '')
-            part2_data = strip_html(msg_part2)
-        else:
-            part2_data = "데이터 없음"
+        # 뉴스 데이터 포맷팅
+        news_sections = []
+        no_news_tickers = []
+        for ticker, industry in part2_stocks:
+            if ticker in news_by_ticker:
+                lines = [f"[{ticker} ({industry})]"]
+                for n in news_by_ticker[ticker]:
+                    date_short = n['date'][5:].replace('-', '/')  # "02/08"
+                    lines.append(f"- [{date_short}] {n['title']}")
+                    if n['summary']:
+                        lines.append(f"  > {n['summary'][:100]}")
+                news_sections.append('\n'.join(lines))
+            else:
+                no_news_tickers.append(ticker)
+
+        news_data = '\n\n'.join(news_sections) if news_sections else '뉴스 없음'
+
+        # 티커 목록 (리스크 미발견 분류용)
+        all_tickers_str = ' · '.join(t for t, _ in part2_stocks)
 
         prompt = f"""오늘 날짜: {today_str}
 
-아래는 EPS 모멘텀 시스템이 선정한 매수 후보 {stock_count}종목 데이터야.
-이 데이터를 바탕으로 투자 브리핑을 작성해줘.
+아래는 EPS 모멘텀 시스템이 선정한 매수 후보 {stock_count}종목과, 각 종목의 최근 뉴스 헤드라인이야.
+이 종목들은 EPS 전망치가 상향되고 있는 좋은 종목들이야. 네 역할은 이 중에서 "숨은 리스크"를 찾아내는 거야.
 
-[매수 후보 데이터]
-{part2_data}
+[매수 후보 전체]
+{all_tickers_str}
 
-[업종 분포]
-{sector_summary}
+[종목별 최근 뉴스 — 코드가 Yahoo Finance에서 수집]
+{news_data}
 
-[어닝 일정 — 시스템 확인 완료]
+[어닝 일정 — 코드가 yfinance에서 확인 완료]
 {earnings_info}
 
-[출력 형식] 한국어, 친절한 말투(~예요/~해요):
+[출력 규칙]
+언어: 한국어, 친절한 말투(~예요/~해요)
+총 1500자 이내. 간결하게.
 
 📰 시장 동향
-어제 미국 시장 마감 동향과 금주 주요 예정 이벤트를 Google 검색해서 2~3줄로 요약해줘.
-위 업종 분포를 참고해서 관련 섹터 이벤트를 우선 언급.
+어제 미국 시장 마감 동향과 금주 주요 이벤트를 Google 검색해서 2~3줄로 요약해줘.
 
-📊 매수 후보 분석
-위 데이터를 분석해서 투자자에게 도움될 인사이트를 뽑아줘:
-- 섹터 집중도: 어떤 업종이 많이 포함되었는지, 그 의미
-- 주목 종목: 패턴이 좋거나, 의견 상향 많거나, 괴리가 큰 종목
-- ⚠️ 표시 종목이 있으면 언급
-- 전체적인 EPS 모멘텀 방향성
-위 데이터에 있는 정보만 사용해. 없는 내용을 지어내지 마.
+⚠️ 리스크 체크
+위 뉴스에서 주가에 부정적 영향을 줄 수 있는 항목만 골라줘:
+- 애널리스트 다운그레이드, 목표가 하향
+- 어닝 미스, 가이던스 하향
+- 소송, 규제, 내부자 매도
+- 대폭 주가 하락 + 부정적 원인
+
+형식: 각 종목 1줄
+티커 — 리스크 요약 (출처 날짜)
+
+절대 금지:
+- 위 뉴스에 없는 리스크를 지어내지 마
+- "경쟁 심화", "가격 변동성" 같은 업종 상시 리스크 금지
+- 호재/긍정 뉴스는 무시 (시스템이 이미 좋은 종목을 골랐으므로)
+- 리스크 뉴스가 없는 종목은 여기에 쓰지 마
 
 📅 어닝 주의
-위 [어닝 일정]을 그대로 표시. 수정/추가 금지.
+위 [어닝 일정]을 그대로 표시. 수정/추가 금지. 어닝 일정이 "해당 없음"이면 이 섹션 생략.
 
-총 2000자 이내."""
+✅ 리스크 미발견
+⚠️에 해당하지 않는 나머지 종목을 · 로 구분해서 한 줄로 나열."""
 
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         response = client.models.generate_content(
@@ -806,7 +828,7 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[grounding_tool],
-                temperature=0.3,
+                temperature=0.2,
             ),
         )
 
@@ -854,8 +876,8 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {now.strftime("%Y년 %m월 %d일")}')
         lines.append('')
-        lines.append('매수 후보 데이터를 AI가 분석한')
-        lines.append('브리핑이에요. 참고용이에요!')
+        lines.append('매수 후보의 최근 뉴스를 AI가 분석해서')
+        lines.append('리스크를 체크했어요. 참고용이에요!')
         lines.append('')
         lines.append(analysis_html)
 
