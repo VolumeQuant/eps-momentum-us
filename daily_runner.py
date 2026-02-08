@@ -963,25 +963,38 @@ def main():
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
         channel_id = config.get('telegram_channel_id')
 
-        # 발송 순서: Part 1 → Part 2 → AI 리스크 체크 → 시스템 로그
+        # 발송 순서: Part 1 → Part 2 → AI 브리핑 → 시스템 로그
 
         # Part 1 (모멘텀 랭킹)
         if msg_part1:
-            target = channel_id if (is_github and channel_id) else private_id
-            send_telegram_long(msg_part1, config, chat_id=target)
-            log(f"Part 1 (모멘텀 랭킹) 전송 완료 → {'채널' if target == channel_id else '개인봇'}")
+            if is_github and channel_id:
+                send_telegram_long(msg_part1, config, chat_id=channel_id)
+                send_telegram_long(msg_part1, config, chat_id=private_id)
+                log("Part 1 (모멘텀 랭킹) 전송 완료 → 채널+개인봇")
+            else:
+                send_telegram_long(msg_part1, config, chat_id=private_id)
+                log("Part 1 (모멘텀 랭킹) 전송 완료 → 개인봇")
 
         # Part 2 (매수 후보) — 핵심 리포트
         if msg_part2:
-            target = channel_id if (is_github and channel_id) else private_id
-            send_telegram_long(msg_part2, config, chat_id=target)
-            log(f"Part 2 (매수 후보) 전송 완료 → {'채널' if target == channel_id else '개인봇'}")
+            if is_github and channel_id:
+                send_telegram_long(msg_part2, config, chat_id=channel_id)
+                send_telegram_long(msg_part2, config, chat_id=private_id)
+                log("Part 2 (매수 후보) 전송 완료 → 채널+개인봇")
+            else:
+                send_telegram_long(msg_part2, config, chat_id=private_id)
+                log("Part 2 (매수 후보) 전송 완료 → 개인봇")
 
-        # AI 리스크 체크 → 개인봇에만
+        # AI 브리핑
         msg_ai = run_ai_analysis(msg_part1, msg_part2, None, config, results_df=results_df)
         if msg_ai:
-            send_telegram_long(msg_ai, config, chat_id=private_id)
-            log("AI 종합 분석 전송 완료 → 개인봇")
+            if is_github and channel_id:
+                send_telegram_long(msg_ai, config, chat_id=channel_id)
+                send_telegram_long(msg_ai, config, chat_id=private_id)
+                log("AI 브리핑 전송 완료 → 채널+개인봇")
+            else:
+                send_telegram_long(msg_ai, config, chat_id=private_id)
+                log("AI 브리핑 전송 완료 → 개인봇")
 
         # 시스템 로그 → 개인봇에만 (항상)
         send_telegram_long(msg_log, config, chat_id=private_id)
