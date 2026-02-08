@@ -652,7 +652,7 @@ def create_system_log_message(stats, elapsed, config):
 # AI 리스크 체크 (Gemini 2.5 Flash + Google Search)
 # ============================================================
 
-def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config):
+def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=None):
     """Gemini 2.5 Flash 뉴스 스캐너 - 매수 후보 리스크 체크 (Google Search Grounding)"""
     api_key = config.get('gemini_api_key', '')
     if not api_key:
@@ -669,57 +669,121 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config):
     try:
         client = genai.Client(api_key=api_key)
 
-        # 3개 메시지 합치기 (HTML 태그 제거하여 토큰 절약)
         import re
-        def strip_html(text):
-            return re.sub(r'<[^>]+>', '', text or '')
+        import pandas as pd
 
-        prompt = f"""너는 리스크 스캐너야.
-자동 스크리닝 시스템이 EPS 모멘텀 기반으로 매수 후보 30종목을 뽑았어.
-시스템이 이미 좋은 종목을 골랐으니, 네 역할은 "숨은 위험"을 찾아내서
-30종목 중 피해야 할 종목을 걸러내는 거야 (소거법).
-리스크가 없는 종목이 곧 진짜 매수 후보야.
+        # Part 2 종목 구조화 (ticker + industry + sector grouping)
+        part2_stocks = []
+        sector_groups = {}
+        if results_df is not None and not results_df.empty:
+            filtered = results_df[results_df['adj_score'] > 9].copy()
+            filtered = filtered[
+                filtered['fwd_pe_chg'].notna() &
+                filtered['fwd_pe'].notna() &
+                (filtered['fwd_pe'] > 0) &
+                (filtered['eps_change_90d'] > 0)
+            ].copy()
+            filtered = filtered.sort_values('fwd_pe_chg').head(30)
+            for _, row in filtered.iterrows():
+                ticker = row['ticker']
+                industry = row.get('industry', 'N/A')
+                part2_stocks.append((ticker, industry))
+                sector_groups.setdefault(industry, []).append(ticker)
 
-[매수 후보 Top 30]
-{strip_html(msg_part2)}
+        # 종목 리스트 포맷팅
+        stock_count = len(part2_stocks)
 
-[네가 찾아야 할 것] 30종목 전부 웹 검색해서, 최근 1~2주 내 실제 발생한 구체적 뉴스/이벤트 중 리스크만 찾아:
-- 소송 제기/판결, 규제 조사 개시, 리콜 발표, 해킹 사고, 제재 발동
-- 대주주/내부자 대량 매도 공시, 공매도 리포트 발표
-- 실적 미스 발표, 가이던스 하향 발표
-- 신용등급 하향 발표, 유동성 위기 보도
-- 최근 발표된 관세/정책이 특정 종목에 직접 타격
-- 2주 내 실적발표 예정 (어닝 날짜)
+        # 업종별 종목 리스트 (섹터 동향용)
+        sector_list = '\n'.join(
+            f"{s}: {', '.join(tickers)}"
+            for s, tickers in sorted(sector_groups.items(), key=lambda x: -len(x[1]))
+        )
 
-⚠️ 보고 기준:
-- 반드시 Google 검색에서 실제로 찾은 뉴스만 보고해.
-  검색 결과에 없으면 ✅ 리스크 미발견으로 분류해.
-- "경쟁 심화", "가격 변동성" 같은 어느 업종에나 해당되는
-  상시 리스크는 보고하지 마. 최근 실제 사건만.
-- 호재/긍정적 뉴스 보고 금지
-- 실적 숫자 나열 금지 (매출 XX억, EPS XX달러 등)
-- 데이터의 EPS%/주가% 수치 인용 금지
+        # Top 10 (개별 리스크 스캔 대상 — 매수 후보 상위 10종목)
+        top10_stocks = part2_stocks[:10]
+        top10_str = ', '.join(t for t, _ in top10_stocks)
 
-[출력 형식] 한국어, 친절한 말투(~예요/~해요). 아래 형식을 따라줘:
+        # 날짜 정보
+        today_dt = datetime.now()
+        today_str = today_dt.strftime('%Y-%m-%d')
 
-📰 이번 주 시장
-매수 후보 종목들에 영향 줄 수 있는 이번 주 매크로 이벤트 2-3줄.
-여러 종목에 공통 영향이 있으면 해당 티커를 묶어서 언급.
+        # 어닝 일정: yfinance에서 직접 조회 (할루시네이션 방지)
+        earnings_tickers = []
+        if part2_stocks:
+            import yfinance as yf
+            today_date = today_dt.date()
+            two_weeks_date = (today_dt + timedelta(days=14)).date()
+            log("어닝 일정 조회 중...")
+            for ticker, _ in part2_stocks:
+                try:
+                    stock = yf.Ticker(ticker)
+                    cal = stock.calendar
+                    if cal is not None:
+                        earn_dates = cal.get('Earnings Date', [])
+                        if not isinstance(earn_dates, list):
+                            earn_dates = [earn_dates]
+                        for ed in earn_dates:
+                            if hasattr(ed, 'date'):
+                                ed = ed.date()
+                            if today_date <= ed <= two_weeks_date:
+                                earnings_tickers.append(f"{ticker} {ed.month}/{ed.day}")
+                                break
+                except Exception:
+                    pass
+            log(f"2주내 어닝 예정: {len(earnings_tickers)}종목")
+        earnings_info = ' · '.join(earnings_tickers) if earnings_tickers else '해당 없음'
 
-🚫 주의 (리스크 발견)
-각 종목별 실제 찾은 리스크 뉴스를 보고해줘.
-예시:
-NEM → 2/3 호주 타나미 광산 인명사고로 작업 중단
-PLTR → 2/5 내부자 대량 매도 공시 (CEO 포함 $500M)
+        # 폴백: results_df 없으면 msg_part2 텍스트 사용
+        if stock_count == 0 and msg_part2:
+            def strip_html(text):
+                return re.sub(r'<[^>]+>', '', text or '')
+            stock_section = f"[매수 후보 종목]\n{strip_html(msg_part2)}"
+            top10_str = ""
+            stock_count = 30
+        else:
+            stock_section = f"[매수 후보 {stock_count}종목 — 업종별]\n{sector_list}"
 
-📅 어닝 주의 (실적발표 임박 → 변동성)
-2주 내 실적발표 예정 종목을 나열해줘.
-예시: NVDA 2/21 · NEM 2/19
+        prompt = f"""오늘 날짜: {today_str}
+
+자동 스크리닝 시스템이 EPS 모멘텀 기반으로 매수 후보 {stock_count}종목을 뽑았어.
+이 종목들에 대한 뉴스 브리핑을 작성해줘.
+
+{stock_section}
+
+[어닝 일정 — 시스템 확인 완료]
+{earnings_info}
+
+[출력 형식] 한국어, 친절한 말투(~예요/~해요):
+
+📰 섹터별 이번 주 동향
+위 업종을 비슷한 것끼리 4~6개 그룹으로 묶어줘.
+각 그룹별로 이번 주 해당 섹터의 주요 뉴스/이벤트를 Google 검색해서 1~2줄로 요약.
+그룹명 옆에 해당 티커를 반드시 표시.
+긍정·부정 상관없이 투자자가 알아야 할 주요 뉴스를 알려줘.
+"검색되지 않았습니다" 같은 빈 응답 금지 — 반드시 각 그룹별로 내용을 채워줘.
+형식 예시:
+반도체·AI (MU, NVDA, LRCX, ASML, TER, MCHP, CRUS)
+→ 이번 주 관련 뉴스 1~2줄
+
+🚫 Top 10 종목별 주의
+상위 10종목: {top10_str}
+이 10종목을 각각 개별 Google 검색해서 최근 1~2주 내 아래 리스크가 있는지 확인:
+- 소송/규제/리콜/해킹/제재
+- 내부자 대량 매도, 공매도 리포트
+- 실적 미스, 가이던스 하향
+- 신용등급 하향, 유동성 위기
+- 관세/정책의 직접 타격
+리스크 발견 시: TICKER → 날짜 + 사건 1줄
+리스크 미발견 시: "해당 없음" 한 줄로.
+주의: 상시 리스크("경쟁 심화" 등), 애널리스트 의견, 실적 숫자 나열은 리스크가 아님.
+
+📅 어닝 주의
+위 [어닝 일정]을 그대로 표시. 수정/추가 금지.
 
 ✅ 리스크 미발견
-🚫과 📅에 해당하지 않는 나머지 종목 티커를 나열해줘.
+상위 10종목 중 🚫에 해당하지 않는 종목을 한 줄에 나열.
 
-총 1500자 이내."""
+총 2000자 이내."""
 
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         response = client.models.generate_content(
@@ -727,14 +791,35 @@ PLTR → 2/5 내부자 대량 매도 공시 (CEO 포함 $500M)
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[grounding_tool],
-                temperature=0.2,
+                temperature=0.3,
             ),
         )
 
         analysis_text = response.text
         if not analysis_text:
-            log("Gemini 응답이 비어있음", "WARN")
-            return None
+            # 디버깅: 응답 상태 확인
+            try:
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    log(f"Gemini finish_reason: {candidate.finish_reason}", "WARN")
+                if hasattr(response, 'prompt_feedback'):
+                    log(f"Gemini prompt_feedback: {response.prompt_feedback}", "WARN")
+            except Exception:
+                pass
+            log("Gemini 응답이 비어있음 — 재시도", "WARN")
+            # 1회 재시도
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    tools=[grounding_tool],
+                    temperature=0.2,
+                ),
+            )
+            analysis_text = response.text
+            if not analysis_text:
+                log("Gemini 재시도도 실패", "WARN")
+                return None
 
         # Markdown → Telegram HTML 변환
         analysis_html = analysis_text
@@ -905,7 +990,7 @@ def main():
             log(f"Part 2 (매수 후보) 전송 완료 → {'채널' if target == channel_id else '개인봇'}")
 
         # AI 리스크 체크 → 개인봇에만
-        msg_ai = run_ai_analysis(msg_part1, msg_part2, None, config)
+        msg_ai = run_ai_analysis(msg_part1, msg_part2, None, config, results_df=results_df)
         if msg_ai:
             send_telegram_long(msg_ai, config, chat_id=private_id)
             log("AI 종합 분석 전송 완료 → 개인봇")

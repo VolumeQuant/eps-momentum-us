@@ -5,7 +5,7 @@ EPS Momentum System v9.0 - NTM (Next Twelve Months) EPS 기반
 - NTM EPS: endDate 기반 시간 가중 블렌딩 (0y/+1y)
 - Score = seg1+seg2+seg3+seg4 (4개 독립 구간, ±100% 캡)
 - adj_score = score × (1 + clamp(direction/30, -0.3, +0.3))
-- 트래픽 라이트: 8개 기본 패턴 + 🟩🟥 강도 수식어
+- 트래픽 라이트: 12개 기본 패턴 + 🟩🟥 강도 수식어
 """
 
 import yfinance as yf
@@ -432,7 +432,7 @@ def get_trend_lights(seg1, seg2, seg3, seg4):
     """추세 신호등 생성 (90d/60d/30d/7d 순서 = 과거→현재)
 
     6단계 아이콘: 🟩(>20%) 🟢(2~20%) 🔵(0.5~2%) 🟡(0~0.5%) 🔴(0~-10%) 🟥(<-10%)
-    8개 기본 패턴 + 🟩🟥 강도 수식어
+    12개 기본 패턴 + 🟩🟥 강도 수식어
 
     Args:
         seg1-seg4: calculate_ntm_score()에서 반환된 segment 값 (%)
@@ -475,20 +475,47 @@ def get_trend_lights(seg1, seg2, seg3, seg4):
     recent_pos = sum(1 for s in segs[2:] if s > 0.5)
     recent_neg = sum(1 for s in segs[2:] if s < -0.5)
 
-    # --- 8개 기본 패턴 ---
+    # --- 12개 기본 패턴 ---
     if flat_count >= 3:
         base = '횡보'
     elif neg_count >= 3:
         base = '하락'
     elif neg_count == 0:
-        # 전구간 양수 (또는 보합)
-        diff = recent_avg - old_avg
-        if diff > 2:
-            base = '상향 가속'
-        elif diff < -2:
-            base = '상향 둔화'
-        else:
+        # 전구간 양수 (또는 보합) — 피크 위치 + 형태로 하위 패턴 분류
+        total = sum(segs)
+        max_seg = max(segs)
+        spread = max_seg - min(segs)
+        mean_val = total / 4
+
+        if mean_val < 1.5:
             base = '전구간 상승'
+        elif spread / max(mean_val, 0.01) < 0.8:
+            base = '꾸준한 상승'
+        else:
+            # 진동 감지: 인접 구간 차이 부호가 교차 (high-low-high-low)
+            diffs = [segs[i + 1] - segs[i] for i in range(3)]
+            signs = [1 if d > 1 else (-1 if d < -1 else 0) for d in diffs]
+            is_zigzag = (signs[0] * signs[1] < 0 and signs[1] * signs[2] < 0)
+            min_amp = min(abs(d) for d in diffs)
+
+            if is_zigzag and min_amp > 3:
+                base = '상승 등락'
+            else:
+                # 동률 시 최근(오른쪽) 우선 — segs[3]=seg1이 가장 최근
+                peak_idx = max(range(4), key=lambda i: (segs[i], i))
+                if peak_idx == 3:  # seg1(최근)이 피크
+                    others_avg = sum(segs[:3]) / 3
+                    if max_seg > others_avg * 3:
+                        base = '최근 급상향'
+                    else:
+                        base = '상향 가속'
+                elif peak_idx == 2:  # seg2(중반)가 피크
+                    if segs[3] < max_seg * 0.6:
+                        base = '중반 강세'
+                    else:
+                        base = '상향 가속'
+                else:  # seg3/seg4(초반)가 피크
+                    base = '상향 둔화'
     elif old_neg > old_pos and recent_pos > recent_neg and recent_avg > old_avg:
         base = '반등'
     elif old_pos > old_neg and recent_neg > recent_pos and old_avg > recent_avg:
@@ -502,7 +529,12 @@ def get_trend_lights(seg1, seg2, seg3, seg4):
     elif has_green_sq:
         desc = {
             '전구간 상승': '폭발적 상승',
+            '꾸준한 상승': '폭발적 상승',
             '상향 가속': '폭발적 가속',
+            '최근 급상향': '폭발적 급상향',
+            '중반 강세': '중반 급등',
+            '상승 등락': '폭발적 등락',
+            '상향 둔화': '급등 후 둔화',
             '반등': '폭발적 반등',
         }.get(base, base)
     elif has_red_sq:

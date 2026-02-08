@@ -1,0 +1,12 @@
+﻿Rank Ticker   seg4   seg3   seg2   seg1  lights   description
+-------------------------------------------------------------------------------------
+python.exe : Traceback (most recent call last):
+위치 줄:1 문자:52
++ ... mentum-us'; & 'C:\Users\jkw88\miniconda3\envs\volumequant\python.exe' ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "C:\dev\claude-code\eps-momentum-us\test_patterns.py", line 32, in <module>
+    print(f"{i:>4} {ticker:>6} {seg4:>6.1f} {seg3:>6.1f} {seg2:>6.1f} {seg1:>6.1f}  {lights} {desc}")
+UnicodeEncodeError: 'cp949' codec can't encode character '\U0001f7e9' in position 41: illegal multibyte sequence

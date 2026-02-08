@@ -124,7 +124,16 @@
       "Bash(cmd /c \"C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe -c \"\"import yfinance as yf; import pandas as pd; test_tickers = [''MSFT'', ''NVDA'', ''AAPL'', ''META'', ''ALB'']; [print\\(f''\\\\n{t}\\\\n'', yf.Ticker\\(t\\).revenue_estimate\\) for t in test_tickers]\"\"\")",
       "Bash(powershell.exe -Command \"& ''C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe'' -c ''print\\(42\\)''\")",
       "Bash(powershell.exe:*)",
-      "Bash(cmd.exe:*)"
+      "Bash(cmd.exe:*)",
+      "Bash(for f in test_syntax.py test_direction_scoring.py pattern_analysis.py pattern_output.txt threshold_analysis.py)",
+      "Bash(do git log --oneline --all -- \"$f\")",
+      "Bash(done)",
+      "Bash(powershell.exe -Command \"& ''C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe'' -c ''print\\(\"\"hello world\"\"\\)''\")",
+      "Bash(powershell.exe -Command \"& ''C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe'' -c ''print\\(123\\)''\")",
+      "Bash(powershell.exe -Command \"Set-Location ''C:\\\\dev\\\\claude-code\\\\eps-momentum-us''; & ''C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe'' test_ai_prompt.py 2>&1\")",
+      "Bash(cmd.exe /c \"cd /d C:\\\\dev\\\\claude-code\\\\eps-momentum-us && C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe test_patterns.py\")",
+      "Bash(cmd.exe /c \"chcp 65001 >nul 2>&1 && cd /d C:\\\\dev\\\\claude-code\\\\eps-momentum-us && set PYTHONIOENCODING=utf-8 && C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe test_patterns.py 2>&1\")",
+      "Bash(cmd.exe /c \"cd /d C:\\\\dev\\\\claude-code\\\\eps-momentum-us && set PYTHONIOENCODING=utf-8 && C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe test_patterns.py > test_output.txt 2>&1\")"
     ]
   }
 }
