@@ -249,7 +249,7 @@ def run_ntm_collection(config):
                     # 90일 주가변화율 (내부용)
                     price_chg = (p_now - prices['90d']) / prices['90d'] * 100
 
-                    # 가중평균 주가변화율 (Part 2 표시용)
+                    # 가중평균 주가변화율 (⚠️ 경고 판별용)
                     price_w = {'7d': 0.4, '30d': 0.3, '60d': 0.2, '90d': 0.1}
                     pw_sum = sum(
                         w * (p_now - prices[k]) / prices[k] * 100
@@ -258,7 +258,7 @@ def run_ntm_collection(config):
                     pw_total = sum(w for k, w in price_w.items() if prices[k] > 0)
                     price_chg_weighted = pw_sum / pw_total if pw_total > 0 else None
 
-                    # 가중평균 EPS변화율 (Part 2 표시용)
+                    # 가중평균 EPS변화율 (⚠️ 경고 판별용)
                     nc_val = ntm['current']
                     eps_w = {'7d': 0.4, '30d': 0.3, '60d': 0.2, '90d': 0.1}
                     ew_sum = sum(
@@ -364,7 +364,7 @@ def run_ntm_collection(config):
     if not results_df.empty:
         stats['score_gt0'] = int((results_df['score'] > 0).sum())
         stats['score_gt3'] = int((results_df['score'] > 3).sum())
-        stats['aligned_count'] = int((results_df['trend_lights'].str.count('🟢') == 4).sum())
+        stats['aligned_count'] = int((~results_df['trend_lights'].str.contains('🔴|🟥')).sum())
 
     log(f"수집 완료: 메인 {len(results)}, 턴어라운드 {len(turnaround)}, "
         f"데이터없음 {len(no_data)}, 에러 {len(errors)}")
@@ -448,8 +448,6 @@ def get_today_kst():
 
 def create_part1_message(df, top_n=30):
     """Part 1: 이익 모멘텀 랭킹 메시지 생성 (EPS 점수 순)"""
-    import pandas as pd
-
     today = get_today_kst()
     biz_day = get_last_business_day()
     today_str = today.strftime('%m월%d일')
@@ -578,57 +576,6 @@ def create_part2_message(df, top_n=30):
 
     lines.append('주가 하락에는 항상 이유가 있을 수 있으니')
     lines.append('뉴스와 실적 발표 일정을 꼭 확인하세요.')
-
-    return '\n'.join(lines)
-
-
-def create_turnaround_message(df, top_n=None):
-    """턴어라운드 주목 메시지 생성 (|EPS| < $1.00, Score > 3 필터)"""
-    import pandas as pd
-
-    if df is None or df.empty:
-        return None
-
-    # Score > 3 필터 (EPS가 실제로 개선 중인 종목만)
-    filtered = df[df['score'] > 3].copy()
-    if filtered.empty:
-        return None
-
-    biz_day = get_last_business_day()
-    biz_str = biz_day.strftime('%Y년 %m월 %d일')
-
-    count = len(filtered)
-    lines = []
-    lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f'      ⚡ 턴어라운드 주목 ({count}종목)')
-    lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f'📅 {biz_str} (미국장 기준)')
-    lines.append('')
-    lines.append('적자가 빠르게 줄거나, 흑자 전환 가능성이')
-    lines.append('보이는 기업이에요. 턴어라운드에 성공하면')
-    lines.append('큰 수익이 가능하지만, 리스크도 높아요.')
-    lines.append('')
-    lines.append('💡 <b>읽는 법</b>')
-    lines.append('EPS 옆 숫자 = 90일 전 → 현재 EPS 전망치')
-    lines.append('예: $-0.50 → $0.20이면')
-    lines.append('적자에서 흑자 전환이 예상되는 신호예요.')
-    lines.append('마이너스(-)가 플러스(+)로 바뀌면 주목!')
-    lines.append('')
-
-    for idx, (_, row) in enumerate(filtered.iterrows()):
-        rank = idx + 1
-        ticker = row['ticker']
-        name = row.get('short_name', ticker)
-        industry = row.get('industry', '')
-        lights = row.get('trend_lights', '')
-        desc = row.get('trend_desc', '')
-        ntm_90d = row.get('ntm_90d', 0)
-        ntm_cur = row.get('ntm_cur', 0)
-
-        lines.append(f'<b>{rank}위</b> {name} ({ticker})')
-        lines.append(f'<i>{industry}</i> · EPS ${ntm_90d:.2f} → ${ntm_cur:.2f}')
-        lines.append(f'{lights} {desc}')
-        lines.append('')
 
     return '\n'.join(lines)
 
