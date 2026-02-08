@@ -693,15 +693,11 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
         # 종목 리스트 포맷팅
         stock_count = len(part2_stocks)
 
-        # 업종별 종목 리스트 (섹터 동향용)
-        sector_list = '\n'.join(
-            f"{s}: {', '.join(tickers)}"
+        # 업종별 분포 요약
+        sector_summary = ' / '.join(
+            f"{s} {len(tickers)}개"
             for s, tickers in sorted(sector_groups.items(), key=lambda x: -len(x[1]))
         )
-
-        # Top 10 (개별 리스크 스캔 대상 — 매수 후보 상위 10종목)
-        top10_stocks = part2_stocks[:10]
-        top10_str = ', '.join(t for t, _ in top10_stocks)
 
         # 날짜 정보
         today_dt = datetime.now()
@@ -733,55 +729,41 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
             log(f"2주내 어닝 예정: {len(earnings_tickers)}종목")
         earnings_info = ' · '.join(earnings_tickers) if earnings_tickers else '해당 없음'
 
-        # 폴백: results_df 없으면 msg_part2 텍스트 사용
-        if stock_count == 0 and msg_part2:
-            def strip_html(text):
-                return re.sub(r'<[^>]+>', '', text or '')
-            stock_section = f"[매수 후보 종목]\n{strip_html(msg_part2)}"
-            top10_str = ""
-            stock_count = 30
-        else:
-            stock_section = f"[매수 후보 {stock_count}종목 — 업종별]\n{sector_list}"
+        # Part 2 데이터 (HTML 태그 제거)
+        def strip_html(text):
+            return re.sub(r'<[^>]+>', '', text or '')
+        part2_data = strip_html(msg_part2) if msg_part2 else "데이터 없음"
 
         prompt = f"""오늘 날짜: {today_str}
 
-자동 스크리닝 시스템이 EPS 모멘텀 기반으로 매수 후보 {stock_count}종목을 뽑았어.
-이 종목들에 대한 뉴스 브리핑을 작성해줘.
+아래는 EPS 모멘텀 시스템이 선정한 매수 후보 {stock_count}종목 데이터야.
+이 데이터를 바탕으로 투자 브리핑을 작성해줘.
 
-{stock_section}
+[매수 후보 데이터]
+{part2_data}
+
+[업종 분포]
+{sector_summary}
 
 [어닝 일정 — 시스템 확인 완료]
 {earnings_info}
 
 [출력 형식] 한국어, 친절한 말투(~예요/~해요):
 
-📰 섹터별 이번 주 동향
-위 업종을 비슷한 것끼리 4~6개 그룹으로 묶어줘.
-각 그룹별로 이번 주 해당 섹터의 주요 뉴스/이벤트를 Google 검색해서 1~2줄로 요약.
-그룹명 옆에 해당 티커를 반드시 표시.
-긍정·부정 상관없이 투자자가 알아야 할 주요 뉴스를 알려줘.
-"검색되지 않았습니다" 같은 빈 응답 금지 — 반드시 각 그룹별로 내용을 채워줘.
-형식 예시:
-반도체·AI (MU, NVDA, LRCX, ASML, TER, MCHP, CRUS)
-→ 이번 주 관련 뉴스 1~2줄
+📰 시장 동향
+어제 미국 시장 마감 동향과 금주 주요 예정 이벤트를 Google 검색해서 2~3줄로 요약해줘.
+위 업종 분포를 참고해서 관련 섹터 이벤트를 우선 언급.
 
-🚫 Top 10 종목별 주의
-상위 10종목: {top10_str}
-이 10종목을 각각 개별 Google 검색해서 최근 1~2주 내 아래 리스크가 있는지 확인:
-- 소송/규제/리콜/해킹/제재
-- 내부자 대량 매도, 공매도 리포트
-- 실적 미스, 가이던스 하향
-- 신용등급 하향, 유동성 위기
-- 관세/정책의 직접 타격
-리스크 발견 시: TICKER → 날짜 + 사건 1줄
-리스크 미발견 시: "해당 없음" 한 줄로.
-주의: 상시 리스크("경쟁 심화" 등), 애널리스트 의견, 실적 숫자 나열은 리스크가 아님.
+📊 매수 후보 분석
+위 데이터를 분석해서 투자자에게 도움될 인사이트를 뽑아줘:
+- 섹터 집중도: 어떤 업종이 많이 포함되었는지, 그 의미
+- 주목 종목: 패턴이 좋거나, 의견 상향 많거나, 괴리가 큰 종목
+- ⚠️ 표시 종목이 있으면 언급
+- 전체적인 EPS 모멘텀 방향성
+위 데이터에 있는 정보만 사용해. 없는 내용을 지어내지 마.
 
 📅 어닝 주의
 위 [어닝 일정]을 그대로 표시. 수정/추가 금지.
-
-✅ 리스크 미발견
-상위 10종목 중 🚫에 해당하지 않는 종목을 한 줄에 나열.
 
 총 2000자 이내."""
 
@@ -797,23 +779,19 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
 
         analysis_text = response.text
         if not analysis_text:
-            # 디버깅: 응답 상태 확인
             try:
                 if hasattr(response, 'candidates') and response.candidates:
                     candidate = response.candidates[0]
                     log(f"Gemini finish_reason: {candidate.finish_reason}", "WARN")
-                if hasattr(response, 'prompt_feedback'):
-                    log(f"Gemini prompt_feedback: {response.prompt_feedback}", "WARN")
             except Exception:
                 pass
             log("Gemini 응답이 비어있음 — 재시도", "WARN")
-            # 1회 재시도
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     tools=[grounding_tool],
-                    temperature=0.2,
+                    temperature=0.3,
                 ),
             )
             analysis_text = response.text
@@ -823,39 +801,13 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
 
         # Markdown → Telegram HTML 변환
         analysis_html = analysis_text
-        # 1. HTML 특수문자 이스케이프 (Telegram HTML 파서 호환)
         analysis_html = analysis_html.replace('&', '&amp;')
         analysis_html = analysis_html.replace('<', '&lt;')
         analysis_html = analysis_html.replace('>', '&gt;')
-        # 2. Markdown → HTML 태그 변환
-        analysis_html = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', analysis_html)  # **bold**
-        analysis_html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', analysis_html)  # *italic* (리스트 항목 제외)
-        analysis_html = re.sub(r'#{1,3}\s*', '', analysis_html)                # ### headings
-        analysis_html = analysis_html.replace('---', '━━━')                    # hr
-        # 3. 🚫 섹션 종목 간 구분선 삽입 (bullet 항목 사이)
-        lines = analysis_html.split('\n')
-        new_lines = []
-        in_risk_section = False
-        prev_was_bullet = False
-        for line in lines:
-            stripped = line.strip()
-            # 🚫 섹션 감지
-            if '🚫' in stripped:
-                in_risk_section = True
-                prev_was_bullet = False
-            elif stripped.startswith(('📅', '✅', '📰')):
-                in_risk_section = False
-                prev_was_bullet = False
-            # 🚫 섹션 내 bullet 항목 사이에 구분선
-            if in_risk_section and (stripped.startswith('*') or '→' in stripped):
-                if prev_was_bullet:
-                    new_lines.append('──────────────────')
-                prev_was_bullet = True
-            else:
-                if stripped:
-                    prev_was_bullet = False
-            new_lines.append(line)
-        analysis_html = '\n'.join(new_lines)
+        analysis_html = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', analysis_html)
+        analysis_html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', analysis_html)
+        analysis_html = re.sub(r'#{1,3}\s*', '', analysis_html)
+        analysis_html = analysis_html.replace('---', '━━━')
 
         # 텔레그램 메시지 포맷팅
         now = datetime.now()
@@ -865,16 +817,16 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
 
         lines = []
         lines.append('━━━━━━━━━━━━━━━━━━━')
-        lines.append('      🤖 AI 리스크 체크')
+        lines.append('      🤖 AI 브리핑')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {now.strftime("%Y년 %m월 %d일")}')
         lines.append('')
-        lines.append('매수 후보 30종목의 최근 뉴스/이벤트를')
-        lines.append('AI가 검색한 결과예요. 참고용이에요!')
+        lines.append('매수 후보 데이터를 AI가 분석한')
+        lines.append('브리핑이에요. 참고용이에요!')
         lines.append('')
         lines.append(analysis_html)
 
-        log("AI 종합 분석 완료")
+        log("AI 브리핑 완료")
         return '\n'.join(lines)
 
     except Exception as e:
