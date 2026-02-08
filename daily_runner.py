@@ -643,41 +643,51 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config):
         def strip_html(text):
             return re.sub(r'<[^>]+>', '', text or '')
 
-        prompt = f"""너는 뉴스 스캐너야.
-자동 스크리닝 시스템이 뽑은 매수 후보 30종목에 대해
-최근 뉴스와 이벤트를 검색해서 알아야 할 사실만 전달해줘.
-분석이나 판단은 하지 마. 팩트만 전달해.
+        prompt = f"""너는 리스크 스캐너야.
+자동 스크리닝 시스템이 EPS 모멘텀 기반으로 매수 후보 30종목을 뽑았어.
+시스템이 이미 좋은 종목을 골랐으니, 네 역할은 "숨은 위험"을 찾아내서
+30종목 중 피해야 할 종목을 걸러내는 거야 (소거법).
+리스크가 없는 종목이 곧 진짜 매수 후보야.
 
 [매수 후보 Top 30]
 {strip_html(msg_part2)}
 
-[네가 할 일]
-30종목을 웹 검색해서 아래 항목만 찾아:
-1. 최근 1~2주 내 중요 뉴스/이벤트 (악재 또는 호재)
-2. 2주 내 실적발표(earnings) 예정 여부
-3. 특이사항 없으면 보고하지 마
+[네가 찾아야 할 것] 30종목 전부 웹 검색해서, 최근 1~2주 내 실제 발생한 구체적 뉴스/이벤트 중 리스크만 찾아:
+- 소송 제기/판결, 규제 조사 개시, 리콜 발표, 해킹 사고, 제재 발동
+- 대주주/내부자 대량 매도 공시, 공매도 리포트 발표
+- 실적 미스 발표, 가이던스 하향 발표
+- 신용등급 하향 발표, 유동성 위기 보도
+- 최근 발표된 관세/정책이 특정 종목에 직접 타격
+- 2주 내 실적발표 예정 (어닝 날짜)
 
-⚠️ 절대 금지:
-- 데이터의 EPS%/주가% 수치 인용 금지 (시스템 내부 가중평균임)
-- 주관적 판단/추천 금지 ("매수 유효", "괜찮아 보여요" 등)
-- 일반론 금지 ("실적이 좋습니다", "성장세입니다" 등)
+⚠️ 보고 기준:
+- 반드시 Google 검색에서 실제로 찾은 뉴스만 보고해.
+  검색 결과에 없으면 ✅ 리스크 미발견으로 분류해.
+- "경쟁 심화", "가격 변동성" 같은 어느 업종에나 해당되는
+  상시 리스크는 보고하지 마. 최근 실제 사건만.
+- 호재/긍정적 뉴스 보고 금지
+- 실적 숫자 나열 금지 (매출 XX억, EPS XX달러 등)
+- 데이터의 EPS%/주가% 수치 인용 금지
 
-[출력 형식] 한국어, 친절한 말투(~예요/~해요)
+[출력 형식] 한국어, 친절한 말투(~예요/~해요). 아래 형식을 따라줘:
 
-📰 시장 한줄평
-(Top 30 섹터 구성에서 읽히는 테마 1줄)
+📰 이번 주 시장
+매수 후보 종목들에 영향 줄 수 있는 이번 주 매크로 이벤트 2-3줄.
+여러 종목에 공통 영향이 있으면 해당 티커를 묶어서 언급.
 
-⚠️ 주의 종목
-TICKER (업종)
-→ 구체적 뉴스/이벤트 1-2줄
+🚫 주의 (리스크 발견)
+각 종목별 실제 찾은 리스크 뉴스를 보고해줘.
+예시:
+NEM → 2/3 호주 타나미 광산 인명사고로 작업 중단
+PLTR → 2/5 내부자 대량 매도 공시 (CEO 포함 $500M)
 
-📅 어닝 임박
-TICKER - M/DD 실적발표
+📅 어닝 주의 (실적발표 임박 → 변동성)
+2주 내 실적발표 예정 종목을 나열해줘.
+예시: NVDA 2/21 · NEM 2/19
 
-✅ 나머지: 특이사항 없음
+✅ 리스크 미발견
+🚫과 📅에 해당하지 않는 나머지 종목 티커를 나열해줘.
 
-※ 뉴스가 없는 종목은 절대 언급하지 마.
-※ 주의 종목이 없으면 "주의 종목 없음"으로.
 총 1500자 이내."""
 
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
@@ -686,7 +696,7 @@ TICKER - M/DD 실적발표
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[grounding_tool],
-                temperature=0.7,
+                temperature=0.2,
             ),
         )
 
@@ -706,6 +716,30 @@ TICKER - M/DD 실적발표
         analysis_html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', analysis_html)  # *italic* (리스트 항목 제외)
         analysis_html = re.sub(r'#{1,3}\s*', '', analysis_html)                # ### headings
         analysis_html = analysis_html.replace('---', '━━━')                    # hr
+        # 3. 🚫 섹션 종목 간 구분선 삽입 (bullet 항목 사이)
+        lines = analysis_html.split('\n')
+        new_lines = []
+        in_risk_section = False
+        prev_was_bullet = False
+        for line in lines:
+            stripped = line.strip()
+            # 🚫 섹션 감지
+            if '🚫' in stripped:
+                in_risk_section = True
+                prev_was_bullet = False
+            elif stripped.startswith(('📅', '✅', '📰')):
+                in_risk_section = False
+                prev_was_bullet = False
+            # 🚫 섹션 내 bullet 항목 사이에 구분선
+            if in_risk_section and (stripped.startswith('*') or '→' in stripped):
+                if prev_was_bullet:
+                    new_lines.append('──────────────────')
+                prev_was_bullet = True
+            else:
+                if stripped:
+                    prev_was_bullet = False
+            new_lines.append(line)
+        analysis_html = '\n'.join(new_lines)
 
         # 텔레그램 메시지 포맷팅
         now = datetime.now()
