@@ -3,11 +3,10 @@ EPS Momentum Daily Runner v8.0 - NTM EPS 시스템
 
 기능:
 1. NTM EPS 전 종목 수집 & DB 적재
-2. 텔레그램 메시지 5종 생성 & 발송
+2. 텔레그램 메시지 4종 생성 & 발송
    - Part 1: 이익 모멘텀 랭킹 (채널/개인봇)
    - Part 2: 매수 후보 (채널/개인봇)
-   - 턴어라운드 (채널/개인봇)
-   - AI 종합 분석 (개인봇) — Gemini 2.5 Flash + Google Search
+   - AI 리스크 체크 (개인봇) — Gemini 2.5 Flash + Google Search
    - 시스템 로그 (개인봇)
 3. Git 자동 commit/push
 
@@ -471,17 +470,15 @@ def create_part1_message(df, top_n=30):
     lines.append('주가 상승의 강력한 선행 신호예요.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('EPS 점수는 최근 90일간 EPS 전망치의')
-    lines.append('각 구간별 상승률을 모두 더한 값이에요.')
-    lines.append('(90일→60일→30일→7일, 총 4구간)')
-    lines.append('상승률이 클수록, 여러 구간에서 올랐을수록')
-    lines.append('점수가 높아져요!')
+    lines.append('EPS 점수 = 90일간 4구간 상승률의 합')
+    lines.append('점수가 높아도 🔴이 있으면 최근 주의!')
     lines.append('')
-    lines.append('신호등 🟢🔵🟡🔴 = 구간별 변화 강도')
-    lines.append('🟢 강한 상승(2%↑) 🔵 양호(0.5~2%)')
-    lines.append('🟡 보합(0~0.5%) 🔴 하락(0%↓)')
-    lines.append('왼쪽부터 90일전→60일→30일→최근 7일 순이에요.')
-    lines.append('오른쪽에 🟢🔵가 있으면 최근 가속 중!')
+    lines.append('신호등 = 구간별 EPS 변화 (왼→오)')
+    lines.append('90→60일 | 60→30일 | 30→7일 | 7일→오늘')
+    lines.append('🟩 폭발(20%↑) 🟢 상승(2~20%)')
+    lines.append('🔵 양호(0.5~2%) 🟡 보합(0~0.5%)')
+    lines.append('🔴 하락(0~-10%) 🟥 급락(-10%↓)')
+    lines.append('네모(🟩🟥) = 변동폭 큰 구간')
     lines.append('')
 
     for _, row in df.head(top_n).iterrows():
@@ -494,15 +491,14 @@ def create_part1_message(df, top_n=30):
         desc = row.get('trend_desc', '')
 
         lines.append(f'<b>{rank}위</b> {name} ({ticker})')
-        lines.append(f'<i>{industry}</i> · EPS 점수 <b>{score:.1f}</b>')
-        lines.append(f'{lights} {desc}')
-        lines.append('')
+        lines.append(f'<i>{industry}</i> · {lights} {desc} · <b>{score:.1f}</b>점')
+        lines.append('──────────────────')
 
     return '\n'.join(lines)
 
 
 def create_part2_message(df, top_n=30):
-    """Part 2: 매수 후보 메시지 생성 (괴리율 순, Score > 3 필터)"""
+    """Part 2: 매수 후보 메시지 생성 (괴리율 순, Score > 10 필터)"""
     import pandas as pd
 
     today = get_today_kst()
@@ -510,8 +506,8 @@ def create_part2_message(df, top_n=30):
     today_str = today.strftime('%m월%d일')
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
-    # Score > 3 필터
-    filtered = df[df['score'] > 3].copy()
+    # Score > 10 필터 (상위 10% EPS 모멘텀만 매수 후보로)
+    filtered = df[df['score'] > 10].copy()
 
     # 괴리율(fwd_pe_chg) 있는 것만 + Fwd PE > 0 + EPS 변화 양수
     filtered = filtered[
@@ -536,22 +532,19 @@ def create_part2_message(df, top_n=30):
     lines.append('')
     lines.append('EPS 전망치는 좋아졌는데')
     lines.append('주가가 아직 못 따라간 종목이에요.')
-    lines.append('시장이 아직 반영 못 한 기회일 수 있어요.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('EPS와 주가 옆의 %는 최근 변화율이에요.')
-    lines.append('7일~90일 변화를 가중평균한 값으로,')
-    lines.append('최근 변화일수록 비중이 커요.')
-    lines.append('(7일 40% · 30일 30% · 60일 20% · 90일 10%)')
+    lines.append('EPS = 90일간 EPS 전망치 변화율')
+    lines.append('주가 = 같은 기간 주가 변화율')
+    lines.append('EPS는 올랐는데 주가가 덜 오른 순서예요.')
+    lines.append('⚠️ = 주가 하락이 EPS 대비 과도 → 뉴스 확인!')
     lines.append('')
-    lines.append('EPS는 오르는데 주가가 덜 따라왔다면,')
-    lines.append('그 차이가 클수록 저평가 가능성이 높아요.')
-    lines.append('')
-    lines.append('🟢 강한 상승(2%↑) 🔵 양호(0.5~2%)')
-    lines.append('🟡 보합(0~0.5%) 🔴 하락(0%↓)')
-    lines.append('🟢🔵가 많을수록 EPS 개선이 탄탄한 종목이에요.')
-    lines.append('⚠️ = 주가 하락 폭이 EPS 개선에 비해')
-    lines.append('과도하게 큰 종목이에요. 뉴스를 확인하세요.')
+    lines.append('신호등 = 구간별 EPS 변화 (왼→오)')
+    lines.append('90→60일 | 60→30일 | 30→7일 | 7일→오늘')
+    lines.append('🟩 폭발(20%↑) 🟢 상승(2~20%)')
+    lines.append('🔵 양호(0.5~2%) 🟡 보합(0~0.5%)')
+    lines.append('🔴 하락(0~-10%) 🟥 급락(-10%↓)')
+    lines.append('네모(🟩🟥) = 변동폭 큰 구간')
     lines.append('')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
@@ -561,12 +554,15 @@ def create_part2_message(df, top_n=30):
         industry = row.get('industry', '')
         lights = row.get('trend_lights', '')
         desc = row.get('trend_desc', '')
-        eps_chg_w = row.get('eps_chg_weighted')
-        eps_str = f"{eps_chg_w:+.1f}%" if pd.notna(eps_chg_w) else '-'
-        price_chg_w = row.get('price_chg_weighted')
-        price_str = f"{price_chg_w:+.1f}%" if pd.notna(price_chg_w) else '-'
+        eps_90d = row.get('eps_change_90d')
+        price_90d = row.get('price_chg')
+        change_str = ''
+        if pd.notna(eps_90d) and pd.notna(price_90d):
+            change_str = f"EPS {eps_90d:+.1f}% / 주가 {price_90d:+.1f}%"
 
         # ⚠️ 판별: EPS > 0이고 주가 < 0일 때, |주가변화| / |EPS변화| > 5
+        eps_chg_w = row.get('eps_chg_weighted')
+        price_chg_w = row.get('price_chg_weighted')
         is_warning = False
         if (pd.notna(eps_chg_w) and pd.notna(price_chg_w)
                 and eps_chg_w > 0 and price_chg_w < 0):
@@ -575,16 +571,11 @@ def create_part2_message(df, top_n=30):
                 is_warning = True
 
         warn_mark = ' ⚠️' if is_warning else ''
-        lines.append(f'<b>{rank}위</b> {name} ({ticker})')
-        lines.append(f'<i>{industry}</i> · EPS {eps_str} · 주가 {price_str}{warn_mark}')
-        lines.append(f'{lights} {desc}')
+        lines.append(f'<b>{rank}위</b> {name} ({ticker}){warn_mark}')
+        lines.append(f'<i>{industry}</i> · {lights} {desc}')
+        lines.append(change_str)
+        lines.append('──────────────────')
 
-        if is_warning:
-            lines.append('⚠️ 주가 하락이 EPS 개선 대비 과도해요.')
-
-        lines.append('')
-
-    lines.append('')
     lines.append('주가 하락에는 항상 이유가 있을 수 있으니')
     lines.append('뉴스와 실적 발표 일정을 꼭 확인하세요.')
 
@@ -672,7 +663,7 @@ def create_system_log_message(stats, elapsed, config):
     lines.append('')
     lines.append(f'Score &gt; 0: {stats.get("score_gt0", 0)} ({stats.get("score_gt0", 0) * 100 // max(main_cnt, 1)}%)')
     lines.append(f'Score &gt; 3: {stats.get("score_gt3", 0)} ({stats.get("score_gt3", 0) * 100 // max(main_cnt, 1)}%)')
-    lines.append(f'강세 지속(전구간 🟢): {stats.get("aligned_count", 0)}')
+    lines.append(f'강세 지속(전구간 상승): {stats.get("aligned_count", 0)}')
 
     lines.append(f'\n소요: {minutes}분 {seconds}초')
 
@@ -680,11 +671,11 @@ def create_system_log_message(stats, elapsed, config):
 
 
 # ============================================================
-# AI 종합 분석 (Gemini 2.5 Flash + Google Search)
+# AI 리스크 체크 (Gemini 2.5 Flash + Google Search)
 # ============================================================
 
 def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config):
-    """Gemini 2.5 Flash로 매수 후보 리스크 검증 (Google Search Grounding)"""
+    """Gemini 2.5 Flash 뉴스 스캐너 - 매수 후보 리스크 체크 (Google Search Grounding)"""
     api_key = config.get('gemini_api_key', '')
     if not api_key:
         log("GEMINI_API_KEY 미설정 — AI 분석 스킵", "WARN")
@@ -705,56 +696,42 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config):
         def strip_html(text):
             return re.sub(r'<[^>]+>', '', text or '')
 
-        prompt = f"""너는 투자 리스크 검증 애널리스트야.
-자동 스크리닝 시스템이 뽑은 매수 후보 30종목을 검증해서
-"사도 되는 것"과 "사면 안 되는 것"을 판별해줘.
+        prompt = f"""너는 뉴스 스캐너야.
+자동 스크리닝 시스템이 뽑은 매수 후보 30종목에 대해
+최근 뉴스와 이벤트를 검색해서 알아야 할 사실만 전달해줘.
+분석이나 판단은 하지 마. 팩트만 전달해.
 
-[시스템 요약]
-이 시스템은 월가 애널리스트들의 EPS 전망치(향후 12개월) 변화를 추적해.
-매수 후보 = EPS 전망치는 올랐는데 주가가 아직 안 따라온 종목 (괴리율 순).
-순위가 높을수록 주가가 EPS 대비 많이 빠진 종목이야. → 왜 빠졌는지가 핵심!
-신호등(🟢🔵🟡🔴) = EPS 변화 방향 (왼쪽=과거→오른쪽=최근, 🟢=강한상승, 🔴=하락).
-⚠️ = 주가 급락이 EPS 대비 과도한 종목 (함정 가능성). → 반드시 깊이 파볼 것!
-추세 설명 = 신호등 패턴 기반 자동 판정 (강세 지속, 최근 꺾임, 반등 등).
-
-⚠️ 절대 금지: 데이터의 EPS%/주가% 수치는 시스템 내부 가중평균이야.
-실제 EPS나 주가 등락률이 아니야. 절대로 이 수치를 인용하거나 언급하지 마.
-
-[검증 대상: 매수 후보 Top 30]
+[매수 후보 Top 30]
 {strip_html(msg_part2)}
 
-[참고: EPS 모멘텀 Top 30 — EPS 상승 강도 순위]
-{strip_html(msg_part1)}
-
-[참고: 턴어라운드 — 적자→흑자 전환 가능 종목]
-{strip_html(msg_turnaround)}
-
 [네가 할 일]
-Top 30 각 종목을 웹 검색해서 사면 안 되는 이유가 있는지 찾아.
-사도 되는 종목은 왜 괜찮은지 근거를 제시해.
+30종목을 웹 검색해서 아래 항목만 찾아:
+1. 최근 1~2주 내 중요 뉴스/이벤트 (악재 또는 호재)
+2. 2주 내 실적발표(earnings) 예정 여부
+3. 특이사항 없으면 보고하지 마
 
-핵심 원칙:
-- 순위가 높은 종목 = 주가가 많이 빠진 종목. "왜 빠졌는지"를 반드시 웹 검색으로 찾아.
-  기회(과매도)인지 함정(구조적 악재)인지 판별하는 게 가장 중요해.
-- ⚠️ 경고가 붙은 종목은 특히 깊이 조사해. 주가 급락 원인을 구체적으로 밝혀.
-- 같은 업종 종목이 여러 개면, 업종 전체 트렌드인지 개별 이슈인지 구분해.
-
-검증 관점:
-① EPS 품질: 매출 성장인지, 비용 절감/자사주 매입/일회성인지
-② 주가 하락 원인: 소송, 규제, 경쟁 심화, 업종 악재, 대주주 매도, 가이던스 하향 등
-③ 밸류에이션: 동종업계 대비 Fwd PE가 합리적인지
-④ 재무 건전성: 부채비율, FCF, 이자보상배율
-⑤ 실적 발표: earnings date 임박 시 "어닝 갬블" 리스크 명시
-⑥ 내부자/기관: insider trading, 기관 비중 변화
-+ 이 외 중요한 정보가 있으면 자유롭게 추가해.
+⚠️ 절대 금지:
+- 데이터의 EPS%/주가% 수치 인용 금지 (시스템 내부 가중평균임)
+- 주관적 판단/추천 금지 ("매수 유효", "괜찮아 보여요" 등)
+- 일반론 금지 ("실적이 좋습니다", "성장세입니다" 등)
 
 [출력 형식] 한국어, 친절한 말투(~예요/~해요)
-1. 시장 한줄평: Top 30 섹터 구성에서 읽히는 오늘의 시장 테마
-2. 매수 유효: 검증 통과한 종목과 근거 (종목마다 빈 줄로 구분)
-3. 매수 주의: 함정일 수 있는 종목과 구체적 이유 (종목마다 빈 줄로 구분)
-※ 종목별 분석 사이에 반드시 빈 줄을 넣어서 가독성을 확보해.
-※ 데이터의 EPS%/주가% 수치는 절대 인용하지 마. 웹 검색으로 찾은 실제 정보만 사용해.
-총 3000자 이내."""
+
+📰 시장 한줄평
+(Top 30 섹터 구성에서 읽히는 테마 1줄)
+
+⚠️ 주의 종목
+TICKER (업종)
+→ 구체적 뉴스/이벤트 1-2줄
+
+📅 어닝 임박
+TICKER - M/DD 실적발표
+
+✅ 나머지: 특이사항 없음
+
+※ 뉴스가 없는 종목은 절대 언급하지 마.
+※ 주의 종목이 없으면 "주의 종목 없음"으로.
+총 1500자 이내."""
 
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         response = client.models.generate_content(
@@ -791,13 +768,12 @@ Top 30 각 종목을 웹 검색해서 사면 안 되는 이유가 있는지 찾�
 
         lines = []
         lines.append('━━━━━━━━━━━━━━━━━━━')
-        lines.append('      🤖 AI 종합 분석')
+        lines.append('      🤖 AI 리스크 체크')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {now.strftime("%Y년 %m월 %d일")}')
         lines.append('')
-        lines.append('EPS 모멘텀 데이터 + 최신 뉴스/실적/재무를')
-        lines.append('종합 분석한 AI 참고 의견이에요.')
-        lines.append('투자 판단은 본인 책임이에요!')
+        lines.append('매수 후보 30종목의 최근 뉴스/이벤트를')
+        lines.append('AI가 검색한 결과예요. 참고용이에요!')
         lines.append('')
         lines.append(analysis_html)
 
@@ -891,7 +867,6 @@ def main():
 
     msg_part1 = create_part1_message(results_df) if not results_df.empty else None
     msg_part2 = create_part2_message(results_df) if not results_df.empty else None
-    msg_turnaround = create_turnaround_message(turnaround_df) if not turnaround_df.empty else None
 
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()
@@ -903,7 +878,7 @@ def main():
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
         channel_id = config.get('telegram_channel_id')
 
-        # 발송 순서: Part 1 → 턴어라운드 → Part 2 (핵심이 마지막 = 가장 먼저 눈에 띔)
+        # 발송 순서: Part 1 → Part 2 → AI 리스크 체크 → 시스템 로그
 
         # Part 1 (모멘텀 랭킹)
         if msg_part1:
@@ -911,20 +886,14 @@ def main():
             send_telegram_long(msg_part1, config, chat_id=target)
             log(f"Part 1 (모멘텀 랭킹) 전송 완료 → {'채널' if target == channel_id else '개인봇'}")
 
-        # 턴어라운드
-        if msg_turnaround:
-            target = channel_id if (is_github and channel_id) else private_id
-            send_telegram_long(msg_turnaround, config, chat_id=target)
-            log(f"턴어라운드 전송 완료 → {'채널' if target == channel_id else '개인봇'}")
-
-        # Part 2 (매수 후보) — 핵심 리포트, 마지막 발송
+        # Part 2 (매수 후보) — 핵심 리포트
         if msg_part2:
             target = channel_id if (is_github and channel_id) else private_id
             send_telegram_long(msg_part2, config, chat_id=target)
             log(f"Part 2 (매수 후보) 전송 완료 → {'채널' if target == channel_id else '개인봇'}")
 
-        # AI 종합 분석 → 개인봇에만
-        msg_ai = run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config)
+        # AI 리스크 체크 → 개인봇에만
+        msg_ai = run_ai_analysis(msg_part1, msg_part2, None, config)
         if msg_ai:
             send_telegram_long(msg_ai, config, chat_id=private_id)
             log("AI 종합 분석 전송 완료 → 개인봇")

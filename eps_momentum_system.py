@@ -415,7 +415,8 @@ def calculate_eps_change_90d(ntm_values):
 def get_trend_lights(seg1, seg2, seg3, seg4):
     """추세 신호등 생성 (90d/60d/30d/7d 순서 = 과거→현재)
 
-    4단계: 🟢(>2%) 🔵(0.5~2%) 🟡(0~0.5%) 🔴(<0%)
+    6단계: 🟩(>20%) 🟢(2~20%) 🔵(0.5~2%) 🟡(0~0.5%) 🔴(0~-10%) 🟥(<-10%)
+    네모 = 변동폭 큰 구간, 동그라미 = 일반 구간
 
     Args:
         seg1-seg4: calculate_ntm_score()에서 반환된 segment 값 (%)
@@ -425,22 +426,26 @@ def get_trend_lights(seg1, seg2, seg3, seg4):
     """
     segs = [seg4, seg3, seg2, seg1]  # 과거→현재 순서
 
-    # 4단계 신호등
+    # 6단계 신호등 (네모=강한 변동, 동그라미=일반)
     lights = []
     for s in segs:
-        if s > 2:
+        if s > 20:
+            lights.append('🟩')
+        elif s > 2:
             lights.append('🟢')
         elif s > 0.5:
             lights.append('🔵')
         elif s >= 0:
             lights.append('🟡')
-        else:
+        elif s >= -10:
             lights.append('🔴')
+        else:
+            lights.append('🟥')
 
     lights_str = ''.join(lights)
 
-    # 강도 점수: 🟢=3, 🔵=2, 🟡=1, 🔴=0
-    score_map = {'🟢': 3, '🔵': 2, '🟡': 1, '🔴': 0}
+    # 강도 점수: 🟩/🟢=3, 🔵=2, 🟡=1, 🟥/🔴=0
+    score_map = {'🟩': 3, '🟢': 3, '🔵': 2, '🟡': 1, '🔴': 0, '🟥': 0}
     scores = [score_map[l] for l in lights]
     total = sum(scores)  # 0~12
     recent = scores[2:]  # 30d, 7d
@@ -448,8 +453,8 @@ def get_trend_lights(seg1, seg2, seg3, seg4):
     recent_avg = sum(recent) / 2
     old_avg = sum(old) / 2
 
-    green_count = lights.count('🟢')
-    red_count = lights.count('🔴')
+    green_count = lights.count('🟢') + lights.count('🟩')
+    red_count = lights.count('🔴') + lights.count('🟥')
     neg_count = red_count  # 하락 구간 수
 
     # 추세 설명
