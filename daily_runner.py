@@ -729,10 +729,43 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
             log(f"2주내 어닝 예정: {len(earnings_tickers)}종목")
         earnings_info = ' · '.join(earnings_tickers) if earnings_tickers else '해당 없음'
 
-        # Part 2 데이터 (HTML 태그 제거)
-        def strip_html(text):
-            return re.sub(r'<[^>]+>', '', text or '')
-        part2_data = strip_html(msg_part2) if msg_part2 else "데이터 없음"
+        # Part 2 데이터: results_df에서 직접 구성 (msg_part2 폴백)
+        import pandas as pd_ai
+        data_lines = []
+        if part2_stocks and results_df is not None and not results_df.empty:
+            filtered_ai = results_df[results_df['adj_score'] > 9].copy()
+            filtered_ai = filtered_ai[
+                filtered_ai['fwd_pe_chg'].notna() &
+                filtered_ai['fwd_pe'].notna() &
+                (filtered_ai['fwd_pe'] > 0) &
+                (filtered_ai['eps_change_90d'] > 0)
+            ].copy()
+            filtered_ai = filtered_ai.sort_values('fwd_pe_chg').head(30)
+            for idx, (_, row) in enumerate(filtered_ai.iterrows()):
+                t = row['ticker']
+                ind = row.get('industry', '')
+                asc = row.get('adj_score', 0)
+                lights = row.get('trend_lights', '')
+                desc = row.get('trend_desc', '')
+                eps_c = row.get('eps_change_90d', 0) or 0
+                price_c = row.get('price_chg', 0) or 0
+                pe_c = row.get('fwd_pe_chg', 0) or 0
+                rup = int(row.get('rev_up30', 0) or 0)
+                rdn = int(row.get('rev_down30', 0) or 0)
+                warn = ' ⚠️' if (row.get('eps_chg_weighted', 0) or 0) > 0 and (row.get('price_chg_weighted', 0) or 0) < 0 and abs((row.get('price_chg_weighted', 0) or 0)) / max(abs((row.get('eps_chg_weighted', 0) or 0)), 0.01) > 5 else ''
+                data_lines.append(
+                    f"{idx+1}. {t} ({ind}) {lights} {desc} · "
+                    f"점수 {asc:.1f} · EPS {eps_c:+.1f}% · 주가 {price_c:+.1f}% · "
+                    f"괴리 {pe_c:+.1f} · 의견 ↑{rup} ↓{rdn}{warn}"
+                )
+        if data_lines:
+            part2_data = '\n'.join(data_lines)
+        elif msg_part2:
+            def strip_html(text):
+                return re.sub(r'<[^>]+>', '', text or '')
+            part2_data = strip_html(msg_part2)
+        else:
+            part2_data = "데이터 없음"
 
         prompt = f"""오늘 날짜: {today_str}
 
@@ -857,17 +890,20 @@ def send_telegram_long(message, config, chat_id=None):
 
         # 4000자씩 분할
         chunks = []
-        remaining = message
+        remaining = message.strip()
         while remaining:
             if len(remaining) <= 4000:
                 chunks.append(remaining)
                 break
             else:
                 split_point = remaining[:4000].rfind('\n')
-                if split_point == -1:
+                if split_point <= 0:
                     split_point = 4000
                 chunks.append(remaining[:split_point])
-                remaining = remaining[split_point:].lstrip('\n')
+                remaining = remaining[split_point:].strip()
+
+        # 빈 청크 제거
+        chunks = [c for c in chunks if c.strip()]
 
         for i, chunk in enumerate(chunks):
             url = f"https://api.telegram.org/bot{bot_token}/sendMessage"

@@ -133,7 +133,15 @@
       "Bash(powershell.exe -Command \"Set-Location ''C:\\\\dev\\\\claude-code\\\\eps-momentum-us''; & ''C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe'' test_ai_prompt.py 2>&1\")",
       "Bash(cmd.exe /c \"cd /d C:\\\\dev\\\\claude-code\\\\eps-momentum-us && C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe test_patterns.py\")",
       "Bash(cmd.exe /c \"chcp 65001 >nul 2>&1 && cd /d C:\\\\dev\\\\claude-code\\\\eps-momentum-us && set PYTHONIOENCODING=utf-8 && C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe test_patterns.py 2>&1\")",
-      "Bash(cmd.exe /c \"cd /d C:\\\\dev\\\\claude-code\\\\eps-momentum-us && set PYTHONIOENCODING=utf-8 && C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe test_patterns.py > test_output.txt 2>&1\")"
+      "Bash(cmd.exe /c \"cd /d C:\\\\dev\\\\claude-code\\\\eps-momentum-us && set PYTHONIOENCODING=utf-8 && C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe test_patterns.py > test_output.txt 2>&1\")",
+      "Bash(powershell.exe -Command \"Remove-Item ''C:\\\\dev\\\\claude-code\\\\eps-momentum-us\\\\test_ai_prompt.py''; Remove-Item ''C:\\\\dev\\\\claude-code\\\\eps-momentum-us\\\\test_output.txt'' -ErrorAction SilentlyContinue; Write-Output ''Cleaned up test files''\")",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" status)",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" diff --stat)",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" log --oneline -5)",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" add README.md SESSION_HANDOFF.md daily_runner.py .claude/settings.local.json)",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" rm --cached test_ai_prompt.py test_output.txt)",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" add test_ai_prompt.py test_output.txt)",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" add -A)"
     ]
   }
 }

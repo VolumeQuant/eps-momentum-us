@@ -13,6 +13,7 @@
 > **v11**: 2026-02-08 집 PC — 방향 보정(adj_score) 도입, Part 2 필터 adj_score > 9
 > **v12**: 2026-02-08 집 PC — 트래픽 라이트 8패턴 리디자인, Part 2 괴리율+의견 표시 추가
 > **v13**: 2026-02-08 집 PC — 트래픽 라이트 12패턴 확장 (피크 위치 기반 + 진동 감지, "상향 가속" 12/30→최대 5/30)
+> **v14**: 2026-02-08 집 PC — AI 뉴스 스캐너→AI 브리핑 전환 (검색은 코드가, 분석은 AI가)
 
 ---
 
@@ -770,3 +771,93 @@ Part 2 읽는 법에 추가:
 *v11 업데이트: Claude Opus 4.6 | 2026-02-08 집 PC — 방향 보정(adj_score) 도입, adj_score > 9*
 *v12 업데이트: Claude Opus 4.6 | 2026-02-08 집 PC — 트래픽 라이트 8패턴, Part 2 괴리율+의견 표시*
 *v13 업데이트: Claude Opus 4.6 | 2026-02-08 집 PC — 트래픽 라이트 12패턴 (피크 위치 + 진동 감지, 상향 가속 과다 해결)*
+
+---
+
+## Phase 10: AI 뉴스 스캐너 → AI 브리핑 전환 (v14)
+
+### 10-1. 뉴스 스캐너의 근본적 한계 발견
+
+**문제**: v10 소거법으로 30종목 리스크 스캔 시도 → 실패 반복
+
+**시도와 실패 기록**:
+1. **구조화 티커 + 안티할루시네이션** → 30종목 중 리스크 2개만 발견, 📅 섹션에서 23개 가짜 어닝 날짜 할루시네이션
+2. **섹터 기반 + 개별 Top 10** → 모든 섹터 "검색되지 않았습니다", 모든 종목 "해당 없음"
+3. **뉴스 허용 범위 확대 (리스크→긍정/부정 모두)** + temperature 상향 → API 한도(20회/일) 소진
+
+**근본 원인 발견**: Gemini + Google Search Grounding은 요청당 5-8개 검색 쿼리만 생성. 30종목 개별 검색은 구조적으로 불가능.
+
+### 10-2. 설계 전환: "검색은 코드가, 분석은 AI가"
+
+**핵심 인사이트**: AI에게 검색을 시키면 할루시네이션 + 불완전 결과. 코드가 팩트를 수집하고 AI는 해석만 하면 할루시네이션 구조적 불가.
+
+**새 구조**:
+| 섹션 | 데이터 소스 | AI 역할 |
+|------|-----------|---------|
+| 📰 시장 동향 | Google Search (1회, 광범위 쿼리) | 검색 결과 요약 |
+| 📊 매수 후보 분석 | results_df (코드가 구성) | 데이터 해석/인사이트 |
+| 📅 어닝 주의 | yfinance stock.calendar (코드가 조회) | 그대로 표시만 |
+
+**제거된 것**: 🚫 개별 종목 리스크 스캔, ✅ 리스크 미발견 목록, 구분선 후처리
+
+### 10-3. 어닝 일정: yfinance 직접 조회
+
+**문제**: Gemini가 어닝 날짜를 라운드로빈으로 할루시네이션 (23개 가짜 날짜 생성)
+
+**해결**: yfinance `stock.calendar.get('Earnings Date', [])` 직접 조회
+```python
+for ticker, _ in part2_stocks:
+    stock = yf.Ticker(ticker)
+    cal = stock.calendar
+    earn_dates = cal.get('Earnings Date', [])
+    for ed in earn_dates:
+        if today_date <= ed <= two_weeks_date:
+            earnings_tickers.append(f"{ticker} {ed.month}/{ed.day}")
+```
+- 결과: NEM 2/20, RGLD 2/19 정확히 조회됨
+- 프롬프트에 `[어닝 일정 — 시스템 확인 완료]`로 전달, AI는 수정/추가 금지
+
+### 10-4. 매수 후보 데이터: results_df 직접 구성
+
+**문제**: msg_part2=None일 때 Gemini가 "데이터가 없다"고 응답
+
+**해결**: msg_part2 텍스트 파싱 대신 results_df에서 직접 데이터 구성
+```python
+data_lines.append(
+    f"{idx+1}. {t} ({ind}) {lights} {desc} · "
+    f"점수 {asc:.1f} · EPS {eps_c:+.1f}% · 주가 {price_c:+.1f}% · "
+    f"괴리 {pe_c:+.1f} · 의견 ↑{rup} ↓{rdn}{warn}"
+)
+```
+- 함수 시그니처 변경: `run_ai_analysis(..., results_df=None)`
+
+### 10-5. 청크 분할 버그 수정
+
+**문제**: 텔레그램에 빈 메시지 48개 전송됨
+
+**원인**: `split_point = remaining[:4000].rfind('\n')` → 첫 4000자에 개행 없으면 `split_point==-1` → 무한루프 + 빈 청크 생성
+
+**수정**:
+```python
+if split_point <= 0:
+    split_point = 4000
+remaining = remaining[split_point:].strip()
+chunks = [c for c in chunks if c.strip()]  # 빈 청크 제거
+```
+
+### 10-6. temperature 및 기타
+
+- temperature: 0.2 → 0.3 (0.2는 빈 응답 발생, 0.3이 안정적)
+- 빈 응답 시 1회 재시도 로직 추가
+- 헤더: "AI 리스크 체크" → "AI 브리핑"
+- 설명: "리스크를 소거법으로 스캔" → "매수 후보 데이터를 AI가 분석한 브리핑"
+
+### 결정 사항 추가
+
+42. **AI 브리핑 전환 (v14)**: 소거법→데이터 분석, "검색은 코드가, 분석은 AI가"
+43. **어닝 yfinance 직접 조회 (v14)**: AI 할루시네이션 방지, stock.calendar 사용
+44. **results_df 직접 전달 (v14)**: msg_part2 텍스트 파싱 대신 DataFrame에서 구조화 데이터 구성
+45. **청크 분할 수정 (v14)**: split_point <= 0 방어, 빈 청크 필터링
+46. **temperature 0.3 (v14)**: 0.2는 빈 응답 위험, 0.3이 데이터 분석에 적합
+
+*v14 업데이트: Claude Opus 4.6 | 2026-02-08 집 PC — AI 뉴스 스캐너→AI 브리핑 (검색은 코드가, 분석은 AI가)*
