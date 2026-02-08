@@ -141,7 +141,10 @@
       "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" add README.md SESSION_HANDOFF.md daily_runner.py .claude/settings.local.json)",
       "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" rm --cached test_ai_prompt.py test_output.txt)",
       "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" add test_ai_prompt.py test_output.txt)",
-      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" add -A)"
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" add -A)",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" commit -m \"$\\(cat <<''EOF''\nrefactor: AI 뉴스 스캐너 → AI 브리핑 전환 \\(v9.2\\)\n\n- AI 역할 변경: 리스크 소거법 → 데이터 분석 브리핑\n  검색은 코드가\\(yfinance\\), 분석은 AI가\\(Gemini\\) 원칙\n- 📰 시장 동향: Google Search 1회로 시장 요약\n- 📊 매수 후보 분석: results_df에서 직접 구조화 데이터 전달\n- 📅 어닝: yfinance stock.calendar 직접 조회 \\(할루시네이션 방지\\)\n- 청크 분할 버그 수정: split_point<=0 방어, 빈 청크 필터링\n- temperature 0.2→0.3, 빈 응답 재시도 로직 추가\n- 테스트 스크립트 정리 \\(test_ai_prompt.py, test_output.txt 삭제\\)\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" push origin master)",
+      "Bash(powershell.exe -Command \"& ''C:\\\\Users\\\\jkw88\\\\miniconda3\\\\envs\\\\volumequant\\\\python.exe'' ''C:\\\\dev\\\\claude-code\\\\eps-momentum-us\\\\daily_runner.py''\")"
     ]
   }
 }
