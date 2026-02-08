@@ -684,7 +684,7 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
             ].copy()
             filtered = filtered.sort_values('fwd_pe_chg').head(30)
             for _, row in filtered.iterrows():
-                part2_stocks.append((row['ticker'], row.get('industry', 'N/A')))
+                part2_stocks.append((row['ticker'], row.get('short_name', row['ticker']), row.get('industry', 'N/A')))
 
         if not part2_stocks:
             log("Part 2 종목 없음 — AI 분석 스킵", "WARN")
@@ -702,7 +702,7 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
         news_by_ticker = {}
         earnings_tickers = []
 
-        for ticker, industry in part2_stocks:
+        for ticker, short_name, industry in part2_stocks:
             try:
                 stock = yf.Ticker(ticker)
 
@@ -762,9 +762,9 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
         # 뉴스 데이터 포맷팅
         news_sections = []
         no_news_tickers = []
-        for ticker, industry in part2_stocks:
+        for ticker, short_name, industry in part2_stocks:
             if ticker in news_by_ticker:
-                lines = [f"[{ticker} ({industry})]"]
+                lines = [f"[{short_name} ({ticker}) — {industry}]"]
                 for n in news_by_ticker[ticker]:
                     date_short = n['date'][5:].replace('-', '/')  # "02/08"
                     lines.append(f"- [{date_short}] {n['title']}")
@@ -772,17 +772,17 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
                         lines.append(f"  > {n['summary'][:100]}")
                 news_sections.append('\n'.join(lines))
             else:
-                no_news_tickers.append(ticker)
+                no_news_tickers.append(f"{short_name} ({ticker})")
 
         news_data = '\n\n'.join(news_sections) if news_sections else '뉴스 없음'
 
         # 티커 목록 (리스크 미발견 분류용)
-        all_tickers_str = ' · '.join(t for t, _ in part2_stocks)
+        all_tickers_str = ' · '.join(f"{n} ({t})" for t, n, _ in part2_stocks)
 
         prompt = f"""오늘 날짜: {today_str}
 
-아래는 EPS 모멘텀 시스템이 선정한 매수 후보 {stock_count}종목과, 각 종목의 최근 뉴스 헤드라인이야.
-이 종목들은 EPS 전망치가 상향되고 있는 좋은 종목들이야. 네 역할은 이 중에서 "숨은 리스크"를 찾아내는 거야.
+아래는 EPS 모멘텀 시스템이 선정한 매수 후보 {stock_count}종목과, 각 종목의 최근 뉴스야.
+이 종목들은 EPS 전망치가 상향 중인 좋은 종목이야. 네 역할은 "진짜 위험한 리스크"만 찾아내는 거야.
 
 [매수 후보 전체]
 {all_tickers_str}
@@ -801,26 +801,28 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
 어제 미국 시장 마감 동향과 금주 주요 이벤트를 Google 검색해서 2~3줄로 요약해줘.
 
 ⚠️ 리스크 체크
-위 뉴스에서 주가에 부정적 영향을 줄 수 있는 항목만 골라줘:
-- 애널리스트 다운그레이드, 목표가 하향
-- 어닝 미스, 가이던스 하향
-- 소송, 규제, 내부자 매도
-- 대폭 주가 하락 + 부정적 원인
+위 뉴스에서 매수 판단을 바꿀 만한 심각한 리스크만 골라줘.
 
-형식: 각 종목 1줄
-티커 — 리스크 요약 (출처 날짜)
+리스크로 인정하는 것 (엄격 기준):
+- 애널리스트 다운그레이드 또는 목표가 대폭 하향
+- 어닝 미스, 가이던스 하향, 실적 경고
+- 소송, 규제 조치, SEC 조사, 내부자 대량 매도
+- 회사 고유의 구체적 악재 (제품 리콜, 계약 해지 등)
 
-절대 금지:
-- 위 뉴스에 없는 리스크를 지어내지 마
-- "경쟁 심화", "가격 변동성" 같은 업종 상시 리스크 금지
-- 호재/긍정 뉴스는 무시 (시스템이 이미 좋은 종목을 골랐으므로)
-- 리스크 뉴스가 없는 종목은 여기에 쓰지 마
+리스크가 아닌 것 (무시해야 함):
+- 단순 주가 하락 (원인 없는 하락은 리스크가 아님, 매수 기회일 수 있음)
+- "경쟁 심화", "변동성", "관세 우려" 같은 업종/시장 전체 이슈
+- 공급 부족 (수요 과잉의 반증일 수 있음)
+- 사소한 운영 이슈, 고객 불만, 일반적 뉴스
+- 뉴스에 없는 내용을 추측하거나 지어내는 것
+
+형식: 각 종목 1줄, 종목명(티커) — 리스크 요약 (날짜)
 
 📅 어닝 주의
-위 [어닝 일정]을 그대로 표시. 수정/추가 금지. 어닝 일정이 "해당 없음"이면 이 섹션 생략.
+위 [어닝 일정]을 그대로 표시. 수정/추가 금지. "해당 없음"이면 이 섹션 생략.
 
 ✅ 리스크 미발견
-⚠️에 해당하지 않는 나머지 종목을 · 로 구분해서 한 줄로 나열."""
+⚠️에 해당하지 않는 나머지 종목을 종목명(티커) 형식으로 · 구분하여 한 줄 나열."""
 
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         response = client.models.generate_content(
