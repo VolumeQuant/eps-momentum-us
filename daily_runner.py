@@ -1,11 +1,11 @@
 """
-EPS Momentum Daily Runner v8.0 - NTM EPS 시스템
+EPS Momentum Daily Runner v9.0 - NTM EPS 시스템
 
 기능:
 1. NTM EPS 전 종목 수집 & DB 적재
 2. 텔레그램 메시지 4종 생성 & 발송
    - Part 1: 이익 모멘텀 랭킹 (채널/개인봇)
-   - Part 2: 매수 후보 (채널/개인봇)
+   - Part 2: 매수 후보 — 괴리율+의견 (채널/개인봇)
    - AI 리스크 체크 (개인봇) — Gemini 2.5 Flash + Google Search
    - 시스템 로그 (개인봇)
 3. Git 자동 commit/push
@@ -196,9 +196,26 @@ def run_ntm_collection(config):
                 continue
 
             # Score 계산
-            score, seg1, seg2, seg3, seg4, is_turnaround = calculate_ntm_score(ntm)
+            score, seg1, seg2, seg3, seg4, is_turnaround, adj_score, direction = calculate_ntm_score(ntm)
             eps_change_90d = calculate_eps_change_90d(ntm)
             trend_lights, trend_desc = get_trend_lights(seg1, seg2, seg3, seg4)
+
+            # EPS Revision 데이터 추출 (이미 캐시된 _earnings_trend에서)
+            rev_up30 = 0
+            rev_down30 = 0
+            try:
+                raw_trend = stock._analysis._earnings_trend
+                if raw_trend:
+                    for item in raw_trend:
+                        if item.get('period') == '0y':
+                            eps_rev = item.get('epsRevisions', {})
+                            up_data = eps_rev.get('upLast30days', {})
+                            down_data = eps_rev.get('downLast30days', {})
+                            rev_up30 = up_data.get('raw', 0) if isinstance(up_data, dict) else 0
+                            rev_down30 = down_data.get('raw', 0) if isinstance(down_data, dict) else 0
+                            break
+            except Exception:
+                pass
 
             # DB 적재
             cursor.execute('''
@@ -296,6 +313,8 @@ def run_ntm_collection(config):
                 'short_name': short_name,
                 'industry': industry_kr,
                 'score': score,
+                'adj_score': adj_score,
+                'direction': direction,
                 'seg1': seg1, 'seg2': seg2, 'seg3': seg3, 'seg4': seg4,
                 'ntm_cur': ntm['current'],
                 'ntm_7d': ntm['7d'],
@@ -311,6 +330,8 @@ def run_ntm_collection(config):
                 'fwd_pe': fwd_pe_now,
                 'fwd_pe_chg': fwd_pe_chg,
                 'is_turnaround': is_turnaround,
+                'rev_up30': rev_up30,
+                'rev_down30': rev_down30,
             }
 
             if is_turnaround:
@@ -330,10 +351,10 @@ def run_ntm_collection(config):
             json.dump(ticker_cache, f, ensure_ascii=False, indent=2)
         log(f"종목 정보 캐시 저장: {len(ticker_cache)}개")
 
-    # 메인 랭킹: Score 순 정렬 + rank 업데이트
+    # 메인 랭킹: adj_score(방향 보정 점수) 순 정렬 + rank 업데이트
     results_df = pd.DataFrame(results)
     if not results_df.empty:
-        results_df = results_df.sort_values('score', ascending=False).reset_index(drop=True)
+        results_df = results_df.sort_values('adj_score', ascending=False).reset_index(drop=True)
         results_df['rank'] = results_df.index + 1
 
         for _, row in results_df.iterrows():
@@ -484,19 +505,19 @@ def create_part1_message(df, top_n=30):
         ticker = row['ticker']
         name = row.get('short_name', ticker)
         industry = row.get('industry', '')
-        score = row.get('score', 0)
+        adj_score = row.get('adj_score', row.get('score', 0))
         lights = row.get('trend_lights', '')
         desc = row.get('trend_desc', '')
 
         lines.append(f'<b>{rank}위</b> {name} ({ticker})')
-        lines.append(f'<i>{industry}</i> · {lights} {desc} · <b>{score:.1f}</b>점')
+        lines.append(f'<i>{industry}</i> · {lights} {desc} · <b>{adj_score:.1f}</b>점')
         lines.append('──────────────────')
 
     return '\n'.join(lines)
 
 
 def create_part2_message(df, top_n=30):
-    """Part 2: 매수 후보 메시지 생성 (괴리율 순, Score > 10 필터)"""
+    """Part 2: 매수 후보 메시지 생성 (괴리율 순, adj_score > 9 필터)"""
     import pandas as pd
 
     today = get_today_kst()
@@ -504,8 +525,8 @@ def create_part2_message(df, top_n=30):
     today_str = today.strftime('%m월%d일')
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
-    # Score > 10 필터 (상위 10% EPS 모멘텀만 매수 후보로)
-    filtered = df[df['score'] > 10].copy()
+    # adj_score > 9 필터 (방향 보정 적용, EPS 모멘텀 + 패턴 품질)
+    filtered = df[df['adj_score'] > 9].copy()
 
     # 괴리율(fwd_pe_chg) 있는 것만 + Fwd PE > 0 + EPS 변화 양수
     filtered = filtered[
@@ -532,17 +553,16 @@ def create_part2_message(df, top_n=30):
     lines.append('주가가 아직 못 따라간 종목이에요.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('EPS = 90일간 EPS 전망치 변화율')
-    lines.append('주가 = 같은 기간 주가 변화율')
-    lines.append('EPS는 올랐는데 주가가 덜 오른 순서예요.')
-    lines.append('⚠️ = 주가 하락이 EPS 대비 과도 → 뉴스 확인!')
+    lines.append('EPS·주가 = 90일 변화율')
+    lines.append('괴리 = EPS 대비 주가 미반영도 (순위 기준)')
+    lines.append('의견 ↑↓ = 30일간 EPS 상향/하향 애널리스트 수')
+    lines.append('⚠️ = 추가 확인 필요')
     lines.append('')
     lines.append('신호등 = 구간별 EPS 변화 (왼→오)')
     lines.append('90→60일 | 60→30일 | 30→7일 | 7일→오늘')
     lines.append('🟩 폭발(20%↑) 🟢 상승(2~20%)')
     lines.append('🔵 양호(0.5~2%) 🟡 보합(0~0.5%)')
     lines.append('🔴 하락(0~-10%) 🟥 급락(-10%↓)')
-    lines.append('네모(🟩🟥) = 변동폭 큰 구간')
     lines.append('')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
@@ -554,9 +574,19 @@ def create_part2_message(df, top_n=30):
         desc = row.get('trend_desc', '')
         eps_90d = row.get('eps_change_90d')
         price_90d = row.get('price_chg')
+        fwd_pe_chg = row.get('fwd_pe_chg')
+
+        # Line 3: EPS / 주가 / 괴리
         change_str = ''
         if pd.notna(eps_90d) and pd.notna(price_90d):
             change_str = f"EPS {eps_90d:+.1f}% / 주가 {price_90d:+.1f}%"
+            if pd.notna(fwd_pe_chg):
+                change_str += f" · 괴리 {fwd_pe_chg:+.1f}"
+
+        # Line 4: 의견 ↑N ↓N
+        rev_up = row.get('rev_up30', 0) or 0
+        rev_down = row.get('rev_down30', 0) or 0
+        opinion_str = f"의견 ↑{rev_up} ↓{rev_down}"
 
         # ⚠️ 판별: EPS > 0이고 주가 < 0일 때, |주가변화| / |EPS변화| > 5
         eps_chg_w = row.get('eps_chg_weighted')
@@ -572,6 +602,7 @@ def create_part2_message(df, top_n=30):
         lines.append(f'<b>{rank}위</b> {name} ({ticker}){warn_mark}')
         lines.append(f'<i>{industry}</i> · {lights} {desc}')
         lines.append(change_str)
+        lines.append(opinion_str)
         lines.append('──────────────────')
 
     lines.append('주가 하락에는 항상 이유가 있을 수 있으니')
@@ -610,7 +641,7 @@ def create_system_log_message(stats, elapsed, config):
     lines.append('')
     lines.append(f'Score &gt; 0: {stats.get("score_gt0", 0)} ({stats.get("score_gt0", 0) * 100 // max(main_cnt, 1)}%)')
     lines.append(f'Score &gt; 3: {stats.get("score_gt3", 0)} ({stats.get("score_gt3", 0) * 100 // max(main_cnt, 1)}%)')
-    lines.append(f'강세 지속(전구간 상승): {stats.get("aligned_count", 0)}')
+    lines.append(f'전구간 양호(🔴🟥 없음): {stats.get("aligned_count", 0)}')
 
     lines.append(f'\n소요: {minutes}분 {seconds}초')
 
@@ -828,7 +859,7 @@ def send_telegram_long(message, config, chat_id=None):
 def main():
     """NTM EPS 시스템 메인 실행"""
     log("=" * 60)
-    log("EPS Momentum Daily Runner v8.0 - NTM EPS 시스템")
+    log("EPS Momentum Daily Runner v9.0 - NTM EPS 시스템")
     log("=" * 60)
 
     start_time = datetime.now()

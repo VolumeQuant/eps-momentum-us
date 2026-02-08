@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul 2>&1
-REM EPS Momentum Daily Runner v8.0 - Windows Task Scheduler용
+REM EPS Momentum Daily Runner v9.0 - Windows Task Scheduler용
 
 REM 작업 디렉토리 이동
 cd /d C:\dev\claude-code\eps-momentum-us

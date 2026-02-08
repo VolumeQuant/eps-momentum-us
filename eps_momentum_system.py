@@ -1,10 +1,11 @@
 """
-EPS Momentum System v8.0 - NTM (Next Twelve Months) EPS 기반
+EPS Momentum System v9.0 - NTM (Next Twelve Months) EPS 기반
 
-핵심 변경:
-- +1y → NTM EPS 전환: endDate 기반 시간 가중 블렌딩
-- Score = seg1+seg2+seg3+seg4: 4개 독립 구간 합산
-- |NTM EPS| < $1.00 → 턴어라운드 카테고리 분리
+핵심:
+- NTM EPS: endDate 기반 시간 가중 블렌딩 (0y/+1y)
+- Score = seg1+seg2+seg3+seg4 (4개 독립 구간, ±100% 캡)
+- adj_score = score × (1 + clamp(direction/30, -0.3, +0.3))
+- 트래픽 라이트: 8개 기본 패턴 + 🟩🟥 강도 수식어
 """
 
 import yfinance as yf
@@ -366,11 +367,17 @@ def calculate_ntm_score(ntm_values):
     Score = seg1 + seg2 + seg3 + seg4
     각 segment는 인접 스냅샷 간 변화율(%)
 
+    방향 보정 (adj_score):
+    recent = (seg1 + seg2) / 2, old = (seg3 + seg4) / 2
+    direction = recent - old
+    adj_score = score × (1 + clamp(direction/30, -0.3, +0.3))
+    → 1σ(3.67) 가속 시 ~12% 보너스, 감속 시 ~12% 패널티
+
     Args:
         ntm_values: calculate_ntm_eps() 반환 dict
 
     Returns:
-        tuple (score, seg1, seg2, seg3, seg4, is_turnaround)
+        tuple (score, seg1, seg2, seg3, seg4, is_turnaround, adj_score, direction)
     """
     nc = ntm_values['current']
     n7 = ntm_values['7d']
@@ -391,7 +398,16 @@ def calculate_ntm_score(ntm_values):
 
     score = seg1 + seg2 + seg3 + seg4
 
-    return score, seg1, seg2, seg3, seg4, is_turnaround
+    # 방향 보정: 최근 vs 과거 세그먼트 평균 차이
+    DIRECTION_DIVISOR = 30  # 1σ(3.67) → ~12% 보정
+    DIRECTION_CAP = 0.3     # 최대 ±30% 보정
+    recent_avg = (seg1 + seg2) / 2
+    old_avg = (seg3 + seg4) / 2
+    direction = recent_avg - old_avg
+    direction_mult = max(-DIRECTION_CAP, min(DIRECTION_CAP, direction / DIRECTION_DIVISOR))
+    adj_score = score * (1 + direction_mult)
+
+    return score, seg1, seg2, seg3, seg4, is_turnaround, adj_score, direction
 
 
 def calculate_eps_change_90d(ntm_values):
@@ -415,8 +431,8 @@ def calculate_eps_change_90d(ntm_values):
 def get_trend_lights(seg1, seg2, seg3, seg4):
     """추세 신호등 생성 (90d/60d/30d/7d 순서 = 과거→현재)
 
-    6단계: 🟩(>20%) 🟢(2~20%) 🔵(0.5~2%) 🟡(0~0.5%) 🔴(0~-10%) 🟥(<-10%)
-    네모 = 변동폭 큰 구간, 동그라미 = 일반 구간
+    6단계 아이콘: 🟩(>20%) 🟢(2~20%) 🔵(0.5~2%) 🟡(0~0.5%) 🔴(0~-10%) 🟥(<-10%)
+    8개 기본 패턴 + 🟩🟥 강도 수식어
 
     Args:
         seg1-seg4: calculate_ntm_score()에서 반환된 segment 값 (%)
@@ -443,56 +459,60 @@ def get_trend_lights(seg1, seg2, seg3, seg4):
             lights.append('🟥')
 
     lights_str = ''.join(lights)
+    has_green_sq = '🟩' in lights
+    has_red_sq = '🟥' in lights
 
-    # 강도 점수: 🟩/🟢=3, 🔵=2, 🟡=1, 🟥/🔴=0
-    score_map = {'🟩': 3, '🟢': 3, '🔵': 2, '🟡': 1, '🔴': 0, '🟥': 0}
-    scores = [score_map[l] for l in lights]
-    total = sum(scores)  # 0~12
-    recent = scores[2:]  # 30d, 7d
-    old = scores[:2]     # 90d, 60d
-    recent_avg = sum(recent) / 2
-    old_avg = sum(old) / 2
+    # 구간 분류 (|s| > 0.5 = 유의미한 변화)
+    pos_count = sum(1 for s in segs if s > 0.5)
+    neg_count = sum(1 for s in segs if s < -0.5)
+    flat_count = 4 - pos_count - neg_count
 
-    green_count = lights.count('🟢') + lights.count('🟩')
-    red_count = lights.count('🔴') + lights.count('🟥')
-    neg_count = red_count  # 하락 구간 수
+    recent_avg = (segs[2] + segs[3]) / 2  # seg2, seg1
+    old_avg = (segs[0] + segs[1]) / 2     # seg4, seg3
 
-    # 추세 설명
-    if total >= 11:
-        desc = '강세 지속'
-    elif total >= 9 and red_count == 0:
-        if recent_avg >= old_avg:
-            desc = '강세 지속'
+    old_pos = sum(1 for s in segs[:2] if s > 0.5)
+    old_neg = sum(1 for s in segs[:2] if s < -0.5)
+    recent_pos = sum(1 for s in segs[2:] if s > 0.5)
+    recent_neg = sum(1 for s in segs[2:] if s < -0.5)
+
+    # --- 8개 기본 패턴 ---
+    if flat_count >= 3:
+        base = '횡보'
+    elif neg_count >= 3:
+        base = '하락'
+    elif neg_count == 0:
+        # 전구간 양수 (또는 보합)
+        diff = recent_avg - old_avg
+        if diff > 2:
+            base = '상향 가속'
+        elif diff < -2:
+            base = '상향 둔화'
         else:
-            desc = '소폭 감속'
-    elif red_count >= 3:
-        desc = '하락세'
-    elif total <= 2:
-        desc = '약세'
-    elif old_avg <= 0.5 and recent_avg >= 2:
-        desc = '반등'
-    elif old_avg >= 2 and recent_avg <= 0.5:
-        desc = '최근 꺾임'
-    elif red_count == 0 and total >= 6:
-        if recent_avg > old_avg:
-            desc = '가속'
-        else:
-            desc = '감속'
-    elif red_count == 0 and total >= 4:
-        desc = '소폭 개선'
-    elif red_count == 0:
-        desc = '거의 정체'
-    elif red_count == 1 and total >= 7:
-        desc = '일시 조정'
-    elif recent_avg > old_avg + 1:
-        desc = '회복 중'
-    elif old_avg > recent_avg + 1:
-        desc = '최근 약세'
-    elif red_count >= 2 and green_count >= 1:
-        desc = '혼조'
-    elif red_count >= 2:
-        desc = '등락 반복'
+            base = '전구간 상승'
+    elif old_neg > old_pos and recent_pos > recent_neg and recent_avg > old_avg:
+        base = '반등'
+    elif old_pos > old_neg and recent_neg > recent_pos and old_avg > recent_avg:
+        base = '추세 전환'
     else:
-        desc = '변동 중'
+        base = '등락 반복'
+
+    # --- 🟩🟥 강도 수식어 ---
+    if has_green_sq and has_red_sq:
+        desc = {'반등': '급락 후 반등', '추세 전환': '급격한 전환'}.get(base, '급등락')
+    elif has_green_sq:
+        desc = {
+            '전구간 상승': '폭발적 상승',
+            '상향 가속': '폭발적 가속',
+            '반등': '폭발적 반등',
+        }.get(base, base)
+    elif has_red_sq:
+        desc = {
+            '하락': '급락',
+            '추세 전환': '급격한 전환',
+            '반등': '급락 후 반등',
+            '등락 반복': '급등락',
+        }.get(base, base)
+    else:
+        desc = base
 
     return lights_str, desc
