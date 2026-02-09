@@ -792,16 +792,28 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
 💰 고평가 = Forward PE 50배 초과
 📅 어닝 = 2주 내 실적 발표 예정 (발표 전후 변동성 주의)
 
-[출력 형식] 한국어, 친절한 말투(~예요/~해요). 총 1500자 이내.
+[출력 형식]
+- 한국어, 친절하고 따뜻한 말투 (~예요/~해요 체)
+- 예시: "주가가 크게 빠졌어요", "조심하시는 게 좋겠어요", "아직은 괜찮아 보여요"
+- 딱딱한 보고서 말투 금지. 친구에게 설명하듯 자연스럽게.
+- 총 1500자 이내.
 
 📰 시장 동향
-어제 미국 시장 마감과 금주 주요 이벤트를 Google 검색해서 2~3줄 요약.
+어제 미국 시장 마감과 금주 주요 이벤트를 Google 검색해서 2~3줄 요약해줘.
 
 ⚠️ 매수 주의 종목
 위 위험 신호를 종합해서 매수를 재고할 만한 종목을 골라줘.
-각 종목 1~2줄: 종목명(티커) — 무엇이 위험한지, 왜 주의해야 하는지 설명.
+형식: 종목명(티커)를 굵게(**) 쓰고, 1~2줄로 왜 주의해야 하는지 설명.
+종목과 종목 사이에 반드시 [SEP] 한 줄을 넣어서 구분해줘.
 위험 신호가 없는 종목은 절대 여기에 넣지 마.
 시스템 데이터에 없는 내용을 추측하거나 지어내지 마.
+
+예시:
+**Strategy Inc(MSTR)**
+EPS는 올랐지만 주가가 90일간 -38% 넘게 빠졌어요. 시장이 뭔가 안 좋게 보고 있을 수 있으니 조심하세요.
+[SEP]
+**Palantir(PLTR)**
+모멘텀이 최근 많이 둔화됐어요. PE도 200배가 넘어서 부담스러운 수준이에요.
 
 📅 어닝 주의
 {earnings_info}
@@ -851,6 +863,7 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
         analysis_html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', analysis_html)
         analysis_html = re.sub(r'#{1,3}\s*', '', analysis_html)
         analysis_html = analysis_html.replace('---', '━━━')
+        analysis_html = analysis_html.replace('[SEP]', '──────────────────')
 
         # 텔레그램 메시지 포맷팅
         now = datetime.now()

@@ -1,10 +1,6 @@
 """AI 브리핑만 재발송하는 1회용 스크립트"""
 import sys
-import io
-
-if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+# Note: daily_runner.py import 시 stdout UTF-8 래핑이 자동 적용됨
 
 from daily_runner import (
     load_config, log, run_ntm_collection,
