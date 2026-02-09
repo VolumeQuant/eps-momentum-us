@@ -200,9 +200,10 @@ def run_ntm_collection(config):
             eps_change_90d = calculate_eps_change_90d(ntm)
             trend_lights, trend_desc = get_trend_lights(seg1, seg2, seg3, seg4)
 
-            # EPS Revision 데이터 추출 (이미 캐시된 _earnings_trend에서)
+            # EPS Revision & 애널리스트 수 추출 (이미 캐시된 _earnings_trend에서)
             rev_up30 = 0
             rev_down30 = 0
+            num_analysts = 0
             try:
                 raw_trend = stock._analysis._earnings_trend
                 if raw_trend:
@@ -213,6 +214,9 @@ def run_ntm_collection(config):
                             down_data = eps_rev.get('downLast30days', {})
                             rev_up30 = up_data.get('raw', 0) if isinstance(up_data, dict) else 0
                             rev_down30 = down_data.get('raw', 0) if isinstance(down_data, dict) else 0
+                            ea = item.get('earningsEstimate', {})
+                            na_data = ea.get('numberOfAnalysts', {})
+                            num_analysts = na_data.get('raw', 0) if isinstance(na_data, dict) else 0
                             break
             except Exception:
                 pass
@@ -339,6 +343,7 @@ def run_ntm_collection(config):
                 'is_turnaround': is_turnaround,
                 'rev_up30': rev_up30,
                 'rev_down30': rev_down30,
+                'num_analysts': num_analysts,
             }
 
             if is_turnaround:
@@ -937,19 +942,13 @@ def run_portfolio_recommendation(config, results_df):
             fwd_pe = row.get('fwd_pe', 0) or 0
             rev_up = int(row.get('rev_up30', 0) or 0)
             rev_down = int(row.get('rev_down30', 0) or 0)
-            direction = row.get('direction', 0) or 0
-            eps_w = row.get('eps_chg_weighted', 0) or 0
-            price_w = row.get('price_chg_weighted', 0) or 0
+            num_analysts = int(row.get('num_analysts', 0) or 0)
 
             flags = []
             if rev_down >= 3:
                 flags.append("하향")
-            elif rev_down >= 1 and rev_down >= rev_up:
-                flags.append("하향")
-            if eps_w > 0 and price_w < 0 and abs(price_w) / max(abs(eps_w), 0.01) > 5:
-                flags.append("괴리")
-            if direction < -10:
-                flags.append("감속")
+            if num_analysts < 3:
+                flags.append("저커버리지")
             if fwd_pe > 100:
                 flags.append("고평가")
             try:
