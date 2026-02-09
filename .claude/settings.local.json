@@ -153,7 +153,12 @@
       "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" log --oneline -10)",
       "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" log --oneline 1d246ea..49ae477)",
       "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" add eps_momentum_system.py daily_runner.py .claude/settings.local.json)",
-      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" commit -m \"$\\(cat <<''EOF''\nrefactor: 신호등→날씨 아이콘 전환 + 포트폴리오 비중 단순화\n\n- 6단계 신호등\\(🟩🟢🔵🟡🔴🟥\\) → 5단계 날씨\\(☀️🌤️☁️🌧️⛈️\\)\n  임계값: >10%, 2~10%, -2~2%, -10~-2%, <-10%\n- 모바일 가독성 개선: 각 아이콘 형태가 완전히 달라 구분 용이\n- 포트폴리오 비중: 상한/하한 제거, adj_score 단순 비례 배분\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" commit -m \"$\\(cat <<''EOF''\nrefactor: 신호등→날씨 아이콘 전환 + 포트폴리오 비중 단순화\n\n- 6단계 신호등\\(🟩🟢🔵🟡🔴🟥\\) → 5단계 날씨\\(☀️🌤️☁️🌧️⛈️\\)\n  임계값: >10%, 2~10%, -2~2%, -10~-2%, <-10%\n- 모바일 가독성 개선: 각 아이콘 형태가 완전히 달라 구분 용이\n- 포트폴리오 비중: 상한/하한 제거, adj_score 단순 비례 배분\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" add README.md SESSION_HANDOFF.md)",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" commit -m \"$\\(cat <<''EOF''\ndocs: v15 날씨 아이콘 전환 + 포트폴리오 비중 단순화 문서 반영\n\n- README: 추세 표시 섹션 날씨 아이콘으로 업데이트\n- SESSION_HANDOFF: Phase 11 추가 \\(데이터 분포 분석, 임계값 선정 근거\\)\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" diff --stat README.md SESSION_HANDOFF.md)",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" log --oneline -3)",
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" show --stat 797739f)"
     ]
   }
 }

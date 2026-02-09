@@ -5,7 +5,7 @@ EPS Momentum Daily Runner v9.0 - NTM EPS 시스템
 1. NTM EPS 전 종목 수집 & DB 적재
 2. 텔레그램 메시지 4종 생성 & 발송
    - Part 1: 이익 모멘텀 랭킹 (채널/개인봇)
-   - Part 2: 매수 후보 — 괴리율+의견 (채널/개인봇)
+   - Part 2: 매수 후보 — adj_gap(방향보정 괴리율)+의견 (채널/개인봇)
    - AI 리스크 체크 (개인봇) — Gemini 2.5 Flash + Google Search
    - 시스템 로그 (개인봇)
 3. Git 자동 commit/push
@@ -308,6 +308,12 @@ def run_ntm_collection(config):
             except Exception as e:
                 log(f"  {ticker} 가격/PE 계산 실패: {e}", "WARN")
 
+            # adj_gap: 괴리율에 방향 보정 (가속 → 저평가 강화, 감속 → 저평가 약화)
+            adj_gap = None
+            if fwd_pe_chg is not None and direction is not None:
+                dir_factor = max(-0.3, min(0.3, direction / 30))
+                adj_gap = fwd_pe_chg * (1 + dir_factor)
+
             row = {
                 'ticker': ticker,
                 'short_name': short_name,
@@ -329,6 +335,7 @@ def run_ntm_collection(config):
                 'eps_chg_weighted': eps_chg_weighted,
                 'fwd_pe': fwd_pe_now,
                 'fwd_pe_chg': fwd_pe_chg,
+                'adj_gap': adj_gap,
                 'is_turnaround': is_turnaround,
                 'rev_up30': rev_up30,
                 'rev_down30': rev_down30,
@@ -514,7 +521,7 @@ def create_part1_message(df, top_n=30):
 
 
 def create_part2_message(df, top_n=30):
-    """Part 2: 매수 후보 메시지 생성 (adj_score 순, adj_score > 9 필터)"""
+    """Part 2: 매수 후보 메시지 생성 (adj_gap 순, adj_score > 9 필터)"""
     import pandas as pd
 
     today = get_today_kst()
@@ -525,16 +532,16 @@ def create_part2_message(df, top_n=30):
     # adj_score > 9 필터 (방향 보정 적용, EPS 모멘텀 + 패턴 품질)
     filtered = df[df['adj_score'] > 9].copy()
 
-    # 괴리율(fwd_pe_chg) 있는 것만 + Fwd PE > 0 + EPS 변화 양수
+    # adj_gap 있는 것만 + Fwd PE > 0 + EPS 변화 양수
     filtered = filtered[
-        filtered['fwd_pe_chg'].notna() &
+        filtered['adj_gap'].notna() &
         filtered['fwd_pe'].notna() &
         (filtered['fwd_pe'] > 0) &
         (filtered['eps_change_90d'] > 0)
     ].copy()
 
-    # adj_score 내림차순 (EPS 모멘텀 = 속도 + 방향)
-    filtered = filtered.sort_values('adj_score', ascending=False).head(top_n)
+    # adj_gap 오름차순 (더 음수 = EPS 대비 주가 저평가)
+    filtered = filtered.sort_values('adj_gap', ascending=True).head(top_n)
 
     count = min(top_n, len(filtered))
 
@@ -544,11 +551,11 @@ def create_part2_message(df, top_n=30):
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
-    lines.append('EPS 모멘텀이 가장 강한 매수 후보예요.')
+    lines.append('EPS 개선이 주가에 덜 반영된 종목이에요.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
     lines.append('EPS·주가 = 90일 변화율')
-    lines.append('<b>모멘텀</b> = EPS 변화 속도+방향 (순위 기준)')
+    lines.append('<b>괴리</b> = EPS↑ vs 주가 반영도 (음수=저평가)')
     lines.append('애널리스트 의견 ↑↓ = 30일간 EPS 상향/하향 수')
     lines.append('⚠️ = 추가 확인 필요')
     lines.append('')
@@ -564,11 +571,11 @@ def create_part2_message(df, top_n=30):
         price_90d = row.get('price_chg')
         fwd_pe_chg = row.get('fwd_pe_chg')
 
-        # Line 3: EPS / 주가 / 모멘텀 점수
-        adj_score = row.get('adj_score', 0) or 0
+        # Line 3: EPS / 주가 / 괴리
+        adj_gap = row.get('adj_gap', 0) or 0
         change_str = ''
         if pd.notna(eps_90d) and pd.notna(price_90d):
-            change_str = f"EPS {eps_90d:+.1f}% / 주가 {price_90d:+.1f}% · <b>모멘텀 {adj_score:.1f}</b>"
+            change_str = f"EPS {eps_90d:+.1f}% / 주가 {price_90d:+.1f}% · <b>괴리 {adj_gap:+.1f}</b>"
 
         # Line 4: 의견 ↑N ↓N
         rev_up = row.get('rev_up30', 0) or 0
@@ -666,12 +673,12 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
 
         filtered = results_df[results_df['adj_score'] > 9].copy()
         filtered = filtered[
-            filtered['fwd_pe_chg'].notna() &
+            filtered['adj_gap'].notna() &
             filtered['fwd_pe'].notna() &
             (filtered['fwd_pe'] > 0) &
             (filtered['eps_change_90d'] > 0)
         ].copy()
-        filtered = filtered.sort_values('adj_score', ascending=False).head(30)
+        filtered = filtered.sort_values('adj_gap', ascending=True).head(30)
 
         if filtered.empty:
             log("Part 2 종목 없음 — AI 분석 스킵", "WARN")
@@ -892,7 +899,7 @@ EPS는 올랐지만 주가가 90일간 -38% 넘게 빠졌어요. 시장이 뭔�
 
 
 def run_portfolio_recommendation(config, results_df):
-    """포트폴리오 추천 — Part 2 ✅ 종목 중 adj_score 상위 5개"""
+    """포트폴리오 추천 — Part 2 ✅ 종목 중 adj_gap 상위 5개"""
     try:
         import re
         import yfinance as yf
@@ -900,15 +907,15 @@ def run_portfolio_recommendation(config, results_df):
         if results_df is None or results_df.empty:
             return None
 
-        # Part 2 필터 (run_ai_analysis와 동일)
+        # Part 2 필터 (create_part2_message와 동일)
         filtered = results_df[results_df['adj_score'] > 9].copy()
         filtered = filtered[
-            filtered['fwd_pe_chg'].notna() &
+            filtered['adj_gap'].notna() &
             filtered['fwd_pe'].notna() &
             (filtered['fwd_pe'] > 0) &
             (filtered['eps_change_90d'] > 0)
         ].copy()
-        filtered = filtered.sort_values('adj_score', ascending=False).head(30)
+        filtered = filtered.sort_values('adj_gap', ascending=True).head(30)
 
         if filtered.empty:
             return None
@@ -963,7 +970,7 @@ def run_portfolio_recommendation(config, results_df):
                 pass
 
             if flags:
-                log(f"  ❌ {t}: {','.join(flags)} (gap={row.get('fwd_pe_chg',0):+.1f} desc={row.get('trend_desc','')})")
+                log(f"  ❌ {t}: {','.join(flags)} (gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')})")
             else:
                 safe.append({
                     'ticker': t,
@@ -971,35 +978,35 @@ def run_portfolio_recommendation(config, results_df):
                     'industry': row.get('industry', ''),
                     'eps_chg': eps_chg, 'price_chg': price_chg,
                     'fwd_pe': fwd_pe,
-                    'fwd_pe_chg': row.get('fwd_pe_chg', 0) or 0,
+                    'adj_gap': row.get('adj_gap', 0) or 0,
                     'rev_up': rev_up, 'rev_down': rev_down,
                     'adj_score': row.get('adj_score', 0) or 0,
                     'lights': row.get('trend_lights', ''),
                     'desc': row.get('trend_desc', ''),
                 })
-                log(f"  ✅ {t}: gap={row.get('fwd_pe_chg',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}")
+                log(f"  ✅ {t}: gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}")
 
         if not safe:
             log("포트폴리오: ✅ 종목 없음", "WARN")
             return None
 
-        # adj_score순 정렬 (속도 × 방향 = EPS 모멘텀)
-        safe.sort(key=lambda x: x['adj_score'], reverse=True)
-        log("포트폴리오: adj_score 순위 (속도×방향):")
+        # adj_gap순 정렬 (더 음수 = EPS 대비 주가 저평가)
+        safe.sort(key=lambda x: x['adj_gap'])
+        log("포트폴리오: adj_gap 순위 (EPS 대비 저평가):")
         for i, s in enumerate(safe):
             mark = "→" if i < 5 else " "
-            log(f"  {mark} {i+1}. {s['ticker']}: adj={s['adj_score']:.1f} (gap={s['fwd_pe_chg']:+.1f} {s['desc']})")
+            log(f"  {mark} {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']}")
         selected = safe[:5]
 
         if len(selected) < 3:
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 비중 배분 (adj_score 비례, 5% 단위 반올림, 합계 100% 보정)
-        scores = [s['adj_score'] for s in selected]
-        total_score = sum(scores)
+        # 비중 배분 (adj_gap 절대값 비례 — 더 저평가일수록 높은 비중, 5% 단위)
+        gaps = [abs(s['adj_gap']) for s in selected]
+        total_score = sum(gaps)
         for i, s in enumerate(selected):
-            raw = scores[i] / total_score * 100
+            raw = gaps[i] / total_score * 100
             s['weight'] = round(raw / 5) * 5
         # 합계 100% 보정 (가장 비중 큰 종목에서 조정)
         diff = 100 - sum(s['weight'] for s in selected)
@@ -1016,7 +1023,7 @@ def run_portfolio_recommendation(config, results_df):
                 f"{i+1}. {s['name']}({s['ticker']}) · {s['industry']} · "
                 f"{s['lights']} {s['desc']} · 점수 {s['adj_score']:.1f}\n"
                 f"   비중 {s['weight']}% · EPS {s['eps_chg']:+.1f}% · 주가 {s['price_chg']:+.1f}% · "
-                f"괴리 {s['fwd_pe_chg']:+.1f}\n"
+                f"괴리 {s['adj_gap']:+.1f}\n"
                 f"   애널리스트 의견 ↑{s['rev_up']} ↓{s['rev_down']} · Fwd PE {s['fwd_pe']:.1f}"
             )
 
