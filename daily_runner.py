@@ -475,18 +475,15 @@ def create_part1_message(df, top_n=30):
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
     lines = []
-    lines.append(f'안녕하세요! 오늘({today_str}) EPS 모멘텀 리포트예요 📊')
+    lines.append(f'[1/4] 📈 오늘({today_str}) EPS 모멘텀 리포트')
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'      📈 EPS 모멘텀 Top {top_n}')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
-    lines.append('월가 애널리스트들의')
-    lines.append('EPS 전망치(향후 12개월 주당순이익 예상)를')
+    lines.append('미국 916종목 중 애널리스트 EPS 전망치를')
     lines.append('가장 많이 올린 기업 순위예요.')
-    lines.append('EPS 전망치 상향은 실적 서프라이즈와')
-    lines.append('주가 상승의 강력한 선행 신호예요.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
     lines.append('EPS 점수 = 90일간 4구간 상승률의 합')
@@ -512,6 +509,9 @@ def create_part1_message(df, top_n=30):
         lines.append(f'<b>{rank}위</b> {name} ({ticker})')
         lines.append(f'<i>{industry}</i> · {lights} {desc} · <b>{adj_score:.1f}</b>점')
         lines.append('──────────────────')
+
+    lines.append('')
+    lines.append('👉 다음: 매수 후보 선정 [2/4]')
 
     return '\n'.join(lines)
 
@@ -542,27 +542,20 @@ def create_part2_message(df, top_n=30):
     count = min(top_n, len(filtered))
 
     lines = []
-    lines.append(f'오늘({today_str})의 핵심 리포트예요 💰')
+    lines.append('[2/4] 💰 매수 후보 선정')
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'      💰 매수 후보 Top {count}')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
-    lines.append('EPS 전망치는 좋아졌는데')
-    lines.append('주가가 아직 못 따라간 종목이에요.')
+    lines.append('EPS 모멘텀이 가장 강한 매수 후보예요.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
     lines.append('EPS·주가 = 90일 변화율')
     lines.append('<b>모멘텀</b> = EPS 변화 속도+방향 (순위 기준)')
     lines.append('애널리스트 의견 ↑↓ = 30일간 EPS 상향/하향 수')
     lines.append('⚠️ = 추가 확인 필요')
-    lines.append('')
-    lines.append('신호등 = 구간별 EPS 변화 (왼→오)')
-    lines.append('90→60일 | 60→30일 | 30→7일 | 7일→오늘')
-    lines.append('🟩 폭발(20%↑) 🟢 상승(2~20%)')
-    lines.append('🔵 양호(0.5~2%) 🟡 보합(0~0.5%)')
-    lines.append('🔴 하락(0~-10%) 🟥 급락(-10%↓)')
     lines.append('')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
@@ -604,8 +597,8 @@ def create_part2_message(df, top_n=30):
         lines.append(opinion_str)
         lines.append('──────────────────')
 
-    lines.append('주가 하락에는 항상 이유가 있을 수 있으니')
-    lines.append('뉴스와 실적 발표 일정을 꼭 확인하세요.')
+    lines.append('')
+    lines.append('👉 다음: AI가 위험 신호를 점검해요 [3/4]')
 
     return '\n'.join(lines)
 
@@ -890,15 +883,18 @@ APH · LUV · AVGO · NEM · ELF"""
             now = datetime.now(kst)
 
         lines = []
+        lines.append('[3/4] 🤖 AI 위험 신호 점검')
+        lines.append('')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append('      🤖 AI 브리핑')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {now.strftime("%Y년 %m월 %d일")}')
         lines.append('')
-        lines.append('매수 후보의 위험 신호를 AI가 해석했어요.')
-        lines.append('투자 판단의 참고용이에요!')
+        lines.append('매수 후보의 위험 신호를 AI가 점검했어요.')
         lines.append('')
         lines.append(analysis_html)
+        lines.append('')
+        lines.append('👉 다음: 최종 포트폴리오 [4/4]')
 
         log("AI 브리핑 완료")
         return '\n'.join(lines)
@@ -1109,13 +1105,15 @@ def run_portfolio_recommendation(config, results_df):
         html = re.sub(r'\n*\[SEP\]\n*', '\n──────────────────\n', html)
 
         lines = [
+            '[4/4] 💼 최종 포트폴리오',
+            '',
             '━━━━━━━━━━━━━━━━━━━',
             '      💼 추천 포트폴리오',
             '━━━━━━━━━━━━━━━━━━━',
             f'📅 {today_dt.strftime("%Y년 %m월 %d일")}',
             '',
-            'Part 2 매수 후보 중 위험 신호 종목을 제거하고,',
-            'EPS 모멘텀(속도+방향) 순으로 선정했어요.',
+            '위험 신호를 제거하고 EPS 모멘텀 순으로',
+            f'최종 {len(selected)}종목을 선정했어요.',
             '',
             html,
         ]
