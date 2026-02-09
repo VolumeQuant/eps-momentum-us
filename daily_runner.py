@@ -601,8 +601,7 @@ def create_part2_message(df, top_n=30):
         warn_mark = ' ⚠️' if is_warning else ''
         lines.append(f'<b>{rank}위</b> {name} ({ticker}){warn_mark}')
         lines.append(f'<i>{industry}</i> · {lights} {desc}')
-        lines.append(change_str)
-        lines.append(opinion_str)
+        lines.append(f'{change_str} · {opinion_str}')
         lines.append('──────────────────')
 
     lines.append('주가 하락에는 항상 이유가 있을 수 있으니')
@@ -1114,7 +1113,11 @@ def run_portfolio_recommendation(config, results_df):
             '      💼 추천 포트폴리오',
             '━━━━━━━━━━━━━━━━━━━',
             f'📅 {today_dt.strftime("%Y년 %m월 %d일")}',
-            '', html,
+            '',
+            'Part 2 매수 후보 중 위험 신호 종목을 제거하고,',
+            'EPS 추세 품질을 반영하여 선정했어요.',
+            '',
+            html,
         ]
 
         log("포트폴리오 추천 완료")
