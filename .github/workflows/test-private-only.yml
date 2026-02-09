@@ -1,4 +1,4 @@
-name: Test (개인봇 전용, 임시)
+name: Test Private Bot Only
 
 on:
   workflow_dispatch:
