@@ -944,5 +944,6 @@ Google Search Grounding 사용 시 `response.text`가 None 반환하는 케이�
 49. **친근한 말투 프롬프트 (v15)**: 구체적 예시 기반 (~예요/~해요), 추상적 지시 불충분
 50. **extract_text 헬퍼 (v15)**: Gemini response.text None 대응, parts 직접 추출
 51. **temperature 0.2 유지 (v15)**: 정량 데이터 해석이므로 낮은 temperature 적합
+52. **✅ 섹션 티커만 5개씩 줄바꿈 (v15)**: 종목명(티커) 한줄 나열 → 티커만 5개씩 줄바꿈으로 가독성 개선
 
 *v15 업데이트: Claude Opus 4.6 | 2026-02-09 집 PC — AI 정량 리스크 스캐너, UI/말투 개선, extract_text 안정화*
