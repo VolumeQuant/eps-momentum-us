@@ -948,11 +948,9 @@ def run_portfolio_recommendation(config, results_df):
                 flags.append("하향")
             if eps_w > 0 and price_w < 0 and abs(price_w) / max(abs(eps_w), 0.01) > 5:
                 flags.append("괴리")
-            elif price_chg < -20:
-                flags.append("급락")
             if direction < -10:
                 flags.append("감속")
-            if fwd_pe > 50:
+            if fwd_pe > 100:
                 flags.append("고평가")
             try:
                 cal = yf.Ticker(t).calendar
