@@ -1001,39 +1001,23 @@ def run_portfolio_recommendation(config, results_df):
             log("포트폴리오: ✅ 종목 없음", "WARN")
             return None
 
-        # 추세 3단계 가중치 (±20%, 대칭)
-        GOOD_TRENDS = {'상향 가속', '폭발적 가속', '최근 급상향', '폭발적 급상향',
-                       '꾸준한 상승', '폭발적 상승', '전구간 상승'}
-        BAD_TRENDS = {'상향 둔화', '급등 후 둔화', '추세 전환', '급격한 전환',
-                      '하락', '급락', '횡보'}
-
-        for s in safe:
-            desc = s['desc']
-            if desc in GOOD_TRENDS:
-                tw = 1.2
-            elif desc in BAD_TRENDS:
-                tw = 0.8
-            else:
-                tw = 1.0
-            s['weighted_gap'] = abs(s['fwd_pe_chg']) * tw
-
-        # 가중 괴리율 순, 상위 5개
-        safe.sort(key=lambda x: x['weighted_gap'], reverse=True)
-        log("포트폴리오: 가중 괴리율 순위:")
+        # adj_score순 정렬 (속도 × 방향 = EPS 모멘텀)
+        safe.sort(key=lambda x: x['adj_score'], reverse=True)
+        log("포트폴리오: adj_score 순위 (속도×방향):")
         for i, s in enumerate(safe):
             mark = "→" if i < 5 else " "
-            log(f"  {mark} {i+1}. {s['ticker']}: w_gap={s['weighted_gap']:.2f} (gap={s['fwd_pe_chg']:+.1f} × {s['desc']})")
+            log(f"  {mark} {i+1}. {s['ticker']}: adj={s['adj_score']:.1f} (gap={s['fwd_pe_chg']:+.1f} {s['desc']})")
         selected = safe[:5]
 
         if len(selected) < 3:
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 비중 배분 (괴리율 비례, 5% 단위, 최소 10%)
-        gaps = [abs(s['fwd_pe_chg']) for s in selected]
-        total_gap = sum(gaps)
+        # 비중 배분 (adj_score 비례, 5% 단위, 최소 10%)
+        scores = [s['adj_score'] for s in selected]
+        total_score = sum(scores)
         for i, s in enumerate(selected):
-            s['weight'] = max(10, round(gaps[i] / total_gap * 100 / 5) * 5)
+            s['weight'] = max(10, round(scores[i] / total_score * 100 / 5) * 5)
         diff = 100 - sum(s['weight'] for s in selected)
         selected[0]['weight'] += diff
 
@@ -1054,7 +1038,7 @@ def run_portfolio_recommendation(config, results_df):
         prompt = f"""오늘 날짜: {today_dt.strftime('%Y-%m-%d')}
 
 아래는 EPS 모멘텀 시스템이 자동 선정한 {len(selected)}종목 포트폴리오야.
-선정 기준: Part 2 매수 후보 중 위험 신호 없고(✅), 괴리율×추세가중치 상위.
+선정 기준: Part 2 매수 후보 중 위험 신호 없고(✅), EPS 모멘텀(속도+방향) 상위.
 
 [포트폴리오]
 {chr(10).join(stock_lines)}
@@ -1123,7 +1107,7 @@ def run_portfolio_recommendation(config, results_df):
             f'📅 {today_dt.strftime("%Y년 %m월 %d일")}',
             '',
             'Part 2 매수 후보 중 위험 신호 종목을 제거하고,',
-            'EPS 추세 품질을 반영하여 선정했어요.',
+            'EPS 모멘텀(속도+방향) 순으로 선정했어요.',
             '',
             html,
         ]
