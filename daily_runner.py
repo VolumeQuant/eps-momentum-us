@@ -980,7 +980,9 @@ def run_portfolio_recommendation(config, results_df):
             except Exception:
                 pass
 
-            if not flags:
+            if flags:
+                log(f"  ❌ {t}: {','.join(flags)} (gap={row.get('fwd_pe_chg',0):+.1f} desc={row.get('trend_desc','')})")
+            else:
                 safe.append({
                     'ticker': t,
                     'name': row.get('short_name', t),
@@ -993,6 +995,7 @@ def run_portfolio_recommendation(config, results_df):
                     'lights': row.get('trend_lights', ''),
                     'desc': row.get('trend_desc', ''),
                 })
+                log(f"  ✅ {t}: gap={row.get('fwd_pe_chg',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}")
 
         if not safe:
             log("포트폴리오: ✅ 종목 없음", "WARN")
@@ -1016,6 +1019,10 @@ def run_portfolio_recommendation(config, results_df):
 
         # 가중 괴리율 순, 상위 5개
         safe.sort(key=lambda x: x['weighted_gap'], reverse=True)
+        log("포트폴리오: 가중 괴리율 순위:")
+        for i, s in enumerate(safe):
+            mark = "→" if i < 5 else " "
+            log(f"  {mark} {i+1}. {s['ticker']}: w_gap={s['weighted_gap']:.2f} (gap={s['fwd_pe_chg']:+.1f} × {s['desc']})")
         selected = safe[:5]
 
         if len(selected) < 3:
