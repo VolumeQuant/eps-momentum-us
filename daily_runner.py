@@ -517,7 +517,7 @@ def create_part1_message(df, top_n=30):
 
 
 def create_part2_message(df, top_n=30):
-    """Part 2: 매수 후보 메시지 생성 (괴리율 순, adj_score > 9 필터)"""
+    """Part 2: 매수 후보 메시지 생성 (adj_score 순, adj_score > 9 필터)"""
     import pandas as pd
 
     today = get_today_kst()
@@ -536,8 +536,8 @@ def create_part2_message(df, top_n=30):
         (filtered['eps_change_90d'] > 0)
     ].copy()
 
-    # 괴리율 오름차순 (더 마이너스 = 더 좋은 매수 기회)
-    filtered = filtered.sort_values('fwd_pe_chg').head(top_n)
+    # adj_score 내림차순 (EPS 모멘텀 = 속도 + 방향)
+    filtered = filtered.sort_values('adj_score', ascending=False).head(top_n)
 
     count = min(top_n, len(filtered))
 
@@ -554,7 +554,7 @@ def create_part2_message(df, top_n=30):
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
     lines.append('EPS·주가 = 90일 변화율')
-    lines.append('괴리 = EPS 대비 주가 미반영도 (순위 기준)')
+    lines.append('<b>모멘텀</b> = EPS 변화 속도+방향 (순위 기준)')
     lines.append('의견 ↑↓ = 30일간 EPS 상향/하향 애널리스트 수')
     lines.append('⚠️ = 추가 확인 필요')
     lines.append('')
@@ -576,12 +576,11 @@ def create_part2_message(df, top_n=30):
         price_90d = row.get('price_chg')
         fwd_pe_chg = row.get('fwd_pe_chg')
 
-        # Line 3: EPS / 주가 / 괴리
+        # Line 3: EPS / 주가 / 모멘텀 점수
+        adj_score = row.get('adj_score', 0) or 0
         change_str = ''
         if pd.notna(eps_90d) and pd.notna(price_90d):
-            change_str = f"EPS {eps_90d:+.1f}% / 주가 {price_90d:+.1f}%"
-            if pd.notna(fwd_pe_chg):
-                change_str += f" · 괴리 {fwd_pe_chg:+.1f}"
+            change_str = f"EPS {eps_90d:+.1f}% / 주가 {price_90d:+.1f}% · <b>모멘텀 {adj_score:.1f}</b>"
 
         # Line 4: 의견 ↑N ↓N
         rev_up = row.get('rev_up30', 0) or 0
@@ -684,7 +683,7 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
             (filtered['fwd_pe'] > 0) &
             (filtered['eps_change_90d'] > 0)
         ].copy()
-        filtered = filtered.sort_values('fwd_pe_chg').head(30)
+        filtered = filtered.sort_values('adj_score', ascending=False).head(30)
 
         if filtered.empty:
             log("Part 2 종목 없음 — AI 분석 스킵", "WARN")
@@ -910,7 +909,7 @@ APH · LUV · AVGO · NEM · ELF"""
 
 
 def run_portfolio_recommendation(config, results_df):
-    """포트폴리오 추천 — Part 2 ✅ 종목 중 괴리율×추세가중 상위 5개"""
+    """포트폴리오 추천 — Part 2 ✅ 종목 중 adj_score 상위 5개"""
     try:
         import re
         import yfinance as yf
@@ -926,7 +925,7 @@ def run_portfolio_recommendation(config, results_df):
             (filtered['fwd_pe'] > 0) &
             (filtered['eps_change_90d'] > 0)
         ].copy()
-        filtered = filtered.sort_values('fwd_pe_chg').head(30)
+        filtered = filtered.sort_values('adj_score', ascending=False).head(30)
 
         if filtered.empty:
             return None
@@ -1020,8 +1019,8 @@ def run_portfolio_recommendation(config, results_df):
             raw = scores[i] / total_score * 100
             s['weight'] = max(10, min(30, round(raw / 5) * 5))
         diff = 100 - sum(s['weight'] for s in selected)
-        # 잔여분을 2위부터 순서대로 배분 (cap 미달 종목에)
-        for s in selected:
+        # 잔여분을 하위 종목부터 배분 (분산 효과)
+        for s in reversed(selected):
             if diff == 0:
                 break
             add = min(diff, 30 - s['weight'])
