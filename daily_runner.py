@@ -1013,13 +1013,20 @@ def run_portfolio_recommendation(config, results_df):
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 비중 배분 (adj_score 비례, 5% 단위, 최소 10%)
+        # 비중 배분 (adj_score 비례, 5% 단위, 최소 10%, 최대 30%)
         scores = [s['adj_score'] for s in selected]
         total_score = sum(scores)
         for i, s in enumerate(selected):
-            s['weight'] = max(10, round(scores[i] / total_score * 100 / 5) * 5)
+            raw = scores[i] / total_score * 100
+            s['weight'] = max(10, min(30, round(raw / 5) * 5))
         diff = 100 - sum(s['weight'] for s in selected)
-        selected[0]['weight'] += diff
+        # 잔여분을 2위부터 순서대로 배분 (cap 미달 종목에)
+        for s in selected:
+            if diff == 0:
+                break
+            add = min(diff, 30 - s['weight'])
+            s['weight'] += add
+            diff -= add
 
         log(f"포트폴리오: {len(selected)}종목 선정 — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
