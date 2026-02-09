@@ -475,10 +475,8 @@ def create_part1_message(df, top_n=30):
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
     lines = []
-    lines.append(f'[1/4] 📈 오늘({today_str}) EPS 모멘텀 리포트')
-    lines.append('')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f'      📈 EPS 모멘텀 Top {top_n}')
+    lines.append(f' [1/4] 📈 EPS 모멘텀 Top {top_n}')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
@@ -542,10 +540,8 @@ def create_part2_message(df, top_n=30):
     count = min(top_n, len(filtered))
 
     lines = []
-    lines.append('[2/4] 💰 매수 후보 선정')
-    lines.append('')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f'      💰 매수 후보 Top {count}')
+    lines.append(f' [2/4] 💰 매수 후보 Top {count}')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
@@ -877,10 +873,8 @@ EPS는 올랐지만 주가가 90일간 -38% 넘게 빠졌어요. 시장이 뭔�
             now = datetime.now(kst)
 
         lines = []
-        lines.append('[3/4] 🤖 AI 위험 신호 점검')
-        lines.append('')
         lines.append('━━━━━━━━━━━━━━━━━━━')
-        lines.append('      🤖 AI 브리핑')
+        lines.append('   [3/4] 🤖 AI 브리핑')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {now.strftime("%Y년 %m월 %d일")}')
         lines.append('')
@@ -1049,7 +1043,6 @@ def run_portfolio_recommendation(config, results_df):
 - 맨 끝: "시스템 데이터 기반 참고용이며, 투자 판단은 본인 책임이에요."
 - 500자 이내
 
-💼 오늘의 추천 포트폴리오
 각 종목의 비중과 선정 이유를 설명해줘.
 시스템 데이터에 없는 내용을 지어내지 마."""
 
@@ -1100,10 +1093,8 @@ def run_portfolio_recommendation(config, results_df):
         html = re.sub(r'\n*\[SEP\]\n*', '\n──────────────────\n', html)
 
         lines = [
-            '[4/4] 💼 최종 포트폴리오',
-            '',
             '━━━━━━━━━━━━━━━━━━━',
-            '      💼 추천 포트폴리오',
+            '  [4/4] 💼 추천 포트폴리오',
             '━━━━━━━━━━━━━━━━━━━',
             f'📅 {today_dt.strftime("%Y년 %m월 %d일")}',
             '',
