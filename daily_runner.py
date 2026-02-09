@@ -601,7 +601,8 @@ def create_part2_message(df, top_n=30):
         warn_mark = ' ⚠️' if is_warning else ''
         lines.append(f'<b>{rank}위</b> {name} ({ticker}){warn_mark}')
         lines.append(f'<i>{industry}</i> · {lights} {desc}')
-        lines.append(f'{change_str} · {opinion_str}')
+        lines.append(change_str)
+        lines.append(opinion_str)
         lines.append('──────────────────')
 
     lines.append('주가 하락에는 항상 이유가 있을 수 있으니')
