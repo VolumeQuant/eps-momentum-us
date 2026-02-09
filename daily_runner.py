@@ -909,6 +909,222 @@ APH · LUV · AVGO · NEM · ELF"""
         return None
 
 
+def run_portfolio_recommendation(config, results_df):
+    """포트폴리오 추천 — Part 2 ✅ 종목 중 괴리율×추세가중 상위 5개"""
+    try:
+        import re
+        import yfinance as yf
+
+        if results_df is None or results_df.empty:
+            return None
+
+        # Part 2 필터 (run_ai_analysis와 동일)
+        filtered = results_df[results_df['adj_score'] > 9].copy()
+        filtered = filtered[
+            filtered['fwd_pe_chg'].notna() &
+            filtered['fwd_pe'].notna() &
+            (filtered['fwd_pe'] > 0) &
+            (filtered['eps_change_90d'] > 0)
+        ].copy()
+        filtered = filtered.sort_values('fwd_pe_chg').head(30)
+
+        if filtered.empty:
+            return None
+
+        today_dt = datetime.now()
+        if HAS_PYTZ:
+            kst = pytz.timezone('Asia/Seoul')
+            today_dt = datetime.now(kst)
+        today_date = today_dt.date()
+        two_weeks = (today_dt + timedelta(days=14)).date()
+
+        # 리스크 플래그 → ✅ 종목만 선별
+        log("포트폴리오: ✅ 종목 선별 중...")
+        safe = []
+        for _, row in filtered.iterrows():
+            t = row['ticker']
+            eps_chg = row.get('eps_change_90d', 0) or 0
+            price_chg = row.get('price_chg', 0) or 0
+            fwd_pe = row.get('fwd_pe', 0) or 0
+            rev_up = int(row.get('rev_up30', 0) or 0)
+            rev_down = int(row.get('rev_down30', 0) or 0)
+            direction = row.get('direction', 0) or 0
+            eps_w = row.get('eps_chg_weighted', 0) or 0
+            price_w = row.get('price_chg_weighted', 0) or 0
+
+            flags = []
+            if rev_down >= 3:
+                flags.append("하향")
+            elif rev_down >= 1 and rev_down >= rev_up:
+                flags.append("하향")
+            if eps_w > 0 and price_w < 0 and abs(price_w) / max(abs(eps_w), 0.01) > 5:
+                flags.append("괴리")
+            elif price_chg < -20:
+                flags.append("급락")
+            if direction < -10:
+                flags.append("감속")
+            if fwd_pe > 50:
+                flags.append("고평가")
+            try:
+                cal = yf.Ticker(t).calendar
+                if cal:
+                    eds = cal.get('Earnings Date', [])
+                    if not isinstance(eds, list):
+                        eds = [eds]
+                    for ed in eds:
+                        if hasattr(ed, 'date'):
+                            ed = ed.date()
+                        if today_date <= ed <= two_weeks:
+                            flags.append("어닝")
+                            break
+            except Exception:
+                pass
+
+            if not flags:
+                safe.append({
+                    'ticker': t,
+                    'name': row.get('short_name', t),
+                    'industry': row.get('industry', ''),
+                    'eps_chg': eps_chg, 'price_chg': price_chg,
+                    'fwd_pe': fwd_pe,
+                    'fwd_pe_chg': row.get('fwd_pe_chg', 0) or 0,
+                    'rev_up': rev_up, 'rev_down': rev_down,
+                    'adj_score': row.get('adj_score', 0) or 0,
+                    'lights': row.get('trend_lights', ''),
+                    'desc': row.get('trend_desc', ''),
+                })
+
+        if not safe:
+            log("포트폴리오: ✅ 종목 없음", "WARN")
+            return None
+
+        # 추세 3단계 가중치 (±20%, 대칭)
+        GOOD_TRENDS = {'상향 가속', '폭발적 가속', '최근 급상향', '폭발적 급상향',
+                       '꾸준한 상승', '폭발적 상승', '전구간 상승'}
+        BAD_TRENDS = {'상향 둔화', '급등 후 둔화', '추세 전환', '급격한 전환',
+                      '하락', '급락', '횡보'}
+
+        for s in safe:
+            desc = s['desc']
+            if desc in GOOD_TRENDS:
+                tw = 1.2
+            elif desc in BAD_TRENDS:
+                tw = 0.8
+            else:
+                tw = 1.0
+            s['weighted_gap'] = abs(s['fwd_pe_chg']) * tw
+
+        # 가중 괴리율 순, 상위 5개
+        safe.sort(key=lambda x: x['weighted_gap'], reverse=True)
+        selected = safe[:5]
+
+        if len(selected) < 3:
+            log("포트폴리오: 선정 종목 부족", "WARN")
+            return None
+
+        # 비중 배분 (괴리율 비례, 5% 단위, 최소 10%)
+        gaps = [abs(s['fwd_pe_chg']) for s in selected]
+        total_gap = sum(gaps)
+        for i, s in enumerate(selected):
+            s['weight'] = max(10, round(gaps[i] / total_gap * 100 / 5) * 5)
+        diff = 100 - sum(s['weight'] for s in selected)
+        selected[0]['weight'] += diff
+
+        log(f"포트폴리오: {len(selected)}종목 선정 — " +
+            ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
+
+        # Gemini 프롬프트
+        stock_lines = []
+        for i, s in enumerate(selected):
+            stock_lines.append(
+                f"{i+1}. {s['name']}({s['ticker']}) · {s['industry']} · "
+                f"{s['lights']} {s['desc']} · 점수 {s['adj_score']:.1f}\n"
+                f"   비중 {s['weight']}% · EPS {s['eps_chg']:+.1f}% · 주가 {s['price_chg']:+.1f}% · "
+                f"괴리 {s['fwd_pe_chg']:+.1f}\n"
+                f"   의견 ↑{s['rev_up']} ↓{s['rev_down']} · Fwd PE {s['fwd_pe']:.1f}"
+            )
+
+        prompt = f"""오늘 날짜: {today_dt.strftime('%Y-%m-%d')}
+
+아래는 EPS 모멘텀 시스템이 자동 선정한 {len(selected)}종목 포트폴리오야.
+선정 기준: Part 2 매수 후보 중 위험 신호 없고(✅), 괴리율×추세가중치 상위.
+
+[포트폴리오]
+{chr(10).join(stock_lines)}
+
+[출력 형식]
+- 한국어, 친절하고 따뜻한 말투 (~예요/~해요 체)
+- 각 종목: 종목명(티커) 비중% — 1~2줄 선정 이유
+- 종목과 종목 사이에 반드시 [SEP] 한 줄을 넣어서 구분해줘.
+- 맨 끝: "시스템 데이터 기반 참고용이며, 투자 판단은 본인 책임이에요."
+- 500자 이내
+
+💼 오늘의 추천 포트폴리오
+각 종목의 비중과 선정 이유를 설명해줘.
+시스템 데이터에 없는 내용을 지어내지 마."""
+
+        api_key = config.get('gemini_api_key', '')
+        if not api_key:
+            log("GEMINI_API_KEY 미설정 — 포트폴리오 선정까지만 완료", "WARN")
+            return None
+
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError:
+            log("google-genai 패키지 미설치 — 포트폴리오 스킵", "WARN")
+            return None
+
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.2),
+        )
+
+        def extract_text(resp):
+            try:
+                if resp.text:
+                    return resp.text
+            except Exception:
+                pass
+            try:
+                parts = resp.candidates[0].content.parts
+                texts = [p.text for p in parts if hasattr(p, 'text') and p.text]
+                if texts:
+                    return '\n'.join(texts)
+            except Exception:
+                pass
+            return None
+
+        text = extract_text(response)
+        if not text:
+            log("포트폴리오: Gemini 응답 없음", "WARN")
+            return None
+
+        # Markdown → HTML
+        html = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        html = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', html)
+        html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', html)
+        html = re.sub(r'#{1,3}\s*', '', html)
+        html = re.sub(r'\n*\[SEP\]\n*', '\n──────────────────\n', html)
+
+        lines = [
+            '━━━━━━━━━━━━━━━━━━━',
+            '      💼 추천 포트폴리오',
+            '━━━━━━━━━━━━━━━━━━━',
+            f'📅 {today_dt.strftime("%Y년 %m월 %d일")}',
+            '', html,
+        ]
+
+        log("포트폴리오 추천 완료")
+        return '\n'.join(lines)
+
+    except Exception as e:
+        log(f"포트폴리오 추천 실패: {e}", "ERROR")
+        return None
+
+
 # ============================================================
 # 텔레그램 전송
 # ============================================================
@@ -1037,6 +1253,17 @@ def main():
             else:
                 send_telegram_long(msg_ai, config, chat_id=private_id)
                 log("AI 브리핑 전송 완료 → 개인봇")
+
+        # 포트폴리오 추천
+        msg_portfolio = run_portfolio_recommendation(config, results_df)
+        if msg_portfolio:
+            if is_github and channel_id:
+                send_telegram_long(msg_portfolio, config, chat_id=channel_id)
+                send_telegram_long(msg_portfolio, config, chat_id=private_id)
+                log("포트폴리오 추천 전송 완료 → 채널+개인봇")
+            else:
+                send_telegram_long(msg_portfolio, config, chat_id=private_id)
+                log("포트폴리오 추천 전송 완료 → 개인봇")
 
         # 시스템 로그 → 개인봇에만 (항상)
         send_telegram_long(msg_log, config, chat_id=private_id)

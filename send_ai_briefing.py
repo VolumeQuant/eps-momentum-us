@@ -4,7 +4,7 @@ import sys
 
 from daily_runner import (
     load_config, log, run_ntm_collection,
-    run_ai_analysis, send_telegram_long
+    run_ai_analysis, run_portfolio_recommendation, send_telegram_long
 )
 from datetime import datetime
 
@@ -37,6 +37,14 @@ def main():
 
     log(f"AI 브리핑 생성 완료 ({len(msg_ai)}자)")
 
+    # 포트폴리오 추천 생성
+    log("포트폴리오 추천 생성 중...")
+    msg_portfolio = run_portfolio_recommendation(config, results_df)
+    if msg_portfolio:
+        log(f"포트폴리오 추천 생성 완료 ({len(msg_portfolio)}자)")
+    else:
+        log("포트폴리오 추천 생성 실패 (계속 진행)", "WARN")
+
     # 텔레그램 발송 — 개인봇에만 (테스트)
     if config.get('telegram_enabled', False):
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
@@ -44,9 +52,14 @@ def main():
         if private_id:
             send_telegram_long(msg_ai, config, chat_id=private_id)
             log("AI 브리핑 전송 완료 → 개인봇")
+            if msg_portfolio:
+                send_telegram_long(msg_portfolio, config, chat_id=private_id)
+                log("포트폴리오 추천 전송 완료 → 개인봇")
     else:
         log("텔레그램 비활성화 — 메시지 출력만")
         print(msg_ai)
+        if msg_portfolio:
+            print(msg_portfolio)
 
     log("완료!")
     return 0
