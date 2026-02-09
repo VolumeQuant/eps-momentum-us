@@ -555,7 +555,7 @@ def create_part2_message(df, top_n=30):
     lines.append('💡 <b>읽는 법</b>')
     lines.append('EPS·주가 = 90일 변화율')
     lines.append('<b>모멘텀</b> = EPS 변화 속도+방향 (순위 기준)')
-    lines.append('의견 ↑↓ = 30일간 EPS 상향/하향 애널리스트 수')
+    lines.append('애널리스트 의견 ↑↓ = 30일간 EPS 상향/하향 수')
     lines.append('⚠️ = 추가 확인 필요')
     lines.append('')
     lines.append('신호등 = 구간별 EPS 변화 (왼→오)')
@@ -585,7 +585,7 @@ def create_part2_message(df, top_n=30):
         # Line 4: 의견 ↑N ↓N
         rev_up = row.get('rev_up30', 0) or 0
         rev_down = row.get('rev_down30', 0) or 0
-        opinion_str = f"의견 ↑{rev_up} ↓{rev_down}"
+        opinion_str = f"애널리스트 의견 ↑{rev_up} ↓{rev_down}"
 
         # ⚠️ 판별: EPS > 0이고 주가 < 0일 때, |주가변화| / |EPS변화| > 5
         eps_chg_w = row.get('eps_chg_weighted')
@@ -759,7 +759,7 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
 
             # 종목 라인 구성
             header = f"{name} ({ticker}) · {industry} · {lights} {desc} · 점수 {adj_score:.1f}"
-            header += f"\n  EPS {eps_chg:+.1f}% / 주가 {price_chg:+.1f}% · 의견 ↑{rev_up} ↓{rev_down} · Fwd PE {fwd_pe:.1f}"
+            header += f"\n  EPS {eps_chg:+.1f}% / 주가 {price_chg:+.1f}% · 애널리스트 의견 ↑{rev_up} ↓{rev_down} · Fwd PE {fwd_pe:.1f}"
 
             if flags:
                 header += "\n  " + " | ".join(flags)
@@ -1038,7 +1038,7 @@ def run_portfolio_recommendation(config, results_df):
                 f"{s['lights']} {s['desc']} · 점수 {s['adj_score']:.1f}\n"
                 f"   비중 {s['weight']}% · EPS {s['eps_chg']:+.1f}% · 주가 {s['price_chg']:+.1f}% · "
                 f"괴리 {s['fwd_pe_chg']:+.1f}\n"
-                f"   의견 ↑{s['rev_up']} ↓{s['rev_down']} · Fwd PE {s['fwd_pe']:.1f}"
+                f"   애널리스트 의견 ↑{s['rev_up']} ↓{s['rev_down']} · Fwd PE {s['fwd_pe']:.1f}"
             )
 
         prompt = f"""오늘 날짜: {today_dt.strftime('%Y-%m-%d')}
@@ -1051,7 +1051,9 @@ def run_portfolio_recommendation(config, results_df):
 
 [출력 형식]
 - 한국어, 친절하고 따뜻한 말투 (~예요/~해요 체)
-- 각 종목: 종목명(티커) 비중% — 1~2줄 선정 이유
+- 각 종목을 아래 형식으로 출력:
+  **종목명(티커) · 비중 N%**
+  1~2줄 선정 이유
 - 종목과 종목 사이에 반드시 [SEP] 한 줄을 넣어서 구분해줘.
 - 맨 끝: "시스템 데이터 기반 참고용이며, 투자 판단은 본인 책임이에요."
 - 500자 이내
