@@ -832,7 +832,23 @@ EPS는 올랐지만 주가가 90일간 -38% 넘게 빠졌어요. 시장이 뭔�
             ),
         )
 
-        analysis_text = response.text
+        def extract_text(resp):
+            """response.text가 None일 때 parts에서 직접 추출"""
+            try:
+                if resp.text:
+                    return resp.text
+            except Exception:
+                pass
+            try:
+                parts = resp.candidates[0].content.parts
+                texts = [p.text for p in parts if hasattr(p, 'text') and p.text]
+                if texts:
+                    return '\n'.join(texts)
+            except Exception:
+                pass
+            return None
+
+        analysis_text = extract_text(response)
         if not analysis_text:
             try:
                 if hasattr(response, 'candidates') and response.candidates:
@@ -849,7 +865,7 @@ EPS는 올랐지만 주가가 90일간 -38% 넘게 빠졌어요. 시장이 뭔�
                     temperature=0.3,
                 ),
             )
-            analysis_text = response.text
+            analysis_text = extract_text(response)
             if not analysis_text:
                 log("Gemini 재시도도 실패", "WARN")
                 return None
