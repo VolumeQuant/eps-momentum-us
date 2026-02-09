@@ -712,31 +712,21 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
             rev_down = int(row.get('rev_down30', 0) or 0)
             lights = row.get('trend_lights', '')
             desc = row.get('trend_desc', '')
-            direction = row.get('direction', 0) or 0
-            eps_w = row.get('eps_chg_weighted', 0) or 0
-            price_w = row.get('price_chg_weighted', 0) or 0
 
-            # 위험 신호 플래그
+            # 위험 신호 플래그 (포트폴리오 필터와 동일 기준)
+            num_analysts = int(row.get('num_analysts', 0) or 0)
             flags = []
 
-            # 1. 애널리스트 하향
+            # 1. 애널리스트 다수 하향 (3건 이상)
             if rev_down >= 3:
                 flags.append(f"🔻 의견 하향 {rev_down}건 (상향 {rev_up}건)")
-            elif rev_down >= 1 and rev_down >= rev_up:
-                flags.append(f"📉 의견 하향 {rev_down}건 ≥ 상향 {rev_up}건")
 
-            # 2. 주가 급락 vs EPS 상승 (⚠️ 플래그)
-            if eps_w > 0 and price_w < 0 and abs(price_w) / max(abs(eps_w), 0.01) > 5:
-                flags.append(f"⚠️ EPS +{eps_chg:.1f}% vs 주가 {price_chg:+.1f}% (극단적 괴리)")
-            elif price_chg < -20:
-                flags.append(f"📉 주가 90일 {price_chg:+.1f}% 급락")
+            # 2. 저커버리지 (애널리스트 3명 미만)
+            if num_analysts < 3:
+                flags.append(f"📉 애널리스트 {num_analysts}명 (저커버리지)")
 
-            # 3. 패턴 꺾임 (추세 전환, 최근 꺾임)
-            if direction < -10:
-                flags.append(f"↘️ 모멘텀 감속 중 (direction {direction:+.1f})")
-
-            # 4. 고평가
-            if fwd_pe > 50:
+            # 3. 고평가 (Fwd PE > 100)
+            if fwd_pe > 100:
                 flags.append(f"💰 Fwd PE {fwd_pe:.1f}배 (고평가)")
 
             # 5. 어닝 임박
@@ -781,12 +771,9 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
 {signals_data}
 
 [위험 신호 설명]
-🔻 의견 하향 N건 = 30일간 N명의 애널리스트가 EPS 전망치를 낮춤
-📉 의견 하향 ≥ 상향 = 하향 애널리스트가 상향보다 같거나 많음
-⚠️ 극단적 괴리 = EPS는 올랐는데 주가가 훨씬 더 빠짐 (시장이 뭔가를 알고 있을 수 있음)
-📉 주가 급락 = 90일간 주가 -20% 이상 하락
-↘️ 모멘텀 감속 = 최근 EPS 상향 속도가 과거보다 크게 둔화
-💰 고평가 = Forward PE 50배 초과
+🔻 의견 하향 N건 = 30일간 N명의 애널리스트가 EPS 전망치를 낮춤 (3건 이상만 표시)
+📉 저커버리지 = 커버리지 애널리스트 3명 미만 (추정치 신뢰도 낮음)
+💰 고평가 = Forward PE 100배 초과
 📅 어닝 = 2주 내 실적 발표 예정 (발표 전후 변동성 주의)
 
 [출력 형식]
@@ -806,11 +793,11 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
 시스템 데이터에 없는 내용을 추측하거나 지어내지 마.
 
 예시:
-**Strategy Inc(MSTR)**
-EPS는 올랐지만 주가가 90일간 -38% 넘게 빠졌어요. 시장이 뭔가 안 좋게 보고 있을 수 있으니 조심하세요.
+**ABC Corp(ABC)**
+최근 5명의 애널리스트가 EPS 전망치를 낮췄어요. 의견 하향이 많으니 조심하세요.
 [SEP]
-**Palantir(PLTR)**
-모멘텀이 최근 많이 둔화됐어요. PE도 200배가 넘어서 부담스러운 수준이에요.
+**XYZ Inc(XYZ)**
+커버리지 애널리스트가 2명뿐이라 추정치를 100% 믿기 어려워요.
 
 📅 어닝 주의
 {earnings_info}
