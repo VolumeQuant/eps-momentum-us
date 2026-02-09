@@ -756,8 +756,6 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
 
             if flags:
                 header += "\n  " + " | ".join(flags)
-            else:
-                header += "\n  (위험 신호 없음)"
 
             signal_lines.append(header)
 
@@ -811,11 +809,7 @@ EPS는 올랐지만 주가가 90일간 -38% 넘게 빠졌어요. 시장이 뭔�
 {earnings_info}
 (위 내용 그대로 표시. 수정/추가 금지. "해당 없음"이면 이 섹션 생략.)
 
-✅ 위험 신호 없음
-위험 신호가 없는 종목을 티커만 나열. 5개씩 끊어서 줄바꿈.
-예시:
-SNDK · MMS · CPRI · AA · EL
-APH · LUV · AVGO · NEM · ELF"""
+위험 신호가 없는 종목은 언급하지 마."""
 
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         response = client.models.generate_content(
