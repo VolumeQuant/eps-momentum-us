@@ -385,7 +385,7 @@ def run_ntm_collection(config):
     if not results_df.empty:
         stats['score_gt0'] = int((results_df['score'] > 0).sum())
         stats['score_gt3'] = int((results_df['score'] > 3).sum())
-        stats['aligned_count'] = int((~results_df['trend_lights'].str.contains('🔴|🟥')).sum())
+        stats['aligned_count'] = int((~results_df['trend_lights'].str.contains('🌧️|⛈️')).sum())
 
     log(f"수집 완료: 메인 {len(results)}, 턴어라운드 {len(turnaround)}, "
         f"데이터없음 {len(no_data)}, 에러 {len(errors)}")
@@ -485,14 +485,13 @@ def create_part1_message(df, top_n=30):
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
     lines.append('EPS 점수 = 90일간 4구간 상승률의 합')
-    lines.append('점수가 높아도 🔴이 있으면 최근 주의!')
+    lines.append('점수가 높아도 🌧️이 있으면 최근 주의!')
     lines.append('')
-    lines.append('신호등 = 구간별 EPS 변화 (왼→오)')
+    lines.append('날씨 = 구간별 EPS 변화 (왼→오)')
     lines.append('90→60일 | 60→30일 | 30→7일 | 7일→오늘')
-    lines.append('🟩 폭발(20%↑) 🟢 상승(2~20%)')
-    lines.append('🔵 양호(0.5~2%) 🟡 보합(0~0.5%)')
-    lines.append('🔴 하락(0~-10%) 🟥 급락(-10%↓)')
-    lines.append('네모(🟩🟥) = 변동폭 큰 구간')
+    lines.append('☀️ 맑음(10%↑) 🌤️ 상승(2~10%)')
+    lines.append('☁️ 흐림(-2~2%) 🌧️ 하락(-10~-2%)')
+    lines.append('⛈️ 폭풍(-10%↓)')
     lines.append('')
 
     for _, row in df.head(top_n).iterrows():
@@ -629,7 +628,7 @@ def create_system_log_message(stats, elapsed, config):
     lines.append('')
     lines.append(f'Score &gt; 0: {stats.get("score_gt0", 0)} ({stats.get("score_gt0", 0) * 100 // max(main_cnt, 1)}%)')
     lines.append(f'Score &gt; 3: {stats.get("score_gt3", 0)} ({stats.get("score_gt3", 0) * 100 // max(main_cnt, 1)}%)')
-    lines.append(f'전구간 양호(🔴🟥 없음): {stats.get("aligned_count", 0)}')
+    lines.append(f'전구간 양호(🌧️⛈️ 없음): {stats.get("aligned_count", 0)}')
 
     lines.append(f'\n소요: {minutes}분 {seconds}초')
 
@@ -996,20 +995,16 @@ def run_portfolio_recommendation(config, results_df):
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 비중 배분 (adj_score 비례, 5% 단위, 최소 10%, 최대 30%)
+        # 비중 배분 (adj_score 비례, 5% 단위 반올림, 합계 100% 보정)
         scores = [s['adj_score'] for s in selected]
         total_score = sum(scores)
         for i, s in enumerate(selected):
             raw = scores[i] / total_score * 100
-            s['weight'] = max(10, min(30, round(raw / 5) * 5))
+            s['weight'] = round(raw / 5) * 5
+        # 합계 100% 보정 (가장 비중 큰 종목에서 조정)
         diff = 100 - sum(s['weight'] for s in selected)
-        # 잔여분을 하위 종목부터 배분 (분산 효과)
-        for s in reversed(selected):
-            if diff == 0:
-                break
-            add = min(diff, 30 - s['weight'])
-            s['weight'] += add
-            diff -= add
+        if diff != 0:
+            selected[0]['weight'] += diff
 
         log(f"포트폴리오: {len(selected)}종목 선정 — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
