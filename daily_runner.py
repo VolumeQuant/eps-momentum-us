@@ -879,7 +879,7 @@ EPS는 올랐지만 주가가 90일간 -38% 넘게 빠졌어요. 시장이 뭔�
         analysis_html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', analysis_html)
         analysis_html = re.sub(r'#{1,3}\s*', '', analysis_html)
         analysis_html = analysis_html.replace('---', '━━━')
-        analysis_html = analysis_html.replace('[SEP]', '──────────────────')
+        analysis_html = re.sub(r'\n*\[SEP\]\n*', '\n──────────────────\n', analysis_html)
 
         # 텔레그램 메시지 포맷팅
         now = datetime.now()
