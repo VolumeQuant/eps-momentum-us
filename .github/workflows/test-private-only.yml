@@ -1,33 +1,13 @@
 name: Test Private Bot Only
 
 on:
-  schedule:
-    # 2/13 전까지 개인봇 전용 자동 실행
-    - cron: '15 22 * * 0-4'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  check-date:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check.outputs.run }}
-    steps:
-      - id: check
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "run=true" >> $GITHUB_OUTPUT
-          elif [[ "$(date -u +%Y%m%d)" -lt "20260213" ]]; then
-            echo "run=true" >> $GITHUB_OUTPUT
-          else
-            echo "run=false" >> $GITHUB_OUTPUT
-          fi
-
   test:
-    needs: check-date
-    if: needs.check-date.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

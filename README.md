@@ -164,6 +164,11 @@ python daily_runner.py
 - 3일 교집합은 **DB에 있는 distinct date** 기준 → 주말/공휴일 별도 처리 불필요
 - 미국 공휴일은 yfinance 데이터 부재로 자연스럽게 skip
 
+### Cold Start 자동 전환
+- DB에 `part2_rank` 데이터가 3일 미만 → **개인봇만** 전송 (채널 비활성화)
+- 3일 이상 축적되면 자동으로 **채널 + 개인봇** 전송 시작
+- 날짜 하드코딩 없이 DB 상태 기반 자동 판단 (`is_cold_start()`)
+
 ### 환경변수 (GitHub Secrets)
 - `TELEGRAM_BOT_TOKEN`: 텔레그램 봇 토큰
 - `TELEGRAM_CHAT_ID`: 채널 ID

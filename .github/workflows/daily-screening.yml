@@ -17,24 +17,7 @@ env:
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
 jobs:
-  check-date:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check.outputs.run }}
-    steps:
-      - id: check
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "run=true" >> $GITHUB_OUTPUT
-          elif [[ "$(date -u +%Y%m%d)" -ge "20260213" ]]; then
-            echo "run=true" >> $GITHUB_OUTPUT
-          else
-            echo "run=false" >> $GITHUB_OUTPUT
-          fi
-
   screening:
-    needs: check-date
-    if: needs.check-date.outputs.should_run == 'true'
     runs-on: ubuntu-latest
 
     steps:

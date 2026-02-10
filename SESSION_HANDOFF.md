@@ -1449,6 +1449,17 @@ ALTER TABLE ntm_screening ADD COLUMN part2_rank INTEGER;  -- NULL = Part 2 미�
 - 소요시간: ~469초
 - 텔레그램: 로컬 config `telegram_enabled: false` → 미발송 → GitHub Actions 워크플로우로 테스트
 
+### 15-13. Cold Start 자동 채널 전송 제어
+
+- **문제**: 백필 데이터가 3일 검증/Death List 결과를 왜곡 → 백필 삭제
+- **해결**: `is_cold_start()` 함수 — DB에 part2_rank 있는 날짜가 3일 미만이면 True
+- **동작**: cold_start=True → 채널 전송 비활성화, 개인봇만 전송
+- **자동 전환**: 3일 데이터 축적되면 자동으로 채널 전송 시작 (날짜 하드코딩 불필요)
+- **워크플로우**: daily-screening.yml 하나로 통합 운영 (date check 제거)
+- 결정 사항 추가:
+  81. **백필 삭제 (v19)**: 백필 데이터가 ✅/🆕/🚨 판정을 왜곡하므로 제거
+  82. **Cold Start 자동 제어 (v19)**: is_cold_start()로 DB 상태 기반 채널 전송 자동 전환
+
 ### 미결 사항
 
 - **지수 경고 기능**: SPY/QQQ의 5일선/MA 상태에 따라 진입 주의 권장 메시지 추가

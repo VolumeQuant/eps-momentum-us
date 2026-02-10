@@ -478,6 +478,16 @@ def save_part2_ranks(results_df, today_str):
     log(f"Part 2 rank 저장: {len(candidates)}개 종목")
 
 
+def is_cold_start():
+    """DB에 part2_rank 데이터가 3일 미만이면 True (채널 전송 제어용)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(DISTINCT date) FROM ntm_screening WHERE part2_rank IS NOT NULL')
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count < 3
+
+
 def get_3day_status(today_tickers):
     """3일 연속 Part 2 진입 여부 판별 → {ticker: '✅' or '🆕'}"""
     conn = sqlite3.connect(DB_PATH)
@@ -1386,37 +1396,34 @@ def main():
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
         channel_id = config.get('telegram_channel_id')
 
+        # cold start: 3일 미만 데이터 → 채널 전송 안함 (개인봇만)
+        cold_start = is_cold_start()
+        send_to_channel = is_github and channel_id and not cold_start
+        if cold_start:
+            log(f"Cold start — 채널 전송 비활성화 (3일 데이터 축적 전)")
+
         # [1/3] 매수 후보
         if msg_part2:
-            if is_github and channel_id:
+            if send_to_channel:
                 send_telegram_long(msg_part2, config, chat_id=channel_id)
-                send_telegram_long(msg_part2, config, chat_id=private_id)
-                log("[1/3] 매수 후보 전송 완료 → 채널+개인봇")
-            else:
-                send_telegram_long(msg_part2, config, chat_id=private_id)
-                log("[1/3] 매수 후보 전송 완료 → 개인봇")
+            send_telegram_long(msg_part2, config, chat_id=private_id)
+            log(f"[1/3] 매수 후보 전송 완료 → {'채널+개인봇' if send_to_channel else '개인봇'}")
 
         # [2/3] AI 브리핑
         msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, death_list=death_list)
         if msg_ai:
-            if is_github and channel_id:
+            if send_to_channel:
                 send_telegram_long(msg_ai, config, chat_id=channel_id)
-                send_telegram_long(msg_ai, config, chat_id=private_id)
-                log("[2/3] AI 브리핑 전송 완료 → 채널+개인봇")
-            else:
-                send_telegram_long(msg_ai, config, chat_id=private_id)
-                log("[2/3] AI 브리핑 전송 완료 → 개인봇")
+            send_telegram_long(msg_ai, config, chat_id=private_id)
+            log(f"[2/3] AI 브리핑 전송 완료 → {'채널+개인봇' if send_to_channel else '개인봇'}")
 
         # [3/3] 포트폴리오 추천
         msg_portfolio = run_portfolio_recommendation(config, results_df, status_map)
         if msg_portfolio:
-            if is_github and channel_id:
+            if send_to_channel:
                 send_telegram_long(msg_portfolio, config, chat_id=channel_id)
-                send_telegram_long(msg_portfolio, config, chat_id=private_id)
-                log("[3/3] 포트폴리오 전송 완료 → 채널+개인봇")
-            else:
-                send_telegram_long(msg_portfolio, config, chat_id=private_id)
-                log("[3/3] 포트폴리오 전송 완료 → 개인봇")
+            send_telegram_long(msg_portfolio, config, chat_id=private_id)
+            log(f"[3/3] 포트폴리오 전송 완료 → {'채널+개인봇' if send_to_channel else '개인봇'}")
 
         # 시스템 로그 → 개인봇에만 (항상)
         send_telegram_long(msg_log, config, chat_id=private_id)
