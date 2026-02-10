@@ -1174,11 +1174,10 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
         if status_map is None:
             status_map = {}
 
-        # ✅ (3일 검증) + ⏳ (2일 검증) 종목 대상
-        # ✅ = 풀 비중, ⏳ = 절반 비중, 🆕 = 포트폴리오 제외
-        eligible_tickers = {t for t, s in status_map.items() if s in ('✅', '⏳')}
+        # ✅ (3일 검증) 종목만 대상 — ⏳/🆕는 포트폴리오 제외
+        verified_tickers = {t for t, s in status_map.items() if s == '✅'}
         if status_map:
-            filtered = filtered[filtered['ticker'].isin(eligible_tickers)]
+            filtered = filtered[filtered['ticker'].isin(verified_tickers)]
 
         if filtered.empty:
             log("포트폴리오: ✅ 검증 종목 없음", "WARN")
@@ -1276,24 +1275,19 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
             return None
 
         # 비중 배분 (adj_gap 절대값 비례 — 더 저평가일수록 높은 비중, 5% 단위)
-        # 종목당 상한 30% 적용, ⏳(2일 검증) 종목은 절반 비중
+        # 종목당 상한 30%
         MAX_WEIGHT = 30
         gaps = [abs(s['adj_gap']) for s in selected]
         total_score = sum(gaps)
         for i, s in enumerate(selected):
             raw = gaps[i] / total_score * 100
-            w = min(round(raw / 5) * 5, MAX_WEIGHT)
-            # ⏳ 2일 검증 종목은 절반 비중 (5% 단위 반올림)
-            if s.get('v_status') == '⏳':
-                w = round((w / 2) / 5) * 5
-                w = max(w, 5)  # 최소 5%
-            s['weight'] = w
-        # 합계 100% 보정 (상한 미달 ✅ 종목에 순차 배분)
+            s['weight'] = min(round(raw / 5) * 5, MAX_WEIGHT)
+        # 합계 100% 보정
         diff = 100 - sum(s['weight'] for s in selected)
         while diff != 0:
             adjusted = False
             for s in selected:
-                if diff > 0 and s['weight'] < MAX_WEIGHT and s.get('v_status') != '⏳':
+                if diff > 0 and s['weight'] < MAX_WEIGHT:
                     add = min(5, MAX_WEIGHT - s['weight'], diff)
                     s['weight'] += add
                     diff -= add
@@ -1306,7 +1300,6 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
                 if diff == 0:
                     break
             if not adjusted:
-                # 잔여분은 첫 번째 종목에 배분
                 selected[0]['weight'] += diff
                 break
 
