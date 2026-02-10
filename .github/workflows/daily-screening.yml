@@ -4,7 +4,7 @@ on:
   schedule:
     # 매일 UTC 22:15 = KST 07:15
     # 일~목 UTC 22:15 = 월~금 KST 07:15
-    - cron: '15 22 * * 0-4'
+    # - cron: '15 22 * * 0-4'  # 2/13까지 비활성화 (3일 검증 데이터 축적 중)
   workflow_dispatch:  # 수동 실행 가능
 
 permissions:
