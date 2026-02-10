@@ -186,6 +186,7 @@ run_daily.bat             # Windows 로컬 실행 스크립트
 requirements.txt          # Python 패키지 의존성
 ticker_info_cache.json    # 종목 이름/업종 캐시 (자동 생성)
 eps_momentum_data.db      # SQLite DB (자동 생성)
+backtest.py               # 백테스트 프레임워크 (검증일수 × 보유기간 매트릭스)
 SESSION_HANDOFF.md        # 설계 결정 히스토리 (v1~v19)
 ```
 
