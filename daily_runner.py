@@ -488,10 +488,9 @@ def is_cold_start():
 
 
 def get_3day_status(today_tickers):
-    """3일 연속 Part 2 진입 여부 판별 → {ticker: '✅' or '⏳' or '🆕'}
-    ✅ = 3일 연속 (풀 비중)
-    ⏳ = 2일 연속 (절반 비중)
-    🆕 = 1일 (포트폴리오 미포함, 관찰만)
+    """3일 연속 Part 2 진입 여부 판별 → {ticker: '✅' or '🆕'}
+    ✅ = 3일 연속 (포트폴리오 포함)
+    🆕 = 3일 미만 (포트폴리오 제외, 관찰)
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -515,29 +514,18 @@ def get_3day_status(today_tickers):
     ''', dates)
     verified_3d = {r[0] for r in cursor.fetchall()}
 
-    # 2일 이상 part2_rank가 있는 종목
-    cursor.execute(f'''
-        SELECT ticker FROM ntm_screening
-        WHERE date IN ({placeholders}) AND part2_rank IS NOT NULL
-        GROUP BY ticker HAVING COUNT(DISTINCT date) >= 2
-    ''', dates)
-    verified_2d = {r[0] for r in cursor.fetchall()}
-
     conn.close()
 
     status = {}
     for t in today_tickers:
         if t in verified_3d:
             status[t] = '✅'
-        elif t in verified_2d:
-            status[t] = '⏳'
         else:
             status[t] = '🆕'
 
     v3 = sum(1 for v in status.values() if v == '✅')
-    v2 = sum(1 for v in status.values() if v == '⏳')
     v1 = sum(1 for v in status.values() if v == '🆕')
-    log(f"3일 교집합: ✅ {v3}개, ⏳ {v2}개, 🆕 {v1}개")
+    log(f"3일 교집합: ✅ {v3}개, 🆕 {v1}개")
     return status
 
 
@@ -1174,7 +1162,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
         if status_map is None:
             status_map = {}
 
-        # ✅ (3일 검증) 종목만 대상 — ⏳/🆕는 포트폴리오 제외
+        # ✅ (3일 검증) 종목만 대상 — 🆕는 포트폴리오 제외
         verified_tickers = {t for t, s in status_map.items() if s == '✅'}
         if status_map:
             filtered = filtered[filtered['ticker'].isin(verified_tickers)]
