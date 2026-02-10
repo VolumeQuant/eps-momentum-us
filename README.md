@@ -160,6 +160,10 @@ python daily_runner.py
 # KST 07:15 자동 실행 (cron: '15 22 * * 0-4' UTC)
 ```
 
+### 영업일/휴장 처리
+- 3일 교집합은 **DB에 있는 distinct date** 기준 → 주말/공휴일 별도 처리 불필요
+- 미국 공휴일은 yfinance 데이터 부재로 자연스럽게 skip
+
 ### 환경변수 (GitHub Secrets)
 - `TELEGRAM_BOT_TOKEN`: 텔레그램 봇 토큰
 - `TELEGRAM_CHAT_ID`: 채널 ID

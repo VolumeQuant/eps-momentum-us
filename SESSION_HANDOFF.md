@@ -19,6 +19,7 @@
 > **v16**: 2026-02-09 집 PC — 포트폴리오 추천 기능 통합, Part 2 UI 압축
 > **v17**: 2026-02-09 집 PC — adj_score 기반 정렬 전환, 메시지 단계별 흐름 [1/4]~[4/4], UI 개선
 > **v18**: 2026-02-09 집 PC — adj_gap 도입, 리스크 필터 정비(모순 제거+저커버리지), AI 브리핑 동기화
+> **v19**: 2026-02-10 회사 PC — Safety & Trend Fusion: MA60+3일검증+Death List, Part 1 제거, 메시지 3개 축소, adj_gap≤0/$10 필터
 
 ---
 
@@ -1423,5 +1424,35 @@ ALTER TABLE ntm_screening ADD COLUMN part2_rank INTEGER;  -- NULL = Part 2 미�
 77. **Death List 통합 (v19)**: 별도 메시지가 아닌 Part 2 하단 섹션으로 통합
 78. **메시지 축소 (v19)**: 4개→3개, Part 1 제거
 79. **Cron 변경 (v19)**: UTC 22:00→22:15
+80. **지수 경고 (미결)**: SPY/QQQ MA 하향 시 진입 주의 권장 → 테스트 후 추가 예정
+
+### 15-10. 영업일/휴장 처리
+
+- 3일 교집합은 **DB에 있는 distinct date** 기준 → 주말/공휴일 자동 대응
+- 예: 금요일(2/7)→월요일(2/10) 실행 시 DB에 2/6, 2/7, 2/10 3개 날짜 → 정상 동작
+- 미국 공휴일(Presidents' Day 등)은 GitHub Actions가 실행되더라도 yfinance 데이터가 없어 자연스럽게 skip됨
+- 별도 휴장 캘린더 관리 불필요
+
+### 15-11. 데이터 소급(Backfill) 교훈
+
+- **DB만으로 계산 가능**: adj_score (= score × 방향보정, seg1~4에서 도출)
+- **yfinance 필요**: price, ma60 (가격 다운로드), adj_gap (fwd_pe 변화율 + 방향보정)
+- **실행 시 실시간 조회**: rev_up30/rev_down30 (DB 미저장, epsRevisions API)
+- 결론: 기존 DB 데이터만으로 v19 컬럼 100% 소급은 불가능, 일부만 가능
+
+### 15-12. 초기 테스트 결과 (2026-02-10 로컬)
+
+- 총 864종목 수집 (916 중 52 에러)
+- Part 2 후보: 20개
+- 3일 검증: ✅ 15개 / 🆕 5개
+- Death List: 🚨 4개 (ASML 포함)
+- 소요시간: ~469초
+- 텔레그램: 로컬 config `telegram_enabled: false` → 미발송 → GitHub Actions 워크플로우로 테스트
+
+### 미결 사항
+
+- **지수 경고 기능**: SPY/QQQ의 5일선/MA 상태에 따라 진입 주의 권장 메시지 추가
+  - 사용자 요청: "먼저 테스트 돌리고 나서 추가하자"
+  - 구현 시점: v19 텔레그램 테스트 완료 후
 
 *v19 업데이트: Claude Opus 4.6 | 2026-02-10 회사 PC — Safety & Trend Fusion: MA60+3일검증+Death List, Part 1 제거, 메시지 3개 축소*
