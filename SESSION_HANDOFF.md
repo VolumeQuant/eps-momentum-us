@@ -1334,3 +1334,94 @@ adj_score 기준에서는 EPS 모멘텀만 강한 반도체 집중 → adj_gap�
 71. **리스크 철학 (v18)**: adj_gap=기회 찾기, 필터=데이터 신뢰성 검증 (기회를 위험으로 오분류하지 않음)
 
 *v18 업데이트: Claude Opus 4.6 | 2026-02-09 집 PC — adj_gap 도입, 리스크 필터 정비(모순 제거+저커버리지), AI 브리핑 동기화*
+
+---
+
+## Phase 15: v19 Safety & Trend Fusion (2026-02-10)
+
+### 15-1. 핵심 철학 변경
+
+**문제**: v18은 당일 데이터만으로 매수 후보를 선정하여 하루짜리 노이즈에 취약하고, 기술적 안전장치(MA60)가 없었음.
+
+**해결**: 3일 연속 검증 + MA60 필터 + adj_gap ≤ 0 필터를 추가하여 신뢰도를 높이고, 메시지를 4개→3개로 축소.
+
+### 15-2. 메시지 구조 개편 (4개 → 3개)
+
+| 항목 | v18 (이전) | v19 (변경) |
+|------|-----------|-----------|
+| 메시지 수 | 4개 ([1/4]~[4/4]) | 3개 ([1/3]~[3/3]) |
+| Part 1 | EPS 모멘텀 Top 30 | **제거** (adj_score 랭킹은 참고용이었음) |
+| Part 2 | [2/4] 매수 후보 | [1/3] 매수 후보 (핵심) |
+| AI 브리핑 | [3/4] | [2/3] |
+| 포트폴리오 | [4/4] | [3/3] |
+
+**Part 1 제거 근거**: adj_gap(괴리율)이 실제 매수 신호이고 adj_score는 참고용이었음. 당일 순위를 보여줘야 한다면 adj_gap 기반 Part 2가 맞음.
+
+### 15-3. 새 필터 3개 추가
+
+| 필터 | 조건 | 근거 |
+|------|------|------|
+| MA60 | price > 60일 이동평균 | 하락 추세 종목 제외 (기술적 안전장치) |
+| adj_gap ≤ 0 | adj_gap > 0이면 제외 | 주가가 EPS를 이미 초과 반영 → 기회 아님 |
+| $10 | price ≥ $10 | 페니스톡 제외 (S&P/NASDAQ 유니버스에서는 거의 해당 없음) |
+
+**기존 필터 유지**: adj_score > 9, eps_change_90d > 0, fwd_pe > 0
+
+### 15-4. 3일 연속 검증 시스템
+
+- Part 2 eligible 종목(필터 통과 전체, Top 30 제한 없이)에 `part2_rank` 부여 → DB 저장
+- 최근 3개 DB date에서 모두 part2_rank가 있는 종목 = ✅ (검증)
+- 오늘만 있는 종목 = 🆕 (신규 진입, 관찰)
+- DB 3일 미만 (시스템 초기) → 전부 ✅ 처리 (cold start)
+
+### 15-5. Death List (탈락 알림)
+
+- 어제 Part 2에 있었지만 오늘 빠진 종목 자동 감지
+- 사유 자동 판별: MA60↓, 괴리+, 점수↓, EPS↓, 순위밖, 데이터없음
+- Part 2 메시지 하단에 `🚨 탈락 종목` 섹션으로 통합 (별도 메시지 아님)
+- 탈락 종목 없으면 섹션 생략
+
+### 15-6. DB 스키마 확장
+
+기존 10개 컬럼에 5개 추가:
+
+```sql
+ALTER TABLE ntm_screening ADD COLUMN adj_score REAL;
+ALTER TABLE ntm_screening ADD COLUMN adj_gap REAL;
+ALTER TABLE ntm_screening ADD COLUMN price REAL;
+ALTER TABLE ntm_screening ADD COLUMN ma60 REAL;
+ALTER TABLE ntm_screening ADD COLUMN part2_rank INTEGER;  -- NULL = Part 2 미해당
+```
+
+- 기존 DB 자동 마이그레이션 (ALTER TABLE IF NOT EXISTS 패턴)
+- part2_rank로 3일 교집합 쿼리 가능
+
+### 15-7. 포트폴리오 변경
+
+- **소스**: Part 2 전체 → ✅ (3일 검증) 종목만
+- **리스크 필터**: 기존 유지 (하향/저커버리지/고평가/어닝)
+- ✅ 종목 부족 시: 있는 만큼만 추천 (무리하게 채우지 않음)
+- ✅ 종목 0개: "관망 권장" 메시지 발송
+
+### 15-8. Cron 변경
+
+- UTC 22:00 → UTC 22:15 (KST 07:00 → 07:15)
+- 미국 장 마감 후 데이터 정착 여유 확보
+
+### 15-9. 공통 필터 함수 추출
+
+`get_part2_candidates(df, top_n)` — Part 2 필터가 3곳에 중복되던 것을 통합.
+`save_part2_ranks()`, `get_3day_status()`, `get_death_list()` 신규 함수.
+
+### 결정 사항 추가
+
+72. **Part 1 제거 (v19)**: adj_score 랭킹은 참고용이었음, adj_gap 기반 Part 2가 실제 신호
+73. **MA60 필터 (v19)**: 60일 이동평균 위 종목만 Part 2 진입, 하락 추세 제외
+74. **adj_gap ≤ 0 필터 (v19)**: 주가가 EPS를 초과 반영한 종목 제외 (기회 아님)
+75. **$10 필터 (v19)**: 페니스톡 제외 (실질적 영향 미미)
+76. **3일 교집합 (v19)**: 3일 연속 Part 2 eligible = ✅ 검증, 포트폴리오는 ✅만 대상
+77. **Death List 통합 (v19)**: 별도 메시지가 아닌 Part 2 하단 섹션으로 통합
+78. **메시지 축소 (v19)**: 4개→3개, Part 1 제거
+79. **Cron 변경 (v19)**: UTC 22:00→22:15
+
+*v19 업데이트: Claude Opus 4.6 | 2026-02-10 회사 PC — Safety & Trend Fusion: MA60+3일검증+Death List, Part 1 제거, 메시지 3개 축소*

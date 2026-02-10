@@ -431,8 +431,8 @@ def calculate_eps_change_90d(ntm_values):
 def get_trend_lights(seg1, seg2, seg3, seg4):
     """추세 신호등 생성 (90d/60d/30d/7d 순서 = 과거→현재)
 
-    5단계 날씨 아이콘: ☀️(>10%) 🌤️(2~10%) ☁️(-2~2%) 🌧️(-10~-2%) ⛈️(<-10%)
-    12개 기본 패턴 + ☀️⛈️ 강도 수식어
+    5단계 아이콘: 🔥(>20%) ☀️(5~20%) 🌤️(1~5%) ☁️(±1%) 🌧️(<-1%)
+    12개 기본 패턴 + 🔥 강도 수식어
 
     Args:
         seg1-seg4: calculate_ntm_score()에서 반환된 segment 값 (%)
@@ -442,23 +442,23 @@ def get_trend_lights(seg1, seg2, seg3, seg4):
     """
     segs = [seg4, seg3, seg2, seg1]  # 과거→현재 순서
 
-    # 5단계 날씨 아이콘
+    # 5단계 아이콘: 🔥폭등 ☀️강한상승 🌤️상승 ☁️보합 🌧️하락
     lights = []
     for s in segs:
-        if s > 10:
+        if s > 20:
+            lights.append('🔥')
+        elif s > 5:
             lights.append('☀️')
-        elif s > 2:
+        elif s > 1:
             lights.append('🌤️')
-        elif s >= -2:
+        elif s >= -1:
             lights.append('☁️')
-        elif s >= -10:
-            lights.append('🌧️')
         else:
-            lights.append('⛈️')
+            lights.append('🌧️')
 
     lights_str = ''.join(lights)
-    has_green_sq = '☀️' in lights
-    has_red_sq = '⛈️' in lights
+    has_fire = '🔥' in lights
+    has_rain = '🌧️' in lights
 
     # 구간 분류 (|s| > 0.5 = 유의미한 변화)
     pos_count = sum(1 for s in segs if s > 0.5)
@@ -521,10 +521,10 @@ def get_trend_lights(seg1, seg2, seg3, seg4):
     else:
         base = '등락 반복'
 
-    # --- ☀️⛈️ 강도 수식어 ---
-    if has_green_sq and has_red_sq:
+    # --- 🔥 강도 수식어 ---
+    if has_fire and has_rain:
         desc = {'반등': '급락 후 반등', '추세 전환': '급격한 전환'}.get(base, '급등락')
-    elif has_green_sq:
+    elif has_fire:
         desc = {
             '전구간 상승': '폭발적 상승',
             '꾸준한 상승': '폭발적 상승',
@@ -535,7 +535,7 @@ def get_trend_lights(seg1, seg2, seg3, seg4):
             '상향 둔화': '급등 후 둔화',
             '반등': '폭발적 반등',
         }.get(base, base)
-    elif has_red_sq:
+    elif has_rain:
         desc = {
             '하락': '급락',
             '추세 전환': '급격한 전환',

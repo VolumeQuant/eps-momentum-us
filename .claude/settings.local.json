@@ -158,7 +158,8 @@
       "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" commit -m \"$\\(cat <<''EOF''\ndocs: v15 날씨 아이콘 전환 + 포트폴리오 비중 단순화 문서 반영\n\n- README: 추세 표시 섹션 날씨 아이콘으로 업데이트\n- SESSION_HANDOFF: Phase 11 추가 \\(데이터 분포 분석, 임계값 선정 근거\\)\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" diff --stat README.md SESSION_HANDOFF.md)",
       "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" log --oneline -3)",
-      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" show --stat 797739f)"
+      "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" show --stat 797739f)",
+      "Bash(cd:*)"
     ]
   }
 }

@@ -1,12 +1,12 @@
 """
-EPS Momentum Daily Runner v9.0 - NTM EPS 시스템
+EPS Momentum Daily Runner v19 - Safety & Trend Fusion
 
 기능:
-1. NTM EPS 전 종목 수집 & DB 적재
-2. 텔레그램 메시지 4종 생성 & 발송
-   - Part 1: 이익 모멘텀 랭킹 (채널/개인봇)
-   - Part 2: 매수 후보 — adj_gap(방향보정 괴리율)+의견 (채널/개인봇)
-   - AI 리스크 체크 (개인봇) — Gemini 2.5 Flash + Google Search
+1. NTM EPS 전 종목 수집 + MA60 계산 & DB 적재
+2. 텔레그램 메시지 3종 + 로그 생성 & 발송
+   - [1/3] 매수 후보: adj_gap순, MA60+adj_gap≤0+$10 필터, ✅3일검증/🆕신규/🚨탈락
+   - [2/3] AI 브리핑: Gemini 2.5 Flash + Google Search
+   - [3/3] 포트폴리오: ✅ 종목만 선정, 리스크 필터
    - 시스템 로그 (개인봇)
 3. Git 자동 commit/push
 
@@ -111,9 +111,22 @@ def init_ntm_database():
             ntm_60d     REAL,
             ntm_90d     REAL,
             is_turnaround INTEGER DEFAULT 0,
+            adj_score   REAL,
+            adj_gap     REAL,
+            price       REAL,
+            ma60        REAL,
+            part2_rank  INTEGER,
             PRIMARY KEY (date, ticker)
         )
     ''')
+
+    # 기존 DB 마이그레이션: 새 컬럼 추가
+    for col, col_type in [('adj_score', 'REAL'), ('adj_gap', 'REAL'),
+                          ('price', 'REAL'), ('ma60', 'REAL'), ('part2_rank', 'INTEGER')]:
+        try:
+            cursor.execute(f'ALTER TABLE ntm_screening ADD COLUMN {col} {col_type}')
+        except sqlite3.OperationalError:
+            pass  # 이미 존재
 
     # 기존 eps_snapshots 테이블 삭제
     cursor.execute('DROP TABLE IF EXISTS eps_snapshots')
@@ -221,7 +234,7 @@ def run_ntm_collection(config):
             except Exception:
                 pass
 
-            # DB 적재
+            # DB 적재 (기본 데이터 — price/ma60/adj_gap은 후속 UPDATE로 추가)
             cursor.execute('''
                 INSERT OR REPLACE INTO ntm_screening
                 (date, ticker, rank, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, is_turnaround)
@@ -248,6 +261,8 @@ def run_ntm_collection(config):
             price_chg = None
             price_chg_weighted = None
             eps_chg_weighted = None
+            current_price = None
+            ma60_val = None
 
             try:
                 if hist_all is not None:
@@ -258,6 +273,8 @@ def run_ntm_collection(config):
 
                 if len(hist) >= 60:
                     p_now = hist.iloc[-1]
+                    current_price = float(p_now)
+                    ma60_val = float(hist.rolling(window=60).mean().iloc[-1])
                     hist_dt = hist.index.tz_localize(None) if hist.index.tz else hist.index
 
                     # 각 시점의 주가 찾기
@@ -344,7 +361,16 @@ def run_ntm_collection(config):
                 'rev_up30': rev_up30,
                 'rev_down30': rev_down30,
                 'num_analysts': num_analysts,
+                'price': current_price,
+                'ma60': ma60_val,
             }
+
+            # DB에 파생 데이터 업데이트
+            cursor.execute('''
+                UPDATE ntm_screening
+                SET adj_score=?, adj_gap=?, price=?, ma60=?
+                WHERE date=? AND ticker=?
+            ''', (adj_score, adj_gap, current_price, ma60_val, today_str, ticker))
 
             if is_turnaround:
                 turnaround.append(row)
@@ -397,12 +423,151 @@ def run_ntm_collection(config):
     if not results_df.empty:
         stats['score_gt0'] = int((results_df['score'] > 0).sum())
         stats['score_gt3'] = int((results_df['score'] > 3).sum())
-        stats['aligned_count'] = int((~results_df['trend_lights'].str.contains('🌧️|⛈️')).sum())
+        stats['aligned_count'] = int((~results_df['trend_lights'].str.contains('🌧️')).sum())
 
     log(f"수집 완료: 메인 {len(results)}, 턴어라운드 {len(turnaround)}, "
         f"데이터없음 {len(no_data)}, 에러 {len(errors)}")
 
     return results_df, turnaround_df, stats
+
+
+# ============================================================
+# Part 2 공통 필터 & 3일 교집합
+# ============================================================
+
+def get_part2_candidates(df, top_n=None):
+    """Part 2 매수 후보 필터링 (공통 함수)
+
+    필터: adj_score > 9, adj_gap ≤ 0, fwd_pe > 0, eps > 0, price ≥ $10, price > MA60
+    정렬: adj_gap 오름차순 (더 음수 = 더 저평가)
+    """
+    filtered = df[
+        (df['adj_score'] > 9) &
+        (df['adj_gap'].notna()) & (df['adj_gap'] <= 0) &
+        (df['fwd_pe'].notna()) & (df['fwd_pe'] > 0) &
+        (df['eps_change_90d'] > 0) &
+        (df['price'].notna()) & (df['price'] >= 10) &
+        (df['ma60'].notna()) & (df['price'] > df['ma60'])
+    ].copy()
+
+    filtered = filtered.sort_values('adj_gap', ascending=True)
+
+    if top_n:
+        filtered = filtered.head(top_n)
+    return filtered
+
+
+def save_part2_ranks(results_df, today_str):
+    """Part 2 eligible 종목에 part2_rank 저장 (3일 교집합용)"""
+    candidates = get_part2_candidates(results_df)
+    if candidates.empty:
+        log("Part 2 후보 0개 — part2_rank 저장 스킵")
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    for i, (_, row) in enumerate(candidates.iterrows()):
+        cursor.execute(
+            'UPDATE ntm_screening SET part2_rank=? WHERE date=? AND ticker=?',
+            (i + 1, today_str, row['ticker'])
+        )
+
+    conn.commit()
+    conn.close()
+    log(f"Part 2 rank 저장: {len(candidates)}개 종목")
+
+
+def get_3day_status(today_tickers):
+    """3일 연속 Part 2 진입 여부 판별 → {ticker: '✅' or '🆕'}"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # 최근 3개 distinct date
+    cursor.execute('SELECT DISTINCT date FROM ntm_screening ORDER BY date DESC LIMIT 3')
+    dates = [r[0] for r in cursor.fetchall()]
+
+    if len(dates) < 3:
+        conn.close()
+        log(f"3일 교집합: DB {len(dates)}일뿐 — 전부 ✅ 처리 (cold start)")
+        return {t: '✅' for t in today_tickers}
+
+    # 3일 모두 part2_rank가 있는 종목
+    placeholders = ','.join('?' * len(dates))
+    cursor.execute(f'''
+        SELECT ticker FROM ntm_screening
+        WHERE date IN ({placeholders}) AND part2_rank IS NOT NULL
+        GROUP BY ticker HAVING COUNT(DISTINCT date) = 3
+    ''', dates)
+    verified = {r[0] for r in cursor.fetchall()}
+
+    conn.close()
+
+    status = {t: '✅' if t in verified else '🆕' for t in today_tickers}
+    v_count = sum(1 for v in status.values() if v == '✅')
+    n_count = sum(1 for v in status.values() if v == '🆕')
+    log(f"3일 교집합: ✅ {v_count}개, 🆕 {n_count}개")
+    return status
+
+
+def get_death_list(today_str, today_tickers, results_df):
+    """어제 Part 2에 있었지만 오늘 빠진 종목 + 사유"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # 어제 날짜 (오늘 이전 가장 최근)
+    cursor.execute(
+        'SELECT MAX(date) FROM ntm_screening WHERE date < ?', (today_str,)
+    )
+    row = cursor.fetchone()
+    if not row or not row[0]:
+        conn.close()
+        return []
+
+    yesterday = row[0]
+
+    # 어제 Part 2 멤버
+    cursor.execute(
+        'SELECT ticker FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
+        (yesterday,)
+    )
+    yesterday_members = {r[0] for r in cursor.fetchall()}
+    conn.close()
+
+    today_set = set(today_tickers)
+    dropped_tickers = yesterday_members - today_set
+
+    if not dropped_tickers:
+        return []
+
+    # 사유 판별 (오늘 데이터에서)
+    death_list = []
+    for ticker in sorted(dropped_tickers):
+        row_data = results_df[results_df['ticker'] == ticker]
+        if row_data.empty:
+            death_list.append((ticker, '데이터없음'))
+            continue
+
+        r = row_data.iloc[0]
+        reasons = []
+        price = r.get('price')
+        ma60 = r.get('ma60')
+        if price is not None and ma60 is not None and price <= ma60:
+            reasons.append('MA60↓')
+        adj_gap = r.get('adj_gap')
+        if adj_gap is not None and adj_gap > 0:
+            reasons.append('괴리+')
+        adj_score = r.get('adj_score', 0) or 0
+        if adj_score <= 9:
+            reasons.append('점수↓')
+        eps_chg = r.get('eps_change_90d', 0) or 0
+        if eps_chg <= 0:
+            reasons.append('EPS↓')
+
+        death_list.append((ticker, ','.join(reasons) if reasons else '순위밖'))
+
+    log(f"Death List: {len(death_list)}개 탈락")
+    return death_list
 
 
 # ============================================================
@@ -497,13 +662,13 @@ def create_part1_message(df, top_n=30):
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
     lines.append('EPS 점수 = 90일간 4구간 상승률의 합')
-    lines.append('점수가 높아도 🌧️이 있으면 최근 주의!')
+    lines.append('점수가 높아도 🌧️가 있으면 최근 주의!')
     lines.append('')
-    lines.append('날씨 = 구간별 EPS 변화 (왼→오)')
+    lines.append('추세 = 구간별 EPS 변화 (왼→오)')
     lines.append('90→60일 | 60→30일 | 30→7일 | 7일→오늘')
-    lines.append('☀️ 맑음(10%↑) 🌤️ 상승(2~10%)')
-    lines.append('☁️ 흐림(-2~2%) 🌧️ 하락(-10~-2%)')
-    lines.append('⛈️ 폭풍(-10%↓)')
+    lines.append('🔥 폭등(20%↑) ☀️ 강세(5~20%)')
+    lines.append('🌤️ 상승(1~5%) ☁️ 보합(±1%)')
+    lines.append('🌧️ 하락(1%↓)')
     lines.append('')
 
     for _, row in df.head(top_n).iterrows():
@@ -525,44 +690,34 @@ def create_part1_message(df, top_n=30):
     return '\n'.join(lines)
 
 
-def create_part2_message(df, top_n=30):
-    """Part 2: 매수 후보 메시지 생성 (adj_gap 순, adj_score > 9 필터)"""
+def create_part2_message(df, status_map=None, death_list=None, top_n=30):
+    """[1/3] 매수 후보 메시지 — adj_gap 순, MA60+3일 검증, Death List 포함"""
     import pandas as pd
 
-    today = get_today_kst()
     biz_day = get_last_business_day()
-    today_str = today.strftime('%m월%d일')
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
-    # adj_score > 9 필터 (방향 보정 적용, EPS 모멘텀 + 패턴 품질)
-    filtered = df[df['adj_score'] > 9].copy()
+    # 공통 필터 사용
+    filtered = get_part2_candidates(df, top_n=top_n)
+    count = len(filtered)
 
-    # adj_gap 있는 것만 + Fwd PE > 0 + EPS 변화 양수
-    filtered = filtered[
-        filtered['adj_gap'].notna() &
-        filtered['fwd_pe'].notna() &
-        (filtered['fwd_pe'] > 0) &
-        (filtered['eps_change_90d'] > 0)
-    ].copy()
-
-    # adj_gap 오름차순 (더 음수 = EPS 대비 주가 저평가)
-    filtered = filtered.sort_values('adj_gap', ascending=True).head(top_n)
-
-    count = min(top_n, len(filtered))
+    if status_map is None:
+        status_map = {}
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f' [2/4] 💰 매수 후보 Top {count}')
+    lines.append(f' [1/3] 💰 매수 후보 {count}개')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
     lines.append('EPS 개선이 주가에 덜 반영된 종목이에요.')
+    lines.append('MA60 위 + 3일 연속 검증된 종목을 우선 표시합니다.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('EPS·주가 = 90일 변화율')
+    lines.append('✅ = 3일 연속 후보 (검증)')
+    lines.append('🆕 = 오늘 새로 진입 (관찰)')
     lines.append('<b>괴리</b> = EPS↑ vs 주가 반영도 (음수=저평가)')
-    lines.append('애널리스트 의견 ↑↓ = 30일간 EPS 상향/하향 수')
-    lines.append('⚠️ = 추가 확인 필요')
+    lines.append('⚠️ = EPS↑인데 주가↓ (펀더멘탈 괴리)')
     lines.append('')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
@@ -574,7 +729,9 @@ def create_part2_message(df, top_n=30):
         desc = row.get('trend_desc', '')
         eps_90d = row.get('eps_change_90d')
         price_90d = row.get('price_chg')
-        fwd_pe_chg = row.get('fwd_pe_chg')
+
+        # ✅/🆕 마커
+        marker = status_map.get(ticker, '🆕')
 
         # Line 3: EPS / 주가 / 괴리
         adj_gap = row.get('adj_gap', 0) or 0
@@ -598,14 +755,21 @@ def create_part2_message(df, top_n=30):
                 is_warning = True
 
         warn_mark = ' ⚠️' if is_warning else ''
-        lines.append(f'<b>{rank}위</b> {name} ({ticker}){warn_mark}')
+        lines.append(f'<b>{rank}위</b> {marker} {name} ({ticker}){warn_mark}')
         lines.append(f'<i>{industry}</i> · {lights} {desc}')
         lines.append(change_str)
         lines.append(opinion_str)
         lines.append('──────────────────')
 
+    # Death List (탈락 종목)
+    if death_list:
+        lines.append('')
+        lines.append('🚨 <b>탈락 종목</b>')
+        death_strs = [f'{t} ({reason})' for t, reason in death_list]
+        lines.append(' · '.join(death_strs))
+
     lines.append('')
-    lines.append('👉 다음: AI가 위험 신호를 점검해요 [3/4]')
+    lines.append('👉 다음: AI가 위험 신호를 점검해요 [2/3]')
 
     return '\n'.join(lines)
 
@@ -640,7 +804,7 @@ def create_system_log_message(stats, elapsed, config):
     lines.append('')
     lines.append(f'Score &gt; 0: {stats.get("score_gt0", 0)} ({stats.get("score_gt0", 0) * 100 // max(main_cnt, 1)}%)')
     lines.append(f'Score &gt; 3: {stats.get("score_gt3", 0)} ({stats.get("score_gt3", 0) * 100 // max(main_cnt, 1)}%)')
-    lines.append(f'전구간 양호(🌧️⛈️ 없음): {stats.get("aligned_count", 0)}')
+    lines.append(f'전구간 양호(🌧️ 없음): {stats.get("aligned_count", 0)}')
 
     lines.append(f'\n소요: {minutes}분 {seconds}초')
 
@@ -651,8 +815,8 @@ def create_system_log_message(stats, elapsed, config):
 # AI 리스크 체크 (Gemini 2.5 Flash + Google Search)
 # ============================================================
 
-def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=None):
-    """AI 브리핑 — 정량 위험 신호 기반 리스크 해석 (데이터는 코드가, 해석은 AI가)"""
+def run_ai_analysis(config, results_df=None, status_map=None, death_list=None):
+    """[2/3] AI 브리핑 — 정량 위험 신호 기반 리스크 해석 (데이터는 코드가, 해석은 AI가)"""
     api_key = config.get('gemini_api_key', '')
     if not api_key:
         log("GEMINI_API_KEY 미설정 — AI 분석 스킵", "WARN")
@@ -676,14 +840,7 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
             log("results_df 없음 — AI 분석 스킵", "WARN")
             return None
 
-        filtered = results_df[results_df['adj_score'] > 9].copy()
-        filtered = filtered[
-            filtered['adj_gap'].notna() &
-            filtered['fwd_pe'].notna() &
-            (filtered['fwd_pe'] > 0) &
-            (filtered['eps_change_90d'] > 0)
-        ].copy()
-        filtered = filtered.sort_values('adj_gap', ascending=True).head(30)
+        filtered = get_part2_candidates(results_df, top_n=30)
 
         if filtered.empty:
             log("Part 2 종목 없음 — AI 분석 스킵", "WARN")
@@ -872,7 +1029,7 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
 
         lines = []
         lines.append('━━━━━━━━━━━━━━━━━━━')
-        lines.append('   [3/4] 🤖 AI 브리핑')
+        lines.append('   [2/3] 🤖 AI 브리핑')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {now.strftime("%Y년 %m월 %d일")}')
         lines.append('')
@@ -880,7 +1037,7 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
         lines.append('')
         lines.append(analysis_html)
         lines.append('')
-        lines.append('👉 다음: 최종 포트폴리오 [4/4]')
+        lines.append('👉 다음: 최종 포트폴리오 [3/3]')
 
         log("AI 브리핑 완료")
         return '\n'.join(lines)
@@ -890,8 +1047,8 @@ def run_ai_analysis(msg_part1, msg_part2, msg_turnaround, config, results_df=Non
         return None
 
 
-def run_portfolio_recommendation(config, results_df):
-    """포트폴리오 추천 — Part 2 ✅ 종목 중 adj_gap 상위 5개"""
+def run_portfolio_recommendation(config, results_df, status_map=None):
+    """[3/3] 포트폴리오 추천 — 3일 검증(✅) + 리스크 필터 통과 종목"""
     try:
         import re
         import yfinance as yf
@@ -899,18 +1056,39 @@ def run_portfolio_recommendation(config, results_df):
         if results_df is None or results_df.empty:
             return None
 
-        # Part 2 필터 (create_part2_message와 동일)
-        filtered = results_df[results_df['adj_score'] > 9].copy()
-        filtered = filtered[
-            filtered['adj_gap'].notna() &
-            filtered['fwd_pe'].notna() &
-            (filtered['fwd_pe'] > 0) &
-            (filtered['eps_change_90d'] > 0)
-        ].copy()
-        filtered = filtered.sort_values('adj_gap', ascending=True).head(30)
+        # 공통 필터 사용
+        filtered = get_part2_candidates(results_df, top_n=30)
 
         if filtered.empty:
             return None
+
+        if status_map is None:
+            status_map = {}
+
+        # ✅ (3일 검증) 종목만 대상
+        verified_tickers = {t for t, s in status_map.items() if s == '✅'}
+        if verified_tickers:
+            filtered = filtered[filtered['ticker'].isin(verified_tickers)]
+        # verified_tickers가 비어있으면 cold start → 전체 대상
+
+        if filtered.empty:
+            log("포트폴리오: ✅ 검증 종목 없음", "WARN")
+            # 관망 메시지 반환
+            now = datetime.now()
+            if HAS_PYTZ:
+                kst = pytz.timezone('Asia/Seoul')
+                now = datetime.now(kst)
+            return '\n'.join([
+                '━━━━━━━━━━━━━━━━━━━',
+                '  [3/3] 💼 추천 포트폴리오',
+                '━━━━━━━━━━━━━━━━━━━',
+                f'📅 {now.strftime("%Y년 %m월 %d일")}',
+                '',
+                '3일 연속 검증된 종목 중 리스크 필터를',
+                '통과한 종목이 없어요.',
+                '',
+                '이번 회차는 <b>관망</b>을 권장합니다.',
+            ])
 
         today_dt = datetime.now()
         if HAS_PYTZ:
@@ -919,8 +1097,8 @@ def run_portfolio_recommendation(config, results_df):
         today_date = today_dt.date()
         two_weeks = (today_dt + timedelta(days=14)).date()
 
-        # 리스크 플래그 → ✅ 종목만 선별
-        log("포트폴리오: ✅ 종목 선별 중...")
+        # 리스크 플래그 → 안전 종목만 선별
+        log("포트폴리오: ✅ 종목 리스크 필터 적용 중...")
         safe = []
         for _, row in filtered.iterrows():
             t = row['ticker']
@@ -1080,11 +1258,11 @@ def run_portfolio_recommendation(config, results_df):
 
         lines = [
             '━━━━━━━━━━━━━━━━━━━',
-            '  [4/4] 💼 추천 포트폴리오',
+            '  [3/3] 💼 추천 포트폴리오',
             '━━━━━━━━━━━━━━━━━━━',
             f'📅 {today_dt.strftime("%Y년 %m월 %d일")}',
             '',
-            '위험 신호를 제거하고 EPS 모멘텀 순으로',
+            '3일 검증 + 리스크 필터 통과 종목으로',
             f'최종 {len(selected)}종목을 선정했어요.',
             '',
             html,
@@ -1161,9 +1339,9 @@ def send_telegram_long(message, config, chat_id=None):
 # ============================================================
 
 def main():
-    """NTM EPS 시스템 메인 실행"""
+    """NTM EPS 시스템 v19 메인 실행 — Safety & Trend Fusion"""
     log("=" * 60)
-    log("EPS Momentum Daily Runner v9.0 - NTM EPS 시스템")
+    log("EPS Momentum Daily Runner v19 - Safety & Trend Fusion")
     log("=" * 60)
 
     start_time = datetime.now()
@@ -1172,80 +1350,83 @@ def main():
     config = load_config()
     log(f"설정 로드 완료: {CONFIG_PATH}")
 
-    # 1. NTM 데이터 수집 + DB 적재
+    # 1. NTM 데이터 수집 + DB 적재 (MA60, price 포함)
     log("=" * 60)
     log("NTM EPS 데이터 수집 시작")
     log("=" * 60)
     results_df, turnaround_df, stats = run_ntm_collection(config)
 
-    # 2. 텔레그램 메시지 생성
+    # 2. Part 2 rank 저장 + 3일 교집합 + Death List
     import pandas as pd
 
-    msg_part1 = create_part1_message(results_df) if not results_df.empty else None
-    msg_part2 = create_part2_message(results_df) if not results_df.empty else None
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    status_map = {}
+    death_list = []
+
+    if not results_df.empty:
+        save_part2_ranks(results_df, today_str)
+
+        # 오늘 Part 2 후보 티커 목록
+        candidates = get_part2_candidates(results_df, top_n=30)
+        today_tickers = list(candidates['ticker']) if not candidates.empty else []
+
+        status_map = get_3day_status(today_tickers)
+        death_list = get_death_list(today_str, today_tickers, results_df)
+
+    # 3. 메시지 생성
+    msg_part2 = create_part2_message(results_df, status_map, death_list) if not results_df.empty else None
 
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()
     msg_log = create_system_log_message(stats, elapsed, config)
 
-    # 3. 텔레그램 발송
+    # 4. 텔레그램 발송: [1/3] 매수 후보 → [2/3] AI 브리핑 → [3/3] 포트폴리오 → 로그
     if config.get('telegram_enabled', False):
         is_github = config.get('is_github_actions', False)
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
         channel_id = config.get('telegram_channel_id')
 
-        # 발송 순서: Part 1 → Part 2 → AI 브리핑 → 시스템 로그
-
-        # Part 1 (모멘텀 랭킹)
-        if msg_part1:
-            if is_github and channel_id:
-                send_telegram_long(msg_part1, config, chat_id=channel_id)
-                send_telegram_long(msg_part1, config, chat_id=private_id)
-                log("Part 1 (모멘텀 랭킹) 전송 완료 → 채널+개인봇")
-            else:
-                send_telegram_long(msg_part1, config, chat_id=private_id)
-                log("Part 1 (모멘텀 랭킹) 전송 완료 → 개인봇")
-
-        # Part 2 (매수 후보) — 핵심 리포트
+        # [1/3] 매수 후보
         if msg_part2:
             if is_github and channel_id:
                 send_telegram_long(msg_part2, config, chat_id=channel_id)
                 send_telegram_long(msg_part2, config, chat_id=private_id)
-                log("Part 2 (매수 후보) 전송 완료 → 채널+개인봇")
+                log("[1/3] 매수 후보 전송 완료 → 채널+개인봇")
             else:
                 send_telegram_long(msg_part2, config, chat_id=private_id)
-                log("Part 2 (매수 후보) 전송 완료 → 개인봇")
+                log("[1/3] 매수 후보 전송 완료 → 개인봇")
 
-        # AI 브리핑
-        msg_ai = run_ai_analysis(msg_part1, msg_part2, None, config, results_df=results_df)
+        # [2/3] AI 브리핑
+        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, death_list=death_list)
         if msg_ai:
             if is_github and channel_id:
                 send_telegram_long(msg_ai, config, chat_id=channel_id)
                 send_telegram_long(msg_ai, config, chat_id=private_id)
-                log("AI 브리핑 전송 완료 → 채널+개인봇")
+                log("[2/3] AI 브리핑 전송 완료 → 채널+개인봇")
             else:
                 send_telegram_long(msg_ai, config, chat_id=private_id)
-                log("AI 브리핑 전송 완료 → 개인봇")
+                log("[2/3] AI 브리핑 전송 완료 → 개인봇")
 
-        # 포트폴리오 추천
-        msg_portfolio = run_portfolio_recommendation(config, results_df)
+        # [3/3] 포트폴리오 추천
+        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map)
         if msg_portfolio:
             if is_github and channel_id:
                 send_telegram_long(msg_portfolio, config, chat_id=channel_id)
                 send_telegram_long(msg_portfolio, config, chat_id=private_id)
-                log("포트폴리오 추천 전송 완료 → 채널+개인봇")
+                log("[3/3] 포트폴리오 전송 완료 → 채널+개인봇")
             else:
                 send_telegram_long(msg_portfolio, config, chat_id=private_id)
-                log("포트폴리오 추천 전송 완료 → 개인봇")
+                log("[3/3] 포트폴리오 전송 완료 → 개인봇")
 
         # 시스템 로그 → 개인봇에만 (항상)
         send_telegram_long(msg_log, config, chat_id=private_id)
         log("시스템 로그 전송 완료 → 개인봇")
 
-    # 4. Git commit/push
+    # 5. Git commit/push
     git_commit_push(config)
 
     # 완료
+    elapsed = (datetime.now() - start_time).total_seconds()
     log("=" * 60)
     log(f"전체 완료: {elapsed:.1f}초 소요")
     log("=" * 60)
