@@ -4,7 +4,7 @@ on:
   schedule:
     # 매일 UTC 22:15 = KST 07:15
     # 일~목 UTC 22:15 = 월~금 KST 07:15
-    # - cron: '15 22 * * 0-4'  # 2/13까지 비활성화 (3일 검증 데이터 축적 중)
+    - cron: '15 22 * * 0-4'
   workflow_dispatch:  # 수동 실행 가능
 
 permissions:
@@ -17,7 +17,24 @@ env:
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
 jobs:
+  check-date:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          elif [[ "$(date -u +%Y%m%d)" -ge "20260213" ]]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          else
+            echo "run=false" >> $GITHUB_OUTPUT
+          fi
+
   screening:
+    needs: check-date
+    if: needs.check-date.outputs.should_run == 'true'
     runs-on: ubuntu-latest
 
     steps:
