@@ -489,7 +489,11 @@ def is_cold_start():
 
 
 def get_3day_status(today_tickers):
-    """3일 연속 Part 2 진입 여부 판별 → {ticker: '✅' or '🆕'}"""
+    """3일 연속 Part 2 진입 여부 판별 → {ticker: '✅' or '⏳' or '🆕'}
+    ✅ = 3일 연속 (풀 비중)
+    ⏳ = 2일 연속 (절반 비중)
+    🆕 = 1일 (포트폴리오 미포함, 관찰만)
+    """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
@@ -502,21 +506,39 @@ def get_3day_status(today_tickers):
         log(f"3일 교집합: DB {len(dates)}일뿐 — 전부 ✅ 처리 (cold start)")
         return {t: '✅' for t in today_tickers}
 
-    # 3일 모두 part2_rank가 있는 종목
     placeholders = ','.join('?' * len(dates))
+
+    # 3일 모두 part2_rank가 있는 종목
     cursor.execute(f'''
         SELECT ticker FROM ntm_screening
         WHERE date IN ({placeholders}) AND part2_rank IS NOT NULL
         GROUP BY ticker HAVING COUNT(DISTINCT date) = 3
     ''', dates)
-    verified = {r[0] for r in cursor.fetchall()}
+    verified_3d = {r[0] for r in cursor.fetchall()}
+
+    # 2일 이상 part2_rank가 있는 종목
+    cursor.execute(f'''
+        SELECT ticker FROM ntm_screening
+        WHERE date IN ({placeholders}) AND part2_rank IS NOT NULL
+        GROUP BY ticker HAVING COUNT(DISTINCT date) >= 2
+    ''', dates)
+    verified_2d = {r[0] for r in cursor.fetchall()}
 
     conn.close()
 
-    status = {t: '✅' if t in verified else '🆕' for t in today_tickers}
-    v_count = sum(1 for v in status.values() if v == '✅')
-    n_count = sum(1 for v in status.values() if v == '🆕')
-    log(f"3일 교집합: ✅ {v_count}개, 🆕 {n_count}개")
+    status = {}
+    for t in today_tickers:
+        if t in verified_3d:
+            status[t] = '✅'
+        elif t in verified_2d:
+            status[t] = '⏳'
+        else:
+            status[t] = '🆕'
+
+    v3 = sum(1 for v in status.values() if v == '✅')
+    v2 = sum(1 for v in status.values() if v == '⏳')
+    v1 = sum(1 for v in status.values() if v == '🆕')
+    log(f"3일 교집합: ✅ {v3}개, ⏳ {v2}개, 🆕 {v1}개")
     return status
 
 
@@ -1113,12 +1135,11 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
         if status_map is None:
             status_map = {}
 
-        # ✅ (3일 검증) 종목만 대상
-        # cold start 시 get_3day_status()가 전부 ✅ 반환 → verified_tickers 비어있지 않음
-        # 전부 🆕일 때 verified_tickers 비면 → filtered.empty → 관망 메시지
-        verified_tickers = {t for t, s in status_map.items() if s == '✅'}
+        # ✅ (3일 검증) + ⏳ (2일 검증) 종목 대상
+        # ✅ = 풀 비중, ⏳ = 절반 비중, 🆕 = 포트폴리오 제외
+        eligible_tickers = {t for t, s in status_map.items() if s in ('✅', '⏳')}
         if status_map:
-            filtered = filtered[filtered['ticker'].isin(verified_tickers)]
+            filtered = filtered[filtered['ticker'].isin(eligible_tickers)]
 
         if filtered.empty:
             log("포트폴리오: ✅ 검증 종목 없음", "WARN")
@@ -1183,6 +1204,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
             if flags:
                 log(f"  ❌ {t}: {','.join(flags)} (gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')})")
             else:
+                v_status = status_map.get(t, '✅') if status_map else '✅'
                 safe.append({
                     'ticker': t,
                     'name': row.get('short_name', t),
@@ -1194,8 +1216,9 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
                     'adj_score': row.get('adj_score', 0) or 0,
                     'lights': row.get('trend_lights', ''),
                     'desc': row.get('trend_desc', ''),
+                    'v_status': v_status,
                 })
-                log(f"  ✅ {t}: gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}")
+                log(f"  {v_status} {t}: gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}")
 
         if not safe:
             log("포트폴리오: ✅ 종목 없음", "WARN")
@@ -1214,15 +1237,39 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
             return None
 
         # 비중 배분 (adj_gap 절대값 비례 — 더 저평가일수록 높은 비중, 5% 단위)
+        # 종목당 상한 30% 적용, ⏳(2일 검증) 종목은 절반 비중
+        MAX_WEIGHT = 30
         gaps = [abs(s['adj_gap']) for s in selected]
         total_score = sum(gaps)
         for i, s in enumerate(selected):
             raw = gaps[i] / total_score * 100
-            s['weight'] = round(raw / 5) * 5
-        # 합계 100% 보정 (가장 비중 큰 종목에서 조정)
+            w = min(round(raw / 5) * 5, MAX_WEIGHT)
+            # ⏳ 2일 검증 종목은 절반 비중 (5% 단위 반올림)
+            if s.get('v_status') == '⏳':
+                w = round((w / 2) / 5) * 5
+                w = max(w, 5)  # 최소 5%
+            s['weight'] = w
+        # 합계 100% 보정 (상한 미달 ✅ 종목에 순차 배분)
         diff = 100 - sum(s['weight'] for s in selected)
-        if diff != 0:
-            selected[0]['weight'] += diff
+        while diff != 0:
+            adjusted = False
+            for s in selected:
+                if diff > 0 and s['weight'] < MAX_WEIGHT and s.get('v_status') != '⏳':
+                    add = min(5, MAX_WEIGHT - s['weight'], diff)
+                    s['weight'] += add
+                    diff -= add
+                    adjusted = True
+                elif diff < 0 and s['weight'] > 5:
+                    sub = min(5, s['weight'] - 5, -diff)
+                    s['weight'] -= sub
+                    diff += sub
+                    adjusted = True
+                if diff == 0:
+                    break
+            if not adjusted:
+                # 잔여분은 첫 번째 종목에 배분
+                selected[0]['weight'] += diff
+                break
 
         log(f"포트폴리오: {len(selected)}종목 선정 — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
