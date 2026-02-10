@@ -687,9 +687,7 @@ def get_today_kst():
 
 def create_part1_message(df, top_n=30):
     """Part 1: 이익 모멘텀 랭킹 메시지 생성 (EPS 점수 순)"""
-    today = get_today_kst()
     biz_day = get_last_business_day()
-    today_str = today.strftime('%m월%d일')
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
     lines = []
@@ -912,8 +910,8 @@ def create_system_log_message(stats, elapsed, config):
 # AI 리스크 체크 (Gemini 2.5 Flash + Google Search)
 # ============================================================
 
-def run_ai_analysis(config, results_df=None, status_map=None, death_list=None):
-    """[2/3] AI 브리핑 — 정량 위험 신호 기반 리스크 해석 (데이터는 코드가, 해석은 AI가)"""
+def run_ai_analysis(config, results_df=None, status_map=None, death_list=None, biz_day=None):
+    """[2/2] AI 브리핑 — 정량 위험 신호 기반 리스크 해석 (데이터는 코드가, 해석은 AI가)"""
     api_key = config.get('gemini_api_key', '')
     if not api_key:
         log("GEMINI_API_KEY 미설정 — AI 분석 스킵", "WARN")
@@ -944,10 +942,11 @@ def run_ai_analysis(config, results_df=None, status_map=None, death_list=None):
             return None
 
         stock_count = len(filtered)
-        today_dt = datetime.now()
-        today_str = today_dt.strftime('%Y-%m-%d')
-        today_date = today_dt.date()
-        two_weeks_date = (today_dt + timedelta(days=14)).date()
+        if biz_day is None:
+            biz_day = get_last_business_day()
+        biz_str = biz_day.strftime('%Y-%m-%d')
+        today_date = datetime.now().date()
+        two_weeks_date = (datetime.now() + timedelta(days=14)).date()
 
         # 종목별 위험 신호 구성
         log("위험 신호 & 어닝 일정 수집 중...")
@@ -1015,7 +1014,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, death_list=None):
 
         log(f"위험 신호 수집 완료: {stock_count}종목, 어닝 {len(earnings_tickers)}종목")
 
-        prompt = f"""오늘 날짜: {today_str}
+        prompt = f"""분석 기준일: {biz_str} (미국 영업일)
 
 아래는 EPS 모멘텀 시스템의 매수 후보 {stock_count}종목과 각 종목의 정량적 위험 신호야.
 이 종목들은 EPS 전망치가 상향 중이라 선정된 거야.
@@ -1119,16 +1118,11 @@ def run_ai_analysis(config, results_df=None, status_map=None, death_list=None):
         analysis_html = re.sub(r'\n*\[SEP\]\n*', '\n──────────────────\n', analysis_html)
 
         # 텔레그램 메시지 포맷팅
-        now = datetime.now()
-        if HAS_PYTZ:
-            kst = pytz.timezone('Asia/Seoul')
-            now = datetime.now(kst)
-
         lines = []
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append('    [2/2] 🛡️ AI 점검 + 최종 추천')
         lines.append('━━━━━━━━━━━━━━━━━━━')
-        lines.append(f'📅 {now.strftime("%Y년 %m월 %d일")}')
+        lines.append(f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)')
         lines.append('')
         lines.append('후보 종목 중 주의할 점을 AI가 점검했어요.')
         lines.append('')
@@ -1144,8 +1138,8 @@ def run_ai_analysis(config, results_df=None, status_map=None, death_list=None):
         return None
 
 
-def run_portfolio_recommendation(config, results_df, status_map=None):
-    """[3/3] 포트폴리오 추천 — 3일 검증(✅) + 리스크 필터 통과 종목"""
+def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=None):
+    """포트폴리오 추천 — 3일 검증(✅) + 리스크 필터 통과 종목"""
     try:
         import re
         import yfinance as yf
@@ -1167,18 +1161,16 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
         if status_map:
             filtered = filtered[filtered['ticker'].isin(verified_tickers)]
 
+        if biz_day is None:
+            biz_day = get_last_business_day()
+
         if filtered.empty:
             log("포트폴리오: ✅ 검증 종목 없음", "WARN")
-            # 관망 메시지 반환
-            now = datetime.now()
-            if HAS_PYTZ:
-                kst = pytz.timezone('Asia/Seoul')
-                now = datetime.now(kst)
             return '\n'.join([
                 '━━━━━━━━━━━━━━━━━━━',
                 '    🎯 최종 추천',
                 '━━━━━━━━━━━━━━━━━━━',
-                f'📅 {now.strftime("%Y년 %m월 %d일")}',
+                f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
                 '',
                 '검증된 종목 중 안전한 종목이 없어요.',
                 '이번 회차는 <b>관망</b>을 권장합니다.',
@@ -1186,12 +1178,8 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
                 '무리한 진입보다 기다림이 나을 때도 있어요.',
             ])
 
-        today_dt = datetime.now()
-        if HAS_PYTZ:
-            kst = pytz.timezone('Asia/Seoul')
-            today_dt = datetime.now(kst)
-        today_date = today_dt.date()
-        two_weeks = (today_dt + timedelta(days=14)).date()
+        today_date = datetime.now().date()
+        two_weeks = (datetime.now() + timedelta(days=14)).date()
 
         # 리스크 플래그 → 안전 종목만 선별
         log("포트폴리오: ✅ 종목 리스크 필터 적용 중...")
@@ -1305,7 +1293,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
                 f"   애널리스트 의견 ↑{s['rev_up']} ↓{s['rev_down']} · Fwd PE {s['fwd_pe']:.1f}"
             )
 
-        prompt = f"""오늘 날짜: {today_dt.strftime('%Y-%m-%d')}
+        prompt = f"""분석 기준일: {biz_day.strftime('%Y-%m-%d')} (미국 영업일)
 
 아래는 EPS 모멘텀 시스템이 자동 선정한 {len(selected)}종목 포트폴리오야.
 선정 기준: Part 2 매수 후보 중 위험 신호 없고(✅), EPS 모멘텀(속도+방향) 상위.
@@ -1535,8 +1523,9 @@ def main():
             log(f"[1/3] 매수 후보 전송 완료 → {dest}")
 
         # [2/2] AI 점검 + 최종 추천 (통합)
-        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, death_list=death_list)
-        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map)
+        biz_day = get_last_business_day()
+        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, death_list=death_list, biz_day=biz_day)
+        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day)
 
         # 통합 메시지 생성
         msg_combined = None
