@@ -1114,10 +1114,11 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
             status_map = {}
 
         # ✅ (3일 검증) 종목만 대상
+        # cold start 시 get_3day_status()가 전부 ✅ 반환 → verified_tickers 비어있지 않음
+        # 전부 🆕일 때 verified_tickers 비면 → filtered.empty → 관망 메시지
         verified_tickers = {t for t, s in status_map.items() if s == '✅'}
-        if verified_tickers:
+        if status_map:
             filtered = filtered[filtered['ticker'].isin(verified_tickers)]
-        # verified_tickers가 비어있으면 cold start → 전체 대상
 
         if filtered.empty:
             log("포트폴리오: ✅ 검증 종목 없음", "WARN")
