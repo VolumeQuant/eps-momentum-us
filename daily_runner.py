@@ -700,6 +700,42 @@ def create_part1_message(df, top_n=30):
     return '\n'.join(lines)
 
 
+def create_guide_message():
+    """📖 투자 가이드 — 시스템 개요, 선정 과정, 보유/매도 기준"""
+    lines = [
+        '━━━━━━━━━━━━━━━━━━━',
+        '      📖 투자 가이드',
+        '━━━━━━━━━━━━━━━━━━━',
+        '',
+        '🔎 <b>어떤 종목을 찾나요?</b>',
+        '증권사 애널리스트들이 "실적이 좋아질 거야"라고',
+        '전망치를 올리는 종목을 찾아요.',
+        '여러 전문가가 동시에 올리면 더 강한 신호예요.',
+        '',
+        '📊 <b>어떻게 골라요?</b>',
+        '① EPS 전망 상승 중 (90일간 추적)',
+        '② 60일 이동평균 위 (하락 추세 제외)',
+        '③ 주가가 아직 덜 오른 종목 (저평가)',
+        '④ 3일 연속 후보 유지 (노이즈 제거)',
+        '⑤ AI가 위험 신호 점검 후 최종 추천',
+        '',
+        '⏱️ <b>얼마나 보유하나요?</b>',
+        '약 2~4주가 기본이에요.',
+        '매일 후보를 갱신하니, 탈락하면 매도를 검토하세요.',
+        '',
+        '📉 <b>언제 파나요?</b>',
+        '· 종목이 탈락 목록에 뜨면 검토 시점',
+        '· 사유(이평선 이탈·EPS 둔화 등)를 보고 판단',
+        '· 포트폴리오에서 빠지면 비중 축소 고려',
+        '',
+        '📩 <b>오늘의 메시지</b>',
+        '[1/3] 🔍 매수 후보 — 조건 통과 종목',
+        '[2/3] 🛡️ AI 점검 — 위험 신호 체크',
+        '[3/3] 🎯 최종 추천 — 포트폴리오 + 비중',
+    ]
+    return '\n'.join(lines)
+
+
 def create_part2_message(df, status_map=None, death_list=None, top_n=30):
     """[1/3] 매수 후보 메시지 — adj_gap 순, MA60+3일 검증, Death List 포함"""
     import pandas as pd
@@ -716,18 +752,19 @@ def create_part2_message(df, status_map=None, death_list=None, top_n=30):
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f' [1/3] 💰 매수 후보 {count}개')
+    lines.append(f' [1/3] 🔍 매수 후보 {count}개')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
-    lines.append('EPS 개선이 주가에 덜 반영된 종목이에요.')
-    lines.append('MA60 위 + 3일 연속 검증된 종목을 우선 표시합니다.')
+    lines.append('실적 전망은 올라가는데')
+    lines.append('주가는 아직 덜 오른 종목이에요.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('✅ = 3일 연속 후보 (검증)')
-    lines.append('🆕 = 오늘 새로 진입 (관찰)')
-    lines.append('<b>괴리</b> = EPS↑ vs 주가 반영도 (음수=저평가)')
-    lines.append('⚠️ = EPS↑인데 주가↓ (펀더멘탈 괴리)')
+    lines.append('✅ 검증 = 3일 연속 후보 (포트폴리오 대상)')
+    lines.append('🆕 신규 = 오늘 처음 진입 (지켜보세요)')
+    lines.append('괴리 = 더 음수일수록 저평가')
+    lines.append('날씨 = EPS 추세 (🔥폭등 ☀️강세 🌤️상승 ☁️보합 🌧️하락)')
+    lines.append('⚠️ = EPS↑인데 주가↓ (괴리 주의)')
     lines.append('')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
@@ -743,16 +780,16 @@ def create_part2_message(df, status_map=None, death_list=None, top_n=30):
         # ✅/🆕 마커
         marker = status_map.get(ticker, '🆕')
 
-        # Line 3: EPS / 주가 / 괴리
+        # Line 3: EPS · 주가 · 괴리
         adj_gap = row.get('adj_gap', 0) or 0
         change_str = ''
         if pd.notna(eps_90d) and pd.notna(price_90d):
-            change_str = f"EPS {eps_90d:+.1f}% / 주가 {price_90d:+.1f}% · <b>괴리 {adj_gap:+.1f}</b>"
+            change_str = f"EPS {eps_90d:+.1f}% · 주가 {price_90d:+.1f}% · 괴리 <b>{adj_gap:+.1f}</b>"
 
         # Line 4: 의견 ↑N ↓N
         rev_up = row.get('rev_up30', 0) or 0
         rev_down = row.get('rev_down30', 0) or 0
-        opinion_str = f"애널리스트 의견 ↑{rev_up} ↓{rev_down}"
+        opinion_str = f"의견 ↑{rev_up} ↓{rev_down}"
 
         # ⚠️ 판별: EPS > 0이고 주가 < 0일 때, |주가변화| / |EPS변화| > 5
         eps_chg_w = row.get('eps_chg_weighted')
@@ -765,7 +802,7 @@ def create_part2_message(df, status_map=None, death_list=None, top_n=30):
                 is_warning = True
 
         warn_mark = ' ⚠️' if is_warning else ''
-        lines.append(f'<b>{rank}위</b> {marker} {name} ({ticker}){warn_mark}')
+        lines.append(f'<b>{rank}</b> {marker} {name} ({ticker}){warn_mark}')
         lines.append(f'<i>{industry}</i> · {lights} {desc}')
         lines.append(change_str)
         lines.append(opinion_str)
@@ -774,12 +811,13 @@ def create_part2_message(df, status_map=None, death_list=None, top_n=30):
     # Death List (탈락 종목)
     if death_list:
         lines.append('')
-        lines.append('🚨 <b>탈락 종목</b>')
+        lines.append('📉 <b>이번에 빠진 종목</b>')
         death_strs = [f'{t} ({reason})' for t, reason in death_list]
         lines.append(' · '.join(death_strs))
+        lines.append('→ 보유 중이라면 매도를 검토하세요')
 
     lines.append('')
-    lines.append('👉 다음: AI가 위험 신호를 점검해요 [2/3]')
+    lines.append('👉 다음: AI가 위험 요소를 점검해요 [2/3]')
 
     return '\n'.join(lines)
 
@@ -1039,17 +1077,17 @@ def run_ai_analysis(config, results_df=None, status_map=None, death_list=None):
 
         lines = []
         lines.append('━━━━━━━━━━━━━━━━━━━')
-        lines.append('   [2/3] 🤖 AI 브리핑')
+        lines.append('    [2/3] 🛡️ AI 점검')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {now.strftime("%Y년 %m월 %d일")}')
         lines.append('')
-        lines.append('매수 후보의 위험 신호를 AI가 점검했어요.')
+        lines.append('후보 종목 중 주의할 점을 AI가 점검했어요.')
         lines.append('')
         lines.append(analysis_html)
         lines.append('')
-        lines.append('👉 다음: 최종 포트폴리오 [3/3]')
+        lines.append('👉 다음: 최종 추천 포트폴리오 [3/3]')
 
-        log("AI 브리핑 완료")
+        log("AI 점검 완료")
         return '\n'.join(lines)
 
     except Exception as e:
@@ -1090,14 +1128,14 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
                 now = datetime.now(kst)
             return '\n'.join([
                 '━━━━━━━━━━━━━━━━━━━',
-                '  [3/3] 💼 추천 포트폴리오',
+                '    [3/3] 🎯 최종 추천',
                 '━━━━━━━━━━━━━━━━━━━',
                 f'📅 {now.strftime("%Y년 %m월 %d일")}',
                 '',
-                '3일 연속 검증된 종목 중 리스크 필터를',
-                '통과한 종목이 없어요.',
-                '',
+                '검증된 종목 중 안전한 종목이 없어요.',
                 '이번 회차는 <b>관망</b>을 권장합니다.',
+                '',
+                '무리한 진입보다 기다림이 나을 때도 있어요.',
             ])
 
         today_dt = datetime.now()
@@ -1268,14 +1306,20 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
 
         lines = [
             '━━━━━━━━━━━━━━━━━━━',
-            '  [3/3] 💼 추천 포트폴리오',
+            '    [3/3] 🎯 최종 추천',
             '━━━━━━━━━━━━━━━━━━━',
             f'📅 {today_dt.strftime("%Y년 %m월 %d일")}',
             '',
-            '3일 검증 + 리스크 필터 통과 종목으로',
-            f'최종 {len(selected)}종목을 선정했어요.',
+            '3일 검증 + 리스크 필터를 통과한',
+            f'상위 {len(selected)}종목이에요.',
             '',
             html,
+            '',
+            '💡 <b>활용법</b>',
+            '· 비중대로 분산 투자를 권장해요',
+            '· 탈락 알림(📉)이 오면 매도 검토',
+            '· 약 2~4주 보유, 매일 후보 갱신 확인',
+            '⚠️ 참고용이며, 투자 판단은 본인 책임이에요.',
         ]
 
         log("포트폴리오 추천 완료")
@@ -1390,7 +1434,7 @@ def main():
     elapsed = (datetime.now() - start_time).total_seconds()
     msg_log = create_system_log_message(stats, elapsed, config)
 
-    # 4. 텔레그램 발송: [1/3] 매수 후보 → [2/3] AI 브리핑 → [3/3] 포트폴리오 → 로그
+    # 4. 텔레그램 발송: 📖 가이드 → [1/3] 매수 후보 → [2/3] AI 점검 → [3/3] 최종 추천 → 로그
     if config.get('telegram_enabled', False):
         is_github = config.get('is_github_actions', False)
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
@@ -1402,28 +1446,37 @@ def main():
         if cold_start:
             log(f"Cold start — 채널 전송 비활성화 (3일 데이터 축적 전)")
 
+        dest = '채널+개인봇' if send_to_channel else '개인봇'
+
+        # 📖 투자 가이드
+        msg_guide = create_guide_message()
+        if send_to_channel:
+            send_telegram_long(msg_guide, config, chat_id=channel_id)
+        send_telegram_long(msg_guide, config, chat_id=private_id)
+        log(f"📖 투자 가이드 전송 완료 → {dest}")
+
         # [1/3] 매수 후보
         if msg_part2:
             if send_to_channel:
                 send_telegram_long(msg_part2, config, chat_id=channel_id)
             send_telegram_long(msg_part2, config, chat_id=private_id)
-            log(f"[1/3] 매수 후보 전송 완료 → {'채널+개인봇' if send_to_channel else '개인봇'}")
+            log(f"[1/3] 매수 후보 전송 완료 → {dest}")
 
-        # [2/3] AI 브리핑
+        # [2/3] AI 점검
         msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, death_list=death_list)
         if msg_ai:
             if send_to_channel:
                 send_telegram_long(msg_ai, config, chat_id=channel_id)
             send_telegram_long(msg_ai, config, chat_id=private_id)
-            log(f"[2/3] AI 브리핑 전송 완료 → {'채널+개인봇' if send_to_channel else '개인봇'}")
+            log(f"[2/3] AI 점검 전송 완료 → {dest}")
 
-        # [3/3] 포트폴리오 추천
+        # [3/3] 최종 추천
         msg_portfolio = run_portfolio_recommendation(config, results_df, status_map)
         if msg_portfolio:
             if send_to_channel:
                 send_telegram_long(msg_portfolio, config, chat_id=channel_id)
             send_telegram_long(msg_portfolio, config, chat_id=private_id)
-            log(f"[3/3] 포트폴리오 전송 완료 → {'채널+개인봇' if send_to_channel else '개인봇'}")
+            log(f"[3/3] 최종 추천 전송 완료 → {dest}")
 
         # 시스템 로그 → 개인봇에만 (항상)
         send_telegram_long(msg_log, config, chat_id=private_id)
