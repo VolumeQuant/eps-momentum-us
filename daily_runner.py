@@ -3,10 +3,9 @@ EPS Momentum Daily Runner v19 - Safety & Trend Fusion
 
 기능:
 1. NTM EPS 전 종목 수집 + MA60 계산 & DB 적재
-2. 텔레그램 메시지 3종 + 로그 생성 & 발송
-   - [1/3] 매수 후보: adj_gap순, MA60+adj_gap≤0+$10 필터, ✅3일검증/🆕신규/🚨탈락
-   - [2/3] AI 브리핑: Gemini 2.5 Flash + Google Search
-   - [3/3] 포트폴리오: ✅ 종목만 선정, 리스크 필터
+2. 텔레그램 메시지 2종 + 로그 생성 & 발송
+   - [1/2] 매수 후보 + 시장지수 + Death List + 보유 확인
+   - [2/2] AI 점검 + 최종 추천 포트폴리오 (통합)
    - 시스템 로그 (개인봇)
 3. Git 자동 commit/push
 
@@ -577,7 +576,7 @@ def get_death_list(today_str, today_tickers, results_df):
     for ticker in sorted(dropped_tickers):
         row_data = results_df[results_df['ticker'] == ticker]
         if row_data.empty:
-            death_list.append((ticker, '데이터없음'))
+            death_list.append((ticker, ticker, '데이터없음'))
             continue
 
         r = row_data.iloc[0]
@@ -596,10 +595,32 @@ def get_death_list(today_str, today_tickers, results_df):
         if eps_chg <= 0:
             reasons.append('EPS↓')
 
-        death_list.append((ticker, ','.join(reasons) if reasons else '순위밖'))
+        name = r.get('short_name', ticker)
+        death_list.append((ticker, name, ','.join(reasons) if reasons else '순위밖'))
 
     log(f"Death List: {len(death_list)}개 탈락")
     return death_list
+
+
+def get_market_context():
+    """미국 시장 지수 컨텍스트"""
+    try:
+        import yfinance as yf
+        lines = []
+        for symbol, name in [("^GSPC", "S&P 500"), ("^IXIC", "나스닥")]:
+            try:
+                hist = yf.Ticker(symbol).history(period='5d')
+                if len(hist) >= 2:
+                    close = hist['Close'].iloc[-1]
+                    prev = hist['Close'].iloc[-2]
+                    chg = (close / prev - 1) * 100
+                    icon = "🟢" if chg > 0.5 else ("🔴" if chg < -0.5 else "🟡")
+                    lines.append(f"{icon} {name}  {close:,.0f} ({chg:+.2f}%)")
+            except Exception:
+                continue
+        return lines
+    except Exception:
+        return []
 
 
 # ============================================================
@@ -751,15 +772,14 @@ def create_guide_message():
         '· 포트폴리오에서 빠지면 비중 축소 고려',
         '',
         '📩 <b>오늘의 메시지</b>',
-        '[1/3] 🔍 매수 후보 — 조건 통과 종목',
-        '[2/3] 🛡️ AI 점검 — 위험 신호 체크',
-        '[3/3] 🎯 최종 추천 — 포트폴리오 + 비중',
+        '[1/2] 🔍 매수 후보 — 조건 통과 + 탈락 + 보유 확인',
+        '[2/2] 🛡️ AI 점검 + 🎯 최종 추천 — 위험 체크 + 포트폴리오',
     ]
     return '\n'.join(lines)
 
 
-def create_part2_message(df, status_map=None, death_list=None, top_n=30):
-    """[1/3] 매수 후보 메시지 — adj_gap 순, MA60+3일 검증, Death List 포함"""
+def create_part2_message(df, status_map=None, death_list=None, market_lines=None, top_n=30):
+    """[1/2] 매수 후보 메시지 — adj_gap 순, MA60+3일 검증, Death List + 보유 확인"""
     import pandas as pd
 
     biz_day = get_last_business_day()
@@ -774,9 +794,12 @@ def create_part2_message(df, status_map=None, death_list=None, top_n=30):
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f' [1/3] 🔍 매수 후보 {count}개')
+    lines.append(f' [1/2] 🔍 매수 후보 {count}개')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
+    if market_lines:
+        lines.append('─────────────────')
+        lines.extend(market_lines)
     lines.append('')
     lines.append('실적 전망은 올라가는데')
     lines.append('주가는 아직 덜 오른 종목이에요.')
@@ -833,13 +856,29 @@ def create_part2_message(df, status_map=None, death_list=None, top_n=30):
     # Death List (탈락 종목)
     if death_list:
         lines.append('')
-        lines.append('📉 <b>이번에 빠진 종목</b>')
-        death_strs = [f'{t} ({reason})' for t, reason in death_list]
-        lines.append(' · '.join(death_strs))
-        lines.append('→ 보유 중이라면 매도를 검토하세요')
+        lines.append('─────────────────')
+        lines.append('<b>⛔ 탈락 종목 — 매도 검토</b>')
+        lines.append('─────────────────')
+        for item in death_list:
+            if len(item) == 3:
+                t, name, reason = item
+            else:
+                t, reason = item
+                name = t
+            lines.append(f'· <b>{name}</b> ({t}) — {reason}')
+        lines.append('')
+        lines.append('보유 중이라면 매도를 검토하세요.')
+
+    # 보유 확인
+    lines.append('')
+    lines.append('─────────────────')
+    lines.append('<b>✅ 보유 유지 가능</b>')
+    lines.append('─────────────────')
+    lines.append('위 후보 목록에 있는 종목은 보유 유지')
+    lines.append('→ 목록에서 빠지면 ⛔ 알림으로 알려드려요')
 
     lines.append('')
-    lines.append('👉 다음: AI가 위험 요소를 점검해요 [2/3]')
+    lines.append('👉 다음: AI 점검 + 최종 추천 [2/2]')
 
     return '\n'.join(lines)
 
@@ -1099,7 +1138,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, death_list=None):
 
         lines = []
         lines.append('━━━━━━━━━━━━━━━━━━━')
-        lines.append('    [2/3] 🛡️ AI 점검')
+        lines.append('    [2/2] 🛡️ AI 점검 + 최종 추천')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {now.strftime("%Y년 %m월 %d일")}')
         lines.append('')
@@ -1107,7 +1146,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, death_list=None):
         lines.append('')
         lines.append(analysis_html)
         lines.append('')
-        lines.append('👉 다음: 최종 추천 포트폴리오 [3/3]')
+        lines.append('')
 
         log("AI 점검 완료")
         return '\n'.join(lines)
@@ -1150,7 +1189,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
                 now = datetime.now(kst)
             return '\n'.join([
                 '━━━━━━━━━━━━━━━━━━━',
-                '    [3/3] 🎯 최종 추천',
+                '    🎯 최종 추천',
                 '━━━━━━━━━━━━━━━━━━━',
                 f'📅 {now.strftime("%Y년 %m월 %d일")}',
                 '',
@@ -1354,9 +1393,8 @@ def run_portfolio_recommendation(config, results_df, status_map=None):
 
         lines = [
             '━━━━━━━━━━━━━━━━━━━',
-            '    [3/3] 🎯 최종 추천',
+            '    🎯 최종 추천',
             '━━━━━━━━━━━━━━━━━━━',
-            f'📅 {today_dt.strftime("%Y년 %m월 %d일")}',
             '',
             '3일 검증 + 리스크 필터를 통과한',
             f'상위 {len(selected)}종목이에요.',
@@ -1475,8 +1513,13 @@ def main():
         status_map = get_3day_status(today_tickers)
         death_list = get_death_list(today_str, today_tickers, results_df)
 
+    # 2.5. 시장 지수 수집
+    market_lines = get_market_context()
+    if market_lines:
+        log(f"시장 지수: {len(market_lines)}개")
+
     # 3. 메시지 생성
-    msg_part2 = create_part2_message(results_df, status_map, death_list) if not results_df.empty else None
+    msg_part2 = create_part2_message(results_df, status_map, death_list, market_lines) if not results_df.empty else None
 
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()
@@ -1510,21 +1553,24 @@ def main():
             send_telegram_long(msg_part2, config, chat_id=private_id)
             log(f"[1/3] 매수 후보 전송 완료 → {dest}")
 
-        # [2/3] AI 점검
+        # [2/2] AI 점검 + 최종 추천 (통합)
         msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, death_list=death_list)
-        if msg_ai:
-            if send_to_channel:
-                send_telegram_long(msg_ai, config, chat_id=channel_id)
-            send_telegram_long(msg_ai, config, chat_id=private_id)
-            log(f"[2/3] AI 점검 전송 완료 → {dest}")
-
-        # [3/3] 최종 추천
         msg_portfolio = run_portfolio_recommendation(config, results_df, status_map)
-        if msg_portfolio:
+
+        # 통합 메시지 생성
+        msg_combined = None
+        if msg_ai and msg_portfolio:
+            msg_combined = msg_ai + '\n' + msg_portfolio
+        elif msg_ai:
+            msg_combined = msg_ai
+        elif msg_portfolio:
+            msg_combined = msg_portfolio
+
+        if msg_combined:
             if send_to_channel:
-                send_telegram_long(msg_portfolio, config, chat_id=channel_id)
-            send_telegram_long(msg_portfolio, config, chat_id=private_id)
-            log(f"[3/3] 최종 추천 전송 완료 → {dest}")
+                send_telegram_long(msg_combined, config, chat_id=channel_id)
+            send_telegram_long(msg_combined, config, chat_id=private_id)
+            log(f"[2/2] AI 점검 + 최종 추천 전송 완료 → {dest}")
 
         # 시스템 로그 → 개인봇에만 (항상)
         send_telegram_long(msg_log, config, chat_id=private_id)
