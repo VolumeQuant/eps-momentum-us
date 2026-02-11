@@ -53,5 +53,5 @@ jobs:
       run: |
         git add -A
         git diff --staged --quiet || git commit -m "Daily update: $(date -u +%Y-%m-%d)"
-        git pull --rebase origin master || true
+        git pull --no-rebase -X ours origin master || true
         git push
