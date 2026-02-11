@@ -847,16 +847,23 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.append(opinion_str)
         lines.append('──────────────────')
 
-    # 이탈 종목 (어제 대비) + 어제 순위
+    # 이탈 종목 (어제 대비) + 어제→오늘 순위
     if exited_tickers:
         lines.append('')
         lines.append('─────────────────')
         lines.append(f'📉 어제 대비 이탈 {len(exited_tickers)}개')
+        # 전체 eligible 종목의 현재 순위 계산
+        all_eligible = get_part2_candidates(df)
+        current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
         sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
         for t, prev_rank in sorted_exits:
             row_data = df[df['ticker'] == t]
             name = row_data.iloc[0].get('short_name', t) if not row_data.empty else t
-            lines.append(f'{name}({t}) · 어제 {prev_rank}위')
+            cur_rank = current_rank_map.get(t)
+            if cur_rank:
+                lines.append(f'{name}({t}) · 어제 {prev_rank}위 → {cur_rank}위')
+            else:
+                lines.append(f'{name}({t}) · 어제 {prev_rank}위 → 조건 미달')
         lines.append('')
         lines.append('보유 중이라면 매도를 검토하세요.')
 
