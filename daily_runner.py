@@ -212,7 +212,7 @@ def run_ntm_collection(config):
             eps_change_90d = calculate_eps_change_90d(ntm)
             trend_lights, trend_desc = get_trend_lights(seg1, seg2, seg3, seg4)
 
-            # EPS Revision & 애널리스트 수 추출 (이미 캐시된 _earnings_trend에서)
+            # EPS Revision & 애널리스트 수 추출 — max(0y, +1y)로 두 기간 모두 반영
             rev_up30 = 0
             rev_down30 = 0
             num_analysts = 0
@@ -220,16 +220,18 @@ def run_ntm_collection(config):
                 raw_trend = stock._analysis._earnings_trend
                 if raw_trend:
                     for item in raw_trend:
-                        if item.get('period') == '0y':
+                        if item.get('period') in ('0y', '+1y'):
                             eps_rev = item.get('epsRevisions', {})
                             up_data = eps_rev.get('upLast30days', {})
                             down_data = eps_rev.get('downLast30days', {})
-                            rev_up30 = up_data.get('raw', 0) if isinstance(up_data, dict) else 0
-                            rev_down30 = down_data.get('raw', 0) if isinstance(down_data, dict) else 0
+                            up_val = up_data.get('raw', 0) if isinstance(up_data, dict) else 0
+                            down_val = down_data.get('raw', 0) if isinstance(down_data, dict) else 0
                             ea = item.get('earningsEstimate', {})
                             na_data = ea.get('numberOfAnalysts', {})
-                            num_analysts = na_data.get('raw', 0) if isinstance(na_data, dict) else 0
-                            break
+                            na_val = na_data.get('raw', 0) if isinstance(na_data, dict) else 0
+                            rev_up30 = max(rev_up30, up_val)
+                            rev_down30 = max(rev_down30, down_val)
+                            num_analysts = max(num_analysts, na_val)
             except Exception:
                 pass
 
