@@ -1711,4 +1711,6 @@ def get_daily_changes(today_tickers):
 108. **고평가(PE>100) 필터 제거 (v20)**: adj_gap≤0이 이미 밸류에이션 제어. PLTR 같은 고성장 EPS 모멘텀주가 PE 하나로 부당 제외되는 문제. 리스크 필터 철학 확립: 데이터 신뢰성만 걸러냄(저커버리지, 하향과반), 주가/밸류에이션은 건드리지 않음.
 109. **과거 데이터 보충 (v20)**: DB 2/7→2/6(금) 날짜 수정, 2/8(주말) 삭제, 2/6·2/9에 yfinance 과거 종가+NTM으로 price/ma60/adj_score/adj_gap/part2_rank 계산. 소급 추정 아닌 실제 데이터 기반 정확한 계산. 결과: 2/6(22개), 2/9(24개), 2/10(22개) → 3일 part2_rank 확보, cold start 해제.
 
-*v20 업데이트: Claude Opus 4.6 | 2026-02-11 회사 PC — Simple & Clear: Death List 제거, Top 30 통일, 투자 가이드 재작성, 메시지 3분리, AI 리스크 필터, 포트폴리오 강화, 애널리스트 max(0y,+1y), 리스크 필터 철학 확립, 과거 데이터 보충*
+110. **마켓 날짜 자동 감지 (v20)**: `datetime.now()` 대신 SPY 최근 거래일 기준으로 `today_str` 결정. EST 자정 이후 테스트 실행 시 미래 날짜(2/11)로 데이터 저장되어 3일 검증 오염되던 문제 해결. `MARKET_DATE` 환경변수 오버라이드도 지원. test-private-only.yml에 `market_date` 입력 파라미터 추가.
+
+*v20 업데이트: Claude Opus 4.6 | 2026-02-11 회사 PC — Simple & Clear: Death List 제거, Top 30 통일, 투자 가이드 재작성, 메시지 3분리, AI 리스크 필터, 포트폴리오 강화, 애널리스트 max(0y,+1y), 리스크 필터 철학 확립, 과거 데이터 보충, 마켓 날짜 자동 감지*
