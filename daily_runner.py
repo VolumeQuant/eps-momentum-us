@@ -243,10 +243,16 @@ def run_ntm_collection(config):
                 pass
 
             # DB 적재 (기본 데이터 — price/ma60/adj_gap은 후속 UPDATE로 추가)
+            # INSERT ON CONFLICT: 기존 part2_rank 보존
             cursor.execute('''
-                INSERT OR REPLACE INTO ntm_screening
+                INSERT INTO ntm_screening
                 (date, ticker, rank, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, is_turnaround)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(date, ticker) DO UPDATE SET
+                    rank=excluded.rank, score=excluded.score,
+                    ntm_current=excluded.ntm_current, ntm_7d=excluded.ntm_7d,
+                    ntm_30d=excluded.ntm_30d, ntm_60d=excluded.ntm_60d,
+                    ntm_90d=excluded.ntm_90d, is_turnaround=excluded.is_turnaround
             ''', (today_str, ticker, 0, score,
                   ntm['current'], ntm['7d'], ntm['30d'], ntm['60d'], ntm['90d'],
                   1 if is_turnaround else 0))
