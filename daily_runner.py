@@ -1099,7 +1099,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
         analysis_html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', analysis_html)
         analysis_html = re.sub(r'#{1,3}\s*', '', analysis_html)
         analysis_html = analysis_html.replace('---', '━━━')
-        analysis_html = re.sub(r'\n*\[SEP\]\n*', '\n──────────────────\n', analysis_html)
+        analysis_html = re.sub(r'\n*\[SEP\]\n*', '\n\n', analysis_html)
 
         # 텔레그램 메시지 포맷팅
         lines = []
