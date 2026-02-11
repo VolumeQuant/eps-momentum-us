@@ -1256,34 +1256,10 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 비중 배분 (adj_gap 절대값 비례 — 더 저평가일수록 높은 비중, 5% 단위)
-        # 종목당 상한 30%
-        MAX_WEIGHT = 30
-        gaps = [abs(s['adj_gap']) for s in selected]
-        total_score = sum(gaps)
+        # 비중 배분 (순위 기반 고정 비중)
+        RANK_WEIGHTS = [25, 25, 20, 15, 15]
         for i, s in enumerate(selected):
-            raw = gaps[i] / total_score * 100
-            s['weight'] = min(round(raw / 5) * 5, MAX_WEIGHT)
-        # 합계 100% 보정
-        diff = 100 - sum(s['weight'] for s in selected)
-        while diff != 0:
-            adjusted = False
-            for s in selected:
-                if diff > 0 and s['weight'] < MAX_WEIGHT:
-                    add = min(5, MAX_WEIGHT - s['weight'], diff)
-                    s['weight'] += add
-                    diff -= add
-                    adjusted = True
-                elif diff < 0 and s['weight'] > 5:
-                    sub = min(5, s['weight'] - 5, -diff)
-                    s['weight'] -= sub
-                    diff += sub
-                    adjusted = True
-                if diff == 0:
-                    break
-            if not adjusted:
-                selected[0]['weight'] += diff
-                break
+            s['weight'] = RANK_WEIGHTS[i] if i < len(RANK_WEIGHTS) else 10
 
         log(f"포트폴리오: {len(selected)}종목 선정 — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
