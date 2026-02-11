@@ -1228,13 +1228,23 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: ✅ 종목 없음", "WARN")
             return None
 
-        # adj_gap순 정렬 (더 음수 = EPS 대비 주가 저평가)
+        # adj_gap순 정렬 (더 음수 = EPS 대비 주가 저평가) + 섹터 분산 (1섹터 1종목)
         safe.sort(key=lambda x: x['adj_gap'])
         log("포트폴리오: adj_gap 순위 (EPS 대비 저평가):")
         for i, s in enumerate(safe):
-            mark = "→" if i < 5 else " "
-            log(f"  {mark} {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']}")
-        selected = safe[:5]
+            log(f"    {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
+        selected = []
+        used_sectors = set()
+        for s in safe:
+            sector = s['industry']
+            if sector in used_sectors:
+                log(f"  ⏭️ {s['ticker']}: 섹터 중복 [{sector}] → 스킵")
+                continue
+            selected.append(s)
+            used_sectors.add(sector)
+            log(f"  → {s['ticker']}: [{sector}] 선정")
+            if len(selected) >= 5:
+                break
 
         if len(selected) < 3:
             log("포트폴리오: 선정 종목 부족", "WARN")
