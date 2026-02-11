@@ -770,7 +770,7 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f' [1/2] 🔍 매수 후보 {count}개')
+    lines.append(f' [1/3] 🔍 매수 후보 {count}개')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     if market_lines:
@@ -848,7 +848,7 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
     lines.append('')
     lines.append('목록에 있으면 보유, 없으면 매도 검토.')
     lines.append('')
-    lines.append('👉 다음: AI 점검 + 최종 추천 [2/2]')
+    lines.append('👉 다음: AI 리스크 필터 [2/3]')
 
     return '\n'.join(lines)
 
@@ -1104,17 +1104,17 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
         # 텔레그램 메시지 포맷팅
         lines = []
         lines.append('━━━━━━━━━━━━━━━━━━━')
-        lines.append('    [2/2] 🛡️ AI 점검 + 최종 추천')
+        lines.append('  [2/3] 🛡️ AI 리스크 필터')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)')
         lines.append('')
-        lines.append('후보 종목 중 주의할 점을 AI가 점검했어요.')
+        lines.append('매수 후보의 위험 요소를 AI가 걸러냈어요.')
         lines.append('')
         lines.append(analysis_html)
         lines.append('')
-        lines.append('')
+        lines.append('👉 다음: 최종 추천 포트폴리오 [3/3]')
 
-        log("AI 점검 완료")
+        log("AI 리스크 필터 완료")
         return '\n'.join(lines)
 
     except Exception as e:
@@ -1152,7 +1152,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: ✅ 검증 종목 없음", "WARN")
             return '\n'.join([
                 '━━━━━━━━━━━━━━━━━━━',
-                '    🎯 최종 추천',
+                '   [3/3] 🎯 최종 추천',
                 '━━━━━━━━━━━━━━━━━━━',
                 f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
                 '',
@@ -1349,7 +1349,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 
         lines = [
             '━━━━━━━━━━━━━━━━━━━',
-            '    🎯 최종 추천',
+            '   [3/3] 🎯 최종 추천',
             '━━━━━━━━━━━━━━━━━━━',
             f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
             '',
@@ -1485,7 +1485,7 @@ def main():
     elapsed = (datetime.now() - start_time).total_seconds()
     msg_log = create_system_log_message(stats, elapsed, config)
 
-    # 4. 텔레그램 발송: 📖 가이드 → [1/3] 매수 후보 → [2/3] AI 점검 → [3/3] 최종 추천 → 로그
+    # 4. 텔레그램 발송: 📖 가이드 → [1/3] 매수 후보 → [2/3] AI 리스크 필터 → [3/3] 최종 추천 → 로그
     if config.get('telegram_enabled', False):
         is_github = config.get('is_github_actions', False)
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
@@ -1513,25 +1513,22 @@ def main():
             send_telegram_long(msg_part2, config, chat_id=private_id)
             log(f"[1/3] 매수 후보 전송 완료 → {dest}")
 
-        # [2/2] AI 점검 + 최종 추천 (통합)
+        # [2/3] AI 리스크 필터
         biz_day = get_last_business_day()
         msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day)
-        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day)
-
-        # 통합 메시지 생성
-        msg_combined = None
-        if msg_ai and msg_portfolio:
-            msg_combined = msg_ai + '\n' + msg_portfolio
-        elif msg_ai:
-            msg_combined = msg_ai
-        elif msg_portfolio:
-            msg_combined = msg_portfolio
-
-        if msg_combined:
+        if msg_ai:
             if send_to_channel:
-                send_telegram_long(msg_combined, config, chat_id=channel_id)
-            send_telegram_long(msg_combined, config, chat_id=private_id)
-            log(f"[2/2] AI 점검 + 최종 추천 전송 완료 → {dest}")
+                send_telegram_long(msg_ai, config, chat_id=channel_id)
+            send_telegram_long(msg_ai, config, chat_id=private_id)
+            log(f"[2/3] AI 리스크 필터 전송 완료 → {dest}")
+
+        # [3/3] 최종 추천
+        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day)
+        if msg_portfolio:
+            if send_to_channel:
+                send_telegram_long(msg_portfolio, config, chat_id=channel_id)
+            send_telegram_long(msg_portfolio, config, chat_id=private_id)
+            log(f"[3/3] 최종 추천 전송 완료 → {dest}")
 
         # 시스템 로그 → 개인봇에만 (항상)
         send_telegram_long(msg_log, config, chat_id=private_id)
