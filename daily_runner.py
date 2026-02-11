@@ -580,18 +580,20 @@ def get_daily_changes(today_tickers):
     yesterday = dates[1]
 
     cursor.execute(
-        'SELECT ticker FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 30',
+        'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 30',
         (yesterday,)
     )
-    yesterday_top30 = {r[0] for r in cursor.fetchall()}
+    yesterday_ranks = {r[0]: r[1] for r in cursor.fetchall()}
     conn.close()
 
+    yesterday_top30 = set(yesterday_ranks.keys())
     today_set = set(today_tickers)
     entered = today_set - yesterday_top30
     exited = yesterday_top30 - today_set
+    exited_with_rank = {t: yesterday_ranks[t] for t in exited}
 
     log(f"어제 대비: +{len(entered)} 신규, -{len(exited)} 이탈")
-    return sorted(entered), sorted(exited)
+    return sorted(entered), exited_with_rank
 
 
 def get_market_context():
@@ -781,7 +783,7 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
     if status_map is None:
         status_map = {}
     if exited_tickers is None:
-        exited_tickers = []
+        exited_tickers = {}
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
@@ -845,36 +847,16 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.append(opinion_str)
         lines.append('──────────────────')
 
-    # 이탈 종목 (어제 대비) + 사유 분석
+    # 이탈 종목 (어제 대비) + 어제 순위
     if exited_tickers:
         lines.append('')
         lines.append('─────────────────')
         lines.append(f'📉 어제 대비 이탈 {len(exited_tickers)}개')
-        for t in exited_tickers:
+        sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
+        for t, prev_rank in sorted_exits:
             row_data = df[df['ticker'] == t]
-            if row_data.empty:
-                lines.append(f'{t} — 데이터 없음')
-                continue
-            r = row_data.iloc[0]
-            name = r.get('short_name', t)
-            reasons = []
-            price = r.get('price', 0) or 0
-            ma60 = r.get('ma60', 0) or 0
-            if price > 0 and ma60 > 0 and price <= ma60:
-                reasons.append('이평선 이탈')
-            rev_up = int(r.get('rev_up30', 0) or 0)
-            rev_down = int(r.get('rev_down30', 0) or 0)
-            total_rev = rev_up + rev_down
-            if total_rev > 0 and rev_down / total_rev > 0.3:
-                reasons.append(f'의견 하향 ↓{rev_down}/↑{rev_up}')
-            eps_chg = r.get('eps_change_90d', 0) or 0
-            if eps_chg <= 0:
-                reasons.append('EPS 둔화')
-            adj_gap = r.get('adj_gap', 0) or 0
-            if adj_gap > 0:
-                reasons.append('주가 선반영')
-            reason_str = ', '.join(reasons) if reasons else '순위 밀림'
-            lines.append(f'{name}({t}) — {reason_str}')
+            name = row_data.iloc[0].get('short_name', t) if not row_data.empty else t
+            lines.append(f'{name}({t}) · 어제 {prev_rank}위')
         lines.append('')
         lines.append('보유 중이라면 매도를 검토하세요.')
 
