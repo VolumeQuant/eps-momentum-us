@@ -90,10 +90,11 @@ print()
 
 # [1/3] 매수 후보 메시지
 exited = ['ZZZZ']  # 이탈 종목
+market_lines = [
+    '📈 SPY $502.30 (+0.8%) MA60↑ · QQQ $430.10 (+1.2%) MA60↑',
+]
 msg_part2 = create_part2_message(
-    df, status_map=status_map, exited_tickers=exited, biz_day=biz_day,
-    spy_data={'price': 502.3, 'change': 0.8, 'above_ma': True},
-    qqq_data={'price': 430.1, 'change': 1.2, 'above_ma': True},
+    df, status_map=status_map, exited_tickers=exited, market_lines=market_lines,
 )
 if msg_part2 and private_id:
     send_telegram_long(msg_part2, config, chat_id=private_id)
