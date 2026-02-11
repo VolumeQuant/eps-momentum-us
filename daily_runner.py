@@ -449,12 +449,12 @@ def run_ntm_collection(config):
 def get_part2_candidates(df, top_n=None):
     """Part 2 매수 후보 필터링 (공통 함수)
 
-    필터: adj_score > 9, adj_gap ≤ 0, fwd_pe > 0, eps > 0, price ≥ $10, price > MA60
+    필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA60
     정렬: adj_gap 오름차순 (더 음수 = 더 저평가)
     """
     filtered = df[
         (df['adj_score'] > 9) &
-        (df['adj_gap'].notna()) & (df['adj_gap'] <= 0) &
+        (df['adj_gap'].notna()) &
         (df['fwd_pe'].notna()) & (df['fwd_pe'] > 0) &
         (df['eps_change_90d'] > 0) &
         (df['price'].notna()) & (df['price'] >= 10) &
@@ -749,7 +749,7 @@ def create_guide_message():
         '',
         '① 이익 전망이 오르는 종목을 찾고',
         '② 주가 흐름이 건강한 종목만 남기고',
-        '③ 그중 주가가 덜 오른 순서로 Top 30 선별',
+        '③ EPS 대비 주가 괴리 순서로 Top 30 선별',
         '④ 3일 연속 Top 30에 들면 검증 완료 ✅',
         '⑤ AI 위험 점검 후 최종 5종목 추천',
         '',
@@ -791,8 +791,8 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.append('─────────────────')
         lines.extend(market_lines)
     lines.append('')
-    lines.append('이익 전망은 올라가는데')
-    lines.append('주가는 아직 덜 오른 종목이에요.')
+    lines.append('이익 전망이 올라가는 종목이에요.')
+    lines.append('괴리가 클수록 주가가 덜 따라온 상태.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
     lines.append('✅ 3일 연속 Top 30 → 매수 대상')

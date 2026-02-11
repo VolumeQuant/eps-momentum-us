@@ -1718,5 +1718,6 @@ def get_daily_changes(today_tickers):
 113. **워크플로우 git merge 방식 변경 (v20)**: `git pull --rebase` → `git pull --no-rebase -X ours`. binary DB 파일은 rebase 불가하여 충돌 발생 방지.
 
 114. **이탈 종목 순위 변동 표시 (v20)**: 이탈 종목에 "어제 N위 → M위" 또는 "어제 N위 → 조건 미달" 표시. 사유 분석(이평선 이탈, 의견 하향 등)은 데이터 부족으로 폐기, 순위 변동만 표시. 전체 eligible 종목 계산하여 현재 순위 매핑.
+115. **adj_gap ≤ 0 필터 제거 (v20)**: MU가 하루 +10% 급등으로 adj_gap 플러스 전환 → 즉시 탈락하는 문제. EPS 모멘텀은 여전히 rank 4인데 일간 변동성에 목록이 불안정. 필터 제거하고 adj_gap 정렬만 유지 → 비싸도 모멘텀 강한 종목은 남되 순위가 밀림.
 
-*v20 업데이트: Claude Opus 4.6 | 2026-02-11 회사 PC — Simple & Clear: Death List 제거, Top 30 통일, 투자 가이드 재작성, 메시지 3분리, AI 리스크 필터, 포트폴리오 강화, 애널리스트 max(0y,+1y), 리스크 필터 철학 확립, 과거 데이터 보충, 마켓 날짜 자동 감지, ON CONFLICT 보존, 섹터 분산, 이탈 순위 변동 표시*
+*v20 업데이트: Claude Opus 4.6 | 2026-02-11 회사 PC — Simple & Clear: Death List 제거, Top 30 통일, 투자 가이드 재작성, 메시지 3분리, AI 리스크 필터, 포트폴리오 강화, 애널리스트 max(0y,+1y), 리스크 필터 철학 확립, 과거 데이터 보충, 마켓 날짜 자동 감지, ON CONFLICT 보존, 섹터 분산, 이탈 순위 변동 표시, adj_gap 필터 제거*
