@@ -1714,7 +1714,7 @@ def get_daily_changes(today_tickers):
 110. **마켓 날짜 자동 감지 (v20)**: `datetime.now()` 대신 SPY 최근 거래일 기준으로 `today_str` 결정. EST 자정 이후 테스트 실행 시 미래 날짜(2/11)로 데이터 저장되어 3일 검증 오염되던 문제 해결. `MARKET_DATE` 환경변수 오버라이드도 지원. test-private-only.yml에 `market_date` 입력 파라미터 추가.
 
 111. **INSERT OR REPLACE → ON CONFLICT (v20)**: 같은 마켓 날짜로 재수집 시 `INSERT OR REPLACE`가 part2_rank를 NULL로 초기화하던 문제. `INSERT ... ON CONFLICT DO UPDATE`로 변경하여 지정 컬럼만 업데이트, part2_rank 보존.
-112. **포트폴리오 섹터 분산 시도 후 원복 (v20)**: 섹터당 1종목 + 순위 기반 고정 비중(25/25/20/15/15%) 시도했으나 원복. 기존 adj_gap 상위 5개 + adj_gap 비례 비중 유지.
+112. **포트폴리오 섹터 분산 (v20)**: adj_gap 순 정렬 후 섹터당 1종목만 선정 (중복 섹터 스킵). 비중은 기존 adj_gap 비례 유지. 순위 기반 고정 비중(25/25/20/15/15%)은 시도 후 원복.
 113. **워크플로우 git merge 방식 변경 (v20)**: `git pull --rebase` → `git pull --no-rebase -X ours`. binary DB 파일은 rebase 불가하여 충돌 발생 방지.
 
-*v20 업데이트: Claude Opus 4.6 | 2026-02-11 회사 PC — Simple & Clear: Death List 제거, Top 30 통일, 투자 가이드 재작성, 메시지 3분리, AI 리스크 필터, 포트폴리오 강화, 애널리스트 max(0y,+1y), 리스크 필터 철학 확립, 과거 데이터 보충, 마켓 날짜 자동 감지, ON CONFLICT 보존, 섹터 분산 시도→원복*
+*v20 업데이트: Claude Opus 4.6 | 2026-02-11 회사 PC — Simple & Clear: Death List 제거, Top 30 통일, 투자 가이드 재작성, 메시지 3분리, AI 리스크 필터, 포트폴리오 강화, 애널리스트 max(0y,+1y), 리스크 필터 철학 확립, 과거 데이터 보충, 마켓 날짜 자동 감지, ON CONFLICT 보존, 섹터 분산*
