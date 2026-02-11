@@ -956,10 +956,10 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
             num_analysts = int(row.get('num_analysts', 0) or 0)
             flags = []
 
-            # 1. 애널리스트 하향 과반 (down > 50% of total revisions)
+            # 1. 애널리스트 하향 30% 초과 (down > 30% of total revisions)
             total_rev = rev_up + rev_down
-            if total_rev > 0 and rev_down / total_rev > 0.5:
-                flags.append(f"🔻 의견 하향 과반 ↓{rev_down}/↑{rev_up}")
+            if total_rev > 0 and rev_down / total_rev > 0.3:
+                flags.append(f"🔻 의견 하향 ↓{rev_down}/↑{rev_up}")
 
             # 2. 저커버리지 (애널리스트 3명 미만)
             if num_analysts < 3:
@@ -1007,7 +1007,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
 {signals_data}
 
 [위험 신호 설명]
-🔻 의견 하향 과반 = 30일간 EPS 전망 수정 중 하향이 과반수 (하향 비율 > 50%)
+🔻 의견 하향 = 30일간 EPS 전망 수정 중 하향 비율 > 30% (의미 있는 반대 의견)
 📉 저커버리지 = 커버리지 애널리스트 3명 미만 (추정치 신뢰도 낮음)
 📅 어닝 = 2주 내 실적 발표 예정 (발표 전후 변동성 주의)
 
@@ -1177,7 +1177,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 
             flags = []
             total_rev = rev_up + rev_down
-            if total_rev > 0 and rev_down / total_rev > 0.5:
+            if total_rev > 0 and rev_down / total_rev > 0.3:
                 flags.append("하향과반")
             if num_analysts < 3:
                 flags.append("저커버리지")
