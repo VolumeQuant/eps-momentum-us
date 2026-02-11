@@ -159,7 +159,12 @@
       "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" diff --stat README.md SESSION_HANDOFF.md)",
       "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" log --oneline -3)",
       "Bash(git -C \"C:\\\\dev\\\\claude-code\\\\eps-momentum-us\" show --stat 797739f)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(gh workflow run:*)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" workflow run \"Test Private Bot Only\")",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" run list --workflow=\"Test Private Bot Only\" --limit 3)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" run watch 21863164333)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" run view 21863164333 --log)"
     ]
   }
 }
