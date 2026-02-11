@@ -158,7 +158,14 @@ def run_ntm_collection(config):
     init_ntm_database()
 
     today = datetime.now()
-    today_str = today.strftime('%Y-%m-%d')
+    today_str = os.environ.get('MARKET_DATE') or ''
+    if not today_str:
+        try:
+            spy_hist = yf.Ticker("SPY").history(period="5d")
+            today_str = spy_hist.index[-1].strftime('%Y-%m-%d')
+        except Exception:
+            today_str = today.strftime('%Y-%m-%d')
+    log(f"마켓 날짜: {today_str}")
 
     all_tickers = sorted(set(t for tlist in INDICES.values() for t in tlist))
     log(f"유니버스: {len(all_tickers)}개 종목")
@@ -212,7 +219,7 @@ def run_ntm_collection(config):
             eps_change_90d = calculate_eps_change_90d(ntm)
             trend_lights, trend_desc = get_trend_lights(seg1, seg2, seg3, seg4)
 
-            # EPS Revision & 애널리스트 수 추출 (이미 캐시된 _earnings_trend에서)
+            # EPS Revision & 애널리스트 수 추출 — max(0y, +1y)로 두 기간 모두 반영
             rev_up30 = 0
             rev_down30 = 0
             num_analysts = 0
@@ -220,24 +227,32 @@ def run_ntm_collection(config):
                 raw_trend = stock._analysis._earnings_trend
                 if raw_trend:
                     for item in raw_trend:
-                        if item.get('period') == '0y':
+                        if item.get('period') in ('0y', '+1y'):
                             eps_rev = item.get('epsRevisions', {})
                             up_data = eps_rev.get('upLast30days', {})
                             down_data = eps_rev.get('downLast30days', {})
-                            rev_up30 = up_data.get('raw', 0) if isinstance(up_data, dict) else 0
-                            rev_down30 = down_data.get('raw', 0) if isinstance(down_data, dict) else 0
+                            up_val = up_data.get('raw', 0) if isinstance(up_data, dict) else 0
+                            down_val = down_data.get('raw', 0) if isinstance(down_data, dict) else 0
                             ea = item.get('earningsEstimate', {})
                             na_data = ea.get('numberOfAnalysts', {})
-                            num_analysts = na_data.get('raw', 0) if isinstance(na_data, dict) else 0
-                            break
+                            na_val = na_data.get('raw', 0) if isinstance(na_data, dict) else 0
+                            rev_up30 = max(rev_up30, up_val)
+                            rev_down30 = max(rev_down30, down_val)
+                            num_analysts = max(num_analysts, na_val)
             except Exception:
                 pass
 
             # DB 적재 (기본 데이터 — price/ma60/adj_gap은 후속 UPDATE로 추가)
+            # INSERT ON CONFLICT: 기존 part2_rank 보존
             cursor.execute('''
-                INSERT OR REPLACE INTO ntm_screening
+                INSERT INTO ntm_screening
                 (date, ticker, rank, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, is_turnaround)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(date, ticker) DO UPDATE SET
+                    rank=excluded.rank, score=excluded.score,
+                    ntm_current=excluded.ntm_current, ntm_7d=excluded.ntm_7d,
+                    ntm_30d=excluded.ntm_30d, ntm_60d=excluded.ntm_60d,
+                    ntm_90d=excluded.ntm_90d, is_turnaround=excluded.is_turnaround
             ''', (today_str, ticker, 0, score,
                   ntm['current'], ntm['7d'], ntm['30d'], ntm['60d'], ntm['90d'],
                   1 if is_turnaround else 0))
@@ -419,10 +434,7 @@ def run_ntm_collection(config):
         'total_collected': len(results) + len(turnaround),
     }
 
-    if not results_df.empty:
-        stats['score_gt0'] = int((results_df['score'] > 0).sum())
-        stats['score_gt3'] = int((results_df['score'] > 3).sum())
-        stats['aligned_count'] = int((~results_df['trend_lights'].str.contains('🌧️')).sum())
+    # score_gt0/gt3/aligned_count 제거 — 시스템 로그에서 미사용
 
     log(f"수집 완료: 메인 {len(results)}, 턴어라운드 {len(turnaround)}, "
         f"데이터없음 {len(no_data)}, 에러 {len(errors)}")
@@ -457,8 +469,8 @@ def get_part2_candidates(df, top_n=None):
 
 
 def save_part2_ranks(results_df, today_str):
-    """Part 2 eligible 종목에 part2_rank 저장 (3일 교집합용)"""
-    candidates = get_part2_candidates(results_df)
+    """Part 2 eligible 종목 Top 30에 part2_rank 저장 (3일 교집합 + Death List용)"""
+    candidates = get_part2_candidates(results_df, top_n=30)
     if candidates.empty:
         log("Part 2 후보 0개 — part2_rank 저장 스킵")
         return
@@ -488,31 +500,46 @@ def is_cold_start():
 
 
 def get_3day_status(today_tickers):
-    """3일 연속 Part 2 진입 여부 판별 → {ticker: '✅' or '🆕'}
+    """3일 연속 Part 2 진입 여부 판별 → {ticker: '✅' or '⏳' or '🆕'}
     ✅ = 3일 연속 (포트폴리오 포함)
-    🆕 = 3일 미만 (포트폴리오 제외, 관찰)
+    ⏳ = 2일 연속 (표시만, 포트폴리오 제외)
+    🆕 = 오늘만 (표시만, 포트폴리오 제외)
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # 최근 3개 distinct date
-    cursor.execute('SELECT DISTINCT date FROM ntm_screening ORDER BY date DESC LIMIT 3')
+    # 최근 3개 distinct date (part2_rank 있는 날짜만)
+    cursor.execute(
+        'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
+    )
     dates = [r[0] for r in cursor.fetchall()]
 
-    if len(dates) < 3:
+    if len(dates) < 2:
         conn.close()
-        log(f"3일 교집합: DB {len(dates)}일뿐 — 전부 ✅ 처리 (cold start)")
-        return {t: '✅' for t in today_tickers}
+        log(f"3일 교집합: DB {len(dates)}일뿐 — 전부 🆕 처리 (cold start)")
+        return {t: '🆕' for t in today_tickers}
 
     placeholders = ','.join('?' * len(dates))
 
-    # 3일 모두 part2_rank가 있는 종목
+    # 3일 모두 Top 30인 종목
+    verified_3d = set()
+    if len(dates) >= 3:
+        cursor.execute(f'''
+            SELECT ticker FROM ntm_screening
+            WHERE date IN ({placeholders}) AND part2_rank IS NOT NULL AND part2_rank <= 30
+            GROUP BY ticker HAVING COUNT(DISTINCT date) = 3
+        ''', dates)
+        verified_3d = {r[0] for r in cursor.fetchall()}
+
+    # 최근 2일 모두 Top 30인 종목
+    dates_2d = dates[:2]
+    ph2 = ','.join('?' * len(dates_2d))
     cursor.execute(f'''
         SELECT ticker FROM ntm_screening
-        WHERE date IN ({placeholders}) AND part2_rank IS NOT NULL
-        GROUP BY ticker HAVING COUNT(DISTINCT date) = 3
-    ''', dates)
-    verified_3d = {r[0] for r in cursor.fetchall()}
+        WHERE date IN ({ph2}) AND part2_rank IS NOT NULL AND part2_rank <= 30
+        Group BY ticker HAVING COUNT(DISTINCT date) = 2
+    ''', dates_2d)
+    verified_2d = {r[0] for r in cursor.fetchall()}
 
     conn.close()
 
@@ -520,74 +547,50 @@ def get_3day_status(today_tickers):
     for t in today_tickers:
         if t in verified_3d:
             status[t] = '✅'
+        elif t in verified_2d:
+            status[t] = '⏳'
         else:
             status[t] = '🆕'
 
     v3 = sum(1 for v in status.values() if v == '✅')
+    v2 = sum(1 for v in status.values() if v == '⏳')
     v1 = sum(1 for v in status.values() if v == '🆕')
-    log(f"3일 교집합: ✅ {v3}개, 🆕 {v1}개")
+    log(f"3일 교집합: ✅ {v3}개, ⏳ {v2}개, 🆕 {v1}개")
     return status
 
 
-def get_death_list(today_str, today_tickers, results_df):
-    """어제 Part 2에 있었지만 오늘 빠진 종목 + 사유"""
+def get_daily_changes(today_tickers):
+    """어제 대비 Top 30 변동 — 신규 진입 / 이탈 종목 (단순 set 비교)"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # 어제 날짜 (오늘 이전 가장 최근)
+    # 어제 날짜 (part2_rank 있는 가장 최근)
     cursor.execute(
-        'SELECT MAX(date) FROM ntm_screening WHERE date < ?', (today_str,)
+        'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 2'
     )
-    row = cursor.fetchone()
-    if not row or not row[0]:
+    dates = [r[0] for r in cursor.fetchall()]
+
+    if len(dates) < 2:
         conn.close()
-        return []
+        return [], []
 
-    yesterday = row[0]
+    yesterday = dates[1]
 
-    # 어제 Part 2 멤버
     cursor.execute(
-        'SELECT ticker FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
+        'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 30',
         (yesterday,)
     )
-    yesterday_members = {r[0] for r in cursor.fetchall()}
+    yesterday_ranks = {r[0]: r[1] for r in cursor.fetchall()}
     conn.close()
 
+    yesterday_top30 = set(yesterday_ranks.keys())
     today_set = set(today_tickers)
-    dropped_tickers = yesterday_members - today_set
+    entered = today_set - yesterday_top30
+    exited = yesterday_top30 - today_set
+    exited_with_rank = {t: yesterday_ranks[t] for t in exited}
 
-    if not dropped_tickers:
-        return []
-
-    # 사유 판별 (오늘 데이터에서)
-    death_list = []
-    for ticker in sorted(dropped_tickers):
-        row_data = results_df[results_df['ticker'] == ticker]
-        if row_data.empty:
-            death_list.append((ticker, ticker, '데이터없음'))
-            continue
-
-        r = row_data.iloc[0]
-        reasons = []
-        price = r.get('price')
-        ma60 = r.get('ma60')
-        if price is not None and ma60 is not None and price <= ma60:
-            reasons.append('MA60↓')
-        adj_gap = r.get('adj_gap')
-        if adj_gap is not None and adj_gap > 0:
-            reasons.append('괴리+')
-        adj_score = r.get('adj_score', 0) or 0
-        if adj_score <= 9:
-            reasons.append('점수↓')
-        eps_chg = r.get('eps_change_90d', 0) or 0
-        if eps_chg <= 0:
-            reasons.append('EPS↓')
-
-        name = r.get('short_name', ticker)
-        death_list.append((ticker, name, ','.join(reasons) if reasons else '순위밖'))
-
-    log(f"Death List: {len(death_list)}개 탈락")
-    return death_list
+    log(f"어제 대비: +{len(entered)} 신규, -{len(exited)} 이탈")
+    return sorted(entered), exited_with_rank
 
 
 def get_market_context():
@@ -737,35 +740,34 @@ def create_guide_message():
         '━━━━━━━━━━━━━━━━━━━',
         '',
         '🔎 <b>어떤 종목을 찾나요?</b>',
-        '증권사 애널리스트들이 "실적이 좋아질 거야"라고',
+        '월가 애널리스트들이 "이익이 늘어날 거야"라고',
         '전망치를 올리는 종목을 찾아요.',
         '여러 전문가가 동시에 올리면 더 강한 신호예요.',
         '',
         '📊 <b>어떻게 골라요?</b>',
-        '① EPS 전망 상승 중 (90일간 추적)',
-        '② 60일 이동평균 위 (하락 추세 제외)',
-        '③ 주가가 아직 덜 오른 종목 (저평가)',
-        '④ 3일 연속 후보 유지 (노이즈 제거)',
-        '⑤ AI가 위험 신호 점검 후 최종 추천',
+        '미국 916종목을 매일 5단계로 걸러요.',
+        '',
+        '① 이익 전망이 오르는 종목을 찾고',
+        '② 주가 흐름이 건강한 종목만 남기고',
+        '③ 그중 주가가 덜 오른 순서로 Top 30 선별',
+        '④ 3일 연속 Top 30에 들면 검증 완료 ✅',
+        '⑤ AI 위험 점검 후 최종 5종목 추천',
         '',
         '⏱️ <b>얼마나 보유하나요?</b>',
-        '약 2~4주가 기본이에요.',
-        '매일 후보를 갱신하니, 탈락하면 매도를 검토하세요.',
+        '최소 2주는 보유하는 걸 권장해요.',
+        '이익 전망이 주가에 반영되려면 시간이 필요하거든요.',
+        'Top 30에 남아있는 동안은 계속 보유하세요.',
         '',
         '📉 <b>언제 파나요?</b>',
-        '· 종목이 탈락 목록에 뜨면 검토 시점',
-        '· 사유(이평선 이탈·EPS 둔화 등)를 보고 판단',
-        '· 포트폴리오에서 빠지면 비중 축소 고려',
-        '',
-        '📩 <b>오늘의 메시지</b>',
-        '[1/2] 🔍 매수 후보 — 조건 통과 + 탈락 + 보유 확인',
-        '[2/2] 🛡️ AI 점검 + 🎯 최종 추천 — 위험 체크 + 포트폴리오',
+        '최소 2주 보유 후, 목록에서 빠지면 매도 검토예요.',
+        '매일 Top 30을 보여드리니까',
+        '목록에 있으면 보유, 없으면 매도 검토.',
     ]
     return '\n'.join(lines)
 
 
-def create_part2_message(df, status_map=None, death_list=None, market_lines=None, top_n=30):
-    """[1/2] 매수 후보 메시지 — adj_gap 순, MA60+3일 검증, Death List + 보유 확인"""
+def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=None, top_n=30):
+    """[1/2] 매수 후보 메시지 — adj_gap 순 Top 30, ✅/⏳/🆕 표시, 어제 대비 변동"""
     import pandas as pd
 
     biz_day = get_last_business_day()
@@ -777,25 +779,28 @@ def create_part2_message(df, status_map=None, death_list=None, market_lines=None
 
     if status_map is None:
         status_map = {}
+    if exited_tickers is None:
+        exited_tickers = {}
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f' [1/2] 🔍 매수 후보 {count}개')
+    lines.append(f' [1/3] 🔍 매수 후보 {count}개')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     if market_lines:
         lines.append('─────────────────')
         lines.extend(market_lines)
     lines.append('')
-    lines.append('실적 전망은 올라가는데')
+    lines.append('이익 전망은 올라가는데')
     lines.append('주가는 아직 덜 오른 종목이에요.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('✅ 검증 = 3일 연속 후보 (포트폴리오 대상)')
-    lines.append('🆕 신규 = 오늘 처음 진입 (지켜보세요)')
-    lines.append('괴리 = 더 음수일수록 저평가')
-    lines.append('날씨 = EPS 추세 (🔥폭등 ☀️강세 🌤️상승 ☁️보합 🌧️하락)')
-    lines.append('⚠️ = EPS↑인데 주가↓ (괴리 주의)')
+    lines.append('✅ 3일 연속 Top 30 → 매수 대상')
+    lines.append('⏳ 2일 연속 → 내일 검증 가능')
+    lines.append('🆕 오늘 첫 진입 → 지켜보세요')
+    lines.append('괴리 = 음수가 클수록 저평가 (매수 기회)')
+    lines.append('의견 = 최근 30일 애널리스트 ↑상향 ↓하향 수')
+    lines.append('날씨 = 🔥폭등 ☀️강세 🌤️상승 ☁️보합 🌧️하락')
     lines.append('')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
@@ -839,32 +844,28 @@ def create_part2_message(df, status_map=None, death_list=None, market_lines=None
         lines.append(opinion_str)
         lines.append('──────────────────')
 
-    # Death List (탈락 종목)
-    if death_list:
+    # 이탈 종목 (어제 대비) + 어제→오늘 순위
+    if exited_tickers:
         lines.append('')
         lines.append('─────────────────')
-        lines.append('<b>⛔ 탈락 종목 — 매도 검토</b>')
-        lines.append('─────────────────')
-        for item in death_list:
-            if len(item) == 3:
-                t, name, reason = item
+        lines.append(f'📉 어제 대비 이탈 {len(exited_tickers)}개')
+        # 전체 eligible 종목의 현재 순위 계산
+        all_eligible = get_part2_candidates(df)
+        current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
+        sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
+        for t, prev_rank in sorted_exits:
+            cur_rank = current_rank_map.get(t)
+            if cur_rank:
+                lines.append(f'{t} · 어제 {prev_rank}위 → {cur_rank}위')
             else:
-                t, reason = item
-                name = t
-            lines.append(f'· <b>{name}</b> ({t}) — {reason}')
+                lines.append(f'{t} · 어제 {prev_rank}위 → 조건 미달')
         lines.append('')
         lines.append('보유 중이라면 매도를 검토하세요.')
 
-    # 보유 확인
     lines.append('')
-    lines.append('─────────────────')
-    lines.append('<b>✅ 보유 유지 가능</b>')
-    lines.append('─────────────────')
-    lines.append('위 후보 목록에 있는 종목은 보유 유지')
-    lines.append('→ 목록에서 빠지면 ⛔ 알림으로 알려드려요')
-
+    lines.append('목록에 있으면 보유, 없으면 매도 검토.')
     lines.append('')
-    lines.append('👉 다음: AI 점검 + 최종 추천 [2/2]')
+    lines.append('👉 다음: AI 리스크 필터 [2/3]')
 
     return '\n'.join(lines)
 
@@ -881,27 +882,40 @@ def create_system_log_message(stats, elapsed, config):
     minutes = int(elapsed // 60)
     seconds = int(elapsed % 60)
 
-    main_cnt = stats.get('main_count', 0)
-    turn_cnt = stats.get('turnaround_count', 0)
+    collected = stats.get('total_collected', 0)
+    universe = stats.get('universe', 0)
     err = stats.get('error_count', 0)
 
     lines = [f'🔧 <b>시스템 로그</b>']
-    lines.append(f'{time_str} KST · {env}\n')
+    lines.append(f'{time_str} KST · {env}')
 
-    lines.append(f'수집 {main_cnt + turn_cnt}/{stats.get("universe", 0)} (에러 {err})')
-    lines.append(f'├ 메인 {main_cnt}')
-    lines.append(f'└ 턴어라운드 {turn_cnt}')
-
-    if err > 0:
+    # 수집 결과
+    if err == 0:
+        lines.append(f'\n✅ 수집 성공 ({collected}/{universe})')
+    else:
+        lines.append(f'\n⚠️ 수집 완료 ({collected}/{universe}, 실패 {err})')
         error_tickers = stats.get('error_tickers', [])
-        lines.append(f'에러: {", ".join(error_tickers)}')
+        if error_tickers:
+            lines.append(f'실패: {", ".join(error_tickers[:10])}')
 
-    lines.append('')
-    lines.append(f'Score &gt; 0: {stats.get("score_gt0", 0)} ({stats.get("score_gt0", 0) * 100 // max(main_cnt, 1)}%)')
-    lines.append(f'Score &gt; 3: {stats.get("score_gt3", 0)} ({stats.get("score_gt3", 0) * 100 // max(main_cnt, 1)}%)')
-    lines.append(f'전구간 양호(🌧️ 없음): {stats.get("aligned_count", 0)}')
+    # DB 데이터 범위
+    try:
+        conn = sqlite3.connect(config.get('db_path', 'eps_momentum_data.db'))
+        cur = conn.cursor()
+        cur.execute('SELECT DISTINCT date FROM ntm_screening ORDER BY date')
+        dates = [r[0] for r in cur.fetchall()]
+        cur.execute('SELECT COUNT(*) FROM ntm_screening WHERE part2_rank IS NOT NULL AND date=?',
+                    (dates[-1],) if dates else ('',))
+        ranked = cur.fetchone()[0] if dates else 0
+        conn.close()
+        if dates:
+            lines.append(f'\n📂 DB: {dates[0]} ~ {dates[-1]} ({len(dates)}일)')
+            exited = stats.get('exited_count', 0)
+            lines.append(f'매수 후보: {ranked}개 / 이탈: {exited}개')
+    except Exception:
+        pass
 
-    lines.append(f'\n소요: {minutes}분 {seconds}초')
+    lines.append(f'\n⏱️ 소요: {minutes}분 {seconds}초')
 
     return '\n'.join(lines)
 
@@ -910,7 +924,7 @@ def create_system_log_message(stats, elapsed, config):
 # AI 리스크 체크 (Gemini 2.5 Flash + Google Search)
 # ============================================================
 
-def run_ai_analysis(config, results_df=None, status_map=None, death_list=None, biz_day=None):
+def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
     """[2/2] AI 브리핑 — 정량 위험 신호 기반 리스크 해석 (데이터는 코드가, 해석은 AI가)"""
     api_key = config.get('gemini_api_key', '')
     if not api_key:
@@ -970,19 +984,16 @@ def run_ai_analysis(config, results_df=None, status_map=None, death_list=None, b
             num_analysts = int(row.get('num_analysts', 0) or 0)
             flags = []
 
-            # 1. 애널리스트 다수 하향 (3건 이상)
-            if rev_down >= 3:
-                flags.append(f"🔻 의견 하향 {rev_down}건 (상향 {rev_up}건)")
+            # 1. 애널리스트 하향 30% 초과 (down > 30% of total revisions)
+            total_rev = rev_up + rev_down
+            if total_rev > 0 and rev_down / total_rev > 0.3:
+                flags.append(f"🔻 의견 하향 ↓{rev_down}/↑{rev_up}")
 
             # 2. 저커버리지 (애널리스트 3명 미만)
             if num_analysts < 3:
                 flags.append(f"📉 애널리스트 {num_analysts}명 (저커버리지)")
 
-            # 3. 고평가 (Fwd PE > 100)
-            if fwd_pe > 100:
-                flags.append(f"💰 Fwd PE {fwd_pe:.1f}배 (고평가)")
-
-            # 5. 어닝 임박
+            # 3. 어닝 임박
             try:
                 stock = yf.Ticker(ticker)
                 cal = stock.calendar
@@ -1024,9 +1035,8 @@ def run_ai_analysis(config, results_df=None, status_map=None, death_list=None, b
 {signals_data}
 
 [위험 신호 설명]
-🔻 의견 하향 N건 = 30일간 N명의 애널리스트가 EPS 전망치를 낮춤 (3건 이상만 표시)
+🔻 의견 하향 = 30일간 EPS 전망 수정 중 하향 비율 > 30% (의미 있는 반대 의견)
 📉 저커버리지 = 커버리지 애널리스트 3명 미만 (추정치 신뢰도 낮음)
-💰 고평가 = Forward PE 100배 초과
 📅 어닝 = 2주 내 실적 발표 예정 (발표 전후 변동성 주의)
 
 [출력 형식]
@@ -1115,22 +1125,22 @@ def run_ai_analysis(config, results_df=None, status_map=None, death_list=None, b
         analysis_html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', analysis_html)
         analysis_html = re.sub(r'#{1,3}\s*', '', analysis_html)
         analysis_html = analysis_html.replace('---', '━━━')
-        analysis_html = re.sub(r'\n*\[SEP\]\n*', '\n──────────────────\n', analysis_html)
+        analysis_html = re.sub(r'\n*\[SEP\]\n*', '\n\n', analysis_html)
 
         # 텔레그램 메시지 포맷팅
         lines = []
         lines.append('━━━━━━━━━━━━━━━━━━━')
-        lines.append('    [2/2] 🛡️ AI 점검 + 최종 추천')
+        lines.append('  [2/3] 🛡️ AI 리스크 필터')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)')
         lines.append('')
-        lines.append('후보 종목 중 주의할 점을 AI가 점검했어요.')
+        lines.append('매수 후보의 위험 요소를 AI가 걸러냈어요.')
         lines.append('')
         lines.append(analysis_html)
         lines.append('')
-        lines.append('')
+        lines.append('👉 다음: 최종 추천 포트폴리오 [3/3]')
 
-        log("AI 점검 완료")
+        log("AI 리스크 필터 완료")
         return '\n'.join(lines)
 
     except Exception as e:
@@ -1168,7 +1178,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: ✅ 검증 종목 없음", "WARN")
             return '\n'.join([
                 '━━━━━━━━━━━━━━━━━━━',
-                '    🎯 최종 추천',
+                '   [3/3] 🎯 최종 추천',
                 '━━━━━━━━━━━━━━━━━━━',
                 f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
                 '',
@@ -1194,12 +1204,13 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             num_analysts = int(row.get('num_analysts', 0) or 0)
 
             flags = []
-            if rev_down >= 3:
-                flags.append("하향")
+            total_rev = rev_up + rev_down
+            if total_rev > 0 and rev_down / total_rev > 0.3:
+                flags.append("하향과반")
             if num_analysts < 3:
                 flags.append("저커버리지")
-            if fwd_pe > 100:
-                flags.append("고평가")
+            # 어닝 임박: 표시만 (포트폴리오 제외 안 함)
+            earnings_note = ""
             try:
                 cal = yf.Ticker(t).calendar
                 if cal:
@@ -1210,7 +1221,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
                         if hasattr(ed, 'date'):
                             ed = ed.date()
                         if today_date <= ed <= two_weeks:
-                            flags.append("어닝")
+                            earnings_note = f" 📅어닝 {ed.month}/{ed.day}"
                             break
             except Exception:
                 pass
@@ -1232,19 +1243,29 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
                     'desc': row.get('trend_desc', ''),
                     'v_status': v_status,
                 })
-                log(f"  {v_status} {t}: gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}")
+                log(f"  {v_status} {t}: gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}{earnings_note}")
 
         if not safe:
             log("포트폴리오: ✅ 종목 없음", "WARN")
             return None
 
-        # adj_gap순 정렬 (더 음수 = EPS 대비 주가 저평가)
+        # adj_gap순 정렬 (더 음수 = EPS 대비 주가 저평가) + 섹터 분산 (1섹터 1종목)
         safe.sort(key=lambda x: x['adj_gap'])
         log("포트폴리오: adj_gap 순위 (EPS 대비 저평가):")
         for i, s in enumerate(safe):
-            mark = "→" if i < 5 else " "
-            log(f"  {mark} {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']}")
-        selected = safe[:5]
+            log(f"    {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
+        selected = []
+        used_sectors = set()
+        for s in safe:
+            sector = s['industry']
+            if sector in used_sectors:
+                log(f"  ⏭️ {s['ticker']}: 섹터 중복 [{sector}] → 스킵")
+                continue
+            selected.append(s)
+            used_sectors.add(sector)
+            log(f"  → {s['ticker']}: [{sector}] 선정")
+            if len(selected) >= 5:
+                break
 
         if len(selected) < 3:
             log("포트폴리오: 선정 종목 부족", "WARN")
@@ -1304,11 +1325,10 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 [출력 형식]
 - 한국어, 친절하고 따뜻한 말투 (~예요/~해요 체)
 - 각 종목을 아래 형식으로 출력:
-  **종목명(티커)**
-  비중 N%
-  1~2줄 선정 이유
+  **N. 종목명(티커) · 비중 N%**
+  날씨아이콘 1~2줄 선정 이유
 - 종목과 종목 사이에 반드시 [SEP] 한 줄을 넣어서 구분해줘.
-- 맨 끝: "시스템 데이터 기반 참고용이며, 투자 판단은 본인 책임이에요."
+- 맨 끝에 별도 문구 넣지 마. (코드에서 추가함)
 - 500자 이내
 
 각 종목의 비중과 선정 이유를 설명해줘.
@@ -1360,20 +1380,28 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         html = re.sub(r'#{1,3}\s*', '', html)
         html = re.sub(r'\n*\[SEP\]\n*', '\n──────────────────\n', html)
 
+        # 비중 한눈에 보기
+        summary_parts = [f'{s["name"]}({s["ticker"]}) {s["weight"]}%' for s in selected]
+        summary_line = ' · '.join(summary_parts)
+
         lines = [
             '━━━━━━━━━━━━━━━━━━━',
-            '    🎯 최종 추천',
+            '   [3/3] 🎯 최종 추천',
             '━━━━━━━━━━━━━━━━━━━',
+            f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
             '',
-            '3일 검증 + 리스크 필터를 통과한',
-            f'상위 {len(selected)}종목이에요.',
+            f'916종목 → Top 30 → ✅ 검증 → <b>최종 {len(selected)}종목</b>',
             '',
+            '📊 <b>비중 한눈에 보기</b>',
+            summary_line,
+            '',
+            '─────────────────',
             html,
             '',
             '💡 <b>활용법</b>',
             '· 비중대로 분산 투자를 권장해요',
-            '· 탈락 알림(📉)이 오면 매도 검토',
-            '· 약 2~4주 보유, 매일 후보 갱신 확인',
+            '· 목록에서 빠지면 매도 검토',
+            '· 최소 2주 보유, 매일 후보 갱신 확인',
             '⚠️ 참고용이며, 투자 판단은 본인 책임이에요.',
         ]
 
@@ -1465,22 +1493,30 @@ def main():
     log("=" * 60)
     results_df, turnaround_df, stats = run_ntm_collection(config)
 
-    # 2. Part 2 rank 저장 + 3일 교집합 + Death List
+    # 2. Part 2 rank 저장 + 3일 교집합 + 어제 대비 변동
     import pandas as pd
 
-    today_str = datetime.now().strftime('%Y-%m-%d')
+    today_str = os.environ.get('MARKET_DATE') or ''
+    if not today_str:
+        try:
+            spy_hist = yf.Ticker("SPY").history(period="5d")
+            today_str = spy_hist.index[-1].strftime('%Y-%m-%d')
+        except Exception:
+            today_str = datetime.now().strftime('%Y-%m-%d')
     status_map = {}
-    death_list = []
+    exited_tickers = []
 
     if not results_df.empty:
         save_part2_ranks(results_df, today_str)
 
-        # 오늘 Part 2 후보 티커 목록
+        # 오늘 Part 2 후보 티커 목록 (Top 30)
         candidates = get_part2_candidates(results_df, top_n=30)
         today_tickers = list(candidates['ticker']) if not candidates.empty else []
 
         status_map = get_3day_status(today_tickers)
-        death_list = get_death_list(today_str, today_tickers, results_df)
+        _, exited_tickers = get_daily_changes(today_tickers)
+
+    stats['exited_count'] = len(exited_tickers) if exited_tickers else 0
 
     # 2.5. 시장 지수 수집
     market_lines = get_market_context()
@@ -1488,13 +1524,13 @@ def main():
         log(f"시장 지수: {len(market_lines)}개")
 
     # 3. 메시지 생성
-    msg_part2 = create_part2_message(results_df, status_map, death_list, market_lines) if not results_df.empty else None
+    msg_part2 = create_part2_message(results_df, status_map, exited_tickers, market_lines) if not results_df.empty else None
 
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()
     msg_log = create_system_log_message(stats, elapsed, config)
 
-    # 4. 텔레그램 발송: 📖 가이드 → [1/3] 매수 후보 → [2/3] AI 점검 → [3/3] 최종 추천 → 로그
+    # 4. 텔레그램 발송: 📖 가이드 → [1/3] 매수 후보 → [2/3] AI 리스크 필터 → [3/3] 최종 추천 → 로그
     if config.get('telegram_enabled', False):
         is_github = config.get('is_github_actions', False)
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
@@ -1522,25 +1558,22 @@ def main():
             send_telegram_long(msg_part2, config, chat_id=private_id)
             log(f"[1/3] 매수 후보 전송 완료 → {dest}")
 
-        # [2/2] AI 점검 + 최종 추천 (통합)
+        # [2/3] AI 리스크 필터
         biz_day = get_last_business_day()
-        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, death_list=death_list, biz_day=biz_day)
-        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day)
-
-        # 통합 메시지 생성
-        msg_combined = None
-        if msg_ai and msg_portfolio:
-            msg_combined = msg_ai + '\n' + msg_portfolio
-        elif msg_ai:
-            msg_combined = msg_ai
-        elif msg_portfolio:
-            msg_combined = msg_portfolio
-
-        if msg_combined:
+        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day)
+        if msg_ai:
             if send_to_channel:
-                send_telegram_long(msg_combined, config, chat_id=channel_id)
-            send_telegram_long(msg_combined, config, chat_id=private_id)
-            log(f"[2/2] AI 점검 + 최종 추천 전송 완료 → {dest}")
+                send_telegram_long(msg_ai, config, chat_id=channel_id)
+            send_telegram_long(msg_ai, config, chat_id=private_id)
+            log(f"[2/3] AI 리스크 필터 전송 완료 → {dest}")
+
+        # [3/3] 최종 추천
+        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day)
+        if msg_portfolio:
+            if send_to_channel:
+                send_telegram_long(msg_portfolio, config, chat_id=channel_id)
+            send_telegram_long(msg_portfolio, config, chat_id=private_id)
+            log(f"[3/3] 최종 추천 전송 완료 → {dest}")
 
         # 시스템 로그 → 개인봇에만 (항상)
         send_telegram_long(msg_log, config, chat_id=private_id)

@@ -2,6 +2,11 @@ name: Test Private Bot Only
 
 on:
   workflow_dispatch:
+    inputs:
+      market_date:
+        description: 'Market date (YYYY-MM-DD). Leave empty for auto-detect.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -36,6 +41,7 @@ jobs:
           TELEGRAM_PRIVATE_ID: ${{ secrets.TELEGRAM_PRIVATE_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TZ: 'America/New_York'
+          MARKET_DATE: ${{ github.event.inputs.market_date }}
           # TELEGRAM_CHAT_ID 미설정 → 채널 전송 안함, 개인봇만
         run: python daily_runner.py
 
@@ -43,5 +49,5 @@ jobs:
         run: |
           git add -A
           git diff --staged --quiet || git commit -m "Daily update: $(date -u +%Y-%m-%d)"
-          git pull --rebase origin master || true
+          git pull --no-rebase -X ours origin master || true
           git push
