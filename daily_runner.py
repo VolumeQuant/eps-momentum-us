@@ -965,11 +965,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
             if num_analysts < 3:
                 flags.append(f"📉 애널리스트 {num_analysts}명 (저커버리지)")
 
-            # 3. 고평가 (Fwd PE > 100)
-            if fwd_pe > 100:
-                flags.append(f"💰 Fwd PE {fwd_pe:.1f}배 (고평가)")
-
-            # 5. 어닝 임박
+            # 3. 어닝 임박
             try:
                 stock = yf.Ticker(ticker)
                 cal = stock.calendar
@@ -1013,7 +1009,6 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
 [위험 신호 설명]
 🔻 의견 하향 과반 = 30일간 EPS 전망 수정 중 하향이 과반수 (하향 비율 > 50%)
 📉 저커버리지 = 커버리지 애널리스트 3명 미만 (추정치 신뢰도 낮음)
-💰 고평가 = Forward PE 100배 초과
 📅 어닝 = 2주 내 실적 발표 예정 (발표 전후 변동성 주의)
 
 [출력 형식]
@@ -1186,8 +1181,6 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
                 flags.append("하향과반")
             if num_analysts < 3:
                 flags.append("저커버리지")
-            if fwd_pe > 100:
-                flags.append("고평가")
             # 어닝 임박: 표시만 (포트폴리오 제외 안 함)
             earnings_note = ""
             try:
