@@ -857,13 +857,11 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
         sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
         for t, prev_rank in sorted_exits:
-            row_data = df[df['ticker'] == t]
-            name = row_data.iloc[0].get('short_name', t) if not row_data.empty else t
             cur_rank = current_rank_map.get(t)
             if cur_rank:
-                lines.append(f'{name}({t}) · 어제 {prev_rank}위 → {cur_rank}위')
+                lines.append(f'{t} · 어제 {prev_rank}위 → {cur_rank}위')
             else:
-                lines.append(f'{name}({t}) · 어제 {prev_rank}위 → 조건 미달')
+                lines.append(f'{t} · 어제 {prev_rank}위 → 조건 미달')
         lines.append('')
         lines.append('보유 중이라면 매도를 검토하세요.')
 
