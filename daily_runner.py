@@ -158,7 +158,7 @@ def run_ntm_collection(config):
     init_ntm_database()
 
     today = datetime.now()
-    today_str = today.strftime('%Y-%m-%d')
+    today_str = os.environ.get('MARKET_DATE') or today.strftime('%Y-%m-%d')
 
     all_tickers = sorted(set(t for tlist in INDICES.values() for t in tlist))
     log(f"유니버스: {len(all_tickers)}개 종목")
@@ -1458,7 +1458,7 @@ def main():
     # 2. Part 2 rank 저장 + 3일 교집합 + 어제 대비 변동
     import pandas as pd
 
-    today_str = datetime.now().strftime('%Y-%m-%d')
+    today_str = os.environ.get('MARKET_DATE') or datetime.now().strftime('%Y-%m-%d')
     status_map = {}
     exited_tickers = []
 
