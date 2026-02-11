@@ -910,7 +910,8 @@ def create_system_log_message(stats, elapsed, config):
         conn.close()
         if dates:
             lines.append(f'\n📂 DB: {dates[0]} ~ {dates[-1]} ({len(dates)}일)')
-            lines.append(f'오늘 매수 후보: {ranked}개')
+            exited = stats.get('exited_count', 0)
+            lines.append(f'매수 후보: {ranked}개 / 이탈: {exited}개')
     except Exception:
         pass
 
@@ -1514,6 +1515,8 @@ def main():
 
         status_map = get_3day_status(today_tickers)
         _, exited_tickers = get_daily_changes(today_tickers)
+
+    stats['exited_count'] = len(exited_tickers) if exited_tickers else 0
 
     # 2.5. 시장 지수 수집
     market_lines = get_market_context()
