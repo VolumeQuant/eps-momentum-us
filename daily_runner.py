@@ -1234,32 +1234,46 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: ✅ 종목 없음", "WARN")
             return None
 
-        # adj_gap순 정렬 (더 음수 = EPS 대비 주가 저평가) + 섹터 분산 (1섹터 1종목)
+        # adj_gap순 정렬 (더 음수 = EPS 대비 주가 저평가)
         safe.sort(key=lambda x: x['adj_gap'])
         log("포트폴리오: adj_gap 순위 (EPS 대비 저평가):")
         for i, s in enumerate(safe):
-            log(f"    {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
-        selected = []
-        used_sectors = set()
-        for s in safe:
-            sector = s['industry']
-            if sector in used_sectors:
-                log(f"  ⏭️ {s['ticker']}: 섹터 중복 [{sector}] → 스킵")
-                continue
-            selected.append(s)
-            used_sectors.add(sector)
-            log(f"  → {s['ticker']}: [{sector}] 선정")
-            if len(selected) >= 5:
-                break
+            mark = "→" if i < 5 else " "
+            log(f"  {mark} {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']}")
+        selected = safe[:5]
 
         if len(selected) < 3:
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 비중 배분 (순위 기반 고정 비중)
-        RANK_WEIGHTS = [25, 25, 20, 15, 15]
+        # 비중 배분 (adj_gap 절대값 비례 — 더 저평가일수록 높은 비중, 5% 단위)
+        # 종목당 상한 30%
+        MAX_WEIGHT = 30
+        gaps = [abs(s['adj_gap']) for s in selected]
+        total_score = sum(gaps)
         for i, s in enumerate(selected):
-            s['weight'] = RANK_WEIGHTS[i] if i < len(RANK_WEIGHTS) else 10
+            raw = gaps[i] / total_score * 100
+            s['weight'] = min(round(raw / 5) * 5, MAX_WEIGHT)
+        # 합계 100% 보정
+        diff = 100 - sum(s['weight'] for s in selected)
+        while diff != 0:
+            adjusted = False
+            for s in selected:
+                if diff > 0 and s['weight'] < MAX_WEIGHT:
+                    add = min(5, MAX_WEIGHT - s['weight'], diff)
+                    s['weight'] += add
+                    diff -= add
+                    adjusted = True
+                elif diff < 0 and s['weight'] > 5:
+                    sub = min(5, s['weight'] - 5, -diff)
+                    s['weight'] -= sub
+                    diff += sub
+                    adjusted = True
+                if diff == 0:
+                    break
+            if not adjusted:
+                selected[0]['weight'] += diff
+                break
 
         log(f"포트폴리오: {len(selected)}종목 선정 — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
