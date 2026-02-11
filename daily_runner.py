@@ -434,10 +434,7 @@ def run_ntm_collection(config):
         'total_collected': len(results) + len(turnaround),
     }
 
-    if not results_df.empty:
-        stats['score_gt0'] = int((results_df['score'] > 0).sum())
-        stats['score_gt3'] = int((results_df['score'] > 3).sum())
-        stats['aligned_count'] = int((~results_df['trend_lights'].str.contains('🌧️')).sum())
+    # score_gt0/gt3/aligned_count 제거 — 시스템 로그에서 미사용
 
     log(f"수집 완료: 메인 {len(results)}, 턴어라운드 {len(turnaround)}, "
         f"데이터없음 {len(no_data)}, 에러 {len(errors)}")
@@ -885,27 +882,39 @@ def create_system_log_message(stats, elapsed, config):
     minutes = int(elapsed // 60)
     seconds = int(elapsed % 60)
 
-    main_cnt = stats.get('main_count', 0)
-    turn_cnt = stats.get('turnaround_count', 0)
+    collected = stats.get('total_collected', 0)
+    universe = stats.get('universe', 0)
     err = stats.get('error_count', 0)
 
     lines = [f'🔧 <b>시스템 로그</b>']
-    lines.append(f'{time_str} KST · {env}\n')
+    lines.append(f'{time_str} KST · {env}')
 
-    lines.append(f'수집 {main_cnt + turn_cnt}/{stats.get("universe", 0)} (에러 {err})')
-    lines.append(f'├ 메인 {main_cnt}')
-    lines.append(f'└ 턴어라운드 {turn_cnt}')
-
-    if err > 0:
+    # 수집 결과
+    if err == 0:
+        lines.append(f'\n✅ 수집 성공 ({collected}/{universe})')
+    else:
+        lines.append(f'\n⚠️ 수집 완료 ({collected}/{universe}, 실패 {err})')
         error_tickers = stats.get('error_tickers', [])
-        lines.append(f'에러: {", ".join(error_tickers)}')
+        if error_tickers:
+            lines.append(f'실패: {", ".join(error_tickers[:10])}')
 
-    lines.append('')
-    lines.append(f'Score &gt; 0: {stats.get("score_gt0", 0)} ({stats.get("score_gt0", 0) * 100 // max(main_cnt, 1)}%)')
-    lines.append(f'Score &gt; 3: {stats.get("score_gt3", 0)} ({stats.get("score_gt3", 0) * 100 // max(main_cnt, 1)}%)')
-    lines.append(f'전구간 양호(🌧️ 없음): {stats.get("aligned_count", 0)}')
+    # DB 데이터 범위
+    try:
+        conn = sqlite3.connect(config.get('db_path', 'eps_momentum_data.db'))
+        cur = conn.cursor()
+        cur.execute('SELECT DISTINCT date FROM ntm_screening ORDER BY date')
+        dates = [r[0] for r in cur.fetchall()]
+        cur.execute('SELECT COUNT(*) FROM ntm_screening WHERE part2_rank IS NOT NULL AND date=?',
+                    (dates[-1],) if dates else ('',))
+        ranked = cur.fetchone()[0] if dates else 0
+        conn.close()
+        if dates:
+            lines.append(f'\n📂 DB: {dates[0]} ~ {dates[-1]} ({len(dates)}일)')
+            lines.append(f'오늘 매수 후보: {ranked}개')
+    except Exception:
+        pass
 
-    lines.append(f'\n소요: {minutes}분 {seconds}초')
+    lines.append(f'\n⏱️ 소요: {minutes}분 {seconds}초')
 
     return '\n'.join(lines)
 
