@@ -845,18 +845,36 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.append(opinion_str)
         lines.append('──────────────────')
 
-    # 이탈 종목 (어제 대비)
+    # 이탈 종목 (어제 대비) + 사유 분석
     if exited_tickers:
         lines.append('')
         lines.append('─────────────────')
         lines.append(f'📉 어제 대비 이탈 {len(exited_tickers)}개')
-        # ticker → 종목명 변환
-        exit_names = []
         for t in exited_tickers:
             row_data = df[df['ticker'] == t]
-            name = row_data.iloc[0].get('short_name', t) if not row_data.empty else t
-            exit_names.append(f'{name}({t})')
-        lines.append(', '.join(exit_names))
+            if row_data.empty:
+                lines.append(f'{t} — 데이터 없음')
+                continue
+            r = row_data.iloc[0]
+            name = r.get('short_name', t)
+            reasons = []
+            price = r.get('price', 0) or 0
+            ma60 = r.get('ma60', 0) or 0
+            if price > 0 and ma60 > 0 and price <= ma60:
+                reasons.append('이평선 이탈')
+            rev_up = int(r.get('rev_up30', 0) or 0)
+            rev_down = int(r.get('rev_down30', 0) or 0)
+            total_rev = rev_up + rev_down
+            if total_rev > 0 and rev_down / total_rev > 0.3:
+                reasons.append(f'의견 하향 ↓{rev_down}/↑{rev_up}')
+            eps_chg = r.get('eps_change_90d', 0) or 0
+            if eps_chg <= 0:
+                reasons.append('EPS 둔화')
+            adj_gap = r.get('adj_gap', 0) or 0
+            if adj_gap > 0:
+                reasons.append('주가 선반영')
+            reason_str = ', '.join(reasons) if reasons else '순위 밀림'
+            lines.append(f'{name}({t}) — {reason_str}')
         lines.append('')
         lines.append('보유 중이라면 매도를 검토하세요.')
 
