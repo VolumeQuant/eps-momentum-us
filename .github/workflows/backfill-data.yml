@@ -31,9 +31,11 @@ jobs:
       - name: Run backfill
         run: python backfill_missing.py
 
+      - name: Pull latest before commit
+        run: git pull origin master
+
       - name: Commit and push
         run: |
           git add -A
           git diff --staged --quiet || git commit -m "Backfill: 2/6, 2/9 데이터 보충 (price/ma60/adj_score/adj_gap/part2_rank)"
-          git pull --rebase origin master || true
           git push
