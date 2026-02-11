@@ -158,7 +158,14 @@ def run_ntm_collection(config):
     init_ntm_database()
 
     today = datetime.now()
-    today_str = os.environ.get('MARKET_DATE') or today.strftime('%Y-%m-%d')
+    today_str = os.environ.get('MARKET_DATE') or ''
+    if not today_str:
+        try:
+            spy_hist = yf.Ticker("SPY").history(period="5d")
+            today_str = spy_hist.index[-1].strftime('%Y-%m-%d')
+        except Exception:
+            today_str = today.strftime('%Y-%m-%d')
+    log(f"마켓 날짜: {today_str}")
 
     all_tickers = sorted(set(t for tlist in INDICES.values() for t in tlist))
     log(f"유니버스: {len(all_tickers)}개 종목")
@@ -1458,7 +1465,13 @@ def main():
     # 2. Part 2 rank 저장 + 3일 교집합 + 어제 대비 변동
     import pandas as pd
 
-    today_str = os.environ.get('MARKET_DATE') or datetime.now().strftime('%Y-%m-%d')
+    today_str = os.environ.get('MARKET_DATE') or ''
+    if not today_str:
+        try:
+            spy_hist = yf.Ticker("SPY").history(period="5d")
+            today_str = spy_hist.index[-1].strftime('%Y-%m-%d')
+        except Exception:
+            today_str = datetime.now().strftime('%Y-%m-%d')
     status_map = {}
     exited_tickers = []
 
