@@ -1094,7 +1094,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
 
 아래는 EPS 모멘텀 시스템의 매수 후보 {stock_count}종목과 각 종목의 정량적 위험 신호야.
 이 종목들은 EPS 전망치가 상향 중이라 선정된 거야.
-네 역할: 위험 신호를 해석해서 "사면 위험한 종목"을 고객에게 알려주는 거야.
+네 역할: 아래 3개 섹션을 순서대로 반드시 모두 출력하는 거야. 인사말이나 서두 없이 바로 시작해.
 
 [종목별 데이터 & 위험 신호 — 시스템이 계산한 팩트]
 {signals_data}
@@ -1104,21 +1104,23 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
 📉 저커버리지 = 커버리지 애널리스트 3명 미만 (추정치 신뢰도 낮음)
 📅 어닝 = 2주 내 실적 발표 예정 (발표 전후 변동성 주의)
 
-[출력 형식]
+[출력 규칙]
 - 한국어, 친절하고 따뜻한 말투 (~예요/~해요 체)
-- 예시: "주가가 크게 빠졌어요", "조심하시는 게 좋겠어요", "아직은 괜찮아 보여요"
 - 딱딱한 보고서 말투 금지. 친구에게 설명하듯 자연스럽게.
+- 인사말, 서두, 맺음말 금지. 아래 3개 섹션만 출력.
 - 총 1500자 이내.
 
+=== 반드시 출력할 3개 섹션 ===
+
 📰 시장 동향
-어제 미국 시장 마감과 금주 주요 이벤트를 Google 검색해서 2~3줄 요약해줘.
+(필수) 어제 미국 시장 마감과 금주 주요 이벤트를 Google 검색해서 2~3줄 요약해줘. 이 섹션은 반드시 출력해야 해.
 
 ⚠️ 매수 주의 종목
-위 위험 신호를 종합해서 매수를 재고할 만한 종목을 골라줘.
+위 데이터에서 위험 신호(🔻/📉/📅)가 있는 종목만 골라서 설명해줘.
 형식: 종목명(티커)를 굵게(**) 쓰고, 1~2줄로 왜 주의해야 하는지 설명.
 종목과 종목 사이에 반드시 [SEP] 한 줄을 넣어서 구분해줘.
-위험 신호가 없는 종목은 절대 여기에 넣지 마.
-시스템 데이터에 없는 내용을 추측하거나 지어내지 마.
+위험 신호가 없는 종목은 절대 넣지 마. 시스템 데이터에 없는 내용을 지어내지 마.
+만약 위험 신호가 있는 종목이 하나도 없으면 "✅ 모든 후보가 현재 양호해요." 한 줄만 출력해.
 
 예시:
 **ABC Corp(ABC)**
@@ -1130,8 +1132,6 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
 📅 어닝 주의
 {earnings_info}
 (위 내용 그대로 표시. 수정/추가 금지. "해당 없음"이면 이 섹션 생략.)
-
-위험 신호가 없는 종목은 언급하지 마."""
 
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         response = client.models.generate_content(
@@ -1160,14 +1160,22 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
             return None
 
         analysis_text = extract_text(response)
-        if not analysis_text:
+
+        # 응답 유효성 검증: 비어있거나 필수 섹션(📰/⚠️) 누락이면 재시도
+        def is_valid_response(text):
+            if not text or len(text) < 50:
+                return False
+            return '📰' in text or '시장' in text
+
+        if not is_valid_response(analysis_text):
             try:
                 if hasattr(response, 'candidates') and response.candidates:
                     candidate = response.candidates[0]
                     log(f"Gemini finish_reason: {candidate.finish_reason}", "WARN")
             except Exception:
                 pass
-            log("Gemini 응답이 비어있음 — 재시도", "WARN")
+            reason = "비어있음" if not analysis_text else f"섹션 누락 ({len(analysis_text)}자)"
+            log(f"Gemini 응답 부적합 ({reason}) — 재시도", "WARN")
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=prompt,
@@ -1177,9 +1185,10 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
                 ),
             )
             analysis_text = extract_text(response)
-            if not analysis_text:
-                log("Gemini 재시도도 실패", "WARN")
-                return None
+            if not is_valid_response(analysis_text):
+                log("Gemini 재시도도 부적합", "WARN")
+                if not analysis_text:
+                    return None
 
         # Markdown → Telegram HTML 변환
         analysis_html = analysis_text
