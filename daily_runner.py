@@ -545,6 +545,9 @@ def save_part2_ranks(results_df, today_str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    # 기존 part2_rank 초기화 후 새로 저장 (필터 변경 시 잔여 rank 방지)
+    cursor.execute('UPDATE ntm_screening SET part2_rank=NULL WHERE date=?', (today_str,))
+
     for i, (_, row) in enumerate(candidates.iterrows()):
         cursor.execute(
             'UPDATE ntm_screening SET part2_rank=? WHERE date=? AND ticker=?',
@@ -624,6 +627,39 @@ def get_3day_status(today_tickers):
     v1 = sum(1 for v in status.values() if v == '🆕')
     log(f"3일 교집합: ✅ {v3}개, ⏳ {v2}개, 🆕 {v1}개")
     return status
+
+
+def get_rank_history(today_tickers):
+    """최근 3일간 part2_rank 이력 → {ticker: '3→4→1'} 형태"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
+    )
+    dates = sorted([r[0] for r in cursor.fetchall()])
+
+    if len(dates) < 2:
+        conn.close()
+        return {}
+
+    rank_by_date = {}
+    for d in dates:
+        cursor.execute(
+            'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 30',
+            (d,)
+        )
+        rank_by_date[d] = {r[0]: r[1] for r in cursor.fetchall()}
+    conn.close()
+
+    history = {}
+    for t in today_tickers:
+        parts = []
+        for d in dates:
+            r = rank_by_date.get(d, {}).get(t)
+            parts.append(str(r) if r else '-')
+        history[t] = '→'.join(parts)
+    return history
 
 
 def get_daily_changes(today_tickers):
@@ -833,8 +869,8 @@ def create_guide_message():
     return '\n'.join(lines)
 
 
-def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=None, top_n=30):
-    """[1/2] 매수 후보 메시지 — adj_gap 순 Top 30, ✅/⏳/🆕 표시, 어제 대비 변동"""
+def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=None, rank_history=None, top_n=30):
+    """[1/3] 매수 후보 메시지 — composite 순 Top 30, ✅/⏳/🆕 표시, 순위 이력"""
     import pandas as pd
 
     biz_day = get_last_business_day()
@@ -848,6 +884,8 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         status_map = {}
     if exited_tickers is None:
         exited_tickers = {}
+    if rank_history is None:
+        rank_history = {}
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
@@ -862,19 +900,13 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
     lines.append('괴리 + 매출 성장률 복합 순위.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('✅ 3일 연속 Top 30 → 매수 대상')
-    lines.append('⏳ 2일 연속 → 내일 검증 가능')
-    lines.append('🆕 오늘 첫 진입 → 지켜보세요')
-    lines.append('괴리 = EPS 대비 주가 저평가 정도')
-    lines.append('매출 = 최근 분기 매출 성장률')
-    lines.append('의견 = 최근 30일 애널리스트 ↑상향 ↓하향 수')
-    lines.append('날씨 = 🔥폭등 ☀️강세 🌤️상승 ☁️보합 🌧️하락')
+    lines.append('✅매수 ⏳내일검증 🆕관찰 · 괴리=저평가')
+    lines.append('🔥폭등 ☀️강세 🌤️상승 ☁️보합 🌧️하락')
     lines.append('')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
         ticker = row['ticker']
-        name = row.get('short_name', ticker)
         industry = row.get('industry', '')
         lights = row.get('trend_lights', '')
         desc = row.get('trend_desc', '')
@@ -884,35 +916,28 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         # ✅/🆕 마커
         marker = status_map.get(ticker, '🆕')
 
-        # Line 3: EPS · 주가 · 괴리 · 매출
+        # 순위 이력
+        hist = rank_history.get(ticker, '')
+
         adj_gap = row.get('adj_gap', 0) or 0
         rev_g = row.get('rev_growth')
-        change_str = ''
-        if pd.notna(eps_90d) and pd.notna(price_90d):
-            change_str = f"EPS {eps_90d:+.1f}% · 주가 {price_90d:+.1f}% · 괴리 <b>{adj_gap:+.1f}</b>"
-            if pd.notna(rev_g):
-                change_str += f" · 매출 {rev_g*100:+.0f}%"
+        rev_up = int(row.get('rev_up30', 0) or 0)
+        rev_down = int(row.get('rev_down30', 0) or 0)
 
-        # Line 4: 의견 ↑N ↓N
-        rev_up = row.get('rev_up30', 0) or 0
-        rev_down = row.get('rev_down30', 0) or 0
-        opinion_str = f"의견 ↑{rev_up} ↓{rev_down}"
+        # Line 1: 순위 마커 티커 · 업종 · 날씨
+        lines.append(f'{marker} <b>{rank}.</b> {ticker} · {industry} · {lights} {desc}')
 
-        # ⚠️ 판별: EPS > 0이고 주가 < 0일 때, |주가변화| / |EPS변화| > 5
-        eps_chg_w = row.get('eps_chg_weighted')
-        price_chg_w = row.get('price_chg_weighted')
-        is_warning = False
-        if (pd.notna(eps_chg_w) and pd.notna(price_chg_w)
-                and eps_chg_w > 0 and price_chg_w < 0):
-            ratio = abs(price_chg_w) / abs(eps_chg_w)
-            if ratio > 5:
-                is_warning = True
-
-        warn_mark = ' ⚠️' if is_warning else ''
-        lines.append(f'<b>{rank}</b> {marker} {name} ({ticker}){warn_mark}')
-        lines.append(f'<i>{industry}</i> · {lights} {desc}')
-        lines.append(change_str)
-        lines.append(opinion_str)
+        # Line 2: 핵심 지표 한 줄
+        parts = []
+        if pd.notna(eps_90d):
+            parts.append(f'EPS{eps_90d:+.0f}%')
+        parts.append(f'괴리<b>{adj_gap:+.1f}</b>')
+        if pd.notna(rev_g):
+            parts.append(f'매출{rev_g*100:+.0f}%')
+        parts.append(f'의견↑{rev_up}↓{rev_down}')
+        if hist:
+            parts.append(f'#{hist}')
+        lines.append(' · '.join(parts))
         lines.append('──────────────────')
 
     # 이탈 종목 (어제 대비) + 어제→오늘 순위
@@ -1564,6 +1589,7 @@ def main():
         except Exception:
             today_str = datetime.now().strftime('%Y-%m-%d')
     status_map = {}
+    rank_history = {}
     exited_tickers = []
 
     if not results_df.empty:
@@ -1576,6 +1602,7 @@ def main():
         today_tickers = list(candidates['ticker']) if not candidates.empty else []
 
         status_map = get_3day_status(today_tickers)
+        rank_history = get_rank_history(today_tickers)
         _, exited_tickers = get_daily_changes(today_tickers)
 
     stats['exited_count'] = len(exited_tickers) if exited_tickers else 0
@@ -1586,7 +1613,7 @@ def main():
         log(f"시장 지수: {len(market_lines)}개")
 
     # 3. 메시지 생성
-    msg_part2 = create_part2_message(results_df, status_map, exited_tickers, market_lines) if not results_df.empty else None
+    msg_part2 = create_part2_message(results_df, status_map, exited_tickers, market_lines, rank_history) if not results_df.empty else None
 
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()
