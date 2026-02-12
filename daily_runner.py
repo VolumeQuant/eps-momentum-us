@@ -506,6 +506,12 @@ def get_part2_candidates(df, top_n=None):
         valid = filtered[filtered['rev_growth'].notna()].copy()
         invalid = filtered[filtered['rev_growth'].isna()].copy()
 
+        # 매출 역성장 제외 (rev_growth < 0)
+        negative = valid[valid['rev_growth'] < 0]
+        if len(negative) > 0:
+            log(f"매출 역성장 제외: {', '.join(negative['ticker'].tolist())}")
+        valid = valid[valid['rev_growth'] >= 0].copy()
+
         # z-score 정규화
         gap_mean, gap_std = valid['adj_gap'].mean(), valid['adj_gap'].std()
         rev_mean, rev_std = valid['rev_growth'].mean(), valid['rev_growth'].std()
@@ -810,7 +816,7 @@ def create_guide_message():
         '',
         '① 이익 전망이 오르는 종목을 찾고',
         '② 주가 흐름이 건강한 종목만 남기고',
-        '③ 괴리(70%) + 매출 성장(30%) 복합 순위 Top 30',
+        '③ 매출 역성장 제외, 복합 순위(괴리 70%+매출 30%) Top 30',
         '④ 3일 연속 Top 30에 들면 검증 완료 ✅',
         '⑤ AI 위험 점검 후 최종 5종목 추천',
         '',
