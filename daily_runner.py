@@ -897,10 +897,10 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.extend(market_lines)
     lines.append('')
     lines.append('이익 전망이 올라가면서 매출도 성장하는 종목이에요.')
-    lines.append('괴리 + 매출 성장률 복합 순위.')
+    lines.append('EPS 저평가 + 매출 성장률 복합 순위.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('✅매수 ⏳내일검증 🆕관찰 · 괴리=저평가')
+    lines.append('✅매수 ⏳내일검증 🆕관찰')
     lines.append('🔥폭등 ☀️강세 🌤️상승 ☁️보합 🌧️하락')
     lines.append('')
 
@@ -928,13 +928,14 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.append(f'{marker} <b>{rank}.</b> {ticker} · {industry}')
         # Line 2: 날씨
         lines.append(f'{lights} {desc}')
-        # Line 3: 괴리(맨앞) · EPS · 매출
-        parts = [f'괴리 <b>{adj_gap:+.1f}</b>']
+        # Line 3: EPS · 매출
+        parts = []
         if pd.notna(eps_90d):
             parts.append(f'EPS {eps_90d:+.0f}%')
         if pd.notna(rev_g):
             parts.append(f'매출 {rev_g*100:+.0f}%')
-        lines.append(' · '.join(parts))
+        if parts:
+            lines.append(' · '.join(parts))
         # Line 4: 의견 · 순위이력
         line4 = f'의견 ↑{rev_up}↓{rev_down}'
         if hist:
