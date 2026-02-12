@@ -446,12 +446,51 @@ def run_ntm_collection(config):
 # Part 2 공통 필터 & 3일 교집합
 # ============================================================
 
+def fetch_revenue_growth(df):
+    """Part 2 eligible 종목의 매출 성장률 수집 (yfinance)
+
+    composite score = z(adj_gap)*0.7 + z(rev_growth)*0.3
+    '파괴적 혁신 기업을 싸게' — 매출 성장이 높고 adj_gap이 큰 종목 우선
+    """
+    import yfinance as yf
+    import numpy as np
+
+    # adj_gap 기준 상위 50개만 수집 (Top 30 + 버퍼)
+    eligible = df[
+        (df['adj_score'] > 9) &
+        (df['adj_gap'].notna()) &
+        (df['fwd_pe'].notna()) & (df['fwd_pe'] > 0) &
+        (df['eps_change_90d'] > 0) &
+        (df['price'].notna()) & (df['price'] >= 10) &
+        (df['ma60'].notna()) & (df['price'] > df['ma60'])
+    ].sort_values('adj_gap', ascending=True).head(50)
+
+    tickers = list(eligible['ticker'])
+    log(f"매출 성장률 수집: {len(tickers)}종목")
+
+    rev_map = {}
+    for t in tickers:
+        try:
+            info = yf.Ticker(t).info
+            rev_map[t] = info.get('revenueGrowth')
+        except Exception:
+            rev_map[t] = None
+
+    success = sum(1 for v in rev_map.values() if v is not None)
+    log(f"매출 성장률 수집 완료: {success}/{len(tickers)}")
+
+    df['rev_growth'] = df['ticker'].map(rev_map)
+    return df
+
+
 def get_part2_candidates(df, top_n=None):
     """Part 2 매수 후보 필터링 (공통 함수)
 
     필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA60
-    정렬: adj_gap 오름차순 (더 음수 = 더 저평가)
+    정렬: composite score (adj_gap 70% + rev_growth 30%) 또는 adj_gap
     """
+    import numpy as np
+
     filtered = df[
         (df['adj_score'] > 9) &
         (df['adj_gap'].notna()) &
@@ -461,7 +500,28 @@ def get_part2_candidates(df, top_n=None):
         (df['ma60'].notna()) & (df['price'] > df['ma60'])
     ].copy()
 
-    filtered = filtered.sort_values('adj_gap', ascending=True)
+    # rev_growth 칼럼이 있고 유효 데이터가 충분하면 composite score 사용
+    if 'rev_growth' in filtered.columns and filtered['rev_growth'].notna().sum() >= 10:
+        valid = filtered[filtered['rev_growth'].notna()].copy()
+        invalid = filtered[filtered['rev_growth'].isna()].copy()
+
+        # z-score 정규화
+        gap_mean, gap_std = valid['adj_gap'].mean(), valid['adj_gap'].std()
+        rev_mean, rev_std = valid['rev_growth'].mean(), valid['rev_growth'].std()
+
+        if gap_std > 0 and rev_std > 0:
+            z_gap = (valid['adj_gap'] - gap_mean) / gap_std
+            z_rev = (valid['rev_growth'] - rev_mean) / rev_std
+            # adj_gap은 음수가 좋으므로 부호 반전, rev_growth는 양수가 좋음
+            valid['composite'] = (-z_gap) * 0.7 + z_rev * 0.3
+            valid = valid.sort_values('composite', ascending=False)
+            # rev_growth 없는 종목은 뒤에 붙임 (adj_gap 순)
+            invalid = invalid.sort_values('adj_gap', ascending=True)
+            filtered = pd.concat([valid, invalid], ignore_index=True)
+        else:
+            filtered = filtered.sort_values('adj_gap', ascending=True)
+    else:
+        filtered = filtered.sort_values('adj_gap', ascending=True)
 
     if top_n:
         filtered = filtered.head(top_n)
@@ -749,7 +809,7 @@ def create_guide_message():
         '',
         '① 이익 전망이 오르는 종목을 찾고',
         '② 주가 흐름이 건강한 종목만 남기고',
-        '③ EPS 대비 주가 괴리 순서로 Top 30 선별',
+        '③ 괴리(70%) + 매출 성장(30%) 복합 순위 Top 30',
         '④ 3일 연속 Top 30에 들면 검증 완료 ✅',
         '⑤ AI 위험 점검 후 최종 5종목 추천',
         '',
@@ -791,14 +851,15 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.append('─────────────────')
         lines.extend(market_lines)
     lines.append('')
-    lines.append('이익 전망이 올라가는 종목이에요.')
-    lines.append('괴리가 클수록 주가가 덜 따라온 상태.')
+    lines.append('이익 전망이 올라가면서 매출도 성장하는 종목이에요.')
+    lines.append('괴리 + 매출 성장률 복합 순위.')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
     lines.append('✅ 3일 연속 Top 30 → 매수 대상')
     lines.append('⏳ 2일 연속 → 내일 검증 가능')
     lines.append('🆕 오늘 첫 진입 → 지켜보세요')
-    lines.append('괴리 = 음수가 클수록 저평가 (매수 기회)')
+    lines.append('괴리 = EPS 대비 주가 저평가 정도')
+    lines.append('매출 = 최근 분기 매출 성장률')
     lines.append('의견 = 최근 30일 애널리스트 ↑상향 ↓하향 수')
     lines.append('날씨 = 🔥폭등 ☀️강세 🌤️상승 ☁️보합 🌧️하락')
     lines.append('')
@@ -816,11 +877,14 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         # ✅/🆕 마커
         marker = status_map.get(ticker, '🆕')
 
-        # Line 3: EPS · 주가 · 괴리
+        # Line 3: EPS · 주가 · 괴리 · 매출
         adj_gap = row.get('adj_gap', 0) or 0
+        rev_g = row.get('rev_growth')
         change_str = ''
         if pd.notna(eps_90d) and pd.notna(price_90d):
             change_str = f"EPS {eps_90d:+.1f}% · 주가 {price_90d:+.1f}% · 괴리 <b>{adj_gap:+.1f}</b>"
+            if pd.notna(rev_g):
+                change_str += f" · 매출 {rev_g*100:+.0f}%"
 
         # Line 4: 의견 ↑N ↓N
         rev_up = row.get('rev_up30', 0) or 0
@@ -1507,6 +1571,8 @@ def main():
     exited_tickers = []
 
     if not results_df.empty:
+        # 매출 성장률 수집 → composite score (adj_gap 70% + rev_growth 30%)
+        results_df = fetch_revenue_growth(results_df)
         save_part2_ranks(results_df, today_str)
 
         # 오늘 Part 2 후보 티커 목록 (Top 30)
