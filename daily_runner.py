@@ -927,8 +927,8 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         # Line 1: 마커 순위 종목명(티커)
         name = row.get('short_name', ticker)
         lines.append(f'{marker} <b>{rank}.</b> {name}({ticker})')
-        # Line 2: 날씨 · 업종
-        lines.append(f'{lights} {desc} · {industry}')
+        # Line 2: 업종 · 날씨
+        lines.append(f'{industry} · {lights} {desc}')
         # Line 3: EPS · 매출
         parts = []
         if pd.notna(eps_90d):
@@ -938,9 +938,8 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         if parts:
             lines.append(' · '.join(parts))
         # Line 4: 의견 · 순위이력
-        line4 = f'의견 ↑{rev_up}↓{rev_down}'
-        if hist:
-            line4 += f' · 순위 {hist}'
+        rank_str = hist if hist and hist.replace('-', '').replace('→', '') else '신규'
+        line4 = f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}'
         lines.append(line4)
         lines.append('──────────────────')
 
