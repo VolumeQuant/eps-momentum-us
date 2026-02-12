@@ -1314,9 +1314,8 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: ✅ 종목 없음", "WARN")
             return None
 
-        # adj_gap순 정렬 (더 음수 = EPS 대비 주가 저평가) + 섹터 분산 (1섹터 1종목)
-        safe.sort(key=lambda x: x['adj_gap'])
-        log("포트폴리오: adj_gap 순위 (EPS 대비 저평가):")
+        # composite 순서 유지 (get_part2_candidates 정렬 = adj_gap 70% + rev_growth 30%) + 섹터 분산 (1섹터 1종목)
+        log("포트폴리오: composite 순위 (괴리 70% + 매출성장 30%):")
         for i, s in enumerate(safe):
             log(f"    {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
         selected = []
@@ -1336,13 +1335,14 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 비중 배분 (adj_gap 절대값 비례 — 더 저평가일수록 높은 비중, 5% 단위)
+        # 비중 배분 (composite 순위 기반 — 상위일수록 높은 비중, 5% 단위)
         # 종목당 상한 30%
         MAX_WEIGHT = 30
-        gaps = [abs(s['adj_gap']) for s in selected]
-        total_score = sum(gaps)
+        n = len(selected)
+        rank_weights = list(range(n, 0, -1))  # [5,4,3,2,1] for 5 stocks
+        total_rw = sum(rank_weights)
         for i, s in enumerate(selected):
-            raw = gaps[i] / total_score * 100
+            raw = rank_weights[i] / total_rw * 100
             s['weight'] = min(round(raw / 5) * 5, MAX_WEIGHT)
         # 합계 100% 보정
         diff = 100 - sum(s['weight'] for s in selected)
