@@ -924,22 +924,22 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         rev_up = int(row.get('rev_up30', 0) or 0)
         rev_down = int(row.get('rev_down30', 0) or 0)
 
-        # Line 1: 마커 순위 티커 · 업종 · 날씨
-        lines.append(f'{marker} <b>{rank}.</b> {ticker} · {industry} · {lights} {desc}')
-
-        # Line 2: 괴리(맨앞) · EPS · 매출
+        # Line 1: 마커 순위 티커 · 업종
+        lines.append(f'{marker} <b>{rank}.</b> {ticker} · {industry}')
+        # Line 2: 날씨
+        lines.append(f'{lights} {desc}')
+        # Line 3: 괴리(맨앞) · EPS · 매출
         parts = [f'괴리 <b>{adj_gap:+.1f}</b>']
         if pd.notna(eps_90d):
             parts.append(f'EPS {eps_90d:+.0f}%')
         if pd.notna(rev_g):
             parts.append(f'매출 {rev_g*100:+.0f}%')
         lines.append(' · '.join(parts))
-
-        # Line 3: 의견 · 순위이력
-        line3 = f'의견 ↑{rev_up}↓{rev_down}'
+        # Line 4: 의견 · 순위이력
+        line4 = f'의견 ↑{rev_up}↓{rev_down}'
         if hist:
-            line3 += f' · 순위 {hist}'
-        lines.append(line3)
+            line4 += f' · 순위 {hist}'
+        lines.append(line4)
         lines.append('──────────────────')
 
     # 이탈 종목 (어제 대비) + 어제→오늘 순위
