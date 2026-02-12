@@ -1131,7 +1131,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
 
 📅 어닝 주의
 {earnings_info}
-(위 내용 그대로 표시. 수정/추가 금지. "해당 없음"이면 이 섹션 생략.)
+(위 내용 그대로 표시. 수정/추가 금지. "해당 없음"이면 이 섹션 생략.)"""
 
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         response = client.models.generate_content(
