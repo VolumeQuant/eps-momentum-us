@@ -1344,35 +1344,15 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 비중 배분 (composite 순위 기반 — 상위일수록 높은 비중, 5% 단위)
-        # 종목당 상한 30%
-        MAX_WEIGHT = 30
+        # 동일 비중 배분 (5종목 = 각 20%)
         n = len(selected)
-        rank_weights = list(range(n, 0, -1))  # [5,4,3,2,1] for 5 stocks
-        total_rw = sum(rank_weights)
-        for i, s in enumerate(selected):
-            raw = rank_weights[i] / total_rw * 100
-            s['weight'] = min(round(raw / 5) * 5, MAX_WEIGHT)
-        # 합계 100% 보정
-        diff = 100 - sum(s['weight'] for s in selected)
-        while diff != 0:
-            adjusted = False
-            for s in selected:
-                if diff > 0 and s['weight'] < MAX_WEIGHT:
-                    add = min(5, MAX_WEIGHT - s['weight'], diff)
-                    s['weight'] += add
-                    diff -= add
-                    adjusted = True
-                elif diff < 0 and s['weight'] > 5:
-                    sub = min(5, s['weight'] - 5, -diff)
-                    s['weight'] -= sub
-                    diff += sub
-                    adjusted = True
-                if diff == 0:
-                    break
-            if not adjusted:
-                selected[0]['weight'] += diff
-                break
+        base_weight = 100 // n
+        for s in selected:
+            s['weight'] = base_weight
+        # 나머지 1위부터 배분 (예: 3종목이면 34/33/33)
+        remainder = 100 - base_weight * n
+        for i in range(remainder):
+            selected[i]['weight'] += 1
 
         log(f"포트폴리오: {len(selected)}종목 선정 — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
@@ -1391,7 +1371,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         prompt = f"""분석 기준일: {biz_day.strftime('%Y-%m-%d')} (미국 영업일)
 
 아래는 EPS 모멘텀 시스템이 자동 선정한 {len(selected)}종목 포트폴리오야.
-선정 기준: Part 2 매수 후보 중 위험 신호 없고(✅), EPS 모멘텀(속도+방향) 상위.
+선정 기준: Part 2 매수 후보 중 위험 신호 없고(✅), composite 순위 상위. 동일 비중.
 
 [포트폴리오]
 {chr(10).join(stock_lines)}
@@ -1405,7 +1385,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 - 맨 끝에 별도 문구 넣지 마. (코드에서 추가함)
 - 500자 이내
 
-각 종목의 비중과 선정 이유를 설명해줘.
+각 종목의 선정 이유를 설명해줘. 비중은 동일(각 {selected[0]['weight']}%)이니 비중 설명은 생략해.
 시스템 데이터에 없는 내용을 지어내지 마."""
 
         api_key = config.get('gemini_api_key', '')
@@ -1473,7 +1453,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             html,
             '',
             '💡 <b>활용법</b>',
-            '· 비중대로 분산 투자를 권장해요',
+            f'· 동일 비중(각 {selected[0]["weight"]}%) 분산 투자',
             '· 목록에서 빠지면 매도 검토',
             '· 최소 2주 보유, 매일 후보 갱신 확인',
             '⚠️ 참고용이며, 투자 판단은 본인 책임이에요.',
