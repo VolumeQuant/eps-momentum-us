@@ -455,7 +455,7 @@ def fetch_revenue_growth(df):
     import yfinance as yf
     import numpy as np
 
-    # adj_gap 기준 상위 50개만 수집 (Top 30 + 버퍼)
+    # eligible 전체 수집 (rev_growth 없으면 Top 30 제외되므로 넉넉히)
     eligible = df[
         (df['adj_score'] > 9) &
         (df['adj_gap'].notna()) &
@@ -463,7 +463,7 @@ def fetch_revenue_growth(df):
         (df['eps_change_90d'] > 0) &
         (df['price'].notna()) & (df['price'] >= 10) &
         (df['ma60'].notna()) & (df['price'] > df['ma60'])
-    ].sort_values('adj_gap', ascending=True).head(50)
+    ].sort_values('adj_gap', ascending=True)
 
     tickers = list(eligible['ticker'])
     log(f"매출 성장률 수집: {len(tickers)}종목")
@@ -503,28 +503,28 @@ def get_part2_candidates(df, top_n=None):
 
     # rev_growth 칼럼이 있고 유효 데이터가 충분하면 composite score 사용
     if 'rev_growth' in filtered.columns and filtered['rev_growth'].notna().sum() >= 10:
-        valid = filtered[filtered['rev_growth'].notna()].copy()
-        invalid = filtered[filtered['rev_growth'].isna()].copy()
+        # rev_growth 없는 종목 제외 (매출 데이터 필수)
+        no_rev = filtered[filtered['rev_growth'].isna()]
+        if len(no_rev) > 0:
+            log(f"매출 데이터 없음 제외: {', '.join(no_rev['ticker'].tolist())}")
+        filtered = filtered[filtered['rev_growth'].notna()].copy()
 
         # 매출 성장률 10% 미만 제외
-        low_rev = valid[valid['rev_growth'] < 0.10]
+        low_rev = filtered[filtered['rev_growth'] < 0.10]
         if len(low_rev) > 0:
             log(f"매출 성장 부족(<10%) 제외: {', '.join(low_rev['ticker'].tolist())}")
-        valid = valid[valid['rev_growth'] >= 0.10].copy()
+        filtered = filtered[filtered['rev_growth'] >= 0.10].copy()
 
         # z-score 정규화
-        gap_mean, gap_std = valid['adj_gap'].mean(), valid['adj_gap'].std()
-        rev_mean, rev_std = valid['rev_growth'].mean(), valid['rev_growth'].std()
+        gap_mean, gap_std = filtered['adj_gap'].mean(), filtered['adj_gap'].std()
+        rev_mean, rev_std = filtered['rev_growth'].mean(), filtered['rev_growth'].std()
 
         if gap_std > 0 and rev_std > 0:
-            z_gap = (valid['adj_gap'] - gap_mean) / gap_std
-            z_rev = (valid['rev_growth'] - rev_mean) / rev_std
+            z_gap = (filtered['adj_gap'] - gap_mean) / gap_std
+            z_rev = (filtered['rev_growth'] - rev_mean) / rev_std
             # adj_gap은 음수가 좋으므로 부호 반전, rev_growth는 양수가 좋음
-            valid['composite'] = (-z_gap) * 0.7 + z_rev * 0.3
-            valid = valid.sort_values('composite', ascending=False)
-            # rev_growth 없는 종목은 뒤에 붙임 (adj_gap 순)
-            invalid = invalid.sort_values('adj_gap', ascending=True)
-            filtered = pd.concat([valid, invalid], ignore_index=True)
+            filtered['composite'] = (-z_gap) * 0.7 + z_rev * 0.3
+            filtered = filtered.sort_values('composite', ascending=False)
         else:
             filtered = filtered.sort_values('adj_gap', ascending=True)
     else:
@@ -903,6 +903,16 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
     lines.append('✅매수 ⏳내일검증 🆕관찰')
     lines.append('🔥폭등 ☀️강세 🌤️상승 ☁️보합 🌧️하락')
     lines.append('')
+
+    # 업종 분포 통계
+    from collections import Counter
+    sector_counts = Counter(row.get('industry', '기타') for _, row in filtered.iterrows())
+    top_sectors = sector_counts.most_common()
+    if top_sectors:
+        sector_parts = [f'{name} {cnt}' for name, cnt in top_sectors if cnt >= 2]
+        if sector_parts:
+            lines.append(f'📊 <b>주도 업종</b>: {" · ".join(sector_parts)}')
+            lines.append('')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
@@ -1360,22 +1370,11 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: ✅ 종목 없음", "WARN")
             return None
 
-        # composite 순서 유지 (get_part2_candidates 정렬 = adj_gap 70% + rev_growth 30%) + 섹터 분산 (1섹터 1종목)
+        # composite 순서 그대로 상위 5종목 선정 (섹터 분산 없음)
         log("포트폴리오: composite 순위 (괴리 70% + 매출성장 30%):")
         for i, s in enumerate(safe):
             log(f"    {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
-        selected = []
-        used_sectors = set()
-        for s in safe:
-            sector = s['industry']
-            if sector in used_sectors:
-                log(f"  ⏭️ {s['ticker']}: 섹터 중복 [{sector}] → 스킵")
-                continue
-            selected.append(s)
-            used_sectors.add(sector)
-            log(f"  → {s['ticker']}: [{sector}] 선정")
-            if len(selected) >= 5:
-                break
+        selected = safe[:5]
 
         if len(selected) < 3:
             log("포트폴리오: 선정 종목 부족", "WARN")
