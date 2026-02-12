@@ -924,8 +924,9 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         rev_up = int(row.get('rev_up30', 0) or 0)
         rev_down = int(row.get('rev_down30', 0) or 0)
 
-        # Line 1: 마커 순위 티커 · 업종
-        lines.append(f'{marker} <b>{rank}.</b> {ticker} · {industry}')
+        # Line 1: 마커 순위 종목명(티커) · 업종
+        name = row.get('short_name', ticker)
+        lines.append(f'{marker} <b>{rank}.</b> {name}({ticker}) · {industry}')
         # Line 2: 날씨
         lines.append(f'{lights} {desc}')
         # Line 3: EPS · 매출
@@ -952,12 +953,15 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         all_eligible = get_part2_candidates(df)
         current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
         sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
+        # 이탈 종목 종목명 맵
+        name_map = dict(zip(df['ticker'], df.get('short_name', df['ticker'])))
         for t, prev_rank in sorted_exits:
+            t_name = name_map.get(t, t)
             cur_rank = current_rank_map.get(t)
             if cur_rank:
-                lines.append(f'{t} · 어제 {prev_rank}위 → {cur_rank}위')
+                lines.append(f'{t_name}({t}) · 어제 {prev_rank}위 → {cur_rank}위')
             else:
-                lines.append(f'{t} · 어제 {prev_rank}위 → 조건 미달')
+                lines.append(f'{t_name}({t}) · 어제 {prev_rank}위 → 조건 미달')
         lines.append('')
         lines.append('보유 중이라면 매도를 검토하세요.')
 
