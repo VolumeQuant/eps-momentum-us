@@ -938,7 +938,7 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         if parts:
             lines.append(' · '.join(parts))
         # Line 4: 의견 · 순위이력
-        rank_str = hist if hist and hist.replace('-', '').replace('→', '') else '신규'
+        rank_str = hist if hist else f'-→-→{rank}'
         line4 = f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}'
         lines.append(line4)
         lines.append('──────────────────')
