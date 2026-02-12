@@ -924,11 +924,11 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         rev_up = int(row.get('rev_up30', 0) or 0)
         rev_down = int(row.get('rev_down30', 0) or 0)
 
-        # Line 1: 마커 순위 종목명(티커) · 업종
+        # Line 1: 마커 순위 종목명(티커)
         name = row.get('short_name', ticker)
-        lines.append(f'{marker} <b>{rank}.</b> {name}({ticker}) · {industry}')
-        # Line 2: 날씨
-        lines.append(f'{lights} {desc}')
+        lines.append(f'{marker} <b>{rank}.</b> {name}({ticker})')
+        # Line 2: 날씨 · 업종
+        lines.append(f'{lights} {desc} · {industry}')
         # Line 3: EPS · 매출
         parts = []
         if pd.notna(eps_90d):
