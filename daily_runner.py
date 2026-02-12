@@ -490,6 +490,7 @@ def get_part2_candidates(df, top_n=None):
     정렬: composite score (adj_gap 70% + rev_growth 30%) 또는 adj_gap
     """
     import numpy as np
+    import pandas as pd
 
     filtered = df[
         (df['adj_score'] > 9) &
