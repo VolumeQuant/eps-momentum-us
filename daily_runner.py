@@ -2071,7 +2071,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             lines.append(f'→ {final_action}')
 
         # #6: Q1 봄 + 전지표 안정 → 💎 기회 강조
-        hy_q = risk_status.get('hy', {}).get('quadrant', '') if risk_status else ''
+        hy_q = (risk_status.get('hy') or {}).get('quadrant', '') if risk_status else ''
         if hy_q == 'Q1' and concordance == 'both_stable':
             lines.append('')
             lines.append('💎 <b>역사적 매수 기회!</b> 모든 지표가 매수를 가리켜요.')
