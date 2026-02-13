@@ -797,23 +797,24 @@ def fetch_hy_quadrant():
                 break
 
         # 현금 비중 + 핵심 행동 권장 (30년 EDA 기반)
+        # 기본 현금 20% (교체/물타기/급락 대비) + 매크로 추가
         # 종목 수는 항상 5개 유지, 비중만 조절 (분산 유지)
         if quadrant == 'Q4':
             if q_days <= 20:
-                cash_pct, action = 20, '신규 매수 중단'
+                cash_pct, action = 30, '신규 매수 중단'
             elif q_days <= 60:
-                cash_pct, action = 40, '단계적 축소'
+                cash_pct, action = 50, '단계적 축소'
             else:
-                cash_pct, action = 60, '적극 방어'
+                cash_pct, action = 70, '적극 방어'
         elif quadrant == 'Q3':
             if q_days >= 60:
-                cash_pct, action = 20, '신규 진입 축소'
+                cash_pct, action = 30, '신규 진입 축소'
             else:
-                cash_pct, action = 0, '주의 관찰'
+                cash_pct, action = 20, '주의 관찰'
         elif quadrant == 'Q1':
             cash_pct, action = 0, '적극 매수'
         else:  # Q2
-            cash_pct, action = 0, '정상 운영'
+            cash_pct, action = 20, '정상 운영'
 
         return {
             'hy_spread': hy_spread,
