@@ -121,7 +121,8 @@ def init_ntm_database():
 
     # 기존 DB 마이그레이션: 새 컬럼 추가
     for col, col_type in [('adj_score', 'REAL'), ('adj_gap', 'REAL'),
-                          ('price', 'REAL'), ('ma60', 'REAL'), ('part2_rank', 'INTEGER')]:
+                          ('price', 'REAL'), ('ma60', 'REAL'), ('part2_rank', 'INTEGER'),
+                          ('rev_up30', 'INTEGER'), ('rev_down30', 'INTEGER'), ('num_analysts', 'INTEGER')]:
         try:
             cursor.execute(f'ALTER TABLE ntm_screening ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
@@ -195,7 +196,8 @@ def run_ntm_collection(config):
 
         rows = cursor.execute('''
             SELECT ticker, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d,
-                   adj_score, adj_gap, price, ma60, is_turnaround
+                   adj_score, adj_gap, price, ma60, is_turnaround,
+                   rev_up30, rev_down30, num_analysts
             FROM ntm_screening WHERE date=? AND adj_score IS NOT NULL
         ''', (today_str,)).fetchall()
 
@@ -226,7 +228,7 @@ def run_ntm_collection(config):
                 'fwd_pe_chg': None,
                 'adj_gap': r[8],
                 'is_turnaround': r[11],
-                'rev_up30': 0, 'rev_down30': 0, 'num_analysts': 0,
+                'rev_up30': r[12] or 0, 'rev_down30': r[13] or 0, 'num_analysts': r[14] or 0,
                 'price': r[9],
                 'ma60': r[10],
             }
@@ -470,9 +472,11 @@ def run_ntm_collection(config):
             # DB에 파생 데이터 업데이트
             cursor.execute('''
                 UPDATE ntm_screening
-                SET adj_score=?, adj_gap=?, price=?, ma60=?
+                SET adj_score=?, adj_gap=?, price=?, ma60=?,
+                    rev_up30=?, rev_down30=?, num_analysts=?
                 WHERE date=? AND ticker=?
-            ''', (adj_score, adj_gap, current_price, ma60_val, today_str, ticker))
+            ''', (adj_score, adj_gap, current_price, ma60_val,
+                  rev_up30, rev_down30, num_analysts, today_str, ticker))
 
             if is_turnaround:
                 turnaround.append(row)
@@ -834,13 +838,13 @@ def fetch_hy_quadrant():
         is_rising = hy_spread >= hy_3m_ago
 
         if is_wide and not is_rising:
-            quadrant, label, icon = 'Q1', '회복기', '🟢'
+            quadrant, label, icon = 'Q1', '봄', '🌸'
         elif not is_wide and not is_rising:
-            quadrant, label, icon = 'Q2', '성장기', '🟢'
+            quadrant, label, icon = 'Q2', '여름', '🌻'
         elif not is_wide and is_rising:
-            quadrant, label, icon = 'Q3', '과열기', '🟡'
+            quadrant, label, icon = 'Q3', '가을', '🍁'
         else:  # wide and rising
-            quadrant, label, icon = 'Q4', '침체기', '🔴'
+            quadrant, label, icon = 'Q4', '겨울', '❄️'
 
         # 해빙 신호 감지
         signals = []
@@ -867,7 +871,7 @@ def fetch_hy_quadrant():
         prev_was_q4 = prev_wide and prev_rising
         now_is_q1 = is_wide and not is_rising
         if prev_was_q4 and now_is_q1:
-            signals.append('💎 침체기→회복기 전환 — 가장 좋은 매수 타이밍이에요!')
+            signals.append('💎 겨울→봄 전환 — 가장 좋은 매수 타이밍이에요!')
 
         # 현재 분면 지속 일수 (최대 252영업일=1년까지 역추적)
         df['hy_3m'] = df['hy_spread'].shift(63)
@@ -988,7 +992,7 @@ def fetch_vix_data():
                 regime, label, icon = 'elevated', '경계', '⚠️'
                 cash_adj = 5
             elif slope_dir == 'falling':
-                regime, label, icon = 'stabilizing', '안정화', '📊'
+                regime, label, icon = 'stabilizing', '안정화', '🌡️'
                 cash_adj = -5
             else:
                 regime, label, icon = 'elevated_flat', '보통', '🟡'
@@ -997,7 +1001,7 @@ def fetch_vix_data():
             regime, label, icon = 'complacency', '안일', '⚠️'
             cash_adj = 5
         else:  # 12~20 normal
-            regime, label, icon = 'normal', '안정', '📊'
+            regime, label, icon = 'normal', '안정', '🌡️'
             cash_adj = 0
 
         # Simplified direction for concordance check
@@ -1257,7 +1261,7 @@ def create_guide_message():
 
 
 def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
-    """[1/4] 시장 현황 — 지수, 신용시장, VIX, 주도 업종"""
+    """[1/4] 시장 현황 — 지수, 시장 위험 지표, 주도 업종"""
     import pandas as pd
     from collections import Counter
 
@@ -1280,7 +1284,7 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
         lines.extend(market_lines)
     if hy_data:
         lines.append('─────────────────')
-        lines.append(f"{hy_data['quadrant_icon']} <b>신용시장</b> — {hy_data['quadrant_label']}")
+        lines.append(f"🛡️ <b>시장 위험 지표</b> — {hy_data['quadrant_icon']} {hy_data['quadrant_label']}")
         hy_val = hy_data['hy_spread']
         med_val = hy_data['median_10y']
         q = hy_data['quadrant']
@@ -1292,7 +1296,7 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
             interp = f"평균({med_val:.2f}%) 이하지만 올라가는 중이에요."
         else:
             interp = f"평균({med_val:.2f}%)보다 높고 계속 올라가고 있어요."
-        lines.append(f"HY Spread(부도위험) {hy_val:.2f}%")
+        lines.append(f"🏦 HY 스프레드 {hy_val:.2f}%")
         lines.append(interp)
 
         # VIX 표시
@@ -1302,10 +1306,10 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
             adj = vix_data['cash_adjustment']
             if vix_data['regime'] == 'normal':
                 rel = '이하' if v <= vix_data['vix_ma_20'] else '이상'
-                lines.append(f"📊 VIX(변동성) {v:.1f}")
+                lines.append(f"🌡️ VIX {v:.1f}")
                 lines.append(f"평균({vix_data['vix_ma_20']:.1f}) {rel}, 안정적이에요.")
             else:
-                lines.append(f"{vix_data['regime_icon']} VIX(변동성) {v:.1f} {slope_arrow}")
+                lines.append(f"🌡️ VIX {v:.1f} {slope_arrow}")
                 if adj > 0:
                     lines.append(f"{vix_data['regime_label']} 구간이에요. 현금 +{adj}%")
                 elif adj < 0:
@@ -1315,9 +1319,9 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
 
         # 투자 비중 (HY + VIX 합산)
         if final_cash == 0:
-            lines.append('📊 투자 100%')
+            lines.append('💰 투자 100%')
         else:
-            lines.append(f"📊 투자 {100 - final_cash}% + 현금 {final_cash}%")
+            lines.append(f"💰 투자 {100 - final_cash}% + 현금 {final_cash}%")
         lines.append(f"→ {risk_status.get('final_action', hy_data['action'])}")
         for sig in hy_data.get('signals', []):
             lines.append(sig)
