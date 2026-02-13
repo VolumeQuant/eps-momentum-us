@@ -1048,7 +1048,8 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
             interp = f"평균({med_val:.2f}%) 이하지만 올라가는 중이에요."
         else:
             interp = f"평균({med_val:.2f}%)보다 높고 계속 올라가고 있어요."
-        lines.append(f"HY Spread(부도위험) {hy_val:.2f}% · {interp}")
+        lines.append(f"HY Spread(부도위험) {hy_val:.2f}%")
+        lines.append(interp)
         # 투자 비중
         cash_pct = hy_data.get('cash_pct', 0)
         if cash_pct == 0:
