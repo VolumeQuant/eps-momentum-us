@@ -710,8 +710,10 @@ def fetch_hy_quadrant():
     import io
     import pandas as pd
     import numpy as np
+    import time
 
-    try:
+    for attempt in range(3):
+      try:
         # FRED에서 10년치 HY spread CSV 다운로드
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=365 * 11)).strftime('%Y-%m-%d')
@@ -833,9 +835,13 @@ def fetch_hy_quadrant():
             'action': action,
         }
 
-    except Exception as e:
-        log(f"HY Spread 수집 실패: {e}", level="WARN")
-        return None
+      except Exception as e:
+        if attempt < 2:
+            log(f"HY Spread 수집 재시도 ({attempt+1}/3): {e}", level="WARN")
+            time.sleep(5)
+        else:
+            log(f"HY Spread 수집 실패: {e}", level="WARN")
+            return None
 
 
 def fetch_vix_data():
@@ -1193,23 +1199,29 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
     if market_lines:
         lines.append('─────────────────')
         lines.extend(market_lines)
-    if hy_data:
+    if hy_data or vix_data:
         lines.append('─────────────────')
-        lines.append(f"🛡️ <b>시장 위험 지표</b> — {hy_data['quadrant_icon']} {hy_data['quadrant_label']}")
-        hy_val = hy_data['hy_spread']
-        med_val = hy_data['median_10y']
-        q = hy_data['quadrant']
-        if q == 'Q1':
-            interp = f"평균({med_val:.2f}%)보다 높지만 빠르게 내려오고 있어요."
-        elif q == 'Q2':
-            interp = f"평균({med_val:.2f}%)보다 낮아서 안정적이에요."
-        elif q == 'Q3':
-            interp = f"평균({med_val:.2f}%) 이하지만 올라가는 중이에요."
+        if hy_data:
+            lines.append(f"🛡️ <b>시장 위험 지표</b> — {hy_data['quadrant_icon']} {hy_data['quadrant_label']}")
         else:
-            interp = f"평균({med_val:.2f}%)보다 높고 계속 올라가고 있어요."
-        lines.append(f"🏦 <b>신용시장</b>")
-        lines.append(f"HY 스프레드 {hy_val:.2f}%")
-        lines.append(interp)
+            lines.append('🛡️ <b>시장 위험 지표</b>')
+
+        # HY 스프레드
+        if hy_data:
+            hy_val = hy_data['hy_spread']
+            med_val = hy_data['median_10y']
+            q = hy_data['quadrant']
+            if q == 'Q1':
+                interp = f"평균({med_val:.2f}%)보다 높지만 빠르게 내려오고 있어요."
+            elif q == 'Q2':
+                interp = f"평균({med_val:.2f}%)보다 낮아서 안정적이에요."
+            elif q == 'Q3':
+                interp = f"평균({med_val:.2f}%) 이하지만 올라가는 중이에요."
+            else:
+                interp = f"평균({med_val:.2f}%)보다 높고 계속 올라가고 있어요."
+            lines.append(f"🏦 <b>신용시장</b>")
+            lines.append(f"HY 스프레드 {hy_val:.2f}%")
+            lines.append(interp)
 
         # VIX 표시
         if vix_data:
@@ -1235,9 +1247,14 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
             lines.append('💰 투자 100%')
         else:
             lines.append(f"💰 투자 {100 - final_cash}% + 현금 {final_cash}%")
-        lines.append(f"→ {risk_status.get('final_action', hy_data['action'])}")
-        for sig in hy_data.get('signals', []):
-            lines.append(sig)
+        action = risk_status.get('final_action', '') if risk_status else ''
+        if not action and hy_data:
+            action = hy_data['action']
+        if action:
+            lines.append(f"→ {action}")
+        if hy_data:
+            for sig in hy_data.get('signals', []):
+                lines.append(sig)
 
     # 업종 분포 통계
     sector_counts = Counter(row.get('industry', '기타') for _, row in filtered.iterrows())
