@@ -170,6 +170,94 @@ def run_ntm_collection(config):
     all_tickers = sorted(set(t for tlist in INDICES.values() for t in tlist))
     log(f"유니버스: {len(all_tickers)}개 종목")
 
+    # Step 0: 데이터 보호 — 이미 수집된 마켓 날짜면 NTM 재수집 스킵
+    force_recollect = os.environ.get('FORCE_RECOLLECT', '').lower() in ('true', '1', 'yes')
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    existing_count = cursor.execute(
+        'SELECT COUNT(*) FROM ntm_screening WHERE date=? AND adj_score IS NOT NULL',
+        (today_str,)
+    ).fetchone()[0]
+
+    if existing_count > 100 and not force_recollect:
+        log(f"[데이터 보호] {today_str} 이미 {existing_count}건 수집됨 — NTM 재수집 스킵")
+        log(f"  강제 재수집하려면: FORCE_RECOLLECT=true 환경변수 설정")
+
+        # DB에서 기존 데이터 로드 → results DataFrame 구성
+        cache_path = PROJECT_ROOT / 'ticker_info_cache.json'
+        ticker_cache = {}
+        if cache_path.exists():
+            try:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    ticker_cache = json.load(f)
+            except Exception:
+                ticker_cache = {}
+
+        rows = cursor.execute('''
+            SELECT ticker, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d,
+                   adj_score, adj_gap, price, ma60, is_turnaround
+            FROM ntm_screening WHERE date=? AND adj_score IS NOT NULL
+        ''', (today_str,)).fetchall()
+
+        results = []
+        turnaround = []
+        for r in rows:
+            ticker = r[0]
+            ntm = {'current': r[2], '7d': r[3], '30d': r[4], '60d': r[5], '90d': r[6]}
+            score_val, seg1, seg2, seg3, seg4, is_turn, adj_score_val, direction = calculate_ntm_score(ntm)
+            eps_change_90d = calculate_eps_change_90d(ntm)
+            trend_lights, trend_desc = get_trend_lights(seg1, seg2, seg3, seg4)
+            cached = ticker_cache.get(ticker, {})
+            row_dict = {
+                'ticker': ticker,
+                'short_name': cached.get('shortName', ticker),
+                'industry': cached.get('industry', ''),
+                'score': r[1],
+                'adj_score': r[7],
+                'direction': direction,
+                'seg1': seg1, 'seg2': seg2, 'seg3': seg3, 'seg4': seg4,
+                'ntm_cur': ntm['current'], 'ntm_7d': ntm['7d'],
+                'ntm_30d': ntm['30d'], 'ntm_60d': ntm['60d'], 'ntm_90d': ntm['90d'],
+                'eps_change_90d': eps_change_90d,
+                'trend_lights': trend_lights,
+                'trend_desc': trend_desc,
+                'price_chg': None, 'price_chg_weighted': None, 'eps_chg_weighted': None,
+                'fwd_pe': (r[9] / ntm['current']) if ntm['current'] and ntm['current'] > 0 and r[9] else None,
+                'fwd_pe_chg': None,
+                'adj_gap': r[8],
+                'is_turnaround': r[11],
+                'rev_up30': 0, 'rev_down30': 0, 'num_analysts': 0,
+                'price': r[9],
+                'ma60': r[10],
+            }
+            if r[11]:
+                turnaround.append(row_dict)
+            else:
+                results.append(row_dict)
+
+        results_df = pd.DataFrame(results)
+        if not results_df.empty:
+            results_df = results_df.sort_values('adj_score', ascending=False).reset_index(drop=True)
+            results_df['rank'] = results_df.index + 1
+        turnaround_df = pd.DataFrame(turnaround)
+        if not turnaround_df.empty:
+            turnaround_df = turnaround_df.sort_values('score', ascending=False).reset_index(drop=True)
+        conn.close()
+
+        stats = {
+            'universe': len(all_tickers),
+            'main_count': len(results),
+            'turnaround_count': len(turnaround),
+            'no_data_count': 0, 'error_count': 0, 'error_tickers': [],
+            'total_collected': len(results) + len(turnaround),
+        }
+        log(f"DB 로드 완료: 메인 {len(results)}, 턴어라운드 {len(turnaround)}")
+        return results_df, turnaround_df, stats
+
+    if force_recollect and existing_count > 100:
+        log(f"[강제 재수집] FORCE_RECOLLECT=true — 기존 {existing_count}건 덮어쓰기")
+    conn.close()
+
     # Step 1: 종목 정보 캐시 로드
     cache_path = PROJECT_ROOT / 'ticker_info_cache.json'
     ticker_cache = {}
@@ -446,22 +534,89 @@ def run_ntm_collection(config):
 # Part 2 공통 필터 & 3일 교집합
 # ============================================================
 
+def fetch_revenue_growth(df):
+    """Part 2 eligible 종목의 매출 성장률 수집 (yfinance)
+
+    composite score = z(adj_gap)*0.7 + z(rev_growth)*0.3
+    '파괴적 혁신 기업을 싸게' — 매출 성장이 높고 adj_gap이 큰 종목 우선
+    """
+    import yfinance as yf
+    import numpy as np
+
+    # eligible 전체 수집 (rev_growth 없으면 Top 30 제외되므로 넉넉히)
+    eligible = df[
+        (df['adj_score'] > 9) &
+        (df['adj_gap'].notna()) &
+        (df['fwd_pe'].notna()) & (df['fwd_pe'] > 0) &
+        (df['eps_change_90d'] > 0) &
+        (df['price'].notna()) & (df['price'] >= 10) &
+        (df['ma60'].notna()) & (df['price'] > df['ma60'])
+    ].sort_values('adj_gap', ascending=True)
+
+    tickers = list(eligible['ticker'])
+    log(f"매출 성장률 수집: {len(tickers)}종목")
+
+    rev_map = {}
+    for t in tickers:
+        try:
+            info = yf.Ticker(t).info
+            rev_map[t] = info.get('revenueGrowth')
+        except Exception:
+            rev_map[t] = None
+
+    success = sum(1 for v in rev_map.values() if v is not None)
+    log(f"매출 성장률 수집 완료: {success}/{len(tickers)}")
+
+    df['rev_growth'] = df['ticker'].map(rev_map)
+    return df
+
+
 def get_part2_candidates(df, top_n=None):
     """Part 2 매수 후보 필터링 (공통 함수)
 
-    필터: adj_score > 9, adj_gap ≤ 0, fwd_pe > 0, eps > 0, price ≥ $10, price > MA60
-    정렬: adj_gap 오름차순 (더 음수 = 더 저평가)
+    필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA60
+    정렬: composite score (adj_gap 70% + rev_growth 30%) 또는 adj_gap
     """
+    import numpy as np
+    import pandas as pd
+
     filtered = df[
         (df['adj_score'] > 9) &
-        (df['adj_gap'].notna()) & (df['adj_gap'] <= 0) &
+        (df['adj_gap'].notna()) &
         (df['fwd_pe'].notna()) & (df['fwd_pe'] > 0) &
         (df['eps_change_90d'] > 0) &
         (df['price'].notna()) & (df['price'] >= 10) &
         (df['ma60'].notna()) & (df['price'] > df['ma60'])
     ].copy()
 
-    filtered = filtered.sort_values('adj_gap', ascending=True)
+    # rev_growth 칼럼이 있고 유효 데이터가 충분하면 composite score 사용
+    if 'rev_growth' in filtered.columns and filtered['rev_growth'].notna().sum() >= 10:
+        # rev_growth 없는 종목 제외 (매출 데이터 필수)
+        no_rev = filtered[filtered['rev_growth'].isna()]
+        if len(no_rev) > 0:
+            log(f"매출 데이터 없음 제외: {', '.join(no_rev['ticker'].tolist())}")
+        filtered = filtered[filtered['rev_growth'].notna()].copy()
+
+        # 매출 성장률 10% 미만 제외
+        low_rev = filtered[filtered['rev_growth'] < 0.10]
+        if len(low_rev) > 0:
+            log(f"매출 성장 부족(<10%) 제외: {', '.join(low_rev['ticker'].tolist())}")
+        filtered = filtered[filtered['rev_growth'] >= 0.10].copy()
+
+        # z-score 정규화
+        gap_mean, gap_std = filtered['adj_gap'].mean(), filtered['adj_gap'].std()
+        rev_mean, rev_std = filtered['rev_growth'].mean(), filtered['rev_growth'].std()
+
+        if gap_std > 0 and rev_std > 0:
+            z_gap = (filtered['adj_gap'] - gap_mean) / gap_std
+            z_rev = (filtered['rev_growth'] - rev_mean) / rev_std
+            # adj_gap은 음수가 좋으므로 부호 반전, rev_growth는 양수가 좋음
+            filtered['composite'] = (-z_gap) * 0.7 + z_rev * 0.3
+            filtered = filtered.sort_values('composite', ascending=False)
+        else:
+            filtered = filtered.sort_values('adj_gap', ascending=True)
+    else:
+        filtered = filtered.sort_values('adj_gap', ascending=True)
 
     if top_n:
         filtered = filtered.head(top_n)
@@ -477,6 +632,9 @@ def save_part2_ranks(results_df, today_str):
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+
+    # 기존 part2_rank 초기화 후 새로 저장 (필터 변경 시 잔여 rank 방지)
+    cursor.execute('UPDATE ntm_screening SET part2_rank=NULL WHERE date=?', (today_str,))
 
     for i, (_, row) in enumerate(candidates.iterrows()):
         cursor.execute(
@@ -559,6 +717,39 @@ def get_3day_status(today_tickers):
     return status
 
 
+def get_rank_history(today_tickers):
+    """최근 3일간 part2_rank 이력 → {ticker: '3→4→1'} 형태"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
+    )
+    dates = sorted([r[0] for r in cursor.fetchall()])
+
+    if len(dates) < 2:
+        conn.close()
+        return {}
+
+    rank_by_date = {}
+    for d in dates:
+        cursor.execute(
+            'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 30',
+            (d,)
+        )
+        rank_by_date[d] = {r[0]: r[1] for r in cursor.fetchall()}
+    conn.close()
+
+    history = {}
+    for t in today_tickers:
+        parts = []
+        for d in dates:
+            r = rank_by_date.get(d, {}).get(t)
+            parts.append(str(r) if r else '-')
+        history[t] = '→'.join(parts)
+    return history
+
+
 def get_daily_changes(today_tickers):
     """어제 대비 Top 30 변동 — 신규 진입 / 이탈 종목 (단순 set 비교)"""
     conn = sqlite3.connect(DB_PATH)
@@ -591,6 +782,306 @@ def get_daily_changes(today_tickers):
 
     log(f"어제 대비: +{len(entered)} 신규, -{len(exited)} 이탈")
     return sorted(entered), exited_with_rank
+
+
+def fetch_hy_quadrant():
+    """HY Spread Verdad 4분면 + 해빙 신호 (FRED BAMLH0A0HYM2)
+
+    수준: HY vs 10년 롤링 중위수 (넓/좁)
+    방향: 현재 vs 63영업일(3개월) 전 (상승/하락)
+    → Q1 회복(넓+하락), Q2 성장(좁+하락), Q3 과열(좁+상승), Q4 침체(넓+상승)
+    """
+    import urllib.request
+    import io
+    import pandas as pd
+    import numpy as np
+
+    try:
+        # FRED에서 10년치 HY spread CSV 다운로드
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=365 * 11)).strftime('%Y-%m-%d')
+        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2&cosd={start_date}&coed={end_date}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            csv_data = response.read().decode('utf-8')
+
+        df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
+        df.columns = ['date', 'hy_spread']
+        df = df.dropna(subset=['hy_spread'])
+        df['hy_spread'] = pd.to_numeric(df['hy_spread'], errors='coerce')
+        df = df.dropna().set_index('date').sort_index()
+
+        if len(df) < 1260:  # 최소 5년치 필요
+            log("HY Spread: 데이터 부족", level="WARN")
+            return None
+
+        # 10년 롤링 중위수 (min 5년)
+        df['median_10y'] = df['hy_spread'].rolling(2520, min_periods=1260).median()
+
+        hy_spread = df['hy_spread'].iloc[-1]
+        hy_prev = df['hy_spread'].iloc[-2]
+        median_10y = df['median_10y'].iloc[-1]
+
+        if pd.isna(median_10y):
+            log("HY Spread: 중위수 계산 불가", level="WARN")
+            return None
+
+        # 3개월(63영업일) 전
+        hy_3m_ago = df['hy_spread'].iloc[-63] if len(df) >= 63 else df['hy_spread'].iloc[0]
+
+        # 분면 판정
+        is_wide = hy_spread >= median_10y
+        is_rising = hy_spread >= hy_3m_ago
+
+        if is_wide and not is_rising:
+            quadrant, label, icon = 'Q1', '회복기', '🟢'
+        elif not is_wide and not is_rising:
+            quadrant, label, icon = 'Q2', '성장기', '🟢'
+        elif not is_wide and is_rising:
+            quadrant, label, icon = 'Q3', '과열기', '🟡'
+        else:  # wide and rising
+            quadrant, label, icon = 'Q4', '침체기', '🔴'
+
+        # 해빙 신호 감지
+        signals = []
+        daily_change_bp = (hy_spread - hy_prev) * 100
+
+        # 1) HY 4~5%에서 -20bp 급축소
+        if 4 <= hy_spread <= 5 and daily_change_bp <= -20:
+            signals.append(f'💎 HY {hy_spread:.2f}%, 전일 대비 {daily_change_bp:+.0f}bp 급락 — 반등 매수 기회에요!')
+
+        # 2) 5% 하향 돌파
+        if hy_prev >= 5 and hy_spread < 5:
+            signals.append(f'💎 HY {hy_spread:.2f}%로 5% 밑으로 내려왔어요 — 적극 매수 구간이에요!')
+
+        # 3) 60일 고점 대비 -300bp 이상 하락
+        peak_60d = df['hy_spread'].rolling(60).max().iloc[-1]
+        from_peak_bp = (hy_spread - peak_60d) * 100
+        if from_peak_bp <= -300:
+            signals.append(f'💎 60일 고점 대비 {from_peak_bp:.0f}bp 하락 — 바닥 신호, 적극 매수하세요!')
+
+        # 4) Q4→Q1 전환 (전일 분면 계산)
+        prev_wide = hy_prev >= median_10y
+        hy_3m_ago_prev = df['hy_spread'].iloc[-64] if len(df) >= 64 else df['hy_spread'].iloc[0]
+        prev_rising = hy_prev >= hy_3m_ago_prev
+        prev_was_q4 = prev_wide and prev_rising
+        now_is_q1 = is_wide and not is_rising
+        if prev_was_q4 and now_is_q1:
+            signals.append('💎 침체기→회복기 전환 — 가장 좋은 매수 타이밍이에요!')
+
+        # 현재 분면 지속 일수 (최대 252영업일=1년까지 역추적)
+        df['hy_3m'] = df['hy_spread'].shift(63)
+        valid_mask = df['median_10y'].notna() & df['hy_3m'].notna()
+        df.loc[valid_mask, 'q'] = np.where(
+            df.loc[valid_mask, 'hy_spread'] >= df.loc[valid_mask, 'median_10y'],
+            np.where(df.loc[valid_mask, 'hy_spread'] >= df.loc[valid_mask, 'hy_3m'], 'Q4', 'Q1'),
+            np.where(df.loc[valid_mask, 'hy_spread'] >= df.loc[valid_mask, 'hy_3m'], 'Q3', 'Q2')
+        )
+        q_days = 1
+        for i in range(len(df) - 2, max(len(df) - 253, 0) - 1, -1):
+            if i >= 0 and df['q'].iloc[i] == quadrant:
+                q_days += 1
+            else:
+                break
+
+        # 현금 비중 + 핵심 행동 권장 (30년 EDA 기반)
+        # 기본 현금 20% (교체/물타기/급락 대비) + 매크로 추가
+        # 종목 수는 항상 5개 유지, 비중만 조절 (분산 유지)
+        if quadrant == 'Q4':
+            if q_days <= 20:
+                cash_pct, action = 30, '신규 매수를 멈추고 관망하세요.'
+            elif q_days <= 60:
+                cash_pct, action = 50, '보유 종목을 줄이고 현금을 늘리세요.'
+            else:
+                cash_pct, action = 70, '현금을 최대한 확보하세요.'
+        elif quadrant == 'Q3':
+            if q_days >= 60:
+                cash_pct, action = 30, '신규 매수를 줄여가세요.'
+            else:
+                cash_pct, action = 20, '매수할 때 신중하게 판단하세요.'
+        elif quadrant == 'Q1':
+            cash_pct, action = 0, '적극 매수하세요. 역사적으로 수익률이 가장 높은 구간이에요.'
+        else:  # Q2
+            cash_pct, action = 20, '평소대로 투자하세요.'
+
+        return {
+            'hy_spread': hy_spread,
+            'median_10y': median_10y,
+            'hy_3m_ago': hy_3m_ago,
+            'hy_prev': hy_prev,
+            'quadrant': quadrant,
+            'quadrant_label': label,
+            'quadrant_icon': icon,
+            'signals': signals,
+            'q_days': q_days,
+            'cash_pct': cash_pct,
+            'action': action,
+        }
+
+    except Exception as e:
+        log(f"HY Spread 수집 실패: {e}", level="WARN")
+        return None
+
+
+def fetch_vix_data():
+    """VIX(CBOE 변동성 지수) 레짐 판단 + 현금비중 가감 (FRED VIXCLS)
+
+    Returns:
+        dict or None: {vix_current, vix_5d_ago, vix_slope, vix_slope_dir,
+                       vix_ma_20, regime, regime_label, regime_icon,
+                       cash_adjustment, direction}
+    """
+    import urllib.request
+    import io
+    import pandas as pd
+
+    try:
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=400)).strftime('%Y-%m-%d')
+        url = (
+            f"https://fred.stlouisfed.org/graph/fredgraph.csv"
+            f"?id=VIXCLS&cosd={start_date}&coed={end_date}"
+        )
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            csv_data = response.read().decode('utf-8')
+
+        df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
+        df.columns = ['date', 'vix']
+        df['vix'] = pd.to_numeric(df['vix'], errors='coerce')
+        df = df.dropna().set_index('date').sort_index()
+
+        if len(df) < 20:
+            log("VIX: 데이터 부족", level="WARN")
+            return None
+
+        vix_current = float(df['vix'].iloc[-1])
+        vix_5d_ago = float(df['vix'].iloc[-5]) if len(df) >= 5 else float(df['vix'].iloc[0])
+        vix_slope = vix_current - vix_5d_ago
+        vix_ma_20 = float(df['vix'].rolling(20).mean().iloc[-1])
+
+        # Slope direction (±0.5 threshold to avoid noise)
+        if vix_slope > 0.5:
+            slope_dir = 'rising'
+        elif vix_slope < -0.5:
+            slope_dir = 'falling'
+        else:
+            slope_dir = 'flat'
+
+        # Regime + cash adjustment
+        if vix_current > 35:
+            if slope_dir in ('rising', 'flat'):
+                regime, label, icon = 'crisis', '위기', '🔴'
+                cash_adj = 15
+            else:
+                regime, label, icon = 'crisis_relief', '공포완화', '💎'
+                cash_adj = -10
+        elif vix_current >= 25:
+            if slope_dir == 'rising':
+                regime, label, icon = 'high', '상승경보', '🔶'
+                cash_adj = 10
+            else:
+                regime, label, icon = 'high_stable', '높지만안정', '🟡'
+                cash_adj = 0
+        elif vix_current >= 20:
+            if slope_dir == 'rising':
+                regime, label, icon = 'elevated', '경계', '⚠️'
+                cash_adj = 5
+            elif slope_dir == 'falling':
+                regime, label, icon = 'stabilizing', '안정화', '📊'
+                cash_adj = -5
+            else:
+                regime, label, icon = 'elevated_flat', '보통', '🟡'
+                cash_adj = 0
+        elif vix_current < 12:
+            regime, label, icon = 'complacency', '안일', '⚠️'
+            cash_adj = 5
+        else:  # 12~20 normal
+            regime, label, icon = 'normal', '안정', '📊'
+            cash_adj = 0
+
+        # Simplified direction for concordance check
+        direction = 'warn' if regime in ('crisis', 'high', 'elevated', 'complacency') else 'stable'
+
+        return {
+            'vix_current': vix_current,
+            'vix_5d_ago': vix_5d_ago,
+            'vix_slope': vix_slope,
+            'vix_slope_dir': slope_dir,
+            'vix_ma_20': vix_ma_20,
+            'regime': regime,
+            'regime_label': label,
+            'regime_icon': icon,
+            'cash_adjustment': cash_adj,
+            'direction': direction,
+        }
+
+    except Exception as e:
+        log(f"VIX 수집 실패: {e}", level="WARN")
+        return None
+
+
+def get_market_risk_status():
+    """시장 위험 통합 상태 (HY + VIX + Concordance)
+
+    Returns:
+        dict {hy, vix, concordance, final_cash_pct, final_action}
+    """
+    hy = fetch_hy_quadrant()
+    vix = fetch_vix_data()
+
+    # Concordance Check
+    hy_dir = 'warn' if hy and hy['quadrant'] in ('Q3', 'Q4') else 'stable'
+    vix_dir = vix['direction'] if vix else 'stable'
+
+    if hy_dir == 'warn' and vix_dir == 'warn':
+        concordance = 'both_warn'
+    elif hy_dir == 'warn' and vix_dir == 'stable':
+        concordance = 'hy_only'
+    elif hy_dir == 'stable' and vix_dir == 'warn':
+        concordance = 'vix_only'
+    else:
+        concordance = 'both_stable'
+
+    if hy:
+        base_cash = hy['cash_pct']
+
+        # VIX adjustment with concordance modulation
+        if vix:
+            raw_vix_adj = vix['cash_adjustment']
+            if concordance == 'both_warn':
+                vix_adj = raw_vix_adj           # 이중 확인 → 전액 적용
+            elif concordance == 'hy_only':
+                vix_adj = 0                     # HY만 경고, VIX 안정 → 가감 없음
+            elif concordance == 'vix_only':
+                vix_adj = raw_vix_adj // 2      # VIX만 경고 → 50% 적용
+            else:  # both_stable
+                vix_adj = raw_vix_adj           # 정상 → 그대로
+        else:
+            vix_adj = 0
+
+        final_cash = max(0, min(70, base_cash + vix_adj))
+
+        # Q1 + VIX 안정 → 적극 매수
+        if hy['quadrant'] == 'Q1' and vix_dir == 'stable':
+            final_cash = 0
+
+        final_action = hy['action']
+    else:
+        base_cash = 20
+        vix_adj = 0
+        final_cash = 20
+        final_action = '데이터 수집 실패로 기본값을 적용했어요.'
+
+    log(f"최종 현금비중: {final_cash}% (HY {base_cash} + VIX {vix_adj:+d})")
+
+    return {
+        'hy': hy,
+        'vix': vix,
+        'concordance': concordance,
+        'final_cash_pct': final_cash,
+        'final_action': final_action,
+    }
 
 
 def get_market_context():
@@ -738,7 +1229,6 @@ def create_guide_message():
         '━━━━━━━━━━━━━━━━━━━',
         '      📖 투자 가이드',
         '━━━━━━━━━━━━━━━━━━━',
-        '',
         '🔎 <b>어떤 종목을 찾나요?</b>',
         '월가 애널리스트들이 "이익이 늘어날 거야"라고',
         '전망치를 올리는 종목을 찾아요.',
@@ -749,7 +1239,7 @@ def create_guide_message():
         '',
         '① 이익 전망이 오르는 종목을 찾고',
         '② 주가 흐름이 건강한 종목만 남기고',
-        '③ 그중 주가가 덜 오른 순서로 Top 30 선별',
+        '③ 매출 성장 10%+, 복합 순위(괴리 70%+매출 30%) Top 30',
         '④ 3일 연속 Top 30에 들면 검증 완료 ✅',
         '⑤ AI 위험 점검 후 최종 5종목 추천',
         '',
@@ -766,14 +1256,92 @@ def create_guide_message():
     return '\n'.join(lines)
 
 
-def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=None, top_n=30):
-    """[1/2] 매수 후보 메시지 — adj_gap 순 Top 30, ✅/⏳/🆕 표시, 어제 대비 변동"""
+def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
+    """[1/4] 시장 현황 — 지수, 신용시장, VIX, 주도 업종"""
     import pandas as pd
+    from collections import Counter
 
     biz_day = get_last_business_day()
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
-    # 공통 필터 사용
+    filtered = get_part2_candidates(df, top_n=top_n)
+
+    hy_data = risk_status['hy'] if risk_status else None
+    vix_data = risk_status.get('vix') if risk_status else None
+    final_cash = risk_status['final_cash_pct'] if risk_status else 0
+
+    lines = []
+    lines.append('━━━━━━━━━━━━━━━━━━━')
+    lines.append(' [1/4] 📊 시장 현황')
+    lines.append('━━━━━━━━━━━━━━━━━━━')
+    lines.append(f'📅 {biz_str} (미국장 기준)')
+    if market_lines:
+        lines.append('─────────────────')
+        lines.extend(market_lines)
+    if hy_data:
+        lines.append('─────────────────')
+        lines.append(f"{hy_data['quadrant_icon']} <b>신용시장</b> — {hy_data['quadrant_label']}")
+        hy_val = hy_data['hy_spread']
+        med_val = hy_data['median_10y']
+        q = hy_data['quadrant']
+        if q == 'Q1':
+            interp = f"평균({med_val:.2f}%)보다 높지만 빠르게 내려오고 있어요."
+        elif q == 'Q2':
+            interp = f"평균({med_val:.2f}%)보다 낮아서 안정적이에요."
+        elif q == 'Q3':
+            interp = f"평균({med_val:.2f}%) 이하지만 올라가는 중이에요."
+        else:
+            interp = f"평균({med_val:.2f}%)보다 높고 계속 올라가고 있어요."
+        lines.append(f"HY Spread(부도위험) {hy_val:.2f}%")
+        lines.append(interp)
+
+        # VIX 표시
+        if vix_data:
+            v = vix_data['vix_current']
+            slope_arrow = '↑' if vix_data['vix_slope_dir'] == 'rising' else ('↓' if vix_data['vix_slope_dir'] == 'falling' else '')
+            adj = vix_data['cash_adjustment']
+            if vix_data['regime'] == 'normal':
+                rel = '이하' if v <= vix_data['vix_ma_20'] else '이상'
+                lines.append(f"📊 VIX(변동성) {v:.1f}")
+                lines.append(f"평균({vix_data['vix_ma_20']:.1f}) {rel}, 안정적이에요.")
+            else:
+                lines.append(f"{vix_data['regime_icon']} VIX(변동성) {v:.1f} {slope_arrow}")
+                if adj > 0:
+                    lines.append(f"{vix_data['regime_label']} 구간이에요. 현금 +{adj}%")
+                elif adj < 0:
+                    lines.append(f"{vix_data['regime_label']} 구간이에요. 현금 {adj}%")
+                else:
+                    lines.append(f"{vix_data['regime_label']} 구간이에요.")
+
+        # 투자 비중 (HY + VIX 합산)
+        if final_cash == 0:
+            lines.append('📊 투자 100%')
+        else:
+            lines.append(f"📊 투자 {100 - final_cash}% + 현금 {final_cash}%")
+        lines.append(f"→ {risk_status.get('final_action', hy_data['action'])}")
+        for sig in hy_data.get('signals', []):
+            lines.append(sig)
+
+    # 업종 분포 통계
+    sector_counts = Counter(row.get('industry', '기타') for _, row in filtered.iterrows())
+    top_sectors = sector_counts.most_common()
+    if top_sectors:
+        sector_parts = [f'{name} {cnt}' for name, cnt in top_sectors if cnt >= 2]
+        if sector_parts:
+            lines.append('─────────────────')
+            lines.append('📊 주도 업종')
+            lines.append(f'{" · ".join(sector_parts)}')
+
+    lines.append('─────────────────')
+    lines.append('👉 다음: 매수 후보 [2/4]')
+
+    return '\n'.join(lines)
+
+
+def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30):
+    """[2/4] 매수 후보 — composite 순 Top 30, ✅/⏳/🆕 표시, 순위 이력"""
+    import pandas as pd
+
     filtered = get_part2_candidates(df, top_n=top_n)
     count = len(filtered)
 
@@ -781,91 +1349,64 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         status_map = {}
     if exited_tickers is None:
         exited_tickers = {}
+    if rank_history is None:
+        rank_history = {}
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f' [1/3] 🔍 매수 후보 {count}개')
+    lines.append(f' [2/4] 📋 매수 후보 {count}개')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f'📅 {biz_str} (미국장 기준)')
-    if market_lines:
-        lines.append('─────────────────')
-        lines.extend(market_lines)
-    lines.append('')
-    lines.append('이익 전망은 올라가는데')
-    lines.append('주가는 아직 덜 오른 종목이에요.')
-    lines.append('')
+    lines.append('─────────────────')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('✅ 3일 연속 Top 30 → 매수 대상')
-    lines.append('⏳ 2일 연속 → 내일 검증 가능')
-    lines.append('🆕 오늘 첫 진입 → 지켜보세요')
-    lines.append('괴리 = 음수가 클수록 저평가 (매수 기회)')
-    lines.append('의견 = 최근 30일 애널리스트 ↑상향 ↓하향 수')
-    lines.append('날씨 = 🔥폭등 ☀️강세 🌤️상승 ☁️보합 🌧️하락')
-    lines.append('')
+    lines.append('✅매수 ⏳내일검증 🆕관찰')
+    lines.append('목록에 있으면 보유, 없으면 매도 검토.')
+    lines.append('─────────────────')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
         ticker = row['ticker']
-        name = row.get('short_name', ticker)
         industry = row.get('industry', '')
         lights = row.get('trend_lights', '')
         desc = row.get('trend_desc', '')
         eps_90d = row.get('eps_change_90d')
-        price_90d = row.get('price_chg')
 
-        # ✅/🆕 마커
         marker = status_map.get(ticker, '🆕')
+        hist = rank_history.get(ticker, '')
+        rev_g = row.get('rev_growth')
+        rev_up = int(row.get('rev_up30', 0) or 0)
+        rev_down = int(row.get('rev_down30', 0) or 0)
 
-        # Line 3: EPS · 주가 · 괴리
-        adj_gap = row.get('adj_gap', 0) or 0
-        change_str = ''
-        if pd.notna(eps_90d) and pd.notna(price_90d):
-            change_str = f"EPS {eps_90d:+.1f}% · 주가 {price_90d:+.1f}% · 괴리 <b>{adj_gap:+.1f}</b>"
-
-        # Line 4: 의견 ↑N ↓N
-        rev_up = row.get('rev_up30', 0) or 0
-        rev_down = row.get('rev_down30', 0) or 0
-        opinion_str = f"의견 ↑{rev_up} ↓{rev_down}"
-
-        # ⚠️ 판별: EPS > 0이고 주가 < 0일 때, |주가변화| / |EPS변화| > 5
-        eps_chg_w = row.get('eps_chg_weighted')
-        price_chg_w = row.get('price_chg_weighted')
-        is_warning = False
-        if (pd.notna(eps_chg_w) and pd.notna(price_chg_w)
-                and eps_chg_w > 0 and price_chg_w < 0):
-            ratio = abs(price_chg_w) / abs(eps_chg_w)
-            if ratio > 5:
-                is_warning = True
-
-        warn_mark = ' ⚠️' if is_warning else ''
-        lines.append(f'<b>{rank}</b> {marker} {name} ({ticker}){warn_mark}')
-        lines.append(f'<i>{industry}</i> · {lights} {desc}')
-        lines.append(change_str)
-        lines.append(opinion_str)
+        name = row.get('short_name', ticker)
+        lines.append(f'{marker} <b>{rank}.</b> {name}({ticker})')
+        lines.append(f'{industry} · {lights} {desc}')
+        parts = []
+        if pd.notna(eps_90d):
+            parts.append(f'EPS {eps_90d:+.0f}%')
+        if pd.notna(rev_g):
+            parts.append(f'매출 {rev_g*100:+.0f}%')
+        if parts:
+            lines.append(' · '.join(parts))
+        rank_str = hist if hist else f'-→-→{rank}'
+        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
         lines.append('──────────────────')
 
-    # 이탈 종목 (어제 대비) + 어제→오늘 순위
     if exited_tickers:
-        lines.append('')
-        lines.append('─────────────────')
         lines.append(f'📉 어제 대비 이탈 {len(exited_tickers)}개')
-        # 전체 eligible 종목의 현재 순위 계산
         all_eligible = get_part2_candidates(df)
         current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
         sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
+        name_map = dict(zip(df['ticker'], df.get('short_name', df['ticker'])))
         for t, prev_rank in sorted_exits:
+            t_name = name_map.get(t, t)
             cur_rank = current_rank_map.get(t)
             if cur_rank:
-                lines.append(f'{t} · 어제 {prev_rank}위 → {cur_rank}위')
+                lines.append(f'  {t_name}({t}) · 어제 {prev_rank}위 → {cur_rank}위')
             else:
-                lines.append(f'{t} · 어제 {prev_rank}위 → 조건 미달')
-        lines.append('')
-        lines.append('보유 중이라면 매도를 검토하세요.')
+                lines.append(f'  {t_name}({t}) · 어제 {prev_rank}위 → 조건 미달')
+        lines.append('⛔ 보유 중이라면 매도를 검토하세요.')
 
-    lines.append('')
-    lines.append('목록에 있으면 보유, 없으면 매도 검토.')
-    lines.append('')
-    lines.append('👉 다음: AI 리스크 필터 [2/3]')
+    lines.append('─────────────────')
+    lines.append('👉 다음: AI 리스크 필터 [3/4]')
 
     return '\n'.join(lines)
 
@@ -1029,7 +1570,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
 
 아래는 EPS 모멘텀 시스템의 매수 후보 {stock_count}종목과 각 종목의 정량적 위험 신호야.
 이 종목들은 EPS 전망치가 상향 중이라 선정된 거야.
-네 역할: 위험 신호를 해석해서 "사면 위험한 종목"을 고객에게 알려주는 거야.
+네 역할: 아래 3개 섹션을 순서대로 반드시 모두 출력하는 거야. 인사말이나 서두 없이 바로 시작해.
 
 [종목별 데이터 & 위험 신호 — 시스템이 계산한 팩트]
 {signals_data}
@@ -1039,21 +1580,23 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
 📉 저커버리지 = 커버리지 애널리스트 3명 미만 (추정치 신뢰도 낮음)
 📅 어닝 = 2주 내 실적 발표 예정 (발표 전후 변동성 주의)
 
-[출력 형식]
+[출력 규칙]
 - 한국어, 친절하고 따뜻한 말투 (~예요/~해요 체)
-- 예시: "주가가 크게 빠졌어요", "조심하시는 게 좋겠어요", "아직은 괜찮아 보여요"
 - 딱딱한 보고서 말투 금지. 친구에게 설명하듯 자연스럽게.
+- 인사말, 서두, 맺음말 금지. 아래 3개 섹션만 출력.
 - 총 1500자 이내.
 
+=== 반드시 출력할 3개 섹션 ===
+
 📰 시장 동향
-어제 미국 시장 마감과 금주 주요 이벤트를 Google 검색해서 2~3줄 요약해줘.
+(필수) 어제 미국 시장 마감과 금주 주요 이벤트를 Google 검색해서 2~3줄 요약해줘. 이 섹션은 반드시 출력해야 해.
 
 ⚠️ 매수 주의 종목
-위 위험 신호를 종합해서 매수를 재고할 만한 종목을 골라줘.
+위 데이터에서 위험 신호(🔻/📉/📅)가 있는 종목만 골라서 설명해줘.
 형식: 종목명(티커)를 굵게(**) 쓰고, 1~2줄로 왜 주의해야 하는지 설명.
 종목과 종목 사이에 반드시 [SEP] 한 줄을 넣어서 구분해줘.
-위험 신호가 없는 종목은 절대 여기에 넣지 마.
-시스템 데이터에 없는 내용을 추측하거나 지어내지 마.
+위험 신호가 없는 종목은 절대 넣지 마. 시스템 데이터에 없는 내용을 지어내지 마.
+만약 위험 신호가 있는 종목이 하나도 없으면 "✅ 모든 후보가 현재 양호해요." 한 줄만 출력해.
 
 예시:
 **ABC Corp(ABC)**
@@ -1064,9 +1607,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
 
 📅 어닝 주의
 {earnings_info}
-(위 내용 그대로 표시. 수정/추가 금지. "해당 없음"이면 이 섹션 생략.)
-
-위험 신호가 없는 종목은 언급하지 마."""
+(위 내용 그대로 표시. 수정/추가 금지. "해당 없음"이면 이 섹션 생략.)"""
 
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         response = client.models.generate_content(
@@ -1095,14 +1636,22 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
             return None
 
         analysis_text = extract_text(response)
-        if not analysis_text:
+
+        # 응답 유효성 검증: 비어있거나 필수 섹션(📰/⚠️) 누락이면 재시도
+        def is_valid_response(text):
+            if not text or len(text) < 50:
+                return False
+            return '📰' in text or '시장' in text
+
+        if not is_valid_response(analysis_text):
             try:
                 if hasattr(response, 'candidates') and response.candidates:
                     candidate = response.candidates[0]
                     log(f"Gemini finish_reason: {candidate.finish_reason}", "WARN")
             except Exception:
                 pass
-            log("Gemini 응답이 비어있음 — 재시도", "WARN")
+            reason = "비어있음" if not analysis_text else f"섹션 누락 ({len(analysis_text)}자)"
+            log(f"Gemini 응답 부적합 ({reason}) — 재시도", "WARN")
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=prompt,
@@ -1112,9 +1661,10 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
                 ),
             )
             analysis_text = extract_text(response)
-            if not analysis_text:
-                log("Gemini 재시도도 실패", "WARN")
-                return None
+            if not is_valid_response(analysis_text):
+                log("Gemini 재시도도 부적합", "WARN")
+                if not analysis_text:
+                    return None
 
         # Markdown → Telegram HTML 변환
         analysis_html = analysis_text
@@ -1125,12 +1675,12 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
         analysis_html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', analysis_html)
         analysis_html = re.sub(r'#{1,3}\s*', '', analysis_html)
         analysis_html = analysis_html.replace('---', '━━━')
-        analysis_html = re.sub(r'\n*\[SEP\]\n*', '\n\n', analysis_html)
+        analysis_html = re.sub(r'\n*\[SEP\]\n*', '\n─────────\n', analysis_html)
 
         # 텔레그램 메시지 포맷팅
         lines = []
         lines.append('━━━━━━━━━━━━━━━━━━━')
-        lines.append('  [2/3] 🛡️ AI 리스크 필터')
+        lines.append('  [3/4] 🛡️ AI 리스크 필터')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)')
         lines.append('')
@@ -1138,7 +1688,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
         lines.append('')
         lines.append(analysis_html)
         lines.append('')
-        lines.append('👉 다음: 최종 추천 포트폴리오 [3/3]')
+        lines.append('👉 다음: 최종 추천 포트폴리오 [4/4]')
 
         log("AI 리스크 필터 완료")
         return '\n'.join(lines)
@@ -1178,7 +1728,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: ✅ 검증 종목 없음", "WARN")
             return '\n'.join([
                 '━━━━━━━━━━━━━━━━━━━',
-                '   [3/3] 🎯 최종 추천',
+                '   [4/4] 🎯 최종 추천',
                 '━━━━━━━━━━━━━━━━━━━',
                 f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
                 '',
@@ -1249,56 +1799,25 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: ✅ 종목 없음", "WARN")
             return None
 
-        # adj_gap순 정렬 (더 음수 = EPS 대비 주가 저평가) + 섹터 분산 (1섹터 1종목)
-        safe.sort(key=lambda x: x['adj_gap'])
-        log("포트폴리오: adj_gap 순위 (EPS 대비 저평가):")
+        # composite 순서 그대로 상위 5종목 선정 (섹터 분산 없음)
+        log("포트폴리오: composite 순위 (괴리 70% + 매출성장 30%):")
         for i, s in enumerate(safe):
             log(f"    {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
-        selected = []
-        used_sectors = set()
-        for s in safe:
-            sector = s['industry']
-            if sector in used_sectors:
-                log(f"  ⏭️ {s['ticker']}: 섹터 중복 [{sector}] → 스킵")
-                continue
-            selected.append(s)
-            used_sectors.add(sector)
-            log(f"  → {s['ticker']}: [{sector}] 선정")
-            if len(selected) >= 5:
-                break
+        selected = safe[:5]
 
         if len(selected) < 3:
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 비중 배분 (adj_gap 절대값 비례 — 더 저평가일수록 높은 비중, 5% 단위)
-        # 종목당 상한 30%
-        MAX_WEIGHT = 30
-        gaps = [abs(s['adj_gap']) for s in selected]
-        total_score = sum(gaps)
-        for i, s in enumerate(selected):
-            raw = gaps[i] / total_score * 100
-            s['weight'] = min(round(raw / 5) * 5, MAX_WEIGHT)
-        # 합계 100% 보정
-        diff = 100 - sum(s['weight'] for s in selected)
-        while diff != 0:
-            adjusted = False
-            for s in selected:
-                if diff > 0 and s['weight'] < MAX_WEIGHT:
-                    add = min(5, MAX_WEIGHT - s['weight'], diff)
-                    s['weight'] += add
-                    diff -= add
-                    adjusted = True
-                elif diff < 0 and s['weight'] > 5:
-                    sub = min(5, s['weight'] - 5, -diff)
-                    s['weight'] -= sub
-                    diff += sub
-                    adjusted = True
-                if diff == 0:
-                    break
-            if not adjusted:
-                selected[0]['weight'] += diff
-                break
+        # 동일 비중 배분 (5종목 = 각 20%)
+        n = len(selected)
+        base_weight = 100 // n
+        for s in selected:
+            s['weight'] = base_weight
+        # 나머지 1위부터 배분 (예: 3종목이면 34/33/33)
+        remainder = 100 - base_weight * n
+        for i in range(remainder):
+            selected[i]['weight'] += 1
 
         log(f"포트폴리오: {len(selected)}종목 선정 — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
@@ -1317,7 +1836,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         prompt = f"""분석 기준일: {biz_day.strftime('%Y-%m-%d')} (미국 영업일)
 
 아래는 EPS 모멘텀 시스템이 자동 선정한 {len(selected)}종목 포트폴리오야.
-선정 기준: Part 2 매수 후보 중 위험 신호 없고(✅), EPS 모멘텀(속도+방향) 상위.
+선정 기준: Part 2 매수 후보 중 위험 신호 없고(✅), composite 순위 상위. 동일 비중.
 
 [포트폴리오]
 {chr(10).join(stock_lines)}
@@ -1331,7 +1850,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 - 맨 끝에 별도 문구 넣지 마. (코드에서 추가함)
 - 500자 이내
 
-각 종목의 비중과 선정 이유를 설명해줘.
+각 종목의 선정 이유를 설명해줘. 비중은 동일(각 {selected[0]['weight']}%)이니 비중 설명은 생략해.
 시스템 데이터에 없는 내용을 지어내지 마."""
 
         api_key = config.get('gemini_api_key', '')
@@ -1386,7 +1905,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 
         lines = [
             '━━━━━━━━━━━━━━━━━━━',
-            '   [3/3] 🎯 최종 추천',
+            '   [4/4] 🎯 최종 추천',
             '━━━━━━━━━━━━━━━━━━━',
             f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
             '',
@@ -1399,7 +1918,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             html,
             '',
             '💡 <b>활용법</b>',
-            '· 비중대로 분산 투자를 권장해요',
+            f'· 동일 비중(각 {selected[0]["weight"]}%) 분산 투자',
             '· 목록에서 빠지면 매도 검토',
             '· 최소 2주 보유, 매일 후보 갱신 확인',
             '⚠️ 참고용이며, 투자 판단은 본인 책임이에요.',
@@ -1504,9 +2023,12 @@ def main():
         except Exception:
             today_str = datetime.now().strftime('%Y-%m-%d')
     status_map = {}
+    rank_history = {}
     exited_tickers = []
 
     if not results_df.empty:
+        # 매출 성장률 수집 → composite score (adj_gap 70% + rev_growth 30%)
+        results_df = fetch_revenue_growth(results_df)
         save_part2_ranks(results_df, today_str)
 
         # 오늘 Part 2 후보 티커 목록 (Top 30)
@@ -1514,23 +2036,37 @@ def main():
         today_tickers = list(candidates['ticker']) if not candidates.empty else []
 
         status_map = get_3day_status(today_tickers)
+        rank_history = get_rank_history(today_tickers)
         _, exited_tickers = get_daily_changes(today_tickers)
 
     stats['exited_count'] = len(exited_tickers) if exited_tickers else 0
 
-    # 2.5. 시장 지수 수집
+    # 2.5. 시장 지수 + HY Spread 수집
     market_lines = get_market_context()
     if market_lines:
         log(f"시장 지수: {len(market_lines)}개")
+    risk_status = get_market_risk_status()
+    hy_data = risk_status['hy']
+    vix_data = risk_status['vix']
+    if hy_data:
+        log(f"HY Spread: {hy_data['hy_spread']:.2f}% | 분면: {hy_data['quadrant']} {hy_data['quadrant_label']} ({hy_data['q_days']}일째)")
+        log(f"  현금 {hy_data['cash_pct']}% · {hy_data['action']}")
+        if hy_data['signals']:
+            for sig in hy_data['signals']:
+                log(f"  해빙 신호: {sig}")
+    if vix_data:
+        log(f"VIX: {vix_data['vix_current']:.1f} | slope {vix_data['vix_slope']:+.1f} ({vix_data['vix_slope_dir']}) | {vix_data['regime_label']}")
+    log(f"일치도: {risk_status['concordance']} | 최종 현금: {risk_status['final_cash_pct']}%")
 
     # 3. 메시지 생성
-    msg_part2 = create_part2_message(results_df, status_map, exited_tickers, market_lines) if not results_df.empty else None
+    msg_market = create_market_message(results_df, market_lines, risk_status=risk_status) if not results_df.empty else None
+    msg_candidates = create_candidates_message(results_df, status_map, exited_tickers, rank_history) if not results_df.empty else None
 
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()
     msg_log = create_system_log_message(stats, elapsed, config)
 
-    # 4. 텔레그램 발송: 📖 가이드 → [1/3] 매수 후보 → [2/3] AI 리스크 필터 → [3/3] 최종 추천 → 로그
+    # 4. 텔레그램 발송: 📖 가이드 → [1/4] 시장 → [2/4] 매수 후보 → [3/4] AI → [4/4] 최종 → 로그
     if config.get('telegram_enabled', False):
         is_github = config.get('is_github_actions', False)
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
@@ -1551,29 +2087,36 @@ def main():
         send_telegram_long(msg_guide, config, chat_id=private_id)
         log(f"📖 투자 가이드 전송 완료 → {dest}")
 
-        # [1/3] 매수 후보
-        if msg_part2:
+        # [1/4] 시장 현황
+        if msg_market:
             if send_to_channel:
-                send_telegram_long(msg_part2, config, chat_id=channel_id)
-            send_telegram_long(msg_part2, config, chat_id=private_id)
-            log(f"[1/3] 매수 후보 전송 완료 → {dest}")
+                send_telegram_long(msg_market, config, chat_id=channel_id)
+            send_telegram_long(msg_market, config, chat_id=private_id)
+            log(f"[1/4] 시장 현황 전송 완료 → {dest}")
 
-        # [2/3] AI 리스크 필터
+        # [2/4] 매수 후보
+        if msg_candidates:
+            if send_to_channel:
+                send_telegram_long(msg_candidates, config, chat_id=channel_id)
+            send_telegram_long(msg_candidates, config, chat_id=private_id)
+            log(f"[2/4] 매수 후보 전송 완료 → {dest}")
+
+        # [3/4] AI 리스크 필터
         biz_day = get_last_business_day()
         msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day)
         if msg_ai:
             if send_to_channel:
                 send_telegram_long(msg_ai, config, chat_id=channel_id)
             send_telegram_long(msg_ai, config, chat_id=private_id)
-            log(f"[2/3] AI 리스크 필터 전송 완료 → {dest}")
+            log(f"[3/4] AI 리스크 필터 전송 완료 → {dest}")
 
-        # [3/3] 최종 추천
+        # [4/4] 최종 추천
         msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day)
         if msg_portfolio:
             if send_to_channel:
                 send_telegram_long(msg_portfolio, config, chat_id=channel_id)
             send_telegram_long(msg_portfolio, config, chat_id=private_id)
-            log(f"[3/3] 최종 추천 전송 완료 → {dest}")
+            log(f"[4/4] 최종 추천 전송 완료 → {dest}")
 
         # 시스템 로그 → 개인봇에만 (항상)
         send_telegram_long(msg_log, config, chat_id=private_id)
