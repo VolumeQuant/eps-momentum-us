@@ -696,6 +696,107 @@ def get_daily_changes(today_tickers):
     return sorted(entered), exited_with_rank
 
 
+def fetch_hy_quadrant():
+    """HY Spread Verdad 4분면 + 해빙 신호 (FRED BAMLH0A0HYM2)
+
+    수준: HY vs 10년 롤링 중위수 (넓/좁)
+    방향: 현재 vs 63영업일(3개월) 전 (상승/하락)
+    → Q1 회복(넓+하락), Q2 성장(좁+하락), Q3 과열(좁+상승), Q4 침체(넓+상승)
+    """
+    import urllib.request
+    import io
+    import pandas as pd
+    import numpy as np
+
+    try:
+        # FRED에서 10년치 HY spread CSV 다운로드
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=365 * 11)).strftime('%Y-%m-%d')
+        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2&cosd={start_date}&coed={end_date}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            csv_data = response.read().decode('utf-8')
+
+        df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
+        df.columns = ['date', 'hy_spread']
+        df = df.dropna(subset=['hy_spread'])
+        df['hy_spread'] = pd.to_numeric(df['hy_spread'], errors='coerce')
+        df = df.dropna().set_index('date').sort_index()
+
+        if len(df) < 1260:  # 최소 5년치 필요
+            log("HY Spread: 데이터 부족", level="WARN")
+            return None
+
+        # 10년 롤링 중위수 (min 5년)
+        df['median_10y'] = df['hy_spread'].rolling(2520, min_periods=1260).median()
+
+        hy_spread = df['hy_spread'].iloc[-1]
+        hy_prev = df['hy_spread'].iloc[-2]
+        median_10y = df['median_10y'].iloc[-1]
+
+        if pd.isna(median_10y):
+            log("HY Spread: 중위수 계산 불가", level="WARN")
+            return None
+
+        # 3개월(63영업일) 전
+        hy_3m_ago = df['hy_spread'].iloc[-63] if len(df) >= 63 else df['hy_spread'].iloc[0]
+
+        # 분면 판정
+        is_wide = hy_spread >= median_10y
+        is_rising = hy_spread >= hy_3m_ago
+
+        if is_wide and not is_rising:
+            quadrant, label, icon = 'Q1', '회복기', '🟢'
+        elif not is_wide and not is_rising:
+            quadrant, label, icon = 'Q2', '성장기', '🟢'
+        elif not is_wide and is_rising:
+            quadrant, label, icon = 'Q3', '과열 주의', '🟡'
+        else:  # wide and rising
+            quadrant, label, icon = 'Q4', '방어 모드', '🔴'
+
+        # 해빙 신호 감지
+        signals = []
+        daily_change_bp = (hy_spread - hy_prev) * 100
+
+        # 1) HY 4~5%에서 -20bp 급축소
+        if 4 <= hy_spread <= 5 and daily_change_bp <= -20:
+            signals.append(f'💎 스프레드 급축소 (HY {hy_spread:.2f}%, 전일 대비 {daily_change_bp:+.0f}bp)')
+
+        # 2) 5% 하향 돌파
+        if hy_prev >= 5 and hy_spread < 5:
+            signals.append('💎 5% 하향 돌파 — 올클리어')
+
+        # 3) 60일 고점 대비 -300bp 이상 하락
+        peak_60d = df['hy_spread'].rolling(60).max().iloc[-1]
+        from_peak_bp = (hy_spread - peak_60d) * 100
+        if from_peak_bp <= -300:
+            signals.append(f'💎 고점 대비 {from_peak_bp:.0f}bp 하락 — 강력 매수 신호')
+
+        # 4) Q4→Q1 전환 (전일 분면 계산)
+        prev_wide = hy_prev >= median_10y
+        hy_3m_ago_prev = df['hy_spread'].iloc[-64] if len(df) >= 64 else df['hy_spread'].iloc[0]
+        prev_rising = hy_prev >= hy_3m_ago_prev
+        prev_was_q4 = prev_wide and prev_rising
+        now_is_q1 = is_wide and not is_rising
+        if prev_was_q4 and now_is_q1:
+            signals.append('💎 침체→회복 전환 — 최고 매수 구간')
+
+        return {
+            'hy_spread': hy_spread,
+            'median_10y': median_10y,
+            'hy_3m_ago': hy_3m_ago,
+            'hy_prev': hy_prev,
+            'quadrant': quadrant,
+            'quadrant_label': label,
+            'quadrant_icon': icon,
+            'signals': signals,
+        }
+
+    except Exception as e:
+        log(f"HY Spread 수집 실패: {e}", level="WARN")
+        return None
+
+
 def get_market_context():
     """미국 시장 지수 컨텍스트"""
     try:
@@ -869,7 +970,7 @@ def create_guide_message():
     return '\n'.join(lines)
 
 
-def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=None, rank_history=None, top_n=30):
+def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=None, rank_history=None, top_n=30, hy_data=None):
     """[1/3] 매수 후보 메시지 — composite 순 Top 30, ✅/⏳/🆕 표시, 순위 이력"""
     import pandas as pd
 
@@ -895,6 +996,12 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
     if market_lines:
         lines.append('─────────────────')
         lines.extend(market_lines)
+    if hy_data:
+        lines.append(f"{hy_data['quadrant_icon']} <b>신용시장</b> — {hy_data['quadrant_label']} (HY {hy_data['hy_spread']:.2f}%, 중위 {hy_data['median_10y']:.2f}%)")
+        if hy_data['quadrant'] == 'Q4':
+            lines.append('⚠️ 신규 매수 시 신중하게 판단하세요.')
+        for sig in hy_data.get('signals', []):
+            lines.append(sig)
     lines.append('')
     lines.append('이익 전망이 올라가면서 매출도 성장하는 종목이에요.')
     lines.append('EPS 저평가 + 매출 성장률 복합 순위.')
@@ -1612,13 +1719,19 @@ def main():
 
     stats['exited_count'] = len(exited_tickers) if exited_tickers else 0
 
-    # 2.5. 시장 지수 수집
+    # 2.5. 시장 지수 + HY Spread 수집
     market_lines = get_market_context()
     if market_lines:
         log(f"시장 지수: {len(market_lines)}개")
+    hy_data = fetch_hy_quadrant()
+    if hy_data:
+        log(f"HY Spread: {hy_data['hy_spread']:.2f}% | 분면: {hy_data['quadrant']} {hy_data['quadrant_label']}")
+        if hy_data['signals']:
+            for sig in hy_data['signals']:
+                log(f"  해빙 신호: {sig}")
 
     # 3. 메시지 생성
-    msg_part2 = create_part2_message(results_df, status_map, exited_tickers, market_lines, rank_history) if not results_df.empty else None
+    msg_part2 = create_part2_message(results_df, status_map, exited_tickers, market_lines, rank_history, hy_data=hy_data) if not results_df.empty else None
 
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()
