@@ -148,6 +148,15 @@ VIX 40+에서 현금을 더 늘리면 역효과:
 | [2/4] 읽는법이 Top30과 붙어있음 | 💡 읽는 법 헤더 + 구분선으로 분리 |
 | 📊 주도 업종: 데이터 한 줄 | 📊 주도 업종 (라벨) + 줄바꿈 후 데이터 |
 
+### NTM 데이터 보호 (재수집 방지)
+
+**문제**: 같은 마켓 날짜를 여러 번 실행하면 yfinance NTM 컨센서스 데이터가 수집 시점마다 달라져 순위 뒤집힘.
+예: LITE 오전 3위(gap=-0.9) → 오후 12위(gap=+8.9) — ntm_7d가 7.88→11.05로 변동.
+
+**해결**: `run_ntm_collection()`에서 DB에 이미 해당 마켓 날짜 데이터(adj_score NOT NULL 100건+)가 있으면 NTM 수집 루프 전체 스킵. DB 기존 값으로 DataFrame 구성 후 메시지 생성으로 바로 진행.
+
+**강제 재수집**: `FORCE_RECOLLECT=true` 환경변수 설정 시 기존 데이터 무시하고 재수집.
+
 ### 참고 자료 (에이전트 수집)
 
 - [FRED VIXCLS](https://fred.stlouisfed.org/series/VIXCLS), [Macrotrends VIX](https://www.macrotrends.net/2603/vix-volatility-index-historical-chart)

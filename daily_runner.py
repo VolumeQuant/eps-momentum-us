@@ -170,6 +170,94 @@ def run_ntm_collection(config):
     all_tickers = sorted(set(t for tlist in INDICES.values() for t in tlist))
     log(f"유니버스: {len(all_tickers)}개 종목")
 
+    # Step 0: 데이터 보호 — 이미 수집된 마켓 날짜면 NTM 재수집 스킵
+    force_recollect = os.environ.get('FORCE_RECOLLECT', '').lower() in ('true', '1', 'yes')
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    existing_count = cursor.execute(
+        'SELECT COUNT(*) FROM ntm_screening WHERE date=? AND adj_score IS NOT NULL',
+        (today_str,)
+    ).fetchone()[0]
+
+    if existing_count > 100 and not force_recollect:
+        log(f"[데이터 보호] {today_str} 이미 {existing_count}건 수집됨 — NTM 재수집 스킵")
+        log(f"  강제 재수집하려면: FORCE_RECOLLECT=true 환경변수 설정")
+
+        # DB에서 기존 데이터 로드 → results DataFrame 구성
+        cache_path = PROJECT_ROOT / 'ticker_info_cache.json'
+        ticker_cache = {}
+        if cache_path.exists():
+            try:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    ticker_cache = json.load(f)
+            except Exception:
+                ticker_cache = {}
+
+        rows = cursor.execute('''
+            SELECT ticker, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d,
+                   adj_score, adj_gap, price, ma60, is_turnaround
+            FROM ntm_screening WHERE date=? AND adj_score IS NOT NULL
+        ''', (today_str,)).fetchall()
+
+        results = []
+        turnaround = []
+        for r in rows:
+            ticker = r[0]
+            ntm = {'current': r[2], '7d': r[3], '30d': r[4], '60d': r[5], '90d': r[6]}
+            score_val, seg1, seg2, seg3, seg4, is_turn, adj_score_val, direction = calculate_ntm_score(ntm)
+            eps_change_90d = calculate_eps_change_90d(ntm)
+            trend_lights, trend_desc = get_trend_lights(seg1, seg2, seg3, seg4)
+            cached = ticker_cache.get(ticker, {})
+            row_dict = {
+                'ticker': ticker,
+                'short_name': cached.get('shortName', ticker),
+                'industry': cached.get('industry', ''),
+                'score': r[1],
+                'adj_score': r[7],
+                'direction': direction,
+                'seg1': seg1, 'seg2': seg2, 'seg3': seg3, 'seg4': seg4,
+                'ntm_cur': ntm['current'], 'ntm_7d': ntm['7d'],
+                'ntm_30d': ntm['30d'], 'ntm_60d': ntm['60d'], 'ntm_90d': ntm['90d'],
+                'eps_change_90d': eps_change_90d,
+                'trend_lights': trend_lights,
+                'trend_desc': trend_desc,
+                'price_chg': None, 'price_chg_weighted': None, 'eps_chg_weighted': None,
+                'fwd_pe': (r[9] / ntm['current']) if ntm['current'] and ntm['current'] > 0 and r[9] else None,
+                'fwd_pe_chg': None,
+                'adj_gap': r[8],
+                'is_turnaround': r[11],
+                'rev_up30': 0, 'rev_down30': 0, 'num_analysts': 0,
+                'price': r[9],
+                'ma60': r[10],
+            }
+            if r[11]:
+                turnaround.append(row_dict)
+            else:
+                results.append(row_dict)
+
+        results_df = pd.DataFrame(results)
+        if not results_df.empty:
+            results_df = results_df.sort_values('adj_score', ascending=False).reset_index(drop=True)
+            results_df['rank'] = results_df.index + 1
+        turnaround_df = pd.DataFrame(turnaround)
+        if not turnaround_df.empty:
+            turnaround_df = turnaround_df.sort_values('score', ascending=False).reset_index(drop=True)
+        conn.close()
+
+        stats = {
+            'universe': len(all_tickers),
+            'main_count': len(results),
+            'turnaround_count': len(turnaround),
+            'no_data_count': 0, 'error_count': 0, 'error_tickers': [],
+            'total_collected': len(results) + len(turnaround),
+        }
+        log(f"DB 로드 완료: 메인 {len(results)}, 턴어라운드 {len(turnaround)}")
+        return results_df, turnaround_df, stats
+
+    if force_recollect and existing_count > 100:
+        log(f"[강제 재수집] FORCE_RECOLLECT=true — 기존 {existing_count}건 덮어쓰기")
+    conn.close()
+
     # Step 1: 종목 정보 캐시 로드
     cache_path = PROJECT_ROOT / 'ticker_info_cache.json'
     ticker_cache = {}
