@@ -1206,6 +1206,7 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
         lines.append('─────────────────')
         lines.extend(market_lines)
     if hy_data or vix_data:
+        # 시장 위험 지표 헤더
         lines.append('─────────────────')
         if hy_data:
             lines.append(f"🛡️ <b>시장 위험 지표</b> — {hy_data['quadrant_icon']} {hy_data['quadrant_label']}")
@@ -1225,8 +1226,9 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
                 interp = f"평균({med_val:.2f}%) 이하지만 올라가는 중이에요."
             else:
                 interp = f"평균({med_val:.2f}%)보다 높고 계속 올라가고 있어요."
+            lines.append('─────────────────')
             lines.append(f"🏦 <b>신용시장</b>")
-            lines.append(f"HY 스프레드 {hy_val:.2f}%")
+            lines.append(f"HY Spread(부도위험) {hy_val:.2f}%")
             lines.append(interp)
 
         # VIX 표시
@@ -1234,7 +1236,8 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
             v = vix_data['vix_current']
             slope_arrow = '↑' if vix_data['vix_slope_dir'] == 'rising' else ('↓' if vix_data['vix_slope_dir'] == 'falling' else '')
             adj = vix_data['cash_adjustment']
-            lines.append(f"🌡️ <b>변동성</b>")
+            lines.append('─────────────────')
+            lines.append(f"⚡ <b>변동성</b>")
             if vix_data['regime'] == 'normal':
                 rel = '이하' if v <= vix_data['vix_ma_20'] else '이상'
                 lines.append(f"VIX {v:.1f}")
@@ -1249,6 +1252,7 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
                     lines.append(f"{vix_data['regime_label']} 구간이에요.")
 
         # 투자 비중 (HY + VIX 합산)
+        lines.append('─────────────────')
         if final_cash == 0:
             lines.append('💰 투자 100%')
         else:
