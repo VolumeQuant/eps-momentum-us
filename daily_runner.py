@@ -1051,11 +1051,10 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.append(f"HY Spread(부도위험) {hy_val:.2f}% · {interp}")
         # 투자 비중
         cash_pct = hy_data.get('cash_pct', 0)
-        stock_weight = (100 - cash_pct) // 5
         if cash_pct == 0:
-            lines.append(f"📊 투자 100% · 종목당 {stock_weight}%")
+            lines.append('📊 투자 100%')
         else:
-            lines.append(f"📊 투자 {100 - cash_pct}% + 현금 {cash_pct}% · 종목당 {stock_weight}%")
+            lines.append(f"📊 투자 {100 - cash_pct}% + 현금 {cash_pct}%")
         # 행동 가이드
         lines.append(f"→ {hy_data['action']}")
         for sig in hy_data.get('signals', []):
