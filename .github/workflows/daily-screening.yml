@@ -5,7 +5,16 @@ on:
     # 매일 UTC 22:15 = KST 07:15
     # 일~목 UTC 22:15 = 월~금 KST 07:15
     - cron: '15 22 * * 0-4'
-  workflow_dispatch:  # 수동 실행 가능
+  workflow_dispatch:
+    inputs:
+      force_recollect:
+        description: 'NTM 데이터 강제 재수집'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 permissions:
   contents: write  # git push 권한
@@ -48,6 +57,7 @@ jobs:
         python daily_runner.py
       env:
         TZ: 'America/New_York'
+        FORCE_RECOLLECT: ${{ github.event.inputs.force_recollect || 'false' }}
 
     - name: Commit and push results
       run: |
