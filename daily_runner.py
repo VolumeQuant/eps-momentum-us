@@ -980,7 +980,6 @@ def create_guide_message():
         '━━━━━━━━━━━━━━━━━━━',
         '      📖 투자 가이드',
         '━━━━━━━━━━━━━━━━━━━',
-        '',
         '🔎 <b>어떤 종목을 찾나요?</b>',
         '월가 애널리스트들이 "이익이 늘어날 거야"라고',
         '전망치를 올리는 종목을 찾아요.',
@@ -1008,27 +1007,19 @@ def create_guide_message():
     return '\n'.join(lines)
 
 
-def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=None, rank_history=None, top_n=30, hy_data=None):
-    """[1/3] 매수 후보 메시지 — composite 순 Top 30, ✅/⏳/🆕 표시, 순위 이력"""
+def create_market_message(df, market_lines=None, hy_data=None, top_n=30):
+    """[1/4] 시장 현황 — 지수, 신용시장, 주도 업종"""
     import pandas as pd
+    from collections import Counter
 
     biz_day = get_last_business_day()
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
-    # 공통 필터 사용
     filtered = get_part2_candidates(df, top_n=top_n)
-    count = len(filtered)
-
-    if status_map is None:
-        status_map = {}
-    if exited_tickers is None:
-        exited_tickers = {}
-    if rank_history is None:
-        rank_history = {}
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(' [1/3] 📊 시장 + 매수 후보')
+    lines.append(' [1/4] 📊 시장 현황')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     if market_lines:
@@ -1037,7 +1028,6 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
     if hy_data:
         lines.append('─────────────────')
         lines.append(f"{hy_data['quadrant_icon']} <b>신용시장</b> — {hy_data['quadrant_label']}")
-        # HY 수치 + 맥락 해석
         hy_val = hy_data['hy_spread']
         med_val = hy_data['median_10y']
         q = hy_data['quadrant']
@@ -1051,19 +1041,16 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
             interp = f"평균({med_val:.2f}%)보다 높고 계속 올라가고 있어요."
         lines.append(f"HY Spread(부도위험) {hy_val:.2f}%")
         lines.append(interp)
-        # 투자 비중
         cash_pct = hy_data.get('cash_pct', 0)
         if cash_pct == 0:
             lines.append('📊 투자 100%')
         else:
             lines.append(f"📊 투자 {100 - cash_pct}% + 현금 {cash_pct}%")
-        # 행동 가이드
         lines.append(f"→ {hy_data['action']}")
         for sig in hy_data.get('signals', []):
             lines.append(sig)
 
     # 업종 분포 통계
-    from collections import Counter
     sector_counts = Counter(row.get('industry', '기타') for _, row in filtered.iterrows())
     top_sectors = sector_counts.most_common()
     if top_sectors:
@@ -1072,12 +1059,32 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
             lines.append('─────────────────')
             lines.append(f'📊 주도 업종: {" · ".join(sector_parts)}')
 
-    # 매수 후보 목록 헤더
     lines.append('─────────────────')
-    lines.append(f'<b>📋 매수 후보 {count}개 — 보유 확인</b>')
+    lines.append('👉 다음: 매수 후보 [2/4]')
+
+    return '\n'.join(lines)
+
+
+def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30):
+    """[2/4] 매수 후보 — composite 순 Top 30, ✅/⏳/🆕 표시, 순위 이력"""
+    import pandas as pd
+
+    filtered = get_part2_candidates(df, top_n=top_n)
+    count = len(filtered)
+
+    if status_map is None:
+        status_map = {}
+    if exited_tickers is None:
+        exited_tickers = {}
+    if rank_history is None:
+        rank_history = {}
+
+    lines = []
+    lines.append('━━━━━━━━━━━━━━━━━━━')
+    lines.append(f' [2/4] 📋 매수 후보 {count}개')
+    lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append('✅매수 ⏳내일검증 🆕관찰')
     lines.append('목록에 있으면 보유, 없으면 매도 검토.')
-    lines.append('')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
@@ -1086,25 +1093,16 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lights = row.get('trend_lights', '')
         desc = row.get('trend_desc', '')
         eps_90d = row.get('eps_change_90d')
-        price_90d = row.get('price_chg')
 
-        # ✅/🆕 마커
         marker = status_map.get(ticker, '🆕')
-
-        # 순위 이력
         hist = rank_history.get(ticker, '')
-
-        adj_gap = row.get('adj_gap', 0) or 0
         rev_g = row.get('rev_growth')
         rev_up = int(row.get('rev_up30', 0) or 0)
         rev_down = int(row.get('rev_down30', 0) or 0)
 
-        # Line 1: 마커 순위 종목명(티커)
         name = row.get('short_name', ticker)
         lines.append(f'{marker} <b>{rank}.</b> {name}({ticker})')
-        # Line 2: 업종 · 날씨
         lines.append(f'{industry} · {lights} {desc}')
-        # Line 3: EPS · 매출
         parts = []
         if pd.notna(eps_90d):
             parts.append(f'EPS {eps_90d:+.0f}%')
@@ -1112,21 +1110,15 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
             parts.append(f'매출 {rev_g*100:+.0f}%')
         if parts:
             lines.append(' · '.join(parts))
-        # Line 4: 의견 · 순위이력
         rank_str = hist if hist else f'-→-→{rank}'
-        line4 = f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}'
-        lines.append(line4)
+        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
         lines.append('──────────────────')
 
-    # 이탈 종목 (어제 대비) + 어제→오늘 순위
     if exited_tickers:
-        lines.append('─────────────────')
         lines.append(f'📉 어제 대비 이탈 {len(exited_tickers)}개')
-        # 전체 eligible 종목의 현재 순위 계산
         all_eligible = get_part2_candidates(df)
         current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
         sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
-        # 이탈 종목 종목명 맵
         name_map = dict(zip(df['ticker'], df.get('short_name', df['ticker'])))
         for t, prev_rank in sorted_exits:
             t_name = name_map.get(t, t)
@@ -1138,7 +1130,7 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.append('⛔ 보유 중이라면 매도를 검토하세요.')
 
     lines.append('─────────────────')
-    lines.append('👉 다음: AI 리스크 필터 [2/3]')
+    lines.append('👉 다음: AI 리스크 필터 [3/4]')
 
     return '\n'.join(lines)
 
@@ -1412,7 +1404,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
         # 텔레그램 메시지 포맷팅
         lines = []
         lines.append('━━━━━━━━━━━━━━━━━━━')
-        lines.append('  [2/3] 🛡️ AI 리스크 필터')
+        lines.append('  [3/4] 🛡️ AI 리스크 필터')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)')
         lines.append('')
@@ -1420,7 +1412,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
         lines.append('')
         lines.append(analysis_html)
         lines.append('')
-        lines.append('👉 다음: 최종 추천 포트폴리오 [3/3]')
+        lines.append('👉 다음: 최종 추천 포트폴리오 [4/4]')
 
         log("AI 리스크 필터 완료")
         return '\n'.join(lines)
@@ -1460,7 +1452,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: ✅ 검증 종목 없음", "WARN")
             return '\n'.join([
                 '━━━━━━━━━━━━━━━━━━━',
-                '   [3/3] 🎯 최종 추천',
+                '   [4/4] 🎯 최종 추천',
                 '━━━━━━━━━━━━━━━━━━━',
                 f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
                 '',
@@ -1637,7 +1629,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 
         lines = [
             '━━━━━━━━━━━━━━━━━━━',
-            '   [3/3] 🎯 최종 추천',
+            '   [4/4] 🎯 최종 추천',
             '━━━━━━━━━━━━━━━━━━━',
             f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
             '',
@@ -1786,13 +1778,14 @@ def main():
                 log(f"  해빙 신호: {sig}")
 
     # 3. 메시지 생성
-    msg_part2 = create_part2_message(results_df, status_map, exited_tickers, market_lines, rank_history, hy_data=hy_data) if not results_df.empty else None
+    msg_market = create_market_message(results_df, market_lines, hy_data=hy_data) if not results_df.empty else None
+    msg_candidates = create_candidates_message(results_df, status_map, exited_tickers, rank_history) if not results_df.empty else None
 
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()
     msg_log = create_system_log_message(stats, elapsed, config)
 
-    # 4. 텔레그램 발송: 📖 가이드 → [1/3] 매수 후보 → [2/3] AI 리스크 필터 → [3/3] 최종 추천 → 로그
+    # 4. 텔레그램 발송: 📖 가이드 → [1/4] 시장 → [2/4] 매수 후보 → [3/4] AI → [4/4] 최종 → 로그
     if config.get('telegram_enabled', False):
         is_github = config.get('is_github_actions', False)
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
@@ -1813,29 +1806,36 @@ def main():
         send_telegram_long(msg_guide, config, chat_id=private_id)
         log(f"📖 투자 가이드 전송 완료 → {dest}")
 
-        # [1/3] 매수 후보
-        if msg_part2:
+        # [1/4] 시장 현황
+        if msg_market:
             if send_to_channel:
-                send_telegram_long(msg_part2, config, chat_id=channel_id)
-            send_telegram_long(msg_part2, config, chat_id=private_id)
-            log(f"[1/3] 매수 후보 전송 완료 → {dest}")
+                send_telegram_long(msg_market, config, chat_id=channel_id)
+            send_telegram_long(msg_market, config, chat_id=private_id)
+            log(f"[1/4] 시장 현황 전송 완료 → {dest}")
 
-        # [2/3] AI 리스크 필터
+        # [2/4] 매수 후보
+        if msg_candidates:
+            if send_to_channel:
+                send_telegram_long(msg_candidates, config, chat_id=channel_id)
+            send_telegram_long(msg_candidates, config, chat_id=private_id)
+            log(f"[2/4] 매수 후보 전송 완료 → {dest}")
+
+        # [3/4] AI 리스크 필터
         biz_day = get_last_business_day()
         msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day)
         if msg_ai:
             if send_to_channel:
                 send_telegram_long(msg_ai, config, chat_id=channel_id)
             send_telegram_long(msg_ai, config, chat_id=private_id)
-            log(f"[2/3] AI 리스크 필터 전송 완료 → {dest}")
+            log(f"[3/4] AI 리스크 필터 전송 완료 → {dest}")
 
-        # [3/3] 최종 추천
+        # [4/4] 최종 추천
         msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day)
         if msg_portfolio:
             if send_to_channel:
                 send_telegram_long(msg_portfolio, config, chat_id=channel_id)
             send_telegram_long(msg_portfolio, config, chat_id=private_id)
-            log(f"[3/3] 최종 추천 전송 완료 → {dest}")
+            log(f"[4/4] 최종 추천 전송 완료 → {dest}")
 
         # 시스템 로그 → 개인봇에만 (항상)
         send_telegram_long(msg_log, config, chat_id=private_id)
