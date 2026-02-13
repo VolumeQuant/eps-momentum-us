@@ -838,13 +838,13 @@ def fetch_hy_quadrant():
         is_rising = hy_spread >= hy_3m_ago
 
         if is_wide and not is_rising:
-            quadrant, label, icon = 'Q1', '봄', '🌸'
+            quadrant, label, icon = 'Q1', '봄(회복국면)', '🌸'
         elif not is_wide and not is_rising:
-            quadrant, label, icon = 'Q2', '여름', '🌻'
+            quadrant, label, icon = 'Q2', '여름(성장국면)', '☀️'
         elif not is_wide and is_rising:
-            quadrant, label, icon = 'Q3', '가을', '🍁'
+            quadrant, label, icon = 'Q3', '가을(과열국면)', '🍂'
         else:  # wide and rising
-            quadrant, label, icon = 'Q4', '겨울', '❄️'
+            quadrant, label, icon = 'Q4', '겨울(침체국면)', '❄️'
 
         # 해빙 신호 감지
         signals = []
@@ -1296,7 +1296,8 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
             interp = f"평균({med_val:.2f}%) 이하지만 올라가는 중이에요."
         else:
             interp = f"평균({med_val:.2f}%)보다 높고 계속 올라가고 있어요."
-        lines.append(f"🏦 HY 스프레드 {hy_val:.2f}%")
+        lines.append(f"🏦 <b>신용시장</b>")
+        lines.append(f"HY 스프레드 {hy_val:.2f}%")
         lines.append(interp)
 
         # VIX 표시
@@ -1304,12 +1305,13 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
             v = vix_data['vix_current']
             slope_arrow = '↑' if vix_data['vix_slope_dir'] == 'rising' else ('↓' if vix_data['vix_slope_dir'] == 'falling' else '')
             adj = vix_data['cash_adjustment']
+            lines.append(f"🌡️ <b>변동성</b>")
             if vix_data['regime'] == 'normal':
                 rel = '이하' if v <= vix_data['vix_ma_20'] else '이상'
-                lines.append(f"🌡️ VIX {v:.1f}")
+                lines.append(f"VIX {v:.1f}")
                 lines.append(f"평균({vix_data['vix_ma_20']:.1f}) {rel}, 안정적이에요.")
             else:
-                lines.append(f"🌡️ VIX {v:.1f} {slope_arrow}")
+                lines.append(f"VIX {v:.1f} {slope_arrow}")
                 if adj > 0:
                     lines.append(f"{vix_data['regime_label']} 구간이에요. 현금 +{adj}%")
                 elif adj < 0:
@@ -1360,7 +1362,6 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f' [2/4] 📋 매수 후보 {count}개')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('─────────────────')
     lines.append('💡 <b>읽는 법</b>')
     lines.append('✅매수 ⏳내일검증 🆕관찰')
     lines.append('목록에 있으면 보유, 없으면 매도 검토.')
