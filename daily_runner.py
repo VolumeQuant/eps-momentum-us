@@ -746,13 +746,13 @@ def fetch_hy_quadrant():
         is_rising = hy_spread >= hy_3m_ago
 
         if is_wide and not is_rising:
-            quadrant, label, icon = 'Q1', '회복기', '🟢'
+            quadrant, label, icon = 'Q1', '회복 중', '🟢'
         elif not is_wide and not is_rising:
-            quadrant, label, icon = 'Q2', '성장기', '🟢'
+            quadrant, label, icon = 'Q2', '안정', '🟢'
         elif not is_wide and is_rising:
-            quadrant, label, icon = 'Q3', '과열 주의', '🟡'
+            quadrant, label, icon = 'Q3', '주의', '🟡'
         else:  # wide and rising
-            quadrant, label, icon = 'Q4', '방어 모드', '🔴'
+            quadrant, label, icon = 'Q4', '위험', '🔴'
 
         # 해빙 신호 감지
         signals = []
@@ -760,17 +760,17 @@ def fetch_hy_quadrant():
 
         # 1) HY 4~5%에서 -20bp 급축소
         if 4 <= hy_spread <= 5 and daily_change_bp <= -20:
-            signals.append(f'💎 스프레드 급축소 (HY {hy_spread:.2f}%, 전일 대비 {daily_change_bp:+.0f}bp)')
+            signals.append('💎 부도 위험이 하루 만에 크게 떨어졌어요 — 매수 기회')
 
         # 2) 5% 하향 돌파
         if hy_prev >= 5 and hy_spread < 5:
-            signals.append('💎 5% 하향 돌파 — 올클리어')
+            signals.append('💎 위험 수준이 안전 구간으로 내려왔어요 — 매수 적기')
 
         # 3) 60일 고점 대비 -300bp 이상 하락
         peak_60d = df['hy_spread'].rolling(60).max().iloc[-1]
         from_peak_bp = (hy_spread - peak_60d) * 100
         if from_peak_bp <= -300:
-            signals.append(f'💎 고점 대비 {from_peak_bp:.0f}bp 하락 — 강력 매수 신호')
+            signals.append('💎 최근 고점 대비 위험이 크게 줄었어요 — 강력 매수 신호')
 
         # 4) Q4→Q1 전환 (전일 분면 계산)
         prev_wide = hy_prev >= median_10y
@@ -779,7 +779,7 @@ def fetch_hy_quadrant():
         prev_was_q4 = prev_wide and prev_rising
         now_is_q1 = is_wide and not is_rising
         if prev_was_q4 and now_is_q1:
-            signals.append('💎 침체→회복 전환 — 최고 매수 구간')
+            signals.append('💎 위험에서 회복으로 전환 — 최고의 매수 구간')
 
         # 현재 분면 지속 일수 (최대 252영업일=1년까지 역추적)
         df['hy_3m'] = df['hy_spread'].shift(63)
@@ -801,20 +801,20 @@ def fetch_hy_quadrant():
         # 종목 수는 항상 5개 유지, 비중만 조절 (분산 유지)
         if quadrant == 'Q4':
             if q_days <= 20:
-                cash_pct, action = 30, '신규 매수 중단'
+                cash_pct, action = 30, '신규 매수 자제'
             elif q_days <= 60:
-                cash_pct, action = 50, '단계적 축소'
+                cash_pct, action = 50, '투자 줄이기'
             else:
-                cash_pct, action = 70, '적극 방어'
+                cash_pct, action = 70, '현금 확보 우선'
         elif quadrant == 'Q3':
             if q_days >= 60:
-                cash_pct, action = 30, '신규 진입 축소'
+                cash_pct, action = 30, '신규 매수 줄이기'
             else:
-                cash_pct, action = 20, '주의 관찰'
+                cash_pct, action = 20, '신중하게 투자'
         elif quadrant == 'Q1':
-            cash_pct, action = 0, '적극 매수'
+            cash_pct, action = 0, '적극 투자 구간'
         else:  # Q2
-            cash_pct, action = 20, '정상 운영'
+            cash_pct, action = 20, '정상 투자 가능'
 
         return {
             'hy_spread': hy_spread,
@@ -1035,13 +1035,15 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.append('─────────────────')
         lines.extend(market_lines)
     if hy_data:
-        lines.append(f"{hy_data['quadrant_icon']} <b>신용시장</b> — {hy_data['quadrant_label']} (HY {hy_data['hy_spread']:.2f}%, 중위 {hy_data['median_10y']:.2f}%)")
+        lines.append(f"{hy_data['quadrant_icon']} <b>투자 환경</b> — {hy_data['quadrant_label']}")
+        lines.append(f"HY Spread(부도위험) {hy_data['hy_spread']:.2f}% · 10년 평균 {hy_data['median_10y']:.2f}%")
         # 현금 비중 + 핵심 행동
         cash_pct = hy_data.get('cash_pct', 0)
-        cash_str = '투자 100%' if cash_pct == 0 else f'현금 {cash_pct}%'
-        action_line = f"📊 {cash_str} · {hy_data['action']}"
-        if hy_data['quadrant'] in ('Q3', 'Q4') and cash_pct > 0:
-            action_line += f" ({hy_data['quadrant']} {hy_data['q_days']}일차)"
+        stock_weight = (100 - cash_pct) // 5
+        if cash_pct == 0:
+            action_line = f"📊 투자 100% · 종목당 {stock_weight}% · {hy_data['action']}"
+        else:
+            action_line = f"📊 투자 {100 - cash_pct}% + 현금 {cash_pct}% · 종목당 {stock_weight}%"
         lines.append(action_line)
         if hy_data['quadrant'] == 'Q4':
             lines.append('⚠️ 신규 매수 시 신중하게 판단하세요.')
