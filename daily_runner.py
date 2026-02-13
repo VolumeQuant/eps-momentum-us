@@ -1305,11 +1305,13 @@ def create_guide_message():
         '🛡️ <b>시장 위험은요?</b>',
         '신용시장(HY)과 변동성(VIX) 두 지표로',
         '시장 전체 위험을 매일 점검해요.',
-        '🟢 안정 🔴 위험으로 2가지 지표를 보여줘요.',
-        '🟢 많으면 → 적극 투자',
-        '🔴 많으면 → 현금 비중 UP',
-        '봄(🌸)~여름(☀️) = 적극 투자',
-        '가을(🍂)~겨울(❄️) = 현금 비중 UP',
+        '',
+        '🟢 안정 🔴 위험으로 한눈에 보여줘요.',
+        '🟢🟢 = 적극 투자 · 🔴🔴 = 현금 비중 UP',
+        '',
+        '계절로 시장 국면도 알려줘요.',
+        '🌸봄~☀️여름 = 적극 투자',
+        '🍂가을~❄️겨울 = 현금 비중 UP',
     ]
     return '\n'.join(lines)
 
@@ -1391,7 +1393,7 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
             vix_ok = vix_data['direction'] == 'stable'
             signals.append(('VIX', vix_ok))
 
-        lines.append('')
+        lines.append('─────────────────')
         if signals:
             n_ok = sum(1 for _, ok in signals if ok)
             n_total = len(signals)
@@ -1404,7 +1406,6 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
                 conf = '엇갈린 신호'
             lines.append(f"{dots} {n_ok}/{n_total} 안정 — {conf}")
 
-        # 투자 비중 (HY + VIX 합산)
         if final_cash == 0:
             lines.append('💰 투자 100%')
         else:
