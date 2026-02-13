@@ -1077,12 +1077,45 @@ def get_market_risk_status():
         if hy['quadrant'] == 'Q1' and vix_dir == 'stable':
             final_cash = 0
 
-        final_action = hy['action']
+        # Concordance 기반 행동 권장 (HY 메인 + VIX 보조)
+        q = hy['quadrant']
+        if concordance == 'both_warn':
+            # 두 지표 모두 위험 → 가장 강한 경고
+            if q == 'Q4':
+                final_action = '신용·변동성 두 지표 모두 위험 신호예요. 현금을 최대한 확보하세요.'
+            else:
+                final_action = '변동성이 높고 신용시장도 불안해요. 신규 매수를 멈추세요.'
+        elif concordance == 'vix_only':
+            # VIX만 경고, HY 안정 → 단기 충격 가능성
+            final_action = '변동성이 높지만 신용시장은 안정적이에요. 신규 매수에 신중하세요.'
+        elif concordance == 'hy_only':
+            # HY만 경고, VIX 안정 → 구조적 위험 누적
+            if q == 'Q4':
+                final_action = '신용시장이 악화 중이에요. 보유 종목을 줄이고 현금을 늘리세요.'
+            else:
+                final_action = '신용시장에 주의가 필요해요. 매수할 때 신중하게 판단하세요.'
+        else:
+            # both_stable → 안전
+            if q == 'Q1':
+                final_action = '두 지표 모두 안전해요. 적극 매수하세요.'
+            elif q == 'Q2':
+                final_action = '평소대로 투자하세요.'
+            elif q == 'Q3':
+                if hy['q_days'] >= 60:
+                    final_action = '신용시장이 과열 조짐이에요. 신규 매수를 줄여가세요.'
+                else:
+                    final_action = '평소대로 투자하세요.'
+            else:
+                final_action = hy['action']
     else:
+        # HY 데이터 없음 — VIX만으로 판단
         base_cash = 20
-        vix_adj = 0
-        final_cash = 20
-        final_action = '데이터 수집 실패로 기본값을 적용했어요.'
+        vix_adj = vix['cash_adjustment'] if vix else 0
+        final_cash = max(0, min(70, base_cash + vix_adj))
+        if vix and vix_dir == 'warn':
+            final_action = '변동성이 높아요. 신규 매수에 신중하세요.'
+        else:
+            final_action = '평소대로 투자하세요.'
 
     log(f"최종 현금비중: {final_cash}% (HY {base_cash} + VIX {vix_adj:+d})")
 
@@ -1725,8 +1758,8 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
         return None
 
 
-def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=None):
-    """포트폴리오 추천 — 3일 검증(✅) + 리스크 필터 통과 종목"""
+def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=None, risk_status=None):
+    """포트폴리오 추천 — 3일 검증(✅) + 리스크 필터 통과 종목 + 시장 위험 반영"""
     try:
         import re
         import yfinance as yf
@@ -1826,6 +1859,12 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: ✅ 종목 없음", "WARN")
             return None
 
+        # 시장 위험 반영: final_cash_pct → 투자 가능 비중 산출
+        final_cash = risk_status['final_cash_pct'] if risk_status else 0
+        concordance = risk_status.get('concordance', 'both_stable') if risk_status else 'both_stable'
+        final_action = risk_status.get('final_action', '') if risk_status else ''
+        invest_pct = 100 - final_cash  # 실제 투자 가능 비중
+
         # composite 순서 그대로 상위 5종목 선정 (섹터 분산 없음)
         log("포트폴리오: composite 순위 (괴리 70% + 매출성장 30%):")
         for i, s in enumerate(safe):
@@ -1836,18 +1875,31 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 동일 비중 배분 (5종목 = 각 20%)
+        # 시장 위험 반영 비중 배분 (투자 가능 비중을 종목수로 균등 배분)
         n = len(selected)
-        base_weight = 100 // n
+        base_weight = invest_pct // n
         for s in selected:
             s['weight'] = base_weight
-        # 나머지 1위부터 배분 (예: 3종목이면 34/33/33)
-        remainder = 100 - base_weight * n
+        # 나머지 1위부터 배분
+        remainder = invest_pct - base_weight * n
         for i in range(remainder):
             selected[i]['weight'] += 1
 
-        log(f"포트폴리오: {len(selected)}종목 선정 — " +
+        log(f"포트폴리오: {len(selected)}종목 선정 (투자 {invest_pct}% + 현금 {final_cash}%) — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
+
+        # 시장 위험 컨텍스트 (Gemini 프롬프트용)
+        market_ctx = ""
+        if risk_status:
+            hy = risk_status.get('hy')
+            if hy:
+                market_ctx += f"HY Spread: {hy['hy_spread']:.2f}% ({hy['quadrant_label']})\n"
+            vix = risk_status.get('vix')
+            if vix:
+                market_ctx += f"VIX: {vix['vix_current']:.1f} ({vix['regime_label']})\n"
+            market_ctx += f"시장 판단: {concordance} → 투자 {invest_pct}% + 현금 {final_cash}%\n"
+            if final_action:
+                market_ctx += f"행동 권장: {final_action}\n"
 
         # Gemini 프롬프트
         stock_lines = []
@@ -1863,7 +1915,10 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         prompt = f"""분석 기준일: {biz_day.strftime('%Y-%m-%d')} (미국 영업일)
 
 아래는 EPS 모멘텀 시스템이 자동 선정한 {len(selected)}종목 포트폴리오야.
-선정 기준: Part 2 매수 후보 중 위험 신호 없고(✅), composite 순위 상위. 동일 비중.
+선정 기준: Part 2 매수 후보 중 위험 신호 없고(✅), composite 순위 상위.
+
+[시장 위험 상태]
+{market_ctx if market_ctx else '데이터 없음'}
 
 [포트폴리오]
 {chr(10).join(stock_lines)}
@@ -1877,7 +1932,8 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 - 맨 끝에 별도 문구 넣지 마. (코드에서 추가함)
 - 500자 이내
 
-각 종목의 선정 이유를 설명해줘. 비중은 동일(각 {selected[0]['weight']}%)이니 비중 설명은 생략해.
+각 종목의 선정 이유를 설명해줘.
+현재 시장 위험 수준이 반영된 비중(각 {selected[0]['weight']}%)이니 비중 설명은 생략해.
 시스템 데이터에 없는 내용을 지어내지 마."""
 
         api_key = config.get('gemini_api_key', '')
@@ -1928,6 +1984,8 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 
         # 비중 한눈에 보기
         summary_parts = [f'{s["name"]}({s["ticker"]}) {s["weight"]}%' for s in selected]
+        if final_cash > 0:
+            summary_parts.append(f'현금 {final_cash}%')
         summary_line = ' · '.join(summary_parts)
 
         lines = [
@@ -1940,16 +1998,28 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             '',
             '📊 <b>비중 한눈에 보기</b>',
             summary_line,
+        ]
+
+        # 시장 위험 반영 안내 (현금 > 0이면 표시)
+        if final_cash > 0:
+            lines.append(f'🛡️ 시장 위험 반영: 투자 {invest_pct}% + 현금 {final_cash}%')
+
+        lines.extend([
             '',
             '─────────────────',
             html,
             '',
             '💡 <b>활용법</b>',
-            f'· 동일 비중(각 {selected[0]["weight"]}%) 분산 투자',
+        ])
+        if final_cash == 0:
+            lines.append(f'· 각 {selected[0]["weight"]}% 균등 분산 투자')
+        else:
+            lines.append(f'· 총 투자금의 {invest_pct}%만 투입, {final_cash}%는 현금 보유')
+        lines.extend([
             '· 목록에서 빠지면 매도 검토',
             '· 최소 2주 보유, 매일 후보 갱신 확인',
             '⚠️ 참고용이며, 투자 판단은 본인 책임이에요.',
-        ]
+        ])
 
         log("포트폴리오 추천 완료")
         return '\n'.join(lines)
@@ -2138,7 +2208,7 @@ def main():
             log(f"[3/4] AI 리스크 필터 전송 완료 → {dest}")
 
         # [4/4] 최종 추천
-        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day)
+        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day, risk_status=risk_status)
         if msg_portfolio:
             if send_to_channel:
                 send_telegram_long(msg_portfolio, config, chat_id=channel_id)

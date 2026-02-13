@@ -2267,3 +2267,41 @@ HY Spread(부도위험) 4.60%
 3. 가속도 (2차 미분) — 위기 안정화 조기 감지
 4. 퍼센타일 랭크 (롤링) — 고정 임계치 대신 시대 적응
 5. HY/IG 비율, CCC-BB 차이 — 진짜 신용위기 구분
+
+---
+
+## v28: 전략-코드 정합성 감사 (Strategy-Code Alignment Audit)
+
+### 핵심 철학
+"좋은 종목을 싸게 사되 현재 시장 위험을 판단해서 베타 위험을 회피하자. 반대로 베타의 기회도 확실히 잡으려고."
+
+### 발견된 문제 & 수정
+
+#### 1. final_action이 concordance 무시 (v27에서 수정)
+- **문제**: `final_action = hy['action']` 고정 → VIX 보조지표 무의미
+- **수정**: concordance(both_warn/hy_only/vix_only/both_stable) × quadrant 조합별 행동 권장 메시지
+
+#### 2. 포트폴리오가 시장 위험 완전 무시 (🔴 Critical)
+- **문제**: `run_portfolio_recommendation()`에 `risk_status` 미전달
+  - [1/4]에서 "현금 40% 확보하세요" 하면서 [4/4]에서 "각 20% 균등 투자" → 고객 혼란
+  - `invest_pct = 100 // n` 고정 → 시장 상태와 무관한 비중
+- **수정**:
+  - `risk_status` 파라미터 추가, `main()`에서 전달
+  - `invest_pct = 100 - final_cash_pct` → 비중에 시장 위험 반영
+  - 예: final_cash=40% → 5종목 각 12%, Q1+both_stable → 5종목 각 20%
+  - 비중 한눈에 보기에 "현금 N%" 추가
+  - "🛡️ 시장 위험 반영" 라인 표시
+  - 활용법에 현금 비중 안내
+
+#### 3. Gemini 포트폴리오 프롬프트에 시장 컨텍스트 없음 (🟡)
+- **문제**: AI가 종목 선정 이유만 쓰고 시장 위험 언급 불가
+- **수정**: `[시장 위험 상태]` 섹션 추가 (HY/VIX/concordance/final_action)
+
+#### 4. HY 실패 시 VIX cash_adjustment 무시 (🟡)
+- **문제**: `else` 블록에서 `final_cash = 20` 고정, VIX 조정 미적용
+- **수정**: `vix_adj = vix['cash_adjustment']` 적용, `max(0, min(70, base_cash + vix_adj))`
+
+### 검증 완료 (문제 없음)
+- both_stable + Q4 조합 불가능 (Q4 → hy_dir='warn') → dead code, 방어적 코드로 유지
+- 리스크 필터 일관성: AI 점검(line 1590)과 포트폴리오(line 1818) 동일 기준
+- 관망 메시지: ✅ 종목 없으면 정상 출력
