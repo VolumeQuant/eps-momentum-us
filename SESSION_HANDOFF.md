@@ -27,6 +27,53 @@
 > **v23**: 2026-02-12 집 PC — HY Spread EDA: 30년 데이터 분석, Verdad 4분면 모델 채택, Method C 확정
 > **v24**: 2026-02-12 집 PC — 현금 비중 권장: 기본 20% + 매크로 추가, Q1 해빙기 0%(풀 공격), 종목 5개 고정(분산 유지)
 > **v25**: 2026-02-13 집 PC — VIX 심층 분석: 에이전트 2개 독립 토의 → Strategy C(3레이어 복합) 확정, 메시지 [1/3]→[1/4]+[2/4] 분리
+> **v26**: 2026-02-13 집 PC — VIX Layer 2 구현: fetch_vix_data() + get_market_risk_status() + Concordance Check + 텔레그램 VIX 표시
+
+---
+
+## v26 — VIX Layer 2 구현 (2026-02-13)
+
+### 변경 내용
+
+v25에서 분석/설계한 VIX 전략을 실제 코드로 구현.
+
+| 항목 | Before (v25) | After (v26) |
+|------|-------------|-------------|
+| VIX | 분석 문서만 | **`fetch_vix_data()` + `get_market_risk_status()` 구현** |
+| 현금비중 | HY 단일 레이어 | **HY + VIX 2레이어 + Concordance** |
+| 텔레그램 | VIX 표시 없음 | **[1/4] 시장 현황에 VIX 블록 추가** |
+| main() 플로우 | `hy_data = fetch_hy_quadrant()` | **`risk_status = get_market_risk_status()`** |
+
+### 수정 파일
+- `daily_runner.py` — `fetch_vix_data()`, `get_market_risk_status()` 신규 + `create_market_message()` 시그니처 변경 (`hy_data=` → `risk_status=`) + main() 플로우 변경
+
+### 구현 상세
+
+```
+fetch_vix_data():
+  FRED VIXCLS CSV (~400일) → 5일 slope (±0.5 threshold)
+  레짐 7종: normal / elevated / high / crisis / crisis_relief / stabilizing / complacency
+  cash_adjustment: -10% ~ +15%
+
+get_market_risk_status():
+  hy = fetch_hy_quadrant()
+  vix = fetch_vix_data()
+  Concordance: hy Q3/Q4='warn' × vix direction
+    both_warn   → VIX 전액
+    hy_only     → VIX 0%
+    vix_only    → VIX 50%
+    both_stable → VIX 그대로
+  final_cash = max(0, min(70, base + vix_adj))
+```
+
+### 검증 결과 (2026-02-13)
+```
+FRED VIXCLS: 282 rows, 최신 2026-02-11 = 17.65
+5일 전: 21.77 → slope -4.12 (falling) → normal (안정)
+HY: 2.84% Q2 성장기 → 현금 20%
+Concordance: both_stable → VIX 가감 0%
+최종 현금: 20%
+```
 
 ---
 

@@ -180,11 +180,33 @@ FRED BAMLH0A0HYM2 (US High Yield Spread) 기반 Verdad 4분면 모델.
 
 해빙 신호 4종 (적극 매수 기회): HY 급락, 5% 하향돌파, 60일 고점 대비 -300bp, Q4→Q1 전환.
 
-### VIX 지수 분석 (Layer 2 도입 예정)
+### VIX 변동성 레이어 (Layer 2 — daily_runner.py)
 
-두 에이전트(한국 전략 + US 전략)가 독립적으로 VIX 35년(1990~2025) 데이터를 분석하여 동일한 결론에 도달.
+두 에이전트(한국 전략 + US 전략)가 독립적으로 VIX 35년(1990~2025) 데이터를 분석하여 동일한 결론에 도달. 이를 기반으로 `fetch_vix_data()` + `get_market_risk_status()` 구현.
 
-#### 핵심 발견
+#### 구현 상세
+
+```
+fetch_vix_data():
+  FRED VIXCLS CSV (~400일) → 5일 slope (±0.5 threshold)
+  레짐 7종: normal / elevated / high / crisis / crisis_relief / stabilizing / complacency
+  cash_adjustment: -10% ~ +15%
+
+get_market_risk_status():
+  Layer 1: fetch_hy_quadrant()     → base_cash
+  Layer 2: fetch_vix_data()        → raw_vix_adj
+  Concordance: hy_dir × vix_dir   → vix_adj 조정
+  final_cash = max(0, min(70, base_cash + vix_adj))
+```
+
+**텔레그램 [1/4] 시장 현황 표시**:
+```
+📊 VIX(변동성) 17.6
+평균(17.4) 이상, 안정적이에요.
+```
+위기 시: `🔴 VIX(변동성) 42.1 ↑ — 위기 구간이에요. 현금 +15%`
+
+#### 연구 배경
 
 **1. VIX 기초 통계**: 평균 19.71, 중앙값 17.84, 최저 9.14(2017), 최고 82.69(2020 코로나). 우편향 분포 — 평소 낮은 수준, 간헐적 극단 스파이크.
 
@@ -215,13 +237,19 @@ VIX 30+ 이후 6개월 후 85% 확률 상승, 12개월 후 90% 확률 상승. VI
 
 **6. VVIX (2차 미분)**: VIX의 변동성. 120+ 도달 후 하락 전환 = VIX 정점 신호.
 
-#### 추천 전략: Strategy C — HY + VIX 복합 3레이어 모델
+#### 구현된 전략: HY + VIX 복합 2레이어 모델
 
 ```
 Layer 1: HY Quadrant (기존) → base_cash = Q1:0% Q2:20% Q3:30% Q4:30~70%
-Layer 2: VIX Adjustment (신규) → vix_adj = VIX 상태에 따른 가감
-Layer 3: Concordance Check (신규) → 두 지표 일치/불일치에 따른 확신도
-final_cash = clamp(base + vix_adj + conc_adj, 0, 80)
+Layer 2: VIX Adjustment (구현) → vix_adj = VIX 상태 + Concordance 반영
+
+Concordance Check:
+  both_warn   → VIX 전액 적용
+  hy_only     → VIX 0% (HY가 이미 반영)
+  vix_only    → VIX 50%만 (일시적 쇼크)
+  both_stable → VIX 그대로
+
+final_cash = max(0, min(70, base_cash + vix_adj))
 ```
 
 **Layer 2: VIX 가감 규칙**:
@@ -235,14 +263,14 @@ final_cash = clamp(base + vix_adj + conc_adj, 0, 80)
 | **VIX > 35, 기울기 하락** | **-10%** | **공포 해소 = 매수 기회** |
 | VIX 20~25, 기울기 하락 | -5% | 안정화 중 |
 
-**Layer 3: Concordance (일치성) 규칙**:
+**Concordance Check (구현됨)**:
 
-| HY 방향 | VIX 방향 | 가감 | 해석 |
-|---------|---------|------|------|
-| 악화 | 악화 | +10% | 동시 경고 — 2008, 2020 초기 패턴 |
-| 개선 | 개선 | -5% | 동시 안정 — 최적 투자 구간 |
-| 악화 | 안정 | 0% | HY 신용 리스크 우선 |
-| 개선 | 악화 | +5% | 단기 쇼크 대비 |
+| HY 방향 | VIX 방향 | VIX 가감 처리 | 해석 |
+|---------|---------|--------------|------|
+| 경고 (Q3/Q4) | 경고 (warn) | 전액 적용 | 이중 확인 — 2008, 2020 초기 패턴 |
+| 안정 (Q1/Q2) | 안정 (stable) | 그대로 (보통 0) | 정상 상태 |
+| **경고** | **안정** | **0% (무시)** | **스텔스 위기 — HY가 이미 반영** |
+| **안정** | **경고** | **50%만 적용** | **일시적 쇼크 — 과잉 대응 방지** |
 
 **VIX 40+ 역설**: 극단적 공포 구간에서 VIX가 하락 전환하면 역사적 최고 매수 기회. Q1(회복) + VIX 하락 = 12개월 평균 +23.4%. 단, 하락 전환 전까지는 추가 급락 가능 → 분할 매수 원칙 병행.
 
@@ -261,7 +289,7 @@ final_cash = clamp(base + vix_adj + conc_adj, 0, 80)
 | V7 | HY Q4 + VIX 급락(-10pt/5d) | 현금 40% | VIX 선행 회복 |
 | V8 | 일변화 > 5pt | 당일 긴급 +10% | 일일 급등 방어 |
 
-**구현 우선순위**: ① FRED VIXCLS 수집 → ② VIX Layer 2 통합 → ③ 텔레그램 VIX 표시 → ④ VIX3M term structure → ⑤ 백테스트
+**구현 상태**: ✅ FRED VIXCLS 수집 → ✅ VIX Layer 2 통합 → ✅ 텔레그램 VIX 표시 → ④ VIX3M term structure (미구현) → ⑤ 백테스트 (미구현)
 
 ## DB 스키마
 

@@ -835,6 +835,167 @@ def fetch_hy_quadrant():
         return None
 
 
+def fetch_vix_data():
+    """VIX(CBOE 변동성 지수) 레짐 판단 + 현금비중 가감 (FRED VIXCLS)
+
+    Returns:
+        dict or None: {vix_current, vix_5d_ago, vix_slope, vix_slope_dir,
+                       vix_ma_20, regime, regime_label, regime_icon,
+                       cash_adjustment, direction}
+    """
+    import urllib.request
+    import io
+    import pandas as pd
+
+    try:
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=400)).strftime('%Y-%m-%d')
+        url = (
+            f"https://fred.stlouisfed.org/graph/fredgraph.csv"
+            f"?id=VIXCLS&cosd={start_date}&coed={end_date}"
+        )
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            csv_data = response.read().decode('utf-8')
+
+        df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
+        df.columns = ['date', 'vix']
+        df['vix'] = pd.to_numeric(df['vix'], errors='coerce')
+        df = df.dropna().set_index('date').sort_index()
+
+        if len(df) < 20:
+            log("VIX: 데이터 부족", level="WARN")
+            return None
+
+        vix_current = float(df['vix'].iloc[-1])
+        vix_5d_ago = float(df['vix'].iloc[-5]) if len(df) >= 5 else float(df['vix'].iloc[0])
+        vix_slope = vix_current - vix_5d_ago
+        vix_ma_20 = float(df['vix'].rolling(20).mean().iloc[-1])
+
+        # Slope direction (±0.5 threshold to avoid noise)
+        if vix_slope > 0.5:
+            slope_dir = 'rising'
+        elif vix_slope < -0.5:
+            slope_dir = 'falling'
+        else:
+            slope_dir = 'flat'
+
+        # Regime + cash adjustment
+        if vix_current > 35:
+            if slope_dir in ('rising', 'flat'):
+                regime, label, icon = 'crisis', '위기', '🔴'
+                cash_adj = 15
+            else:
+                regime, label, icon = 'crisis_relief', '공포완화', '💎'
+                cash_adj = -10
+        elif vix_current >= 25:
+            if slope_dir == 'rising':
+                regime, label, icon = 'high', '상승경보', '🔶'
+                cash_adj = 10
+            else:
+                regime, label, icon = 'high_stable', '높지만안정', '🟡'
+                cash_adj = 0
+        elif vix_current >= 20:
+            if slope_dir == 'rising':
+                regime, label, icon = 'elevated', '경계', '⚠️'
+                cash_adj = 5
+            elif slope_dir == 'falling':
+                regime, label, icon = 'stabilizing', '안정화', '📊'
+                cash_adj = -5
+            else:
+                regime, label, icon = 'elevated_flat', '보통', '🟡'
+                cash_adj = 0
+        elif vix_current < 12:
+            regime, label, icon = 'complacency', '안일', '⚠️'
+            cash_adj = 5
+        else:  # 12~20 normal
+            regime, label, icon = 'normal', '안정', '📊'
+            cash_adj = 0
+
+        # Simplified direction for concordance check
+        direction = 'warn' if regime in ('crisis', 'high', 'elevated', 'complacency') else 'stable'
+
+        return {
+            'vix_current': vix_current,
+            'vix_5d_ago': vix_5d_ago,
+            'vix_slope': vix_slope,
+            'vix_slope_dir': slope_dir,
+            'vix_ma_20': vix_ma_20,
+            'regime': regime,
+            'regime_label': label,
+            'regime_icon': icon,
+            'cash_adjustment': cash_adj,
+            'direction': direction,
+        }
+
+    except Exception as e:
+        log(f"VIX 수집 실패: {e}", level="WARN")
+        return None
+
+
+def get_market_risk_status():
+    """시장 위험 통합 상태 (HY + VIX + Concordance)
+
+    Returns:
+        dict {hy, vix, concordance, final_cash_pct, final_action}
+    """
+    hy = fetch_hy_quadrant()
+    vix = fetch_vix_data()
+
+    # Concordance Check
+    hy_dir = 'warn' if hy and hy['quadrant'] in ('Q3', 'Q4') else 'stable'
+    vix_dir = vix['direction'] if vix else 'stable'
+
+    if hy_dir == 'warn' and vix_dir == 'warn':
+        concordance = 'both_warn'
+    elif hy_dir == 'warn' and vix_dir == 'stable':
+        concordance = 'hy_only'
+    elif hy_dir == 'stable' and vix_dir == 'warn':
+        concordance = 'vix_only'
+    else:
+        concordance = 'both_stable'
+
+    if hy:
+        base_cash = hy['cash_pct']
+
+        # VIX adjustment with concordance modulation
+        if vix:
+            raw_vix_adj = vix['cash_adjustment']
+            if concordance == 'both_warn':
+                vix_adj = raw_vix_adj           # 이중 확인 → 전액 적용
+            elif concordance == 'hy_only':
+                vix_adj = 0                     # HY만 경고, VIX 안정 → 가감 없음
+            elif concordance == 'vix_only':
+                vix_adj = raw_vix_adj // 2      # VIX만 경고 → 50% 적용
+            else:  # both_stable
+                vix_adj = raw_vix_adj           # 정상 → 그대로
+        else:
+            vix_adj = 0
+
+        final_cash = max(0, min(70, base_cash + vix_adj))
+
+        # Q1 + VIX 안정 → 적극 매수
+        if hy['quadrant'] == 'Q1' and vix_dir == 'stable':
+            final_cash = 0
+
+        final_action = hy['action']
+    else:
+        base_cash = 20
+        vix_adj = 0
+        final_cash = 20
+        final_action = '데이터 수집 실패로 기본값을 적용했어요.'
+
+    log(f"최종 현금비중: {final_cash}% (HY {base_cash} + VIX {vix_adj:+d})")
+
+    return {
+        'hy': hy,
+        'vix': vix,
+        'concordance': concordance,
+        'final_cash_pct': final_cash,
+        'final_action': final_action,
+    }
+
+
 def get_market_context():
     """미국 시장 지수 컨텍스트"""
     try:
@@ -1007,8 +1168,8 @@ def create_guide_message():
     return '\n'.join(lines)
 
 
-def create_market_message(df, market_lines=None, hy_data=None, top_n=30):
-    """[1/4] 시장 현황 — 지수, 신용시장, 주도 업종"""
+def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
+    """[1/4] 시장 현황 — 지수, 신용시장, VIX, 주도 업종"""
     import pandas as pd
     from collections import Counter
 
@@ -1016,6 +1177,10 @@ def create_market_message(df, market_lines=None, hy_data=None, top_n=30):
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
 
     filtered = get_part2_candidates(df, top_n=top_n)
+
+    hy_data = risk_status['hy'] if risk_status else None
+    vix_data = risk_status.get('vix') if risk_status else None
+    final_cash = risk_status['final_cash_pct'] if risk_status else 0
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
@@ -1041,12 +1206,31 @@ def create_market_message(df, market_lines=None, hy_data=None, top_n=30):
             interp = f"평균({med_val:.2f}%)보다 높고 계속 올라가고 있어요."
         lines.append(f"HY Spread(부도위험) {hy_val:.2f}%")
         lines.append(interp)
-        cash_pct = hy_data.get('cash_pct', 0)
-        if cash_pct == 0:
+
+        # VIX 표시
+        if vix_data:
+            v = vix_data['vix_current']
+            slope_arrow = '↑' if vix_data['vix_slope_dir'] == 'rising' else ('↓' if vix_data['vix_slope_dir'] == 'falling' else '')
+            adj = vix_data['cash_adjustment']
+            if vix_data['regime'] == 'normal':
+                rel = '이하' if v <= vix_data['vix_ma_20'] else '이상'
+                lines.append(f"📊 VIX(변동성) {v:.1f}")
+                lines.append(f"평균({vix_data['vix_ma_20']:.1f}) {rel}, 안정적이에요.")
+            else:
+                lines.append(f"{vix_data['regime_icon']} VIX(변동성) {v:.1f} {slope_arrow}")
+                if adj > 0:
+                    lines.append(f"{vix_data['regime_label']} 구간이에요. 현금 +{adj}%")
+                elif adj < 0:
+                    lines.append(f"{vix_data['regime_label']} 구간이에요. 현금 {adj}%")
+                else:
+                    lines.append(f"{vix_data['regime_label']} 구간이에요.")
+
+        # 투자 비중 (HY + VIX 합산)
+        if final_cash == 0:
             lines.append('📊 투자 100%')
         else:
-            lines.append(f"📊 투자 {100 - cash_pct}% + 현금 {cash_pct}%")
-        lines.append(f"→ {hy_data['action']}")
+            lines.append(f"📊 투자 {100 - final_cash}% + 현금 {final_cash}%")
+        lines.append(f"→ {risk_status.get('final_action', hy_data['action'])}")
         for sig in hy_data.get('signals', []):
             lines.append(sig)
 
@@ -1773,16 +1957,21 @@ def main():
     market_lines = get_market_context()
     if market_lines:
         log(f"시장 지수: {len(market_lines)}개")
-    hy_data = fetch_hy_quadrant()
+    risk_status = get_market_risk_status()
+    hy_data = risk_status['hy']
+    vix_data = risk_status['vix']
     if hy_data:
         log(f"HY Spread: {hy_data['hy_spread']:.2f}% | 분면: {hy_data['quadrant']} {hy_data['quadrant_label']} ({hy_data['q_days']}일째)")
         log(f"  현금 {hy_data['cash_pct']}% · {hy_data['action']}")
         if hy_data['signals']:
             for sig in hy_data['signals']:
                 log(f"  해빙 신호: {sig}")
+    if vix_data:
+        log(f"VIX: {vix_data['vix_current']:.1f} | slope {vix_data['vix_slope']:+.1f} ({vix_data['vix_slope_dir']}) | {vix_data['regime_label']}")
+    log(f"일치도: {risk_status['concordance']} | 최종 현금: {risk_status['final_cash_pct']}%")
 
     # 3. 메시지 생성
-    msg_market = create_market_message(results_df, market_lines, hy_data=hy_data) if not results_df.empty else None
+    msg_market = create_market_message(results_df, market_lines, risk_status=risk_status) if not results_df.empty else None
     msg_candidates = create_candidates_message(results_df, status_map, exited_tickers, rank_history) if not results_df.empty else None
 
     # 실행 시간
