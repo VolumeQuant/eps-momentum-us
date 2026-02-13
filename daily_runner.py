@@ -1285,7 +1285,7 @@ def create_guide_message():
         '② 주가 흐름이 건강한 종목만 남기고',
         '③ 매출 성장 10%+, 복합 순위(괴리 70%+매출 30%) Top 30',
         '④ 3일 연속 Top 30에 들면 검증 완료 ✅',
-        '⑤ AI 위험 점검 후 최종 5종목 추천',
+        '⑤ AI 위험 점검 후 시장 상황에 맞게 최종 추천',
         '',
         '⏱️ <b>얼마나 보유하나요?</b>',
         '최소 2주는 보유하는 걸 권장해요.',
@@ -1296,6 +1296,14 @@ def create_guide_message():
         '최소 2주 보유 후, 목록에서 빠지면 매도 검토예요.',
         '매일 Top 30을 보여드리니까',
         '목록에 있으면 보유, 없으면 매도 검토.',
+        '',
+        '🛡️ <b>시장 위험은요?</b>',
+        '신용시장(HY)과 변동성(VIX) 두 지표로',
+        '시장 전체 위험을 매일 점검해요.',
+        '위험이 높으면 추천 종목 수와 비중을 줄이고',
+        '현금 비중을 자동으로 높여드려요.',
+        '봄(🌸)~여름(☀️) = 적극 투자',
+        '가을(🍂)~겨울(❄️) = 현금 비중 UP',
     ]
     return '\n'.join(lines)
 
@@ -1383,6 +1391,14 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
             for sig in hy_data.get('signals', []):
                 lines.append(sig)
 
+        # #6: Q1 봄 + 전지표 안정 → 💎 매수 기회 강조
+        concordance = risk_status.get('concordance', '') if risk_status else ''
+        if hy_data and hy_data['quadrant'] == 'Q1' and concordance == 'both_stable':
+            lines.append('')
+            lines.append('💎 <b>역사적 매수 기회</b>')
+            lines.append('모든 지표가 매수를 가리키고 있어요!')
+            lines.append('회복기는 역사적으로 수익률이 가장 높은 구간이에요.')
+
     # 업종 분포 통계
     sector_counts = Counter(row.get('industry', '기타') for _, row in filtered.iterrows())
     top_sectors = sector_counts.most_common()
@@ -1399,8 +1415,8 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
     return '\n'.join(lines)
 
 
-def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30):
-    """[2/4] 매수 후보 — composite 순 Top 30, ✅/⏳/🆕 표시, 순위 이력"""
+def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30, risk_status=None):
+    """[2/4] 매수 후보 — composite 순 Top 30, ✅/⏳/🆕 표시, 순위 이력, 이탈 사유"""
     import pandas as pd
 
     filtered = get_part2_candidates(df, top_n=top_n)
@@ -1456,14 +1472,42 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
         current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
         sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
         name_map = dict(zip(df['ticker'], df.get('short_name', df['ticker'])))
+        # 이탈 사유 판별용 전체 데이터
+        full_data = {row['ticker']: row for _, row in df.iterrows()}
         for t, prev_rank in sorted_exits:
             t_name = name_map.get(t, t)
             cur_rank = current_rank_map.get(t)
+            # #5: 이탈 사유 — 어떤 필터에서 탈락했는지 표시
+            reasons = []
+            if t in full_data:
+                r = full_data[t]
+                if (r.get('price', 0) or 0) < (r.get('ma60', 0) or 0) and (r.get('ma60', 0) or 0) > 0:
+                    reasons.append('MA60↓')
+                if (r.get('adj_gap', 0) or 0) > 0:
+                    reasons.append('괴리+')
+                if (r.get('adj_score', 0) or 0) <= 9:
+                    reasons.append('점수↓')
+                if (r.get('eps_change_90d', 0) or 0) <= 0:
+                    reasons.append('EPS↓')
+            if not reasons and cur_rank and cur_rank > top_n:
+                reasons.append('순위↓')
+            reason_tag = ' '.join(f'[{r}]' for r in reasons) if reasons else '[순위↓]'
             if cur_rank:
-                lines.append(f'  {t_name}({t}) · 어제 {prev_rank}위 → {cur_rank}위')
+                lines.append(f'  {t_name}({t}) · {prev_rank}위→{cur_rank}위 {reason_tag}')
             else:
-                lines.append(f'  {t_name}({t}) · 어제 {prev_rank}위 → 조건 미달')
-        lines.append('⛔ 보유 중이라면 매도를 검토하세요.')
+                lines.append(f'  {t_name}({t}) · {prev_rank}위→탈락 {reason_tag}')
+
+        # #7: 시장 위험 수준별 매도 경보 톤 차등
+        hy_data = risk_status.get('hy') if risk_status else None
+        concordance = risk_status.get('concordance', '') if risk_status else ''
+        if hy_data and hy_data['quadrant'] == 'Q4':
+            lines.append('🚨 시장 위험이 높아요. 보유 중이면 <b>즉시 매도</b>하세요.')
+        elif concordance == 'both_warn':
+            lines.append('🚨 신용·변동성 모두 경고예요. <b>빠르게 매도</b>하세요.')
+        elif hy_data and hy_data['quadrant'] == 'Q3':
+            lines.append('⚠️ 과열 구간이에요. 보유 중이면 <b>매도를 적극 검토</b>하세요.')
+        else:
+            lines.append('📉 보유 중이라면 매도를 검토하세요.')
 
     lines.append('─────────────────')
     lines.append('👉 다음: AI 리스크 필터 [3/4]')
@@ -1525,8 +1569,8 @@ def create_system_log_message(stats, elapsed, config):
 # AI 리스크 체크 (Gemini 2.5 Flash + Google Search)
 # ============================================================
 
-def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
-    """[2/2] AI 브리핑 — 정량 위험 신호 기반 리스크 해석 (데이터는 코드가, 해석은 AI가)"""
+def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk_status=None):
+    """[3/4] AI 브리핑 — 정량 위험 신호 + 시장 환경 기반 리스크 해석"""
     api_key = config.get('gemini_api_key', '')
     if not api_key:
         log("GEMINI_API_KEY 미설정 — AI 분석 스킵", "WARN")
@@ -1626,7 +1670,26 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
 
         log(f"위험 신호 수집 완료: {stock_count}종목, 어닝 {len(earnings_tickers)}종목")
 
+        # #3: 시장 환경 컨텍스트 구성
+        market_env = ""
+        if risk_status:
+            hy = risk_status.get('hy')
+            vix = risk_status.get('vix')
+            conc = risk_status.get('concordance', '')
+            f_cash = risk_status.get('final_cash_pct', 0)
+            f_action = risk_status.get('final_action', '')
+            if hy:
+                market_env += f"신용시장: HY Spread {hy['hy_spread']:.2f}% · {hy['quadrant_label']}\n"
+            if vix:
+                market_env += f"변동성: VIX {vix['vix_current']:.1f} · {vix['regime_label']}\n"
+            market_env += f"종합 판단: {conc} · 투자 {100-f_cash}% + 현금 {f_cash}%\n"
+            if f_action:
+                market_env += f"행동 권장: {f_action}\n"
+
         prompt = f"""분석 기준일: {biz_str} (미국 영업일)
+
+[현재 시장 환경]
+{market_env if market_env else '데이터 없음'}
 
 아래는 EPS 모멘텀 시스템의 매수 후보 {stock_count}종목과 각 종목의 정량적 위험 신호야.
 이 종목들은 EPS 전망치가 상향 중이라 선정된 거야.
@@ -1650,6 +1713,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
 
 📰 시장 동향
 (필수) 어제 미국 시장 마감과 금주 주요 이벤트를 Google 검색해서 2~3줄 요약해줘. 이 섹션은 반드시 출력해야 해.
+위 [현재 시장 환경]의 계절(봄/여름/가을/겨울)과 현금 비중을 참고해서, 지금 시장이 공격적 투자에 적합한지 방어적으로 가야 하는지 한마디 덧붙여줘.
 
 ⚠️ 매수 주의 종목
 위 데이터에서 위험 신호(🔻/📉/📅)가 있는 종목만 골라서 설명해줘.
@@ -1865,27 +1929,34 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         final_action = risk_status.get('final_action', '') if risk_status else ''
         invest_pct = 100 - final_cash  # 실제 투자 가능 비중
 
-        # composite 순서 그대로 상위 5종목 선정 (섹터 분산 없음)
+        # #2: 현금 비중 ↔ 추천 종목 수 연결
+        # max_picks = invest_pct // 20 (종목당 ~20% 기준)
+        # cash 0%→5개, 20%→4개, 40%→3개, 60%→2개, 70%→1개
+        max_picks = max(1, min(5, invest_pct // 20))
+
         log("포트폴리오: composite 순위 (괴리 70% + 매출성장 30%):")
         for i, s in enumerate(safe):
             log(f"    {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
-        selected = safe[:5]
+        selected = safe[:max_picks]
 
-        if len(selected) < 3:
-            log("포트폴리오: 선정 종목 부족", "WARN")
+        if len(selected) < 1:
+            log("포트폴리오: 선정 종목 없음", "WARN")
             return None
 
-        # 시장 위험 반영 비중 배분 (투자 가능 비중을 종목수로 균등 배분)
+        # 균등 비중 배분 (투자 가능 비중을 종목수로 나눔, 종목당 30% 캡)
         n = len(selected)
-        base_weight = invest_pct // n
+        raw_weight = invest_pct // n
+        capped_weight = min(raw_weight, 30)  # 종목당 30% 캡
         for s in selected:
-            s['weight'] = base_weight
-        # 나머지 1위부터 배분
-        remainder = invest_pct - base_weight * n
-        for i in range(remainder):
-            selected[i]['weight'] += 1
+            s['weight'] = capped_weight
+        # 나머지 1위부터 배분 (캡 미달 시)
+        used = capped_weight * n
+        remainder = invest_pct - used
+        for i in range(min(remainder, n)):
+            if selected[i]['weight'] < 30:
+                selected[i]['weight'] += 1
 
-        log(f"포트폴리오: {len(selected)}종목 선정 (투자 {invest_pct}% + 현금 {final_cash}%) — " +
+        log(f"포트폴리오: {n}종목 선정 (투자 {invest_pct}% + 현금 {final_cash}%, max_picks={max_picks}) — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
         # 시장 위험 컨텍스트 (Gemini 프롬프트용)
@@ -2000,9 +2071,17 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             summary_line,
         ]
 
-        # 시장 위험 반영 안내 (현금 > 0이면 표시)
+        # 시장 위험 반영 안내
         if final_cash > 0:
-            lines.append(f'🛡️ 시장 위험 반영: 투자 {invest_pct}% + 현금 {final_cash}%')
+            lines.append(f'🛡️ 시장 위험 반영 → 투자 {invest_pct}% + 현금 {final_cash}%')
+        if final_action:
+            lines.append(f'→ {final_action}')
+
+        # #6: Q1 봄 + 전지표 안정 → 💎 기회 강조
+        hy_q = risk_status.get('hy', {}).get('quadrant', '') if risk_status else ''
+        if hy_q == 'Q1' and concordance == 'both_stable':
+            lines.append('')
+            lines.append('💎 <b>역사적 매수 기회!</b> 모든 지표가 매수를 가리켜요.')
 
         lines.extend([
             '',
@@ -2014,7 +2093,8 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         if final_cash == 0:
             lines.append(f'· 각 {selected[0]["weight"]}% 균등 분산 투자')
         else:
-            lines.append(f'· 총 투자금의 {invest_pct}%만 투입, {final_cash}%는 현금 보유')
+            lines.append(f'· 투자금의 {invest_pct}%만 투입, {final_cash}%는 현금 보유')
+            lines.append(f'· 시장이 안정되면 종목 수와 비중이 자동으로 늘어나요')
         lines.extend([
             '· 목록에서 빠지면 매도 검토',
             '· 최소 2주 보유, 매일 후보 갱신 확인',
@@ -2157,7 +2237,7 @@ def main():
 
     # 3. 메시지 생성
     msg_market = create_market_message(results_df, market_lines, risk_status=risk_status) if not results_df.empty else None
-    msg_candidates = create_candidates_message(results_df, status_map, exited_tickers, rank_history) if not results_df.empty else None
+    msg_candidates = create_candidates_message(results_df, status_map, exited_tickers, rank_history, risk_status=risk_status) if not results_df.empty else None
 
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()
@@ -2200,7 +2280,7 @@ def main():
 
         # [3/4] AI 리스크 필터
         biz_day = get_last_business_day()
-        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day)
+        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day, risk_status=risk_status)
         if msg_ai:
             if send_to_channel:
                 send_telegram_long(msg_ai, config, chat_id=channel_id)
