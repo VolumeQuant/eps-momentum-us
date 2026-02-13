@@ -1028,13 +1028,14 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f' [1/3] 🔍 매수 후보 {count}개')
+    lines.append(' [1/3] 📊 시장 + 매수 후보')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
     if market_lines:
         lines.append('─────────────────')
         lines.extend(market_lines)
     if hy_data:
+        lines.append('─────────────────')
         lines.append(f"{hy_data['quadrant_icon']} <b>신용시장</b> — {hy_data['quadrant_label']}")
         # HY 수치 + 맥락 해석
         hy_val = hy_data['hy_spread']
@@ -1060,14 +1061,6 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.append(f"→ {hy_data['action']}")
         for sig in hy_data.get('signals', []):
             lines.append(sig)
-    lines.append('')
-    lines.append('이익 전망이 올라가면서 매출도 성장하는 종목이에요.')
-    lines.append('EPS 저평가 + 매출 성장률 복합 순위.')
-    lines.append('')
-    lines.append('💡 <b>읽는 법</b>')
-    lines.append('✅매수 ⏳내일검증 🆕관찰')
-    lines.append('🔥폭등 ☀️강세 🌤️상승 ☁️보합 🌧️하락')
-    lines.append('')
 
     # 업종 분포 통계
     from collections import Counter
@@ -1076,8 +1069,15 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
     if top_sectors:
         sector_parts = [f'{name} {cnt}' for name, cnt in top_sectors if cnt >= 2]
         if sector_parts:
-            lines.append(f'📊 <b>주도 업종</b>: {" · ".join(sector_parts)}')
-            lines.append('')
+            lines.append('─────────────────')
+            lines.append(f'📊 주도 업종: {" · ".join(sector_parts)}')
+
+    # 매수 후보 목록 헤더
+    lines.append('─────────────────')
+    lines.append(f'<b>📋 매수 후보 {count}개 — 보유 확인</b>')
+    lines.append('✅매수 ⏳내일검증 🆕관찰')
+    lines.append('목록에 있으면 보유, 없으면 매도 검토.')
+    lines.append('')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
@@ -1120,7 +1120,6 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
 
     # 이탈 종목 (어제 대비) + 어제→오늘 순위
     if exited_tickers:
-        lines.append('')
         lines.append('─────────────────')
         lines.append(f'📉 어제 대비 이탈 {len(exited_tickers)}개')
         # 전체 eligible 종목의 현재 순위 계산
@@ -1133,15 +1132,12 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
             t_name = name_map.get(t, t)
             cur_rank = current_rank_map.get(t)
             if cur_rank:
-                lines.append(f'{t_name}({t}) · 어제 {prev_rank}위 → {cur_rank}위')
+                lines.append(f'  {t_name}({t}) · 어제 {prev_rank}위 → {cur_rank}위')
             else:
-                lines.append(f'{t_name}({t}) · 어제 {prev_rank}위 → 조건 미달')
-        lines.append('')
-        lines.append('보유 중이라면 매도를 검토하세요.')
+                lines.append(f'  {t_name}({t}) · 어제 {prev_rank}위 → 조건 미달')
+        lines.append('⛔ 보유 중이라면 매도를 검토하세요.')
 
-    lines.append('')
-    lines.append('목록에 있으면 보유, 없으면 매도 검토.')
-    lines.append('')
+    lines.append('─────────────────')
     lines.append('👉 다음: AI 리스크 필터 [2/3]')
 
     return '\n'.join(lines)
@@ -1411,7 +1407,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None):
         analysis_html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', analysis_html)
         analysis_html = re.sub(r'#{1,3}\s*', '', analysis_html)
         analysis_html = analysis_html.replace('---', '━━━')
-        analysis_html = re.sub(r'\n*\[SEP\]\n*', '\n\n', analysis_html)
+        analysis_html = re.sub(r'\n*\[SEP\]\n*', '\n─────────\n', analysis_html)
 
         # 텔레그램 메시지 포맷팅
         lines = []
