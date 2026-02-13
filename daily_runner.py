@@ -760,17 +760,17 @@ def fetch_hy_quadrant():
 
         # 1) HY 4~5%에서 -20bp 급축소
         if 4 <= hy_spread <= 5 and daily_change_bp <= -20:
-            signals.append(f'💎 스프레드 급축소 (HY {hy_spread:.2f}%, 전일 대비 {daily_change_bp:+.0f}bp)')
+            signals.append(f'💎 HY {hy_spread:.2f}%, 전일 대비 {daily_change_bp:+.0f}bp 급락 — 반등 매수 기회에요!')
 
         # 2) 5% 하향 돌파
         if hy_prev >= 5 and hy_spread < 5:
-            signals.append('💎 5% 하향 돌파 — 위험→안전 구간 진입')
+            signals.append(f'💎 HY {hy_spread:.2f}%로 5% 밑으로 내려왔어요 — 적극 매수 구간이에요!')
 
         # 3) 60일 고점 대비 -300bp 이상 하락
         peak_60d = df['hy_spread'].rolling(60).max().iloc[-1]
         from_peak_bp = (hy_spread - peak_60d) * 100
         if from_peak_bp <= -300:
-            signals.append(f'💎 60일 고점 대비 {from_peak_bp:.0f}bp 하락 — 강력 매수 신호')
+            signals.append(f'💎 60일 고점 대비 {from_peak_bp:.0f}bp 하락 — 바닥 신호, 적극 매수하세요!')
 
         # 4) Q4→Q1 전환 (전일 분면 계산)
         prev_wide = hy_prev >= median_10y
@@ -779,7 +779,7 @@ def fetch_hy_quadrant():
         prev_was_q4 = prev_wide and prev_rising
         now_is_q1 = is_wide and not is_rising
         if prev_was_q4 and now_is_q1:
-            signals.append('💎 침체기→회복기 전환 — 최고 매수 구간')
+            signals.append('💎 침체기→회복기 전환 — 가장 좋은 매수 타이밍이에요!')
 
         # 현재 분면 지속 일수 (최대 252영업일=1년까지 역추적)
         df['hy_3m'] = df['hy_spread'].shift(63)
@@ -801,20 +801,20 @@ def fetch_hy_quadrant():
         # 종목 수는 항상 5개 유지, 비중만 조절 (분산 유지)
         if quadrant == 'Q4':
             if q_days <= 20:
-                cash_pct, action = 30, '신규 매수 중단'
+                cash_pct, action = 30, '신규 매수를 멈추고 관망하세요.'
             elif q_days <= 60:
-                cash_pct, action = 50, '단계적 축소'
+                cash_pct, action = 50, '보유 종목을 줄이고 현금을 늘리세요.'
             else:
-                cash_pct, action = 70, '적극 방어'
+                cash_pct, action = 70, '현금을 최대한 확보하세요.'
         elif quadrant == 'Q3':
             if q_days >= 60:
-                cash_pct, action = 30, '신규 진입 축소'
+                cash_pct, action = 30, '신규 매수를 줄여가세요.'
             else:
-                cash_pct, action = 20, '주의 관찰'
+                cash_pct, action = 20, '매수할 때 신중하게 판단하세요.'
         elif quadrant == 'Q1':
-            cash_pct, action = 0, '적극 매수'
+            cash_pct, action = 0, '적극 매수하세요. 역사적으로 수익률이 가장 높은 구간이에요.'
         else:  # Q2
-            cash_pct, action = 20, '정상 운영'
+            cash_pct, action = 20, '평소대로 투자하세요.'
 
         return {
             'hy_spread': hy_spread,
@@ -1036,17 +1036,28 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.extend(market_lines)
     if hy_data:
         lines.append(f"{hy_data['quadrant_icon']} <b>신용시장</b> — {hy_data['quadrant_label']}")
-        lines.append(f"HY Spread(부도위험) {hy_data['hy_spread']:.2f}% · 10년 평균 {hy_data['median_10y']:.2f}%")
-        # 현금 비중 + 핵심 행동
+        # HY 수치 + 맥락 해석
+        hy_val = hy_data['hy_spread']
+        med_val = hy_data['median_10y']
+        q = hy_data['quadrant']
+        if q == 'Q1':
+            interp = f"평균({med_val:.2f}%)보다 높지만 빠르게 내려오고 있어요."
+        elif q == 'Q2':
+            interp = f"평균({med_val:.2f}%)보다 낮아서 안정적이에요."
+        elif q == 'Q3':
+            interp = f"평균({med_val:.2f}%) 이하지만 올라가는 중이에요."
+        else:
+            interp = f"평균({med_val:.2f}%)보다 높고 계속 올라가고 있어요."
+        lines.append(f"HY Spread(부도위험) {hy_val:.2f}% · {interp}")
+        # 투자 비중
         cash_pct = hy_data.get('cash_pct', 0)
         stock_weight = (100 - cash_pct) // 5
         if cash_pct == 0:
-            action_line = f"📊 투자 100% · 종목당 {stock_weight}% · {hy_data['action']}"
+            lines.append(f"📊 투자 100% · 종목당 {stock_weight}%")
         else:
-            action_line = f"📊 투자 {100 - cash_pct}% + 현금 {cash_pct}% · 종목당 {stock_weight}% · {hy_data['action']}"
-        lines.append(action_line)
-        if hy_data['quadrant'] == 'Q4':
-            lines.append('⚠️ 신규 매수 시 신중하게 판단하세요.')
+            lines.append(f"📊 투자 {100 - cash_pct}% + 현금 {cash_pct}% · 종목당 {stock_weight}%")
+        # 행동 가이드
+        lines.append(f"→ {hy_data['action']}")
         for sig in hy_data.get('signals', []):
             lines.append(sig)
     lines.append('')
