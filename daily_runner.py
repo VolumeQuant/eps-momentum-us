@@ -781,6 +781,40 @@ def fetch_hy_quadrant():
         if prev_was_q4 and now_is_q1:
             signals.append('💎 침체→회복 전환 — 최고 매수 구간')
 
+        # 현재 분면 지속 일수 (최대 252영업일=1년까지 역추적)
+        df['hy_3m'] = df['hy_spread'].shift(63)
+        valid_mask = df['median_10y'].notna() & df['hy_3m'].notna()
+        df.loc[valid_mask, 'q'] = np.where(
+            df.loc[valid_mask, 'hy_spread'] >= df.loc[valid_mask, 'median_10y'],
+            np.where(df.loc[valid_mask, 'hy_spread'] >= df.loc[valid_mask, 'hy_3m'], 'Q4', 'Q1'),
+            np.where(df.loc[valid_mask, 'hy_spread'] >= df.loc[valid_mask, 'hy_3m'], 'Q3', 'Q2')
+        )
+        q_days = 1
+        for i in range(len(df) - 2, max(len(df) - 253, 0) - 1, -1):
+            if i >= 0 and df['q'].iloc[i] == quadrant:
+                q_days += 1
+            else:
+                break
+
+        # 현금 비중 + 핵심 행동 권장 (30년 EDA 기반)
+        # 종목 수는 항상 5개 유지, 비중만 조절 (분산 유지)
+        if quadrant == 'Q4':
+            if q_days <= 20:
+                cash_pct, action = 20, '신규 매수 중단'
+            elif q_days <= 60:
+                cash_pct, action = 40, '단계적 축소'
+            else:
+                cash_pct, action = 60, '적극 방어'
+        elif quadrant == 'Q3':
+            if q_days >= 60:
+                cash_pct, action = 20, '신규 진입 축소'
+            else:
+                cash_pct, action = 0, '주의 관찰'
+        elif quadrant == 'Q1':
+            cash_pct, action = 0, '적극 매수'
+        else:  # Q2
+            cash_pct, action = 0, '정상 운영'
+
         return {
             'hy_spread': hy_spread,
             'median_10y': median_10y,
@@ -790,6 +824,9 @@ def fetch_hy_quadrant():
             'quadrant_label': label,
             'quadrant_icon': icon,
             'signals': signals,
+            'q_days': q_days,
+            'cash_pct': cash_pct,
+            'action': action,
         }
 
     except Exception as e:
@@ -998,6 +1035,13 @@ def create_part2_message(df, status_map=None, exited_tickers=None, market_lines=
         lines.extend(market_lines)
     if hy_data:
         lines.append(f"{hy_data['quadrant_icon']} <b>신용시장</b> — {hy_data['quadrant_label']} (HY {hy_data['hy_spread']:.2f}%, 중위 {hy_data['median_10y']:.2f}%)")
+        # 현금 비중 + 핵심 행동
+        cash_pct = hy_data.get('cash_pct', 0)
+        cash_str = '투자 100%' if cash_pct == 0 else f'현금 {cash_pct}%'
+        action_line = f"📊 {cash_str} · {hy_data['action']}"
+        if hy_data['quadrant'] in ('Q3', 'Q4') and cash_pct > 0:
+            action_line += f" ({hy_data['quadrant']} {hy_data['q_days']}일차)"
+        lines.append(action_line)
         if hy_data['quadrant'] == 'Q4':
             lines.append('⚠️ 신규 매수 시 신중하게 판단하세요.')
         for sig in hy_data.get('signals', []):
@@ -1725,7 +1769,8 @@ def main():
         log(f"시장 지수: {len(market_lines)}개")
     hy_data = fetch_hy_quadrant()
     if hy_data:
-        log(f"HY Spread: {hy_data['hy_spread']:.2f}% | 분면: {hy_data['quadrant']} {hy_data['quadrant_label']}")
+        log(f"HY Spread: {hy_data['hy_spread']:.2f}% | 분면: {hy_data['quadrant']} {hy_data['quadrant_label']} ({hy_data['q_days']}일째)")
+        log(f"  현금 {hy_data['cash_pct']}% · {hy_data['action']}")
         if hy_data['signals']:
             for sig in hy_data['signals']:
                 log(f"  해빙 신호: {sig}")
