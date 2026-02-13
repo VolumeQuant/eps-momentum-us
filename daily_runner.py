@@ -1077,36 +1077,41 @@ def get_market_risk_status():
         if hy['quadrant'] == 'Q1' and vix_dir == 'stable':
             final_cash = 0
 
-        # Concordance 기반 행동 권장 (HY 메인 + VIX 보조)
+        # Concordance 기반 행동 권장 (계절 × 지표 조합)
         q = hy['quadrant']
-        if concordance == 'both_warn':
-            # 두 지표 모두 위험 → 가장 강한 경고
-            if q == 'Q4':
-                final_action = '신용·변동성 두 지표 모두 위험 신호예요. 현금을 최대한 확보하세요.'
+        vix_ok = vix_dir == 'stable'
+        hy_ok = hy_dir == 'stable'
+
+        if q == 'Q1':
+            # 봄(회복기) — 역사적 최고 수익률
+            if hy_ok and vix_ok:
+                final_action = '모든 지표가 매수를 가리켜요. 적극 투자하세요!'
+            elif hy_ok and not vix_ok:
+                final_action = '회복 구간이에요. VIX가 높지만 신용시장이 안정적이라 적극 투자해도 좋아요.'
             else:
-                final_action = '변동성이 높고 신용시장도 불안해요. 신규 매수를 멈추세요.'
-        elif concordance == 'vix_only':
-            # VIX만 경고, HY 안정 → 단기 충격 가능성
-            final_action = '변동성이 높지만 신용시장은 안정적이에요. 신규 매수에 신중하세요.'
-        elif concordance == 'hy_only':
-            # HY만 경고, VIX 안정 → 구조적 위험 누적
-            if q == 'Q4':
-                final_action = '신용시장이 악화 중이에요. 보유 종목을 줄이고 현금을 늘리세요.'
+                final_action = '회복 구간이에요. 적극 매수하세요.'
+        elif q == 'Q2':
+            # 여름(성장기) — 정상 투자
+            if hy_ok and vix_ok:
+                final_action = '모든 지표가 안정적이에요. 평소대로 투자하세요.'
+            elif hy_ok and not vix_ok:
+                final_action = '신용시장은 안정적이지만 VIX가 높아요. 신규 매수 시 신중하세요.'
             else:
-                final_action = '신용시장에 주의가 필요해요. 매수할 때 신중하게 판단하세요.'
+                final_action = '일부 경고 신호가 있어요. 신규 매수를 줄여가세요.'
+        elif q == 'Q3':
+            # 가을(과열기) — 경계
+            if vix_ok:
+                final_action = '과열 신호가 있어요. 신규 매수를 줄여가세요.'
+            else:
+                final_action = '과열 + 변동성 확대에요. 보유 종목을 점검하고 신규 매수를 멈추세요.'
         else:
-            # both_stable → 안전
-            if q == 'Q1':
-                final_action = '두 지표 모두 안전해요. 적극 매수하세요.'
-            elif q == 'Q2':
-                final_action = '평소대로 투자하세요.'
-            elif q == 'Q3':
-                if hy['q_days'] >= 60:
-                    final_action = '신용시장이 과열 조짐이에요. 신규 매수를 줄여가세요.'
-                else:
-                    final_action = '평소대로 투자하세요.'
+            # 겨울(Q4) — 침체기
+            if not hy_ok and not vix_ok:
+                final_action = '모든 지표가 위험해요. 신규 매수를 멈추고 현금을 확보하세요.'
+            elif vix_ok:
+                final_action = '신용시장이 악화 중이지만 변동성은 안정적이에요. 현금 비중을 유지하며 지켜보세요.'
             else:
-                final_action = hy['action']
+                final_action = '위험 구간이에요. 보유 종목을 줄이고 현금을 늘리세요.'
     else:
         # HY 데이터 없음 — VIX만으로 판단
         base_cash = 20
@@ -1300,8 +1305,9 @@ def create_guide_message():
         '🛡️ <b>시장 위험은요?</b>',
         '신용시장(HY)과 변동성(VIX) 두 지표로',
         '시장 전체 위험을 매일 점검해요.',
-        '위험이 높으면 추천 종목 수와 비중을 줄이고',
-        '현금 비중을 자동으로 높여드려요.',
+        '🟢 안정 🔴 위험으로 2가지 지표를 보여줘요.',
+        '🟢 많으면 → 적극 투자',
+        '🔴 많으면 → 현금 비중 UP',
         '봄(🌸)~여름(☀️) = 적극 투자',
         '가을(🍂)~겨울(❄️) = 현금 비중 UP',
     ]
@@ -1376,8 +1382,29 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
                 else:
                     lines.append(f"{vix_data['regime_label']} 구간이에요.")
 
+        # Concordance 신호등 (🟢/🔴)
+        signals = []
+        if hy_data:
+            hy_ok = hy_data['quadrant'] in ('Q1', 'Q2')
+            signals.append(('HY', hy_ok))
+        if vix_data:
+            vix_ok = vix_data['direction'] == 'stable'
+            signals.append(('VIX', vix_ok))
+
+        lines.append('')
+        if signals:
+            n_ok = sum(1 for _, ok in signals if ok)
+            n_total = len(signals)
+            dots = ''.join('🟢' if ok else '🔴' for _, ok in signals)
+            if n_ok == n_total:
+                conf = '확실한 신호'
+            elif n_ok == 0:
+                conf = '위험 신호'
+            else:
+                conf = '엇갈린 신호'
+            lines.append(f"{dots} {n_ok}/{n_total} 안정 — {conf}")
+
         # 투자 비중 (HY + VIX 합산)
-        lines.append('─────────────────')
         if final_cash == 0:
             lines.append('💰 투자 100%')
         else:
@@ -1940,16 +1967,12 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 투자 가능 비중을 종목수로 균등 배분
+        # 항상 20%씩 균등 배분 (현금 비중은 별도 안내)
         n = len(selected)
-        base_weight = invest_pct // n
         for s in selected:
-            s['weight'] = base_weight
-        remainder = invest_pct - base_weight * n
-        for i in range(remainder):
-            selected[i]['weight'] += 1
+            s['weight'] = 20
 
-        log(f"포트폴리오: {n}종목 선정 (투자 {invest_pct}% + 현금 {final_cash}%) — " +
+        log(f"포트폴리오: {n}종목 선정 (각 20%, 현금 권고 {final_cash}%) — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
         # 시장 위험 컨텍스트 (Gemini 프롬프트용)
@@ -1997,7 +2020,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 - 500자 이내
 
 각 종목의 선정 이유를 설명해줘.
-현재 시장 위험 수준이 반영된 비중(각 {selected[0]['weight']}%)이니 비중 설명은 생략해.
+모든 종목은 각 20% 균등 비중이니 비중 설명은 생략해.
 시스템 데이터에 없는 내용을 지어내지 마."""
 
         api_key = config.get('gemini_api_key', '')
@@ -2048,8 +2071,6 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 
         # 비중 한눈에 보기
         summary_parts = [f'{s["name"]}({s["ticker"]}) {s["weight"]}%' for s in selected]
-        if final_cash > 0:
-            summary_parts.append(f'현금 {final_cash}%')
         summary_line = ' · '.join(summary_parts)
 
         lines = [
@@ -2066,7 +2087,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 
         # 시장 위험 반영 안내
         if final_cash > 0:
-            lines.append(f'🛡️ 시장 위험 반영 → 투자 {invest_pct}% + 현금 {final_cash}%')
+            lines.append(f'🛡️ 시장 위험 권고: 현금 {final_cash}% 보유 추천')
         if final_action:
             lines.append(f'→ {final_action}')
 
@@ -2083,11 +2104,9 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             '',
             '💡 <b>활용법</b>',
         ])
-        if final_cash == 0:
-            lines.append(f'· 각 {selected[0]["weight"]}% 균등 분산 투자')
-        else:
-            lines.append(f'· 투자금의 {invest_pct}%만 투입, {final_cash}%는 현금 보유')
-            lines.append(f'· 시장이 안정되면 종목 수와 비중이 자동으로 늘어나요')
+        lines.append('· 각 20% 균등 분산 투자')
+        if final_cash > 0:
+            lines.append(f'· 시장 위험 권고에 따라 현금 {final_cash}% 보유를 고려하세요')
         lines.extend([
             '· 목록에서 빠지면 매도 검토',
             '· 최소 2주 보유, 매일 후보 갱신 확인',
