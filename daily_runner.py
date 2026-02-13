@@ -1057,7 +1057,8 @@ def create_market_message(df, market_lines=None, hy_data=None, top_n=30):
         sector_parts = [f'{name} {cnt}' for name, cnt in top_sectors if cnt >= 2]
         if sector_parts:
             lines.append('─────────────────')
-            lines.append(f'📊 주도 업종: {" · ".join(sector_parts)}')
+            lines.append('📊 주도 업종')
+            lines.append(f'{" · ".join(sector_parts)}')
 
     lines.append('─────────────────')
     lines.append('👉 다음: 매수 후보 [2/4]')
@@ -1083,8 +1084,11 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f' [2/4] 📋 매수 후보 {count}개')
     lines.append('━━━━━━━━━━━━━━━━━━━')
+    lines.append('─────────────────')
+    lines.append('💡 <b>읽는 법</b>')
     lines.append('✅매수 ⏳내일검증 🆕관찰')
     lines.append('목록에 있으면 보유, 없으면 매도 검토.')
+    lines.append('─────────────────')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1

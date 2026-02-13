@@ -26,6 +26,88 @@
 > **v22**: 2026-02-12 집 PC — Revenue Required: 섹터 분산 제거, rev_growth 필수화, 업종 분포 통계
 > **v23**: 2026-02-12 집 PC — HY Spread EDA: 30년 데이터 분석, Verdad 4분면 모델 채택, Method C 확정
 > **v24**: 2026-02-12 집 PC — 현금 비중 권장: 기본 20% + 매크로 추가, Q1 해빙기 0%(풀 공격), 종목 5개 고정(분산 유지)
+> **v25**: 2026-02-13 집 PC — VIX 심층 분석: 에이전트 2개 독립 토의 → Strategy C(3레이어 복합) 확정, 메시지 [1/3]→[1/4]+[2/4] 분리
+
+---
+
+## v25 — VIX 심층 분석 + 메시지 레이아웃 개선 (2026-02-13)
+
+### 에이전트 토의 개요
+
+두 에이전트(한국 전략 담당 + US 전략 담당)가 각각 독립적으로 VIX 35년(1990~2025) 데이터를 웹 리서치(한국 21건, US 31건)하여 분석. 약 5분씩 소요 후 동일한 결론에 도달.
+
+### 핵심 발견 1: VIX 기초 EDA
+
+- 평균 19.71, 중앙값 17.84 → 우편향 분포 (평소 낮고, 간헐적 극단 스파이크)
+- 구간별 빈도: <15(~35%), 15~20(~30%), 20~30(~25%), 30~40(~8%), 40+(~2%)
+- Mean-Reversion Half-life: 평상시 2~10일 (Ornstein-Uhlenbeck 모형)
+- 스파이크가 클수록 회귀 속도 빠름, 최근 추세로 회귀 속도 과거보다 더 빨라짐
+- 구조적 위기(2008, 2020)에서는 half-life가 수개월로 확장 → HY 교차 확인 필수
+
+### 핵심 발견 2: VIX 레벨별 향후 수익률
+
+Hartford Funds, WisdomTree, BlackRock 실증:
+- VIX 30+ 후 6개월 85% 확률 상승, 12개월 90% 확률 상승, 평균 +23.4%
+- VIX 40+ 후 3년 이내 예외 없이 시장 회복 + 추가 수익
+- 역설: VIX < 15(저변동) 구간 수익률이 가장 낮음 — complacency(안주) 상태에서 충격 취약
+- 최악의 날과 최고의 날은 군집(cluster) — 최고의 5일 놓치면 20년 수익률 절반 감소
+
+### 핵심 발견 3: HY-VIX 상호보완성
+
+상관계수 +0.71(일별), VIX가 HY 변동의 51%만 설명 → 49% 독립 정보.
+
+| 지표 | 강점 | 약점 |
+|------|------|------|
+| **HY** | 구조적 신용 리스크 포착, 서서히 무너지는 시장 감지(2007) | 급락장 첫 1~3일 반응 지연 |
+| **VIX** | 즉각적 공포 포착, 급락 초기 선행(2020.02) | 소음 多, 신용위기 서서히 확대 시 무반응 |
+
+동시성 vs 엇갈림 매트릭스:
+- **동시 경고** (HY 악화 + VIX 상승): 가장 위험 — 2008, 2020 초기
+- **동시 안정** (HY 개선 + VIX 하락): 가장 안전 — 전형적 강세장
+- **VIX만 경고**: 단기 쇼크, 빠른 회복 가능 (Flash Crash류)
+- **HY만 경고**: 구조적 위험 누적, 가장 교활 (2007 하반기)
+
+### 핵심 발견 4: VIX 40+ 역설
+
+VIX 40+에서 현금을 더 늘리면 역효과:
+1. 도달 시점에 이미 시장 상당 하락 → 최악의 타이밍에 손절
+2. VIX 40+는 mean-reversion이 가장 강력한 구간
+3. 최악/최고의 날이 군집 → 현금이면 최고의 반등을 놓침
+
+단, **하락 전환이 조건**: VIX 40→45→60 계속 상승 중이면 아직 정점 아님. VIX 60→55→45→38 내려오기 시작해야 공포 정점 통과 신호.
+
+### 추천 전략: Strategy C (3레이어 복합 모델)
+
+두 에이전트 모두 동일하게 Strategy C 추천. 이유:
+
+**Strategy A (절대값 단독) 기각 이유**: VIX는 하루에 수십 포인트 변동 → 잦은 whipsaw. complacency(VIX<12) 탐지 시 false positive 빈번.
+
+**Strategy B (기울기 단독) 기각 이유**: Z-score 계산에 충분한 lookback 필요. 횡보장에서 노이즈 심함. HY 없이 단독 사용 시 2007년 같은 서서히 무너지는 시장 놓침.
+
+**Strategy C 선택 이유**:
+1. 기존 HY의 구조적 판단(방향타) 보존
+2. VIX의 속도(속도계) 추가로 급락 초기 1~3일 선행 방어
+3. Concordance Check로 false signal 감소
+4. VIX 단독의 whipsaw 문제 완화
+
+### 메시지 레이아웃 개선
+
+| Before | After |
+|--------|-------|
+| [1/3] 시장+매수후보 (한 메시지) | [1/4] 시장현황 + [2/4] 매수후보 (분리) |
+| 빈 줄로 영역 구분 | ─── 구분선으로 명확 구분 |
+| 가이드 타이틀 뒤 빈 줄 | 빈 줄 제거 |
+| AI 종목간 빈 줄 2개 | ─── 구분선 1개 |
+
+### 참고 자료 (에이전트 수집)
+
+- [FRED VIXCLS](https://fred.stlouisfed.org/series/VIXCLS), [Macrotrends VIX](https://www.macrotrends.net/2603/vix-volatility-index-historical-chart)
+- [Macroption VIX-SPX Correlation](https://www.macroption.com/vix-spx-correlation/)
+- [Hartford Funds - When Fear Runs High](https://www.hartfordfunds.com/practice-management/client-conversations/managing-volatility/when-fear-runs-high-time-to-buy.html)
+- [WisdomTree VIX Spike Bullish](https://www.wisdomtree.com/investments/blog/2025/04/28/dont-minimize-the-importance-of-the-vix-spike-its-bullish)
+- [Cassini Capital - Credit Spread and VIX](https://www.cassinicap.com/t-plus/credit-spread-and-vix/index.php)
+- [SSRN - VIX-HY Relationship](https://papers.ssrn.com/sol3/Delivery.cfm/5213881.pdf?abstractid=5213881)
+- [Six Figure Investing - VIX/VIX3M Ratio](https://www.sixfigureinvesting.com/2012/09/taming-inverse-volatility-with-a-simple-ratio/)
 
 ---
 
