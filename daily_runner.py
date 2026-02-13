@@ -1929,34 +1929,27 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         final_action = risk_status.get('final_action', '') if risk_status else ''
         invest_pct = 100 - final_cash  # 실제 투자 가능 비중
 
-        # #2: 현금 비중 ↔ 추천 종목 수 연결
-        # max_picks = invest_pct // 20 (종목당 ~20% 기준)
-        # cash 0%→5개, 20%→4개, 40%→3개, 60%→2개, 70%→1개
-        max_picks = max(1, min(5, invest_pct // 20))
-
+        # 종목 수 고정 5개, 비중만 시장 위험 반영
+        # 종목 선정 = 알파 (항상 Top 5), 비중 조절 = 베타 (시장 위험)
         log("포트폴리오: composite 순위 (괴리 70% + 매출성장 30%):")
         for i, s in enumerate(safe):
             log(f"    {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
-        selected = safe[:max_picks]
+        selected = safe[:5]
 
-        if len(selected) < 1:
-            log("포트폴리오: 선정 종목 없음", "WARN")
+        if len(selected) < 3:
+            log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 균등 비중 배분 (투자 가능 비중을 종목수로 나눔, 종목당 30% 캡)
+        # 투자 가능 비중을 종목수로 균등 배분
         n = len(selected)
-        raw_weight = invest_pct // n
-        capped_weight = min(raw_weight, 30)  # 종목당 30% 캡
+        base_weight = invest_pct // n
         for s in selected:
-            s['weight'] = capped_weight
-        # 나머지 1위부터 배분 (캡 미달 시)
-        used = capped_weight * n
-        remainder = invest_pct - used
-        for i in range(min(remainder, n)):
-            if selected[i]['weight'] < 30:
-                selected[i]['weight'] += 1
+            s['weight'] = base_weight
+        remainder = invest_pct - base_weight * n
+        for i in range(remainder):
+            selected[i]['weight'] += 1
 
-        log(f"포트폴리오: {n}종목 선정 (투자 {invest_pct}% + 현금 {final_cash}%, max_picks={max_picks}) — " +
+        log(f"포트폴리오: {n}종목 선정 (투자 {invest_pct}% + 현금 {final_cash}%) — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
         # 시장 위험 컨텍스트 (Gemini 프롬프트용)
