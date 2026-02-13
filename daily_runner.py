@@ -855,8 +855,10 @@ def fetch_vix_data():
     import urllib.request
     import io
     import pandas as pd
+    import time
 
-    try:
+    for attempt in range(3):
+      try:
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=400)).strftime('%Y-%m-%d')
         url = (
@@ -937,9 +939,13 @@ def fetch_vix_data():
             'direction': direction,
         }
 
-    except Exception as e:
-        log(f"VIX 수집 실패: {e}", level="WARN")
-        return None
+      except Exception as e:
+        if attempt < 2:
+            log(f"VIX 수집 재시도 ({attempt+1}/3): {e}", level="WARN")
+            time.sleep(5)
+        else:
+            log(f"VIX 수집 실패: {e}", level="WARN")
+            return None
 
 
 def get_market_risk_status():
