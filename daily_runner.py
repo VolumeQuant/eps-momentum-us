@@ -1383,8 +1383,8 @@ def create_guide_message():
         '',
         '① 이익 전망이 오르는 종목을 찾고',
         '② 주가 흐름이 건강한 종목만 남기고',
-        '③ 복합 순위(괴리 70%+매출 30%) Top 20 진입',
-        '④ 3일 연속 검증 완료 ✅',
+        '③ 복합 순위(괴리 70%+매출 30%) 상위 종목 선별',
+        '④ 3일 연속 상위권 유지 종목만 매수 후보로',
         '⑤ AI 위험 점검 후 시장 상황에 맞게 최종 추천',
         '',
         '⏱️ <b>얼마나 보유하나요?</b>',
@@ -1576,70 +1576,7 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
         lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
         lines.append('──────────────────')
 
-    if exited_tickers:
-        all_eligible = get_part2_candidates(df)
-        current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
-        sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
-        name_map = dict(zip(df['ticker'], df.get('short_name', df['ticker'])))
-        full_data = {row['ticker']: row for _, row in df.iterrows()}
-
-        # 이탈 분류: 목표달성(괴리+만) vs 펀더멘탈 악화
-        achieved = []  # ✅ 주가가 EPS 상향분 반영
-        degraded = []  # ⚠️ 펀더멘탈 악화
-        for t, prev_rank in sorted_exits:
-            t_name = name_map.get(t, t)
-            cur_rank = current_rank_map.get(t)
-            reasons = []
-            if t in full_data:
-                r = full_data[t]
-                if (r.get('price', 0) or 0) < (r.get('ma60', 0) or 0) and (r.get('ma60', 0) or 0) > 0:
-                    reasons.append('MA60↓')
-                if (r.get('adj_gap', 0) or 0) > 0:
-                    reasons.append('괴리+')
-                if (r.get('adj_score', 0) or 0) <= 9:
-                    reasons.append('점수↓')
-                if (r.get('eps_change_90d', 0) or 0) <= 0:
-                    reasons.append('EPS↓')
-            if not reasons and cur_rank and cur_rank > top_n:
-                reasons.append('순위↓')
-            if not reasons:
-                reasons.append('순위↓')
-            reason_tag = ' '.join(f'[{r}]' for r in reasons)
-            rank_info = f'{prev_rank}위→{cur_rank}위' if cur_rank else f'{prev_rank}위→탈락'
-            line = f'  {t_name}({t}) · {rank_info} {reason_tag}'
-
-            # 괴리+만 있으면 목표달성, 나머지는 악화
-            if reasons == ['괴리+']:
-                achieved.append(line)
-            else:
-                degraded.append(line)
-
-        if achieved:
-            lines.append(f'✅ 목표 달성 이탈 {len(achieved)}개 — 주가가 EPS 상향분을 반영했어요')
-            lines.extend(achieved)
-            lines.append('💡 수익 실현을 검토하세요.')
-        if degraded:
-            lines.append(f'⚠️ 펀더멘탈 악화 이탈 {len(degraded)}개')
-            lines.extend(degraded)
-            # 시장 위험 수준별 매도 경보 톤 차등
-            hy_data = risk_status.get('hy') if risk_status else None
-            concordance = risk_status.get('concordance', '') if risk_status else ''
-            if hy_data and hy_data['quadrant'] == 'Q4':
-                q_days = hy_data.get('q_days', 0)
-                if q_days > 60:
-                    lines.append('📉 바닥권이에요. 매도 검토하되 시장 반등에 대비하세요.')
-                elif q_days > 20:
-                    lines.append('⚠️ 침체 지속 중이에요. 보유 중이면 <b>매도를 검토</b>하세요.')
-                else:
-                    lines.append('🚨 침체 초기에요. 급매도는 금물, <b>매도를 검토</b>하세요.')
-            elif concordance == 'both_warn':
-                lines.append('⚠️ 신용·변동성 모두 경고예요. 보유 중이면 <b>매도를 검토</b>하세요.')
-            elif hy_data and hy_data['quadrant'] == 'Q3':
-                lines.append('⚠️ 과열 구간이에요. 보유 중이면 <b>매도를 적극 검토</b>하세요.')
-            else:
-                lines.append('📉 보유 중이라면 매도를 검토하세요.')
-
-    # 유지 구간 (31~35위): 동일 포맷으로 표시
+    # 유지 구간 (31~35위): Top 30 바로 뒤에 자연스럽게 이어짐
     buffer_candidates = get_part2_candidates(df, top_n=35)
     if len(buffer_candidates) > top_n:
         buffer_zone = buffer_candidates.iloc[top_n:]
@@ -1675,6 +1612,59 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
                     rank_str = f'-→-→{buf_rank}'
                 lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
                 lines.append('──────────────────')
+
+    # 이탈 종목: 구분선 + 분류
+    if exited_tickers:
+        all_eligible = get_part2_candidates(df)
+        current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
+        sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
+        name_map = dict(zip(df['ticker'], df.get('short_name', df['ticker'])))
+        full_data = {row['ticker']: row for _, row in df.iterrows()}
+
+        # 이탈 분류: 목표달성(괴리+만) vs 펀더멘탈 악화
+        achieved = []  # ✅ 주가가 EPS 상향분 반영
+        degraded = []  # ⚠️ 펀더멘탈 악화
+        for t, prev_rank in sorted_exits:
+            t_name = name_map.get(t, t)
+            cur_rank = current_rank_map.get(t)
+            reasons = []
+            if t in full_data:
+                r = full_data[t]
+                if (r.get('price', 0) or 0) < (r.get('ma60', 0) or 0) and (r.get('ma60', 0) or 0) > 0:
+                    reasons.append('MA60↓')
+                if (r.get('adj_gap', 0) or 0) > 0:
+                    reasons.append('괴리+')
+                if (r.get('adj_score', 0) or 0) <= 9:
+                    reasons.append('점수↓')
+                if (r.get('eps_change_90d', 0) or 0) <= 0:
+                    reasons.append('EPS↓')
+            if not reasons and cur_rank and cur_rank > top_n:
+                reasons.append('순위↓')
+            if not reasons:
+                reasons.append('순위↓')
+            reason_tag = ' '.join(f'[{r}]' for r in reasons)
+            rank_info = f'{prev_rank}위→{cur_rank}위' if cur_rank else f'{prev_rank}위→탈락'
+            line = f'{t_name}({t}) · {rank_info} {reason_tag}'
+
+            # 괴리+만 있으면 목표달성, 나머지는 악화
+            if reasons == ['괴리+']:
+                achieved.append(line)
+            else:
+                degraded.append(line)
+
+        lines.append('')
+        lines.append('📉 <b>이탈 종목</b>')
+        lines.append('─────────────────')
+        if achieved:
+            lines.append(f'✅ <b>목표 달성</b> ({len(achieved)}개) — 수익 실현 검토')
+            for a in achieved:
+                lines.append(f'  {a}')
+        if degraded:
+            if achieved:
+                lines.append('')
+            lines.append(f'⚠️ <b>펀더멘탈 악화</b> ({len(degraded)}개) — 매도 검토')
+            for d in degraded:
+                lines.append(f'  {d}')
 
     lines.append('─────────────────')
     lines.append('👉 다음: AI 리스크 필터 [3/4]')
@@ -2247,27 +2237,33 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             summary_line,
         ]
 
+        # 주의사항 모아보기
+        warnings = []
         if final_action:
-            lines.append(f'→ {final_action}')
+            warnings.append(f'🌡️ {final_action}')
 
-        # 어닝 임박 종목 인라인 경고
+        # 어닝 임박 종목
         earnings_stocks = [s for s in selected if s.get('earnings_note')]
         if earnings_stocks:
             for s in earnings_stocks:
-                lines.append(f'{s["name"]}({s["ticker"]}){s["earnings_note"]} — 신규 매수 시 변동성 주의')
+                warnings.append(f'📅 {s["name"]}({s["ticker"]}){s["earnings_note"]} 어닝 — 변동성 주의')
 
-        # 섹터 집중 경고: 동일 업종 키워드 3종목 이상
+        # 섹터 집중 경고
         from collections import Counter
         industries = [s['industry'] for s in selected if s.get('industry')]
-        # 반도체 밸류체인 통합 (반도체, 반도체장비, 전자부품, HW 등)
         tech_keywords = ['반도체', '전자부품', 'HW', '통신장비', '계측']
         tech_count = sum(1 for ind in industries if any(kw in ind for kw in tech_keywords))
         sector_counts = Counter(industries)
         concentrated = [f'{name} {cnt}' for name, cnt in sector_counts.most_common() if cnt >= 3]
         if tech_count >= 3:
-            lines.append(f'⚠️ 테크/반도체 밸류체인 {tech_count}/{len(selected)}종목 집중 — 동반 하락 리스크')
+            warnings.append(f'🏭 테크/반도체 {tech_count}/{len(selected)}종목 집중 — 동반 하락 리스크')
         elif concentrated:
-            lines.append(f'⚠️ 업종 집중: {", ".join(concentrated)} — 분산 리스크 점검')
+            warnings.append(f'🏭 업종 집중: {", ".join(concentrated)} — 분산 점검')
+
+        if warnings:
+            lines.append('')
+            lines.append('⚠️ <b>주의사항</b>')
+            lines.extend(warnings)
 
         # #6: Q1 봄 + 전지표 안정 → 💎 기회 강조
         hy_q = (risk_status.get('hy') or {}).get('quadrant', '') if risk_status else ''
@@ -2281,9 +2277,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             html,
             '',
             '💡 <b>활용법</b>',
-        ])
-        lines.append('· 상위 종목에 더 많은 비중 (순위별 차등)')
-        lines.extend([
+            '· 상위 종목에 더 많은 비중 (순위별 차등)',
             '· 목록에서 빠지면 매도 검토',
             '· 최소 2주 보유, 매일 후보 갱신 확인',
             '⚠️ 참고용이며, 투자 판단은 본인 책임이에요.',
