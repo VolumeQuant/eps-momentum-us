@@ -984,25 +984,15 @@ def fetch_hy_quadrant():
             else:
                 break
 
-        # 현금 비중 + 핵심 행동 권장 (30년 EDA 기반)
-        # 기본 현금 20% (교체/물타기/급락 대비) + 매크로 추가
-        # 종목 수는 항상 5개 유지, 비중만 조절 (분산 유지)
-        if quadrant == 'Q4':
-            if q_days <= 20:
-                cash_pct, action = 30, '신규 매수를 멈추고 관망하세요.'
-            elif q_days <= 60:
-                cash_pct, action = 50, '보유 종목을 줄이고 현금을 늘리세요.'
-            else:
-                cash_pct, action = 70, '현금을 최대한 확보하세요.'
+        # HY 단독 행동 권장 (fallback용, 최종은 get_market_risk_status에서 결정)
+        if quadrant == 'Q1':
+            action = '적극 매수하세요.'
+        elif quadrant == 'Q2':
+            action = '평소대로 투자하세요.'
         elif quadrant == 'Q3':
-            if q_days >= 60:
-                cash_pct, action = 30, '신규 매수를 줄여가세요.'
-            else:
-                cash_pct, action = 20, '매수할 때 신중하게 판단하세요.'
-        elif quadrant == 'Q1':
-            cash_pct, action = 0, '적극 매수하세요. 역사적으로 수익률이 가장 높은 구간이에요.'
-        else:  # Q2
-            cash_pct, action = 20, '평소대로 투자하세요.'
+            action = '신규 매수 시 신중하세요.'
+        else:  # Q4
+            action = '신규 매수를 멈추고 관망하세요.'
 
         return {
             'hy_spread': hy_spread,
@@ -1014,7 +1004,6 @@ def fetch_hy_quadrant():
             'quadrant_icon': icon,
             'signals': signals,
             'q_days': q_days,
-            'cash_pct': cash_pct,
             'action': action,
         }
 
@@ -1167,35 +1156,56 @@ def get_market_risk_status():
     else:
         concordance = 'both_stable'
 
-    # Concordance 기반 행동 권장 (계절 × 지표 조합)
+    # Concordance 기반 행동 권장 (계절 × 지표 × q_days 조합, 30년 EDA 기반)
     if hy:
         q = hy['quadrant']
+        q_days = hy.get('q_days', 1)
         vix_ok = vix_dir == 'stable'
 
         if q == 'Q1':
-            # 봄(회복기) — 역사적 최고 수익률
+            # 봄(회복기) — 연율+14.3%, 양수확률86%, 역사적 최고 수익
             if vix_ok:
                 final_action = '모든 지표가 매수를 가리켜요. 적극 투자하세요!'
             else:
-                final_action = '회복 구간이에요. VIX가 높지만 신용시장이 안정적이라 투자 기회를 놓치지 마세요.'
+                final_action = '회복 구간이에요. VIX가 높지만 오히려 반등 기회일 수 있어요. 적극 투자하세요!'
         elif q == 'Q2':
-            # 여름(성장기) — 정상 투자
+            # 여름(성장기) — 연율+9.4%, 양수확률84%
             if vix_ok:
                 final_action = '모든 지표가 안정적이에요. 평소대로 투자하세요.'
             else:
                 final_action = '신용시장은 안정적이지만 VIX가 높아요. 신규 매수 시 신중하세요.'
         elif q == 'Q3':
-            # 가을(과열기) — 경계
-            if vix_ok:
-                final_action = '과열 신호가 있어요. 신규 매수를 줄여가세요.'
+            # 가을(과열기) — 60일 기준 2단계 (EDA: <60d +1.84%, ≥60d +0.39%)
+            if q_days < 60:
+                if vix_ok:
+                    final_action = '과열 초기 신호에요. 신규 매수 시 신중하세요.'
+                else:
+                    final_action = '과열 초기 + 변동성 확대에요. 신규 매수를 멈추세요.'
             else:
-                final_action = '과열 + 변동성 확대에요. 보유 종목을 점검하고 신규 매수를 멈추세요.'
+                if vix_ok:
+                    final_action = '과열이 지속되고 있어요. 신규 매수를 줄여가세요.'
+                else:
+                    final_action = '과열 장기화 + 변동성 확대에요. 보유 종목을 점검하고 신규 매수를 멈추세요.'
         else:
-            # 겨울(Q4) — 침체기
-            if vix_ok:
-                final_action = '신용시장이 악화 중이에요. 신규 매수를 멈추고 보유 종목을 점검하세요.'
+            # 겨울(Q4) — 20일/60일 기준 3단계 (EDA: ≤20d 약세, 21~60d 턴어라운드, >60d 바닥접근=Q1수준)
+            if q_days <= 20:
+                # 초기: 반등 가능성 높음, 급매도 금지
+                if vix_ok:
+                    final_action = '신용시장이 악화되기 시작했어요. 급매도는 금물, 관망하세요.'
+                else:
+                    final_action = '시장이 흔들리고 있지만 초기 반등 가능성이 있어요. 급매도는 금물, 지켜보세요.'
+            elif q_days <= 60:
+                # 중기: 턴어라운드 시작 가능 (EDA: 60일 +0.5~1.5%)
+                if vix_ok:
+                    final_action = '침체가 지속 중이지만 변동성은 안정적이에요. 신규 매수를 멈추고 관망하세요.'
+                else:
+                    final_action = '침체 + 변동성 확대에요. 보유 종목을 줄여가세요.'
             else:
-                final_action = '모든 지표가 위험해요. 보유 종목 매도를 검토하고 신규 매수를 멈추세요.'
+                # 후기(>60d): 바닥권 접근, 사전 포석 (EDA: 60일 +1.5~3.5%, Q1 수준)
+                if vix_ok:
+                    final_action = '바닥권에 접근하고 있어요. 분할 매수를 고려하세요.'
+                else:
+                    final_action = '장기 침체이지만 바닥 가능성이 있어요. 관망하며 회복 신호를 기다리세요.'
     else:
         # HY 데이터 없음 — VIX만으로 판단
         if vix and vix_dir == 'warn':
@@ -1203,7 +1213,7 @@ def get_market_risk_status():
         else:
             final_action = '평소대로 투자하세요.'
 
-    log(f"Concordance: {concordance} → {final_action}")
+    log(f"Concordance: {concordance} (q_days={hy.get('q_days', 'N/A') if hy else 'N/A'}) → {final_action}")
 
     return {
         'hy': hy,
@@ -1395,20 +1405,17 @@ def create_guide_message():
         '',
         '계절로 시장 국면도 알려줘요.',
         '🌸봄~☀️여름 = 적극 투자',
-        '🍂가을~❄️겨울 = 매수 줄이기, 보유 점검',
+        '🍂가을 = 신중하게, 줄여가기',
+        '❄️겨울 초기 = 관망, 급매도 금물',
+        '❄️겨울 오래가면 = 바닥 접근, 매수 기회',
     ]
     return '\n'.join(lines)
 
 
 def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
-    """[1/4] 시장 현황 — 지수, 시장 위험 지표, 주도 업종"""
-    import pandas as pd
-    from collections import Counter
-
+    """[1/4] 시장 현황 — 지수, 시장 위험 지표"""
     biz_day = get_last_business_day()
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
-
-    filtered = get_part2_candidates(df, top_n=top_n)
 
     hy_data = risk_status['hy'] if risk_status else None
     vix_data = risk_status.get('vix') if risk_status else None
@@ -1418,50 +1425,46 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
     lines.append(' [1/4] 📊 시장 현황')
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append(f'📅 {biz_str} (미국장 기준)')
+    lines.append('')
     if market_lines:
-        lines.append('─────────────────')
         lines.extend(market_lines)
+
+    # 시장 위험 — HY + VIX + 신호등 + 액션을 하나의 블록으로
     if hy_data or vix_data:
-        # 시장 위험 지표 헤더
         lines.append('─────────────────')
         if hy_data:
-            lines.append(f"🛡️ <b>시장 위험 지표</b> — {hy_data['quadrant_icon']} {hy_data['quadrant_label']}")
+            q_days = hy_data.get('q_days', 0)
+            lines.append(f"🛡️ <b>시장 위험</b> — {hy_data['quadrant_icon']} {hy_data['quadrant_label']} {q_days}일째")
         else:
-            lines.append('🛡️ <b>시장 위험 지표</b>')
+            lines.append('🛡️ <b>시장 위험</b>')
 
-        # HY 스프레드
+        # HY 1줄 요약
         if hy_data:
             hy_val = hy_data['hy_spread']
             med_val = hy_data['median_10y']
             q = hy_data['quadrant']
             if q == 'Q1':
-                interp = f"평균({med_val:.2f}%)보다 높지만 빠르게 내려오고 있어요."
+                hy_desc = '평균 이상이지만 하락 중'
             elif q == 'Q2':
-                interp = f"평균({med_val:.2f}%)보다 낮아서 안정적이에요."
+                hy_desc = '평균 이하, 안정'
             elif q == 'Q3':
-                interp = f"평균({med_val:.2f}%) 이하지만 올라가는 중이에요."
+                hy_desc = '평균 이하지만 상승 중'
             else:
-                interp = f"평균({med_val:.2f}%)보다 높고 계속 올라가고 있어요."
-            lines.append('─────────────────')
-            lines.append(f"🏦 <b>신용시장</b>")
-            lines.append(f"HY Spread(부도위험) {hy_val:.2f}%")
-            lines.append(interp)
+                hy_desc = '평균 이상, 계속 상승'
+            lines.append(f"🏦 HY Spread {hy_val:.2f}% · {hy_desc}")
 
-        # VIX 표시
+        # VIX 1줄 요약
         if vix_data:
             v = vix_data['vix_current']
             vix_pct = vix_data.get('vix_percentile', 0)
             slope_arrow = '↑' if vix_data['vix_slope_dir'] == 'rising' else ('↓' if vix_data['vix_slope_dir'] == 'falling' else '')
-            lines.append('─────────────────')
-            lines.append(f"⚡ <b>변동성</b>")
+            regime_label = vix_data['regime_label']
             if vix_data['regime'] == 'normal':
-                lines.append(f"VIX {v:.1f} (1년 중 {vix_pct:.0f}th)")
-                lines.append(f"정상 범위, 안정적이에요.")
+                lines.append(f"⚡ VIX {v:.1f} ({vix_pct:.0f}th) · 안정")
             else:
-                lines.append(f"VIX {v:.1f} (1년 중 {vix_pct:.0f}th) {slope_arrow}")
-                lines.append(f"{vix_data['regime_label']} 구간이에요.")
+                lines.append(f"⚡ VIX {v:.1f} ({vix_pct:.0f}th) {slope_arrow} · {regime_label}")
 
-        # Concordance 신호등 (🟢/🔴)
+        # 신호등 + 액션 (결론)
         signals = []
         if hy_data:
             hy_ok = hy_data['quadrant'] in ('Q1', 'Q2')
@@ -1470,7 +1473,6 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
             vix_ok = vix_data['direction'] == 'stable'
             signals.append(('VIX', vix_ok))
 
-        lines.append('─────────────────')
         if signals:
             n_ok = sum(1 for _, ok in signals if ok)
             n_total = len(signals)
@@ -1492,25 +1494,14 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
             for sig in hy_data.get('signals', []):
                 lines.append(sig)
 
-        # #6: Q1 봄 + 전지표 안정 → 💎 매수 기회 강조
+        # Q1 봄 + 전지표 안정 → 💎 매수 기회 강조
         concordance = risk_status.get('concordance', '') if risk_status else ''
         if hy_data and hy_data['quadrant'] == 'Q1' and concordance == 'both_stable':
             lines.append('')
             lines.append('💎 <b>역사적 매수 기회</b>')
-            lines.append('모든 지표가 매수를 가리키고 있어요!')
             lines.append('회복기는 역사적으로 수익률이 가장 높은 구간이에요.')
 
-    # 업종 분포 통계
-    sector_counts = Counter(row.get('industry', '기타') for _, row in filtered.iterrows())
-    top_sectors = sector_counts.most_common()
-    if top_sectors:
-        sector_parts = [f'{name} {cnt}' for name, cnt in top_sectors if cnt >= 2]
-        if sector_parts:
-            lines.append('─────────────────')
-            lines.append('📊 주도 업종')
-            lines.append(f'{" · ".join(sector_parts)}')
-
-    lines.append('─────────────────')
+    lines.append('')
     lines.append('👉 다음: 매수 후보 [2/4]')
 
     return '\n'.join(lines)
@@ -1519,6 +1510,7 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
 def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30, risk_status=None):
     """[2/4] 매수 후보 — composite 순 (진입 Top 20/유지 Top 35), ✅/⏳/🆕 표시, 순위 이력, 이탈 사유"""
     import pandas as pd
+    from collections import Counter
 
     filtered = get_part2_candidates(df, top_n=top_n)
     count = len(filtered)
@@ -1537,6 +1529,14 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
     lines.append('💡 <b>읽는 법</b>')
     lines.append('✅매수 ⏳내일검증 🆕관찰')
     lines.append('목록에 있으면 보유, 없으면 매도 검토.')
+
+    # 주도 업종 (어떤 업종이 많이 올라오는지)
+    sector_counts = Counter(row.get('industry', '기타') for _, row in filtered.iterrows())
+    top_sectors = sector_counts.most_common()
+    sector_parts = [f'{name} {cnt}' for name, cnt in top_sectors if cnt >= 2]
+    if sector_parts:
+        lines.append(f'📊 주도 업종: {" · ".join(sector_parts)}')
+
     lines.append('─────────────────')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
@@ -1598,13 +1598,19 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
             else:
                 lines.append(f'  {t_name}({t}) · {prev_rank}위→탈락 {reason_tag}')
 
-        # #7: 시장 위험 수준별 매도 경보 톤 차등
+        # #7: 시장 위험 수준별 매도 경보 톤 차등 (q_days 반영)
         hy_data = risk_status.get('hy') if risk_status else None
         concordance = risk_status.get('concordance', '') if risk_status else ''
         if hy_data and hy_data['quadrant'] == 'Q4':
-            lines.append('🚨 시장 위험이 높아요. 보유 중이면 <b>즉시 매도</b>하세요.')
+            q_days = hy_data.get('q_days', 0)
+            if q_days > 60:
+                lines.append('📉 바닥권이에요. 이탈 종목은 매도 검토하되 시장 반등에 대비하세요.')
+            elif q_days > 20:
+                lines.append('⚠️ 침체 지속 중이에요. 보유 중이면 <b>매도를 검토</b>하세요.')
+            else:
+                lines.append('🚨 침체 초기에요. 급매도는 금물, 이탈 종목은 <b>매도를 검토</b>하세요.')
         elif concordance == 'both_warn':
-            lines.append('🚨 신용·변동성 모두 경고예요. <b>빠르게 매도</b>하세요.')
+            lines.append('⚠️ 신용·변동성 모두 경고예요. 보유 중이면 <b>매도를 검토</b>하세요.')
         elif hy_data and hy_data['quadrant'] == 'Q3':
             lines.append('⚠️ 과열 구간이에요. 보유 중이면 <b>매도를 적극 검토</b>하세요.')
         else:
@@ -1779,7 +1785,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
             conc = risk_status.get('concordance', '')
             f_action = risk_status.get('final_action', '')
             if hy:
-                market_env += f"신용시장: HY Spread {hy['hy_spread']:.2f}% · {hy['quadrant_label']}\n"
+                market_env += f"신용시장: HY Spread {hy['hy_spread']:.2f}% · {hy['quadrant_label']} ({hy.get('q_days', 0)}일째)\n"
             if vix:
                 market_env += f"변동성: VIX {vix['vix_current']:.1f} (1년 중 {vix.get('vix_percentile', 0):.0f}th) · {vix['regime_label']}\n"
             market_env += f"종합 판단: {conc}\n"
@@ -2065,7 +2071,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         if risk_status:
             hy = risk_status.get('hy')
             if hy:
-                market_ctx += f"HY Spread: {hy['hy_spread']:.2f}% ({hy['quadrant_label']})\n"
+                market_ctx += f"HY Spread: {hy['hy_spread']:.2f}% ({hy['quadrant_label']}, {hy.get('q_days', 0)}일째)\n"
             vix = risk_status.get('vix')
             if vix:
                 market_ctx += f"VIX: {vix['vix_current']:.1f} (1년 중 {vix.get('vix_percentile', 0):.0f}th, {vix['regime_label']})\n"
