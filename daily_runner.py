@@ -131,6 +131,22 @@ def init_ntm_database():
     # 기존 eps_snapshots 테이블 삭제
     cursor.execute('DROP TABLE IF EXISTS eps_snapshots')
 
+    # Forward Test 트래커: 포트폴리오 이력 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS portfolio_log (
+            date        TEXT,
+            ticker      TEXT,
+            action      TEXT,
+            price       REAL,
+            weight      REAL,
+            entry_date  TEXT,
+            entry_price REAL,
+            exit_price  REAL,
+            return_pct  REAL,
+            PRIMARY KEY (date, ticker)
+        )
+    ''')
+
     conn.commit()
     conn.close()
     log("NTM 데이터베이스 초기화 완료")
@@ -575,6 +591,7 @@ def get_part2_candidates(df, top_n=None):
 
     필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA60
     정렬: composite score (adj_gap 70% + rev_growth 30%) 또는 adj_gap
+    매출 성장률은 하드 필터 없이 composite 가중치(30%)로만 반영
     """
     import numpy as np
     import pandas as pd
@@ -589,18 +606,13 @@ def get_part2_candidates(df, top_n=None):
     ].copy()
 
     # rev_growth 칼럼이 있고 유효 데이터가 충분하면 composite score 사용
-    if 'rev_growth' in filtered.columns and filtered['rev_growth'].notna().sum() >= 10:
-        # rev_growth 없는 종목 제외 (매출 데이터 필수)
-        no_rev = filtered[filtered['rev_growth'].isna()]
-        if len(no_rev) > 0:
-            log(f"매출 데이터 없음 제외: {', '.join(no_rev['ticker'].tolist())}")
-        filtered = filtered[filtered['rev_growth'].notna()].copy()
-
-        # 매출 성장률 10% 미만 제외
-        low_rev = filtered[filtered['rev_growth'] < 0.10]
-        if len(low_rev) > 0:
-            log(f"매출 성장 부족(<10%) 제외: {', '.join(low_rev['ticker'].tolist())}")
-        filtered = filtered[filtered['rev_growth'] >= 0.10].copy()
+    has_rev = 'rev_growth' in filtered.columns and filtered['rev_growth'].notna().sum() >= 10
+    if has_rev:
+        # rev_growth NA → 0으로 채워서 composite에서 매출 페널티만 적용 (차단은 안 함)
+        na_rev = filtered[filtered['rev_growth'].isna()]
+        if len(na_rev) > 0:
+            log(f"매출 데이터 없음 (가중치 0 처리): {', '.join(na_rev['ticker'].tolist())}")
+        filtered['rev_growth'] = filtered['rev_growth'].fillna(0)
 
         # z-score 정규화
         gap_mean, gap_std = filtered['adj_gap'].mean(), filtered['adj_gap'].std()
@@ -622,28 +634,115 @@ def get_part2_candidates(df, top_n=None):
     return filtered
 
 
-def save_part2_ranks(results_df, today_str):
-    """Part 2 eligible 종목 Top 30에 part2_rank 저장 (3일 교집합 + Death List용)"""
-    candidates = get_part2_candidates(results_df, top_n=30)
-    if candidates.empty:
-        log("Part 2 후보 0개 — part2_rank 저장 스킵")
-        return
+def log_portfolio_trades(selected, today_str):
+    """Forward Test: 포트폴리오 진입/유지/퇴출 기록
 
+    selected = [{'ticker', 'weight', ...}, ...] — 오늘 포트폴리오 종목
+    어제 포트폴리오와 비교하여 enter/hold/exit 판별
+    """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # 기존 part2_rank 초기화 후 새로 저장 (필터 변경 시 잔여 rank 방지)
-    cursor.execute('UPDATE ntm_screening SET part2_rank=NULL WHERE date=?', (today_str,))
+    # 어제 포트폴리오 (hold 또는 enter인 종목)
+    cursor.execute('''
+        SELECT ticker, entry_date, entry_price, price
+        FROM portfolio_log
+        WHERE date = (SELECT MAX(date) FROM portfolio_log WHERE date < ?)
+        AND action IN ('enter', 'hold')
+    ''', (today_str,))
+    prev = {r[0]: {'entry_date': r[1], 'entry_price': r[2], 'price': r[3]} for r in cursor.fetchall()}
 
-    for i, (_, row) in enumerate(candidates.iterrows()):
+    today_tickers = {s['ticker'] for s in selected}
+    prev_tickers = set(prev.keys())
+
+    # 퇴출: 어제 있었는데 오늘 없는 종목
+    for t in prev_tickers - today_tickers:
+        p = prev[t]
+        # 퇴출 가격은 어제 종가 (오늘 스크리닝 시점에서 퇴출 결정)
+        exit_price = p['price']
+        entry_price = p['entry_price']
+        ret = ((exit_price - entry_price) / entry_price * 100) if entry_price and entry_price > 0 else 0
         cursor.execute(
-            'UPDATE ntm_screening SET part2_rank=? WHERE date=? AND ticker=?',
-            (i + 1, today_str, row['ticker'])
+            'INSERT OR REPLACE INTO portfolio_log (date, ticker, action, price, weight, entry_date, entry_price, exit_price, return_pct) VALUES (?,?,?,?,?,?,?,?,?)',
+            (today_str, t, 'exit', exit_price, 0, p['entry_date'], entry_price, exit_price, round(ret, 2))
         )
+        log(f"📊 Forward Test: EXIT {t} (진입 {p['entry_date']} ${entry_price:.2f} → ${exit_price:.2f}, {ret:+.1f}%)")
+
+    # 진입/유지
+    for s in selected:
+        t = s['ticker']
+        price = s.get('price', 0) or 0
+        weight = s.get('weight', 20)
+
+        if t in prev_tickers:
+            # 유지
+            p = prev[t]
+            cursor.execute(
+                'INSERT OR REPLACE INTO portfolio_log (date, ticker, action, price, weight, entry_date, entry_price) VALUES (?,?,?,?,?,?,?)',
+                (today_str, t, 'hold', price, weight, p['entry_date'], p['entry_price'])
+            )
+        else:
+            # 신규 진입
+            cursor.execute(
+                'INSERT OR REPLACE INTO portfolio_log (date, ticker, action, price, weight, entry_date, entry_price) VALUES (?,?,?,?,?,?,?)',
+                (today_str, t, 'enter', price, weight, today_str, price)
+            )
+            log(f"📊 Forward Test: ENTER {t} @ ${price:.2f} ({weight}%)")
 
     conn.commit()
     conn.close()
-    log(f"Part 2 rank 저장: {len(candidates)}개 종목")
+
+
+def save_part2_ranks(results_df, today_str):
+    """Part 2 eligible 종목 part2_rank 저장 (Buy/Hold 버퍼존 적용)
+
+    진입: Top 20 이내일 때만 새로 진입
+    유지: 21~35위는 이미 있던 종목만 유지
+    퇴출: Top 35 밖으로 떨어지면 이탈
+    """
+    # Top 35까지 후보 생성 (퇴출 기준)
+    candidates_35 = get_part2_candidates(results_df, top_n=35)
+    if candidates_35.empty:
+        log("Part 2 후보 0개 — part2_rank 저장 스킵")
+        return
+
+    # 어제 리스트 조회 (버퍼존 판정용)
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT ticker FROM ntm_screening
+        WHERE date = (SELECT MAX(date) FROM ntm_screening WHERE part2_rank IS NOT NULL AND date < ?)
+        AND part2_rank IS NOT NULL
+    ''', (today_str,))
+    yesterday_tickers = {r[0] for r in cursor.fetchall()}
+
+    # 기존 part2_rank 초기화
+    cursor.execute('UPDATE ntm_screening SET part2_rank=NULL WHERE date=?', (today_str,))
+
+    saved_count = 0
+    for i, (_, row) in enumerate(candidates_35.iterrows()):
+        rank = i + 1
+        ticker = row['ticker']
+
+        if rank <= 20:
+            # Top 20: 무조건 진입/유지
+            pass
+        elif rank <= 35:
+            # 21~35위: 어제 리스트에 있었던 종목만 유지 (버퍼존)
+            if ticker not in yesterday_tickers:
+                continue
+        else:
+            break
+
+        cursor.execute(
+            'UPDATE ntm_screening SET part2_rank=? WHERE date=? AND ticker=?',
+            (rank, today_str, ticker)
+        )
+        saved_count += 1
+
+    conn.commit()
+    conn.close()
+    log(f"Part 2 rank 저장: {saved_count}개 종목 (진입 Top 20 / 유지 Top 35 / 버퍼존 적용)")
 
 
 def is_cold_start():
@@ -678,22 +777,22 @@ def get_3day_status(today_tickers):
 
     placeholders = ','.join('?' * len(dates))
 
-    # 3일 모두 Top 30인 종목
+    # 3일 모두 리스트에 있는 종목
     verified_3d = set()
     if len(dates) >= 3:
         cursor.execute(f'''
             SELECT ticker FROM ntm_screening
-            WHERE date IN ({placeholders}) AND part2_rank IS NOT NULL AND part2_rank <= 30
+            WHERE date IN ({placeholders}) AND part2_rank IS NOT NULL AND part2_rank <= 35
             GROUP BY ticker HAVING COUNT(DISTINCT date) = 3
         ''', dates)
         verified_3d = {r[0] for r in cursor.fetchall()}
 
-    # 최근 2일 모두 Top 30인 종목
+    # 최근 2일 모두 리스트에 있는 종목
     dates_2d = dates[:2]
     ph2 = ','.join('?' * len(dates_2d))
     cursor.execute(f'''
         SELECT ticker FROM ntm_screening
-        WHERE date IN ({ph2}) AND part2_rank IS NOT NULL AND part2_rank <= 30
+        WHERE date IN ({ph2}) AND part2_rank IS NOT NULL AND part2_rank <= 35
         Group BY ticker HAVING COUNT(DISTINCT date) = 2
     ''', dates_2d)
     verified_2d = {r[0] for r in cursor.fetchall()}
@@ -733,7 +832,7 @@ def get_rank_history(today_tickers):
     rank_by_date = {}
     for d in dates:
         cursor.execute(
-            'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 30',
+            'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 35',
             (d,)
         )
         rank_by_date[d] = {r[0]: r[1] for r in cursor.fetchall()}
@@ -750,7 +849,7 @@ def get_rank_history(today_tickers):
 
 
 def get_daily_changes(today_tickers):
-    """어제 대비 Top 30 변동 — 신규 진입 / 이탈 종목 (단순 set 비교)"""
+    """어제 대비 리스트 변동 — 신규 진입 / 이탈 종목 (단순 set 비교)"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
@@ -767,7 +866,7 @@ def get_daily_changes(today_tickers):
     yesterday = dates[1]
 
     cursor.execute(
-        'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 30',
+        'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 35',
         (yesterday,)
     )
     yesterday_ranks = {r[0]: r[1] for r in cursor.fetchall()}
@@ -931,9 +1030,12 @@ def fetch_hy_quadrant():
 def fetch_vix_data():
     """VIX(CBOE 변동성 지수) 레짐 판단 + 현금비중 가감 (FRED VIXCLS)
 
+    252일(1년) 퍼센타일 기반 레짐 판정 — 시대 변화에 자동 적응
+    < 10th: 안일 | 10~67th: 정상 | 67~80th: 경계 | 80~90th: 상승경보 | 90th+: 위기
+
     Returns:
         dict or None: {vix_current, vix_5d_ago, vix_slope, vix_slope_dir,
-                       vix_ma_20, regime, regime_label, regime_icon,
+                       vix_ma_20, vix_percentile, regime, regime_label, regime_icon,
                        cash_adjustment, direction}
     """
     import urllib.request
@@ -967,6 +1069,9 @@ def fetch_vix_data():
         vix_slope = vix_current - vix_5d_ago
         vix_ma_20 = float(df['vix'].rolling(20).mean().iloc[-1])
 
+        # 252일(1년) 퍼센타일 계산 (최소 126일)
+        vix_pct = float(df['vix'].rolling(252, min_periods=126).rank(pct=True).iloc[-1] * 100)
+
         # Slope direction (±0.5 threshold to avoid noise)
         if vix_slope > 0.5:
             slope_dir = 'rising'
@@ -975,22 +1080,25 @@ def fetch_vix_data():
         else:
             slope_dir = 'flat'
 
-        # Regime + cash adjustment
-        if vix_current > 35:
+        # 퍼센타일 기반 레짐 + 현금 가감
+        if vix_pct >= 90:
+            # 위기 (상위 10%)
             if slope_dir in ('rising', 'flat'):
                 regime, label, icon = 'crisis', '위기', '🔴'
                 cash_adj = 15
             else:
                 regime, label, icon = 'crisis_relief', '공포완화', '💎'
                 cash_adj = -10
-        elif vix_current >= 25:
+        elif vix_pct >= 80:
+            # 상승경보 (상위 10~20%)
             if slope_dir == 'rising':
                 regime, label, icon = 'high', '상승경보', '🔶'
                 cash_adj = 10
             else:
                 regime, label, icon = 'high_stable', '높지만안정', '🟡'
                 cash_adj = 0
-        elif vix_current >= 20:
+        elif vix_pct >= 67:
+            # 경계 (상위 20~33%)
             if slope_dir == 'rising':
                 regime, label, icon = 'elevated', '경계', '⚠️'
                 cash_adj = 5
@@ -1000,15 +1108,19 @@ def fetch_vix_data():
             else:
                 regime, label, icon = 'elevated_flat', '보통', '🟡'
                 cash_adj = 0
-        elif vix_current < 12:
+        elif vix_pct < 10:
+            # 안일 (하위 10% — 과도한 낙관)
             regime, label, icon = 'complacency', '안일', '⚠️'
             cash_adj = 5
-        else:  # 12~20 normal
+        else:
+            # 정상 (10~67th)
             regime, label, icon = 'normal', '안정', '🌡️'
             cash_adj = 0
 
         # Simplified direction for concordance check
-        direction = 'warn' if regime in ('crisis', 'high', 'elevated', 'complacency') else 'stable'
+        direction = 'warn' if regime in ('crisis', 'crisis_relief', 'high', 'elevated', 'complacency') else 'stable'
+
+        log(f"VIX: {vix_current:.1f} (252일 {vix_pct:.0f}th) → {regime} ({label}), 가감 {cash_adj:+d}%")
 
         return {
             'vix_current': vix_current,
@@ -1016,6 +1128,7 @@ def fetch_vix_data():
             'vix_slope': vix_slope,
             'vix_slope_dir': slope_dir,
             'vix_ma_20': vix_ma_20,
+            'vix_percentile': vix_pct,
             'regime': regime,
             'regime_label': label,
             'regime_icon': icon,
@@ -1036,7 +1149,7 @@ def get_market_risk_status():
     """시장 위험 통합 상태 (HY + VIX + Concordance)
 
     Returns:
-        dict {hy, vix, concordance, final_cash_pct, final_action}
+        dict {hy, vix, concordance, final_action}
     """
     hy = fetch_hy_quadrant()
     vix = fetch_vix_data()
@@ -1054,50 +1167,23 @@ def get_market_risk_status():
     else:
         concordance = 'both_stable'
 
+    # Concordance 기반 행동 권장 (계절 × 지표 조합)
     if hy:
-        base_cash = hy['cash_pct']
-
-        # VIX adjustment with concordance modulation
-        if vix:
-            raw_vix_adj = vix['cash_adjustment']
-            if concordance == 'both_warn':
-                vix_adj = raw_vix_adj           # 이중 확인 → 전액 적용
-            elif concordance == 'hy_only':
-                vix_adj = 0                     # HY만 경고, VIX 안정 → 가감 없음
-            elif concordance == 'vix_only':
-                vix_adj = raw_vix_adj // 2      # VIX만 경고 → 50% 적용
-            else:  # both_stable
-                vix_adj = raw_vix_adj           # 정상 → 그대로
-        else:
-            vix_adj = 0
-
-        final_cash = max(0, min(70, base_cash + vix_adj))
-
-        # Q1 + VIX 안정 → 적극 매수
-        if hy['quadrant'] == 'Q1' and vix_dir == 'stable':
-            final_cash = 0
-
-        # Concordance 기반 행동 권장 (계절 × 지표 조합)
         q = hy['quadrant']
         vix_ok = vix_dir == 'stable'
-        hy_ok = hy_dir == 'stable'
 
         if q == 'Q1':
             # 봄(회복기) — 역사적 최고 수익률
-            if hy_ok and vix_ok:
+            if vix_ok:
                 final_action = '모든 지표가 매수를 가리켜요. 적극 투자하세요!'
-            elif hy_ok and not vix_ok:
-                final_action = '회복 구간이에요. VIX가 높지만 신용시장이 안정적이라 적극 투자해도 좋아요.'
             else:
-                final_action = '회복 구간이에요. 적극 매수하세요.'
+                final_action = '회복 구간이에요. VIX가 높지만 신용시장이 안정적이라 투자 기회를 놓치지 마세요.'
         elif q == 'Q2':
             # 여름(성장기) — 정상 투자
-            if hy_ok and vix_ok:
+            if vix_ok:
                 final_action = '모든 지표가 안정적이에요. 평소대로 투자하세요.'
-            elif hy_ok and not vix_ok:
-                final_action = '신용시장은 안정적이지만 VIX가 높아요. 신규 매수 시 신중하세요.'
             else:
-                final_action = '일부 경고 신호가 있어요. 신규 매수를 줄여가세요.'
+                final_action = '신용시장은 안정적이지만 VIX가 높아요. 신규 매수 시 신중하세요.'
         elif q == 'Q3':
             # 가을(과열기) — 경계
             if vix_ok:
@@ -1106,29 +1192,23 @@ def get_market_risk_status():
                 final_action = '과열 + 변동성 확대에요. 보유 종목을 점검하고 신규 매수를 멈추세요.'
         else:
             # 겨울(Q4) — 침체기
-            if not hy_ok and not vix_ok:
-                final_action = '모든 지표가 위험해요. 신규 매수를 멈추고 현금을 확보하세요.'
-            elif vix_ok:
-                final_action = '신용시장이 악화 중이지만 변동성은 안정적이에요. 현금 비중을 유지하며 지켜보세요.'
+            if vix_ok:
+                final_action = '신용시장이 악화 중이에요. 신규 매수를 멈추고 보유 종목을 점검하세요.'
             else:
-                final_action = '위험 구간이에요. 보유 종목을 줄이고 현금을 늘리세요.'
+                final_action = '모든 지표가 위험해요. 보유 종목 매도를 검토하고 신규 매수를 멈추세요.'
     else:
         # HY 데이터 없음 — VIX만으로 판단
-        base_cash = 20
-        vix_adj = vix['cash_adjustment'] if vix else 0
-        final_cash = max(0, min(70, base_cash + vix_adj))
         if vix and vix_dir == 'warn':
             final_action = '변동성이 높아요. 신규 매수에 신중하세요.'
         else:
             final_action = '평소대로 투자하세요.'
 
-    log(f"최종 현금비중: {final_cash}% (HY {base_cash} + VIX {vix_adj:+d})")
+    log(f"Concordance: {concordance} → {final_action}")
 
     return {
         'hy': hy,
         'vix': vix,
         'concordance': concordance,
-        'final_cash_pct': final_cash,
         'final_action': final_action,
     }
 
@@ -1288,29 +1368,34 @@ def create_guide_message():
         '',
         '① 이익 전망이 오르는 종목을 찾고',
         '② 주가 흐름이 건강한 종목만 남기고',
-        '③ 매출 성장 10%+, 복합 순위(괴리 70%+매출 30%) Top 30',
-        '④ 3일 연속 Top 30에 들면 검증 완료 ✅',
+        '③ 복합 순위(괴리 70%+매출 30%) Top 20 진입',
+        '④ 3일 연속 검증 완료 ✅',
         '⑤ AI 위험 점검 후 시장 상황에 맞게 최종 추천',
         '',
         '⏱️ <b>얼마나 보유하나요?</b>',
         '최소 2주는 보유하는 걸 권장해요.',
         '이익 전망이 주가에 반영되려면 시간이 필요하거든요.',
-        'Top 30에 남아있는 동안은 계속 보유하세요.',
+        'Top 35 안에 남아있는 동안은 계속 보유하세요.',
         '',
         '📉 <b>언제 파나요?</b>',
-        '최소 2주 보유 후, 목록에서 빠지면 매도 검토예요.',
-        '매일 Top 30을 보여드리니까',
+        '최소 2주 보유 후, Top 35 밖으로 빠지면 매도 검토예요.',
+        '매일 순위를 보여드리니까',
         '목록에 있으면 보유, 없으면 매도 검토.',
+        '',
+        '💰 <b>얼마를 투자하나요?</b>',
+        '전체 투자 자산의 20~30%만 이 전략에 적용하세요.',
+        '나머지 70~80%는 VTI 같은 지수 ETF에 분산하면',
+        '안정적인 포트폴리오가 됩니다.',
         '',
         '🌡️ <b>시장 위험 신호 읽는 법</b>',
         '🟢 안정 🔴 위험으로 2가지 지표를 보여줘요.',
         '순서대로 🏦신용(HY) · ⚡변동성(VIX)',
         '🟢 많으면 → 적극 투자',
-        '🔴 많으면 → 현금 비중 UP',
+        '🔴 많으면 → 매수 중단, 보유 점검',
         '',
         '계절로 시장 국면도 알려줘요.',
         '🌸봄~☀️여름 = 적극 투자',
-        '🍂가을~❄️겨울 = 현금 비중 UP',
+        '🍂가을~❄️겨울 = 매수 줄이기, 보유 점검',
     ]
     return '\n'.join(lines)
 
@@ -1327,7 +1412,6 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
 
     hy_data = risk_status['hy'] if risk_status else None
     vix_data = risk_status.get('vix') if risk_status else None
-    final_cash = risk_status['final_cash_pct'] if risk_status else 0
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
@@ -1366,22 +1450,16 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
         # VIX 표시
         if vix_data:
             v = vix_data['vix_current']
+            vix_pct = vix_data.get('vix_percentile', 0)
             slope_arrow = '↑' if vix_data['vix_slope_dir'] == 'rising' else ('↓' if vix_data['vix_slope_dir'] == 'falling' else '')
-            adj = vix_data['cash_adjustment']
             lines.append('─────────────────')
             lines.append(f"⚡ <b>변동성</b>")
             if vix_data['regime'] == 'normal':
-                rel = '이하' if v <= vix_data['vix_ma_20'] else '이상'
-                lines.append(f"VIX {v:.1f}")
-                lines.append(f"평균({vix_data['vix_ma_20']:.1f}) {rel}, 안정적이에요.")
+                lines.append(f"VIX {v:.1f} (1년 중 {vix_pct:.0f}th)")
+                lines.append(f"정상 범위, 안정적이에요.")
             else:
-                lines.append(f"VIX {v:.1f} {slope_arrow}")
-                if adj > 0:
-                    lines.append(f"{vix_data['regime_label']} 구간이에요. 현금 +{adj}%")
-                elif adj < 0:
-                    lines.append(f"{vix_data['regime_label']} 구간이에요. 현금 {adj}%")
-                else:
-                    lines.append(f"{vix_data['regime_label']} 구간이에요.")
+                lines.append(f"VIX {v:.1f} (1년 중 {vix_pct:.0f}th) {slope_arrow}")
+                lines.append(f"{vix_data['regime_label']} 구간이에요.")
 
         # Concordance 신호등 (🟢/🔴)
         signals = []
@@ -1405,10 +1483,6 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
                 conf = '엇갈린 신호'
             lines.append(f"{dots} {n_ok}/{n_total} 안정 — {conf}")
 
-        if final_cash == 0:
-            lines.append('💰 투자 100%')
-        else:
-            lines.append(f"💰 투자 {100 - final_cash}% + 현금 {final_cash}%")
         action = risk_status.get('final_action', '') if risk_status else ''
         if not action and hy_data:
             action = hy_data['action']
@@ -1443,7 +1517,7 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
 
 
 def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30, risk_status=None):
-    """[2/4] 매수 후보 — composite 순 Top 30, ✅/⏳/🆕 표시, 순위 이력, 이탈 사유"""
+    """[2/4] 매수 후보 — composite 순 (진입 Top 20/유지 Top 35), ✅/⏳/🆕 표시, 순위 이력, 이탈 사유"""
     import pandas as pd
 
     filtered = get_part2_candidates(df, top_n=top_n)
@@ -1621,7 +1695,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
             log("results_df 없음 — AI 분석 스킵", "WARN")
             return None
 
-        filtered = get_part2_candidates(results_df, top_n=30)
+        filtered = get_part2_candidates(results_df, top_n=35)
 
         if filtered.empty:
             log("Part 2 종목 없음 — AI 분석 스킵", "WARN")
@@ -1703,13 +1777,12 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
             hy = risk_status.get('hy')
             vix = risk_status.get('vix')
             conc = risk_status.get('concordance', '')
-            f_cash = risk_status.get('final_cash_pct', 0)
             f_action = risk_status.get('final_action', '')
             if hy:
                 market_env += f"신용시장: HY Spread {hy['hy_spread']:.2f}% · {hy['quadrant_label']}\n"
             if vix:
-                market_env += f"변동성: VIX {vix['vix_current']:.1f} · {vix['regime_label']}\n"
-            market_env += f"종합 판단: {conc} · 투자 {100-f_cash}% + 현금 {f_cash}%\n"
+                market_env += f"변동성: VIX {vix['vix_current']:.1f} (1년 중 {vix.get('vix_percentile', 0):.0f}th) · {vix['regime_label']}\n"
+            market_env += f"종합 판단: {conc}\n"
             if f_action:
                 market_env += f"행동 권장: {f_action}\n"
 
@@ -1740,7 +1813,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
 
 📰 시장 동향
 (필수) 어제 미국 시장 마감과 금주 주요 이벤트를 Google 검색해서 2~3줄 요약해줘. 이 섹션은 반드시 출력해야 해.
-위 [현재 시장 환경]의 계절(봄/여름/가을/겨울)과 현금 비중을 참고해서, 지금 시장이 공격적 투자에 적합한지 방어적으로 가야 하는지 한마디 덧붙여줘.
+위 [현재 시장 환경]의 계절(봄/여름/가을/겨울)과 행동 권장을 참고해서, 지금 시장이 공격적 투자에 적합한지 방어적으로 가야 하는지 한마디 덧붙여줘.
 
 ⚠️ 매수 주의 종목
 위 데이터에서 위험 신호(🔻/📉/📅)가 있는 종목만 골라서 설명해줘.
@@ -1859,7 +1932,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             return None
 
         # 공통 필터 사용
-        filtered = get_part2_candidates(results_df, top_n=30)
+        filtered = get_part2_candidates(results_df, top_n=35)
 
         if filtered.empty:
             return None
@@ -1950,30 +2023,41 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: ✅ 종목 없음", "WARN")
             return None
 
-        # 시장 위험 반영: final_cash_pct → 투자 가능 비중 산출
-        final_cash = risk_status['final_cash_pct'] if risk_status else 0
         concordance = risk_status.get('concordance', 'both_stable') if risk_status else 'both_stable'
         final_action = risk_status.get('final_action', '') if risk_status else ''
-        invest_pct = 100 - final_cash  # 실제 투자 가능 비중
 
-        # 종목 수 고정 5개, 비중만 시장 위험 반영
-        # 종목 선정 = 알파 (항상 Top 5), 비중 조절 = 베타 (시장 위험)
+        # 종목 선정 = 알파 (항상 Top 5)
         log("포트폴리오: composite 순위 (괴리 70% + 매출성장 30%):")
         for i, s in enumerate(safe):
             log(f"    {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
+
+        # L3: both_warn 시 신규 진입 종목 포트폴리오 제외
+        if concordance == 'both_warn':
+            before = len(safe)
+            safe = [s for s in safe if s['v_status'] == '✅']
+            excluded = before - len(safe)
+            if excluded > 0:
+                log(f"L3 시장 동결: both_warn — 신규 진입 {excluded}개 제외 (기존 ✅만 유지)")
+
         selected = safe[:5]
 
         if len(selected) < 3:
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 항상 20%씩 균등 배분 (현금 비중은 별도 안내)
-        n = len(selected)
+        # 항상 20%씩 균등 배분
         for s in selected:
             s['weight'] = 20
 
-        log(f"포트폴리오: {n}종목 선정 (각 20%, 현금 권고 {final_cash}%) — " +
+        n = len(selected)
+        log(f"포트폴리오: {n}종목 선정 (각 20%) — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
+
+        # Forward Test: 포트폴리오 이력 기록
+        try:
+            log_portfolio_trades(selected, biz_day.strftime('%Y-%m-%d'))
+        except Exception as e:
+            log(f"Forward Test 기록 실패: {e}", "WARN")
 
         # 시장 위험 컨텍스트 (Gemini 프롬프트용)
         market_ctx = ""
@@ -1983,8 +2067,8 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
                 market_ctx += f"HY Spread: {hy['hy_spread']:.2f}% ({hy['quadrant_label']})\n"
             vix = risk_status.get('vix')
             if vix:
-                market_ctx += f"VIX: {vix['vix_current']:.1f} ({vix['regime_label']})\n"
-            market_ctx += f"시장 판단: {concordance} → 투자 {invest_pct}% + 현금 {final_cash}%\n"
+                market_ctx += f"VIX: {vix['vix_current']:.1f} (1년 중 {vix.get('vix_percentile', 0):.0f}th, {vix['regime_label']})\n"
+            market_ctx += f"시장 판단: {concordance}\n"
             if final_action:
                 market_ctx += f"행동 권장: {final_action}\n"
 
@@ -2079,15 +2163,12 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             '━━━━━━━━━━━━━━━━━━━',
             f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
             '',
-            f'916종목 → Top 30 → ✅ 검증 → <b>최종 {len(selected)}종목</b>',
+            f'916종목 → Top 20 진입 → ✅ 검증 → <b>최종 {len(selected)}종목</b>',
             '',
             '📊 <b>비중 한눈에 보기</b>',
             summary_line,
         ]
 
-        # 시장 위험 반영 안내
-        if final_cash > 0:
-            lines.append(f'🛡️ 시장 위험 권고: 현금 {final_cash}% 보유 추천')
         if final_action:
             lines.append(f'→ {final_action}')
 
@@ -2105,8 +2186,6 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             '💡 <b>활용법</b>',
         ])
         lines.append('· 각 20% 균등 분산 투자')
-        if final_cash > 0:
-            lines.append(f'· 시장 위험 권고에 따라 현금 {final_cash}% 보유를 고려하세요')
         lines.extend([
             '· 목록에서 빠지면 매도 검토',
             '· 최소 2주 보유, 매일 후보 갱신 확인',
@@ -2220,8 +2299,8 @@ def main():
         results_df = fetch_revenue_growth(results_df)
         save_part2_ranks(results_df, today_str)
 
-        # 오늘 Part 2 후보 티커 목록 (Top 30)
-        candidates = get_part2_candidates(results_df, top_n=30)
+        # 오늘 Part 2 후보 티커 목록 (버퍼존: 진입 Top 20 / 유지 Top 35)
+        candidates = get_part2_candidates(results_df, top_n=35)
         today_tickers = list(candidates['ticker']) if not candidates.empty else []
 
         status_map = get_3day_status(today_tickers)
@@ -2239,13 +2318,13 @@ def main():
     vix_data = risk_status['vix']
     if hy_data:
         log(f"HY Spread: {hy_data['hy_spread']:.2f}% | 분면: {hy_data['quadrant']} {hy_data['quadrant_label']} ({hy_data['q_days']}일째)")
-        log(f"  현금 {hy_data['cash_pct']}% · {hy_data['action']}")
+        log(f"  {hy_data['action']}")
         if hy_data['signals']:
             for sig in hy_data['signals']:
                 log(f"  해빙 신호: {sig}")
     if vix_data:
-        log(f"VIX: {vix_data['vix_current']:.1f} | slope {vix_data['vix_slope']:+.1f} ({vix_data['vix_slope_dir']}) | {vix_data['regime_label']}")
-    log(f"일치도: {risk_status['concordance']} | 최종 현금: {risk_status['final_cash_pct']}%")
+        log(f"VIX: {vix_data['vix_current']:.1f} (252일 {vix_data.get('vix_percentile', 0):.0f}th) | slope {vix_data['vix_slope']:+.1f} ({vix_data['vix_slope_dir']}) | {vix_data['regime_label']}")
+    log(f"일치도: {risk_status['concordance']} | {risk_status['final_action']}")
 
     # 3. 메시지 생성
     msg_market = create_market_message(results_df, market_lines, risk_status=risk_status) if not results_df.empty else None
