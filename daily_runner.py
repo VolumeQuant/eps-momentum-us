@@ -2016,6 +2016,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
                     'lights': row.get('trend_lights', ''),
                     'desc': row.get('trend_desc', ''),
                     'v_status': v_status,
+                    'price': row.get('price', 0) or 0,
                 })
                 log(f"  {v_status} {t}: gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}{earnings_note}")
 
