@@ -2183,6 +2183,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
                     'desc': row.get('trend_desc', ''),
                     'v_status': v_status,
                     'price': row.get('price', 0) or 0,
+                    'rev_growth': row.get('rev_growth', 0) or 0,
                     'earnings_note': earnings_note,
                 })
                 log(f"  {v_status} {t}: gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}{earnings_note}")
@@ -2262,7 +2263,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
                 f"   의견 ↑{s['rev_up']} ↓{s['rev_down']}"
             )
 
-        prompt = f"""아래 {len(selected)}종목이 왜 매력적인지 한 줄씩 써줘.
+        prompt = f"""아래 {len(selected)}종목 각각의 최근 실적 성장 배경을 Google 검색해서 한 줄씩 써줘.
 
 [종목]
 {chr(10).join(stock_lines)}
@@ -2270,62 +2271,109 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 [형식]
 - 한국어, ~예요 체
 - 종목별: **N. 종목명(티커) · 비중 N%**
-  날씨아이콘 + 한 줄 매력 포인트
+  날씨아이콘 + 비즈니스 매력 한 줄
 - 종목 사이에 [SEP]
-- 250자 이내, 맨 끝 별도 문구 없음
+- 맨 끝 별도 문구 없음
 
 [규칙]
-- 이 종목이 왜 좋은지만 써. 주의/경고/유의 표현 금지.
+- 각 종목의 실적 성장 배경(왜 EPS/매출이 오르는지)을 검색해서 써.
+  예: "AI 데이터센터 수요 확대로 GPU 매출 급증 중이에요"
+  예: "전력 수요 폭증에 원전 재가동 기대감까지 더해졌어요"
+- 단순히 "EPS X% 상승"처럼 숫자만 반복하지 마. 그 숫자 뒤의 사업적 이유를 써.
+- 주의/경고/유의 표현 금지. 긍정적 매력만.
 - "선정", "포함", "선택" 같은 시스템 용어 금지.
-- 종목마다 다른 문장 구조로 써.
-- EPS/매출/추세를 자연스럽게 녹여서.
-- 데이터에 없는 내용 지어내지 마."""
+- 종목마다 다른 문장 구조로 써."""
+
+        def generate_template_descriptions(stocks):
+            """Approach B: 코드 템플릿 — AI 없이 기존 데이터로 생성"""
+            parts = []
+            for i, s in enumerate(stocks):
+                eps = s['eps_chg']
+                rev = s.get('rev_growth', 0) or 0
+                rev_up = s['rev_up']
+                rev_down = s['rev_down']
+                detail_parts = []
+                if eps >= 100:
+                    detail_parts.append(f'EPS {eps:+.0f}% 폭등')
+                elif eps >= 30:
+                    detail_parts.append(f'EPS {eps:+.0f}% 급등')
+                elif eps >= 10:
+                    detail_parts.append(f'EPS {eps:+.0f}% 상승')
+                else:
+                    detail_parts.append(f'EPS {eps:+.1f}%')
+                if rev >= 0.5:
+                    detail_parts.append(f'매출 {rev:+.0%} 고성장')
+                elif rev >= 0.1:
+                    detail_parts.append(f'매출 {rev:+.0%}')
+                if rev_down == 0 and rev_up >= 3:
+                    detail_parts.append(f'전원 상향({rev_up}명)')
+                elif rev_up > rev_down * 2 and rev_up >= 3:
+                    detail_parts.append(f'상향 우세(↑{rev_up}↓{rev_down})')
+                detail = ' · '.join(detail_parts)
+                parts.append(
+                    f"<b>{i+1}. {s['name']}({s['ticker']}) · 비중 {s['weight']}%</b>\n"
+                    f"{s['lights']} {s['desc']} · {detail}"
+                )
+            return '\n──────────────────\n'.join(parts)
 
         api_key = config.get('gemini_api_key', '')
-        if not api_key:
-            log("GEMINI_API_KEY 미설정 — 포트폴리오 선정까지만 완료", "WARN")
-            return None
+        html = None
 
-        try:
-            from google import genai
-            from google.genai import types
-        except ImportError:
-            log("google-genai 패키지 미설치 — 포트폴리오 스킵", "WARN")
-            return None
-
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.2),
-        )
-
-        def extract_text(resp):
+        if api_key:
             try:
-                if resp.text:
-                    return resp.text
-            except Exception:
-                pass
-            try:
-                parts = resp.candidates[0].content.parts
-                texts = [p.text for p in parts if hasattr(p, 'text') and p.text]
-                if texts:
-                    return '\n'.join(texts)
-            except Exception:
-                pass
-            return None
+                from google import genai
+                from google.genai import types
 
-        text = extract_text(response)
-        if not text:
-            log("포트폴리오: Gemini 응답 없음", "WARN")
-            return None
+                client = genai.Client(api_key=api_key)
+                grounding_tool = types.Tool(google_search=types.GoogleSearch())
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        tools=[grounding_tool],
+                        temperature=0.3,
+                    ),
+                )
 
-        # Markdown → HTML
-        html = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        html = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', html)
-        html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', html)
-        html = re.sub(r'#{1,3}\s*', '', html)
-        html = re.sub(r'\n*\[SEP\]\n*', '\n──────────────────\n', html)
+                def extract_text(resp):
+                    try:
+                        if resp.text:
+                            return resp.text
+                    except Exception:
+                        pass
+                    try:
+                        parts = resp.candidates[0].content.parts
+                        texts = [p.text for p in parts if hasattr(p, 'text') and p.text]
+                        if texts:
+                            return '\n'.join(texts)
+                    except Exception:
+                        pass
+                    return None
+
+                text = extract_text(response)
+                if text:
+                    html = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                    html = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', html)
+                    html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', html)
+                    html = re.sub(r'#{1,3}\s*', '', html)
+                    html = re.sub(r'\n*\[SEP\]\n*', '\n──────────────────\n', html)
+                    log("포트폴리오: Gemini Search Grounding 응답 사용")
+                else:
+                    log("포트폴리오: Gemini 응답 없음 — 템플릿 fallback", "WARN")
+            except Exception as e:
+                log(f"포트폴리오: Gemini 호출 실패 ({e}) — 템플릿 fallback", "WARN")
+        else:
+            log("GEMINI_API_KEY 미설정 — 템플릿 모드")
+
+        # A/B 비교용: 템플릿 결과도 로그 출력
+        template_html = generate_template_descriptions(selected)
+        log("── [Approach B 템플릿] ──")
+        for tl in template_html.split('\n'):
+            log(f"  B: {tl}")
+
+        if not html:
+            html = template_html
+            log("포트폴리오: 코드 템플릿으로 종목 설명 생성")
 
         lines = [
             '━━━━━━━━━━━━━━━━━━━',
