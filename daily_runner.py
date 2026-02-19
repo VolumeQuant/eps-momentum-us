@@ -2365,15 +2365,9 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         else:
             log("GEMINI_API_KEY 미설정 — 템플릿 모드")
 
-        # A/B 비교용: 템플릿 결과도 로그 출력
-        template_html = generate_template_descriptions(selected)
-        log("── [Approach B 템플릿] ──")
-        for tl in template_html.split('\n'):
-            log(f"  B: {tl}")
-
         if not html:
-            html = template_html
-            log("포트폴리오: 코드 템플릿으로 종목 설명 생성")
+            html = generate_template_descriptions(selected)
+            log("포트폴리오: 코드 템플릿 fallback")
 
         lines = [
             '━━━━━━━━━━━━━━━━━━━',
