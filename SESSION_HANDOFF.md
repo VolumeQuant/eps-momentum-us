@@ -33,7 +33,7 @@
 > **v31**: 2026-02-18 집 PC — Balanced Review 8대 개선: 버퍼존(20진입/35유지), VIX 퍼센타일, 손절(L2+L3), 매출 필터 제거, Forward Test, 자본배분 가이드
 > **v32**: 2026-02-19 집 PC — Risk Consistency + 품질 필터: 매출10% 복원, 애널리스트 품질 하드필터(저커버리지+하향>30%), rank 버그, 이탈 구분, 섹터/어닝 경고, 차등 비중, Top30 통일, UI 가독성, 3일 가중순위(T0×0.5+T1×0.3+T2×0.2)
 > **Ackman Quality Screen**: 2026-02-19 집 PC — 별도 프로젝트 신규 생성. 빌 애크먼 8대 원칙 기반 S&P 500 품질 스크리너 (주간, 별도 텔레그램 봇)
-> **v33**: 2026-02-19 집 PC — 재무 품질 데이터 축적: ntm_screening에 12개 컬럼 추가(FCF,ROE,D/E,마진 등), fetch_quality_fundamentals() 신규, 전략 변경 없음
+> **v33**: 2026-02-19 집 PC — 재무 품질 데이터 축적: ntm_screening에 13개 컬럼 추가(rev_growth+FCF,ROE,D/E,마진 등), 916종목 전체 매일 수집, 10스레드 병렬화(3분→13초), 전략 변경 없음
 
 ---
 
@@ -41,24 +41,30 @@
 
 ### 배경
 - Ackman 8원칙 분석 결과, 정량 하드필터보다 원본 데이터 축적이 우선
-- EPS 모멘텀 Top 30 중 재무구조가 탄탄한 종목을 나중에 식별하기 위한 기반
+- 백테스팅을 위해 전체 유니버스 매일 수집 (과거 데이터는 yfinance로 복원 불가)
 - 기존 전략/메시지/포트폴리오 로직 일절 변경 없음
 
 ### 변경 사항
-1. **DB 컬럼 12개 추가** (init_database ALTER TABLE)
+1. **DB 컬럼 13개 추가** (init_database ALTER TABLE)
+   - rev_growth (기존에는 메모리에서만 사용, DB 미저장이었음)
    - market_cap, free_cashflow, roe, debt_to_equity
    - operating_margin, gross_margin, current_ratio
    - total_debt, total_cash, ev, ebitda, beta
-2. **fetch_quality_fundamentals(df, today_str)** 신규 함수
+2. **fetch_revenue_growth(df, today_str)** 병합 함수
+   - 기존 `fetch_revenue_growth(df)` + `fetch_quality_fundamentals()` → 단일 함수
    - 전체 유니버스 (~916종목) yfinance .info 호출
-   - 12개 재무 지표 DB UPDATE
-   - 실행 시간 +4~5분
-3. **main()** 에서 save_part2_ranks() 이후 호출
+   - rev_growth + 12개 재무 지표 DB UPDATE
+   - **10스레드 병렬** (ThreadPoolExecutor): 3분 20초 → 13초
+3. **main()** 에서 save_part2_ranks() 직전 호출 (today_str 인수 추가)
+
+### 성능
+- 병렬 수집: 862종목 × 10스레드 = ~13초 (순차 대비 93% 단축)
+- 전체 워크플로우: 4분 27초 → **1분 18초** (원래 속도 유지)
 
 ### 주의
 - debtToEquity는 yfinance가 percentage로 반환 (150 = 1.5x). 분석 시 ÷100 필요
-- 재무 데이터는 분기 실적 기준이므로 매일 수집해도 값은 분기마다 변경
-- fetch_revenue_growth()의 .info 호출과 일부 중복 (eligible ~60-70종목)
+- yfinance `.info`는 현재 스냅샷만 제공 → 과거 날짜 백필 불가, 매일 쌓아야 함
+- rev_growth도 매일 변할 수 있음 (가이던스 수정, 실적 발표)
 
 ---
 
