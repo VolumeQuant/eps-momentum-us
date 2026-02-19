@@ -562,61 +562,19 @@ def run_ntm_collection(config):
 # Part 2 공통 필터 & 3일 교집합
 # ============================================================
 
-def fetch_revenue_growth(df):
-    """Part 2 eligible 종목의 매출 성장률 수집 (yfinance)
+def fetch_revenue_growth(df, today_str):
+    """전체 916종목 매출 성장률 + 재무 품질 수집 (v33)
 
-    composite score = z(adj_gap)*0.7 + z(rev_growth)*0.3
-    '파괴적 혁신 기업을 싸게' — 매출 성장이 높고 adj_gap이 큰 종목 우선
+    1) 전체 종목 yfinance .info → rev_growth + 12개 재무 지표 DB 저장
+    2) composite score용 rev_growth를 dataframe에 매핑
     """
     import yfinance as yf
     import numpy as np
 
-    # eligible 전체 수집 (rev_growth 없으면 Top 30 제외되므로 넉넉히)
-    eligible = df[
-        (df['adj_score'] > 9) &
-        (df['adj_gap'].notna()) &
-        (df['fwd_pe'].notna()) & (df['fwd_pe'] > 0) &
-        (df['eps_change_90d'] > 0) &
-        (df['price'].notna()) & (df['price'] >= 10) &
-        (df['ma60'].notna()) & (df['price'] > df['ma60'])
-    ].sort_values('adj_gap', ascending=True)
-
-    tickers = list(eligible['ticker'])
-    log(f"매출 성장률 수집: {len(tickers)}종목")
+    tickers = list(df['ticker'].unique())
+    log(f"매출+품질 수집 시작: {len(tickers)}종목")
 
     rev_map = {}
-    for t in tickers:
-        try:
-            info = yf.Ticker(t).info
-            rev_map[t] = info.get('revenueGrowth')
-        except Exception:
-            rev_map[t] = None
-
-    success = sum(1 for v in rev_map.values() if v is not None)
-    log(f"매출 성장률 수집 완료: {success}/{len(tickers)}")
-
-    df['rev_growth'] = df['ticker'].map(rev_map)
-    return df
-
-
-def fetch_quality_fundamentals(df, today_str):
-    """전체 유니버스 재무 품질 + rev_growth DB 저장 (v33)
-
-    916종목 전체 yfinance .info → rev_growth + 12개 재무 지표 DB 저장.
-    월요일만 실행 (재무 데이터는 분기 실적 기준, 매일 불필요).
-    백테스팅을 위해 전체 유니버스 수집.
-    """
-    import yfinance as yf
-    from datetime import datetime
-
-    # 월요일(0)만 실행
-    if datetime.now().weekday() != 0:
-        log("재무 품질 수집 스킵 (월요일만 실행)")
-        return
-
-    tickers = list(df['ticker'].unique())
-    log(f"재무 품질 수집 시작: {len(tickers)}종목 (주간)")
-
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     saved = 0
@@ -624,42 +582,49 @@ def fetch_quality_fundamentals(df, today_str):
     for i, t in enumerate(tickers):
         try:
             info = yf.Ticker(t).info
-            if not info or not info.get('marketCap'):
-                continue
-            cursor.execute('''
-                UPDATE ntm_screening
-                SET rev_growth=?, market_cap=?, free_cashflow=?, roe=?,
-                    debt_to_equity=?, operating_margin=?, gross_margin=?,
-                    current_ratio=?, total_debt=?, total_cash=?,
-                    ev=?, ebitda=?, beta=?
-                WHERE date=? AND ticker=?
-            ''', (
-                info.get('revenueGrowth'),
-                info.get('marketCap'),
-                info.get('freeCashflow'),
-                info.get('returnOnEquity'),
-                info.get('debtToEquity'),
-                info.get('operatingMargins'),
-                info.get('grossMargins'),
-                info.get('currentRatio'),
-                info.get('totalDebt'),
-                info.get('totalCash'),
-                info.get('enterpriseValue'),
-                info.get('ebitda'),
-                info.get('beta'),
-                today_str, t
-            ))
-            saved += 1
+            rg = info.get('revenueGrowth')
+            rev_map[t] = rg
+
+            if info.get('marketCap'):
+                cursor.execute('''
+                    UPDATE ntm_screening
+                    SET rev_growth=?, market_cap=?, free_cashflow=?, roe=?,
+                        debt_to_equity=?, operating_margin=?, gross_margin=?,
+                        current_ratio=?, total_debt=?, total_cash=?,
+                        ev=?, ebitda=?, beta=?
+                    WHERE date=? AND ticker=?
+                ''', (
+                    rg,
+                    info.get('marketCap'),
+                    info.get('freeCashflow'),
+                    info.get('returnOnEquity'),
+                    info.get('debtToEquity'),
+                    info.get('operatingMargins'),
+                    info.get('grossMargins'),
+                    info.get('currentRatio'),
+                    info.get('totalDebt'),
+                    info.get('totalCash'),
+                    info.get('enterpriseValue'),
+                    info.get('ebitda'),
+                    info.get('beta'),
+                    today_str, t
+                ))
+                saved += 1
         except Exception:
-            continue
+            rev_map[t] = None
 
         if (i + 1) % 100 == 0:
-            log(f"  품질 수집 진행: {i+1}/{len(tickers)}")
+            log(f"  수집 진행: {i+1}/{len(tickers)}")
             conn.commit()
 
     conn.commit()
     conn.close()
-    log(f"재무 품질 저장 완료: {saved}/{len(tickers)}")
+
+    success = sum(1 for v in rev_map.values() if v is not None)
+    log(f"매출+품질 수집 완료: {saved}/{len(tickers)} (rev_growth {success}개)")
+
+    df['rev_growth'] = df['ticker'].map(rev_map)
+    return df
 
 
 def get_part2_candidates(df, top_n=None):
@@ -2507,12 +2472,9 @@ def main():
     exited_tickers = []
 
     if not results_df.empty:
-        # 매출 성장률 수집 → composite score (adj_gap 70% + rev_growth 30%)
-        results_df = fetch_revenue_growth(results_df)
+        # 매출+품질 수집 → rev_growth composite score + 12개 재무지표 DB 저장 (v33)
+        results_df = fetch_revenue_growth(results_df, today_str)
         save_part2_ranks(results_df, today_str)
-
-        # v33: 재무 품질 데이터 수집 (DB 축적용, 전략 영향 없음)
-        fetch_quality_fundamentals(results_df, today_str)
 
         # 오늘 Part 2 후보 티커 목록 (Top 30)
         candidates = get_part2_candidates(results_df, top_n=30)
