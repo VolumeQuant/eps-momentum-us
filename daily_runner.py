@@ -699,46 +699,22 @@ def log_portfolio_trades(selected, today_str):
 
 
 def save_part2_ranks(results_df, today_str):
-    """Part 2 eligible 종목 part2_rank 저장 (Buy/Hold 버퍼존 적용)
-
-    진입: Top 20 이내일 때만 새로 진입
-    유지: 21~35위는 이미 있던 종목만 유지
-    퇴출: Top 35 밖으로 떨어지면 이탈
-    """
-    # Top 35까지 후보 생성 (퇴출 기준)
-    candidates_35 = get_part2_candidates(results_df, top_n=35)
-    if candidates_35.empty:
+    """Part 2 eligible 종목 part2_rank 저장 — Top 30 저장"""
+    candidates = get_part2_candidates(results_df, top_n=30)
+    if candidates.empty:
         log("Part 2 후보 0개 — part2_rank 저장 스킵")
         return
 
-    # 어제 리스트 조회 (버퍼존 판정용)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''
-        SELECT ticker FROM ntm_screening
-        WHERE date = (SELECT MAX(date) FROM ntm_screening WHERE part2_rank IS NOT NULL AND date < ?)
-        AND part2_rank IS NOT NULL
-    ''', (today_str,))
-    yesterday_tickers = {r[0] for r in cursor.fetchall()}
 
     # 기존 part2_rank 초기화
     cursor.execute('UPDATE ntm_screening SET part2_rank=NULL WHERE date=?', (today_str,))
 
     saved_count = 0
-    for i, (_, row) in enumerate(candidates_35.iterrows()):
+    for i, (_, row) in enumerate(candidates.iterrows()):
         rank = i + 1
         ticker = row['ticker']
-
-        if rank <= 20:
-            # Top 20: 무조건 진입/유지
-            pass
-        elif rank <= 35:
-            # 21~35위: 어제 리스트에 있었던 종목만 유지 (버퍼존)
-            if ticker not in yesterday_tickers:
-                continue
-        else:
-            break
-
         cursor.execute(
             'UPDATE ntm_screening SET part2_rank=? WHERE date=? AND ticker=?',
             (rank, today_str, ticker)
@@ -747,7 +723,7 @@ def save_part2_ranks(results_df, today_str):
 
     conn.commit()
     conn.close()
-    log(f"Part 2 rank 저장: {saved_count}개 종목 (진입 Top 20 / 유지 Top 35 / 버퍼존 적용)")
+    log(f"Part 2 rank 저장: {saved_count}개 종목 (Top 30)")
 
 
 def is_cold_start():
@@ -787,7 +763,7 @@ def get_3day_status(today_tickers):
     if len(dates) >= 3:
         cursor.execute(f'''
             SELECT ticker FROM ntm_screening
-            WHERE date IN ({placeholders}) AND part2_rank IS NOT NULL AND part2_rank <= 35
+            WHERE date IN ({placeholders}) AND part2_rank IS NOT NULL AND part2_rank <= 30
             GROUP BY ticker HAVING COUNT(DISTINCT date) = 3
         ''', dates)
         verified_3d = {r[0] for r in cursor.fetchall()}
@@ -797,7 +773,7 @@ def get_3day_status(today_tickers):
     ph2 = ','.join('?' * len(dates_2d))
     cursor.execute(f'''
         SELECT ticker FROM ntm_screening
-        WHERE date IN ({ph2}) AND part2_rank IS NOT NULL AND part2_rank <= 35
+        WHERE date IN ({ph2}) AND part2_rank IS NOT NULL AND part2_rank <= 30
         Group BY ticker HAVING COUNT(DISTINCT date) = 2
     ''', dates_2d)
     verified_2d = {r[0] for r in cursor.fetchall()}
@@ -837,7 +813,7 @@ def get_rank_history(today_tickers):
     rank_by_date = {}
     for d in dates:
         cursor.execute(
-            'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 35',
+            'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 30',
             (d,)
         )
         rank_by_date[d] = {r[0]: r[1] for r in cursor.fetchall()}
@@ -871,7 +847,7 @@ def get_daily_changes(today_tickers):
     yesterday = dates[1]
 
     cursor.execute(
-        'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 35',
+        'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 30',
         (yesterday,)
     )
     yesterday_ranks = {r[0]: r[1] for r in cursor.fetchall()}
@@ -1513,7 +1489,7 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
 
 
 def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30, risk_status=None):
-    """[2/4] 매수 후보 — composite 순 (진입 Top 20/유지 Top 35), ✅/⏳/🆕 표시, 순위 이력, 이탈 사유"""
+    """[2/4] 매수 후보 — composite 순 Top 30, ✅/⏳/🆕 표시, 순위 이력, 이탈 사유"""
     import pandas as pd
     from collections import Counter
 
@@ -1575,43 +1551,6 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
             rank_str = f'-→-→{rank}'
         lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
         lines.append('──────────────────')
-
-    # 유지 구간 (31~35위): Top 30 바로 뒤에 자연스럽게 이어짐
-    buffer_candidates = get_part2_candidates(df, top_n=35)
-    if len(buffer_candidates) > top_n:
-        buffer_zone = buffer_candidates.iloc[top_n:]
-        if not buffer_zone.empty:
-            lines.append(f'📋 <b>유지 구간</b> ({top_n+1}~{top_n+len(buffer_zone)}위)')
-            lines.append('💡 보유 중이면 유지, 신규 매수는 비권장')
-            lines.append('─────────────────')
-            for buf_idx, (_, row) in enumerate(buffer_zone.iterrows()):
-                buf_rank = top_n + buf_idx + 1
-                ticker = row['ticker']
-                industry = row.get('industry', '')
-                lights = row.get('trend_lights', '')
-                desc = row.get('trend_desc', '')
-                eps_90d = row.get('eps_change_90d')
-                marker = status_map.get(ticker, '🆕')
-                hist = rank_history.get(ticker, '')
-                rev_g = row.get('rev_growth')
-                rev_up = int(row.get('rev_up30', 0) or 0)
-                rev_down = int(row.get('rev_down30', 0) or 0)
-                name = row.get('short_name', ticker)
-                lines.append(f'{marker} <b>{buf_rank}.</b> {name}({ticker})')
-                lines.append(f'{industry} · {lights} {desc}')
-                buf_parts = []
-                if pd.notna(eps_90d):
-                    buf_parts.append(f'EPS {eps_90d:+.0f}%')
-                if pd.notna(rev_g):
-                    buf_parts.append(f'매출 {rev_g*100:+.0f}%')
-                if buf_parts:
-                    lines.append(' · '.join(buf_parts))
-                if hist and not all(p == '-' for p in hist.split('→')):
-                    rank_str = hist
-                else:
-                    rank_str = f'-→-→{buf_rank}'
-                lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
-                lines.append('──────────────────')
 
     # 이탈 종목: 구분선 + 분류
     if exited_tickers:
@@ -1751,7 +1690,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
             log("results_df 없음 — AI 분석 스킵", "WARN")
             return None
 
-        filtered = get_part2_candidates(results_df, top_n=35)
+        filtered = get_part2_candidates(results_df, top_n=30)
 
         if filtered.empty:
             log("Part 2 종목 없음 — AI 분석 스킵", "WARN")
@@ -1870,7 +1809,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
 === 반드시 출력할 3개 섹션 ===
 
 📰 시장 동향
-(필수) 어제 미국 시장 마감과 금주 주요 이벤트를 Google 검색해서 2~3줄 요약해줘. 이 섹션은 반드시 출력해야 해.
+(필수) {biz_str} 미국 시장 마감과 금주 주요 이벤트를 Google 검색해서 2~3줄 요약해줘. 이 섹션은 반드시 출력해야 해.
 위 [현재 시장 환경]의 계절(봄/여름/가을/겨울)과 행동 권장을 참고해서, 지금 시장이 공격적 투자에 적합한지 방어적으로 가야 하는지 한마디 덧붙여줘.
 
 ⚠️ 매수 주의 종목
@@ -1990,7 +1929,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             return None
 
         # 공통 필터 사용
-        filtered = get_part2_candidates(results_df, top_n=35)
+        filtered = get_part2_candidates(results_df, top_n=30)
 
         if filtered.empty:
             return None
@@ -2246,7 +2185,9 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         earnings_stocks = [s for s in selected if s.get('earnings_note')]
         if earnings_stocks:
             for s in earnings_stocks:
-                warnings.append(f'📅 {s["name"]}({s["ticker"]}){s["earnings_note"]} 어닝 — 변동성 주의')
+                # earnings_note = " 📅어닝 M/D" → 날짜만 추출
+                ed = s["earnings_note"].replace("📅어닝", "").replace("📅", "").strip()
+                warnings.append(f'📅 {s["name"]}({s["ticker"]}) {ed} 어닝 — 변동성 주의')
 
         # 섹터 집중 경고
         from collections import Counter
@@ -2390,8 +2331,8 @@ def main():
         results_df = fetch_revenue_growth(results_df)
         save_part2_ranks(results_df, today_str)
 
-        # 오늘 Part 2 후보 티커 목록 (버퍼존: 진입 Top 20 / 유지 Top 35)
-        candidates = get_part2_candidates(results_df, top_n=35)
+        # 오늘 Part 2 후보 티커 목록 (Top 30)
+        candidates = get_part2_candidates(results_df, top_n=30)
         today_tickers = list(candidates['ticker']) if not candidates.empty else []
 
         status_map = get_3day_status(today_tickers)
