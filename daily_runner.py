@@ -1525,14 +1525,13 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
     lines.append(f'📅 {biz_str} (미국장 기준)')
     lines.append('')
     lines.append('💡 <b>읽는 법</b>')
-    lines.append('🟢 안정 🔴 위험으로 2가지 지표를 봐요.')
-    lines.append('🏦신용(HY) · ⚡변동성(VIX)')
-    lines.append('🟢 많으면 → 적극 투자')
-    lines.append('🔴 많으면 → 매수 중단, 보유 점검')
+    lines.append('계절 = 신용시장 기반 시장 국면')
+    lines.append('🌸봄 = 회복 · ☀️여름 = 성장')
+    lines.append('🍂가을 = 과열 · ❄️겨울 = 침체')
     lines.append('')
-    lines.append('계절은 시장 국면이에요.')
-    lines.append('🌸봄~☀️여름 = 적극 투자')
-    lines.append('🍂가을 = 신중 · ❄️겨울 = 관망')
+    lines.append('🟢안정 🔴위험 — 2가지 지표')
+    lines.append('🏦신용(HY) · ⚡변동성(VIX)')
+    lines.append('🟢 많으면 적극 투자, 🔴 많으면 매수 중단')
     lines.append('')
     if market_lines:
         lines.extend(market_lines)
@@ -1545,6 +1544,7 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
             lines.append(f"🛡️ <b>시장 위험</b> — {hy_data['quadrant_icon']} {hy_data['quadrant_label']} {q_days}일째")
         else:
             lines.append('🛡️ <b>시장 위험</b>')
+        lines.append('')
 
         # HY 1줄 요약
         if hy_data:
@@ -1571,6 +1571,7 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
                 lines.append(f"⚡ VIX {v:.1f} ({vix_pct:.0f}th) · 안정")
             else:
                 lines.append(f"⚡ VIX {v:.1f} ({vix_pct:.0f}th) {slope_arrow} · {regime_label}")
+        lines.append('')
 
         # 신호등 + 액션 (결론)
         signals = []
