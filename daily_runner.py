@@ -2265,26 +2265,29 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 
         prompt = f"""분석 기준일: {biz_day.strftime('%Y-%m-%d')} (미국 영업일)
 
-아래는 EPS 모멘텀 시스템이 자동 선정한 {len(selected)}종목 포트폴리오야.
-선정 기준: Part 2 매수 후보 중 위험 신호 없고(✅), composite 순위 상위.
-
-[시장 위험 상태]
-{market_ctx if market_ctx else '데이터 없음'}
+아래 {len(selected)}종목의 핵심 매력을 한 줄씩 써줘.
 
 [포트폴리오]
 {chr(10).join(stock_lines)}
 
 [출력 형식]
-- 한국어, 친절하고 따뜻한 말투 (~예요/~해요 체)
-- 각 종목을 아래 형식으로 출력:
+- 한국어, 친근한 말투 (~예요 체)
+- 각 종목 형식:
   **N. 종목명(티커) · 비중 N%**
-  날씨아이콘 1~2줄 선정 이유
-- 종목과 종목 사이에 반드시 [SEP] 한 줄을 넣어서 구분해줘.
-- 맨 끝에 별도 문구 넣지 마. (코드에서 추가함)
-- 500자 이내
+  날씨아이콘 한 줄 핵심 매력
+- 종목 사이에 반드시 [SEP] 한 줄
+- 맨 끝에 별도 문구 넣지 마
+- 300자 이내
 
-각 종목의 선정 이유를 설명해줘.
-비중은 순위에 따른 차등 배분이니 비중 설명은 생략해.
+[금지 사항]
+- "선정되었어요", "포함되었어요", "돋보여요" 같은 선정 이유 서술 금지
+- "위험 신호 없이", "복합 순위가 높아" 같은 시스템 내부 용어 금지
+- 각 종목마다 비슷한 문장 구조 반복 금지
+- 데이터에 있는 EPS/추세/의견을 자연스럽게 녹여서 한 줄로 요약
+
+좋은 예: "EPS +126% 급등에 전원 긍정, 다만 상승 둔화 중이라 추가 진입은 신중하게."
+나쁜 예: "마이크론은 위험 신호 없이 복합 순위가 높아 선택되었어요."
+
 시스템 데이터에 없는 내용을 지어내지 마."""
 
         api_key = config.get('gemini_api_key', '')
@@ -2367,14 +2370,6 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         elif concentrated:
             warnings.append(f'🏭 업종 집중: {", ".join(concentrated)} — 분산 점검')
 
-        if warnings:
-            lines.append('')
-            lines.append('─────────────────')
-            lines.append('⚠️ <b>주의사항</b>')
-            for w in warnings:
-                lines.append(f'  {w}')
-            lines.append('─────────────────')
-
         # #6: Q1 봄 + 전지표 안정 → 💎 기회 강조
         hy_q = (risk_status.get('hy') or {}).get('quadrant', '') if risk_status else ''
         if hy_q == 'Q1' and concordance == 'both_stable':
@@ -2385,10 +2380,18 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             '',
             '─────────────────',
             html,
+        ])
+
+        if warnings:
+            lines.append('')
+            lines.append('⚠️ <b>주의사항</b>')
+            for w in warnings:
+                lines.append(f'· {w}')
+
+        lines.extend([
             '',
             '💡 <b>활용법</b>',
-            '· 상위 종목에 더 많은 비중 (순위별 차등)',
-            '· 목록에서 빠지면 매도 검토',
+            '· 목록에 있으면 보유, 빠지면 매도 검토',
             '· 최소 2주 보유, 매일 후보 갱신 확인',
             '⚠️ 참고용이며, 투자 판단은 본인 책임이에요.',
         ])
