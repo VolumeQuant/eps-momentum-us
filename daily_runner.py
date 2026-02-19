@@ -2056,7 +2056,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
         # 텔레그램 메시지 포맷팅
         lines = []
         lines.append('━━━━━━━━━━━━━━━━━━━')
-        lines.append('  [3/4] 🔬 AI 리스크 필터')
+        lines.append('  [3/4] 🤖 AI 리스크 필터')
         lines.append('━━━━━━━━━━━━━━━━━━━')
         lines.append(f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)')
         lines.append('')
