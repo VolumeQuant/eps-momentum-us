@@ -567,55 +567,75 @@ def fetch_revenue_growth(df, today_str):
 
     1) 전체 종목 yfinance .info → rev_growth + 12개 재무 지표 DB 저장
     2) composite score용 rev_growth를 dataframe에 매핑
+    10스레드 병렬 수집으로 ~3분 → ~30초 단축.
     """
     import yfinance as yf
-    import numpy as np
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import time as _time
+
+    def _fetch_one(ticker):
+        """단일 종목 .info 수집 (스레드 워커)"""
+        try:
+            info = yf.Ticker(ticker).info
+            return ticker, info
+        except Exception:
+            return ticker, None
 
     tickers = list(df['ticker'].unique())
-    log(f"매출+품질 수집 시작: {len(tickers)}종목")
+    log(f"매출+품질 수집 시작: {len(tickers)}종목 (10스레드)")
 
+    # 병렬 수집
+    results = {}
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_fetch_one, t): t for t in tickers}
+        done = 0
+        for future in as_completed(futures):
+            ticker, info = future.result()
+            results[ticker] = info
+            done += 1
+            if done % 100 == 0:
+                log(f"  수집 진행: {done}/{len(tickers)}")
+
+    # DB 일괄 저장
     rev_map = {}
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     saved = 0
 
-    for i, t in enumerate(tickers):
-        try:
-            info = yf.Ticker(t).info
-            rg = info.get('revenueGrowth')
-            rev_map[t] = rg
-
-            if info.get('marketCap'):
-                cursor.execute('''
-                    UPDATE ntm_screening
-                    SET rev_growth=?, market_cap=?, free_cashflow=?, roe=?,
-                        debt_to_equity=?, operating_margin=?, gross_margin=?,
-                        current_ratio=?, total_debt=?, total_cash=?,
-                        ev=?, ebitda=?, beta=?
-                    WHERE date=? AND ticker=?
-                ''', (
-                    rg,
-                    info.get('marketCap'),
-                    info.get('freeCashflow'),
-                    info.get('returnOnEquity'),
-                    info.get('debtToEquity'),
-                    info.get('operatingMargins'),
-                    info.get('grossMargins'),
-                    info.get('currentRatio'),
-                    info.get('totalDebt'),
-                    info.get('totalCash'),
-                    info.get('enterpriseValue'),
-                    info.get('ebitda'),
-                    info.get('beta'),
-                    today_str, t
-                ))
-                saved += 1
-        except Exception:
+    for t in tickers:
+        info = results.get(t)
+        if not info:
             rev_map[t] = None
+            continue
 
-        if (i + 1) % 100 == 0:
-            log(f"  수집 진행: {i+1}/{len(tickers)}")
-            conn.commit()
+        rg = info.get('revenueGrowth')
+        rev_map[t] = rg
+
+        if info.get('marketCap'):
+            cursor.execute('''
+                UPDATE ntm_screening
+                SET rev_growth=?, market_cap=?, free_cashflow=?, roe=?,
+                    debt_to_equity=?, operating_margin=?, gross_margin=?,
+                    current_ratio=?, total_debt=?, total_cash=?,
+                    ev=?, ebitda=?, beta=?
+                WHERE date=? AND ticker=?
+            ''', (
+                rg,
+                info.get('marketCap'),
+                info.get('freeCashflow'),
+                info.get('returnOnEquity'),
+                info.get('debtToEquity'),
+                info.get('operatingMargins'),
+                info.get('grossMargins'),
+                info.get('currentRatio'),
+                info.get('totalDebt'),
+                info.get('totalCash'),
+                info.get('enterpriseValue'),
+                info.get('ebitda'),
+                info.get('beta'),
+                today_str, t
+            ))
+            saved += 1
 
     conn.commit()
     conn.close()
