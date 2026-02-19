@@ -2256,39 +2256,30 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         stock_lines = []
         for i, s in enumerate(selected):
             stock_lines.append(
-                f"{i+1}. {s['name']}({s['ticker']}) · {s['industry']} · "
-                f"{s['lights']} {s['desc']} · 점수 {s['adj_score']:.1f}\n"
-                f"   비중 {s['weight']}% · EPS {s['eps_chg']:+.1f}% · 주가 {s['price_chg']:+.1f}% · "
-                f"괴리 {s['adj_gap']:+.1f}\n"
-                f"   애널리스트 의견 ↑{s['rev_up']} ↓{s['rev_down']} · Fwd PE {s['fwd_pe']:.1f}"
+                f"{i+1}. {s['name']}({s['ticker']}) · {s['industry']}\n"
+                f"   {s['lights']} {s['desc']} · 비중 {s['weight']}%\n"
+                f"   EPS {s['eps_chg']:+.1f}% · 매출 {s.get('rev_growth', 0) or 0:+.0%}\n"
+                f"   의견 ↑{s['rev_up']} ↓{s['rev_down']}"
             )
 
-        prompt = f"""분석 기준일: {biz_day.strftime('%Y-%m-%d')} (미국 영업일)
+        prompt = f"""아래 {len(selected)}종목이 왜 매력적인지 한 줄씩 써줘.
 
-아래 {len(selected)}종목의 핵심 매력을 한 줄씩 써줘.
-
-[포트폴리오]
+[종목]
 {chr(10).join(stock_lines)}
 
-[출력 형식]
-- 한국어, 친근한 말투 (~예요 체)
-- 각 종목 형식:
-  **N. 종목명(티커) · 비중 N%**
-  날씨아이콘 한 줄 핵심 매력
-- 종목 사이에 반드시 [SEP] 한 줄
-- 맨 끝에 별도 문구 넣지 마
-- 300자 이내
+[형식]
+- 한국어, ~예요 체
+- 종목별: **N. 종목명(티커) · 비중 N%**
+  날씨아이콘 + 한 줄 매력 포인트
+- 종목 사이에 [SEP]
+- 250자 이내, 맨 끝 별도 문구 없음
 
-[금지 사항]
-- "선정되었어요", "포함되었어요", "돋보여요" 같은 선정 이유 서술 금지
-- "위험 신호 없이", "복합 순위가 높아" 같은 시스템 내부 용어 금지
-- 각 종목마다 비슷한 문장 구조 반복 금지
-- 데이터에 있는 EPS/추세/의견을 자연스럽게 녹여서 한 줄로 요약
-
-좋은 예: "EPS +126% 급등에 전원 긍정, 다만 상승 둔화 중이라 추가 진입은 신중하게."
-나쁜 예: "마이크론은 위험 신호 없이 복합 순위가 높아 선택되었어요."
-
-시스템 데이터에 없는 내용을 지어내지 마."""
+[규칙]
+- 이 종목이 왜 좋은지만 써. 주의/경고/유의 표현 금지.
+- "선정", "포함", "선택" 같은 시스템 용어 금지.
+- 종목마다 다른 문장 구조로 써.
+- EPS/매출/추세를 자연스럽게 녹여서.
+- 데이터에 없는 내용 지어내지 마."""
 
         api_key = config.get('gemini_api_key', '')
         if not api_key:
@@ -2342,33 +2333,8 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             '━━━━━━━━━━━━━━━━━━━',
             f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
             '',
-            f'916종목 → Top 30 → ✅ 3일 검증 → 가중순위 → <b>최종 {len(selected)}종목</b>',
+            f'916종목 → Top 30 → ✅ 3일 검증 → 종합 평가 → <b>최종 {len(selected)}종목</b>',
         ]
-
-        # 주의사항 모아보기
-        warnings = []
-        if final_action:
-            warnings.append(f'🌡️ {final_action}')
-
-        # 어닝 임박 종목
-        earnings_stocks = [s for s in selected if s.get('earnings_note')]
-        if earnings_stocks:
-            for s in earnings_stocks:
-                # earnings_note = " 📅어닝 M/D" → 날짜만 추출
-                ed = s["earnings_note"].replace("📅어닝", "").replace("📅", "").strip()
-                warnings.append(f'📅 {s["name"]}({s["ticker"]}) {ed} 어닝 — 변동성 주의')
-
-        # 섹터 집중 경고
-        from collections import Counter
-        industries = [s['industry'] for s in selected if s.get('industry')]
-        tech_keywords = ['반도체', '전자부품', 'HW', '통신장비', '계측']
-        tech_count = sum(1 for ind in industries if any(kw in ind for kw in tech_keywords))
-        sector_counts = Counter(industries)
-        concentrated = [f'{name} {cnt}' for name, cnt in sector_counts.most_common() if cnt >= 3]
-        if tech_count >= 3:
-            warnings.append(f'🏭 테크/반도체 {tech_count}/{len(selected)}종목 집중 — 동반 하락 리스크')
-        elif concentrated:
-            warnings.append(f'🏭 업종 집중: {", ".join(concentrated)} — 분산 점검')
 
         # #6: Q1 봄 + 전지표 안정 → 💎 기회 강조
         hy_q = (risk_status.get('hy') or {}).get('quadrant', '') if risk_status else ''
@@ -2382,18 +2348,38 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             html,
         ])
 
+        # 주의사항 — 실질적 경고만 표시
+        warnings = []
+
+        # 어닝 임박 종목
+        earnings_stocks = [s for s in selected if s.get('earnings_note')]
+        for s in earnings_stocks:
+            ed = s["earnings_note"].replace("📅어닝", "").replace("📅", "").strip()
+            warnings.append(f'{s["name"]}({s["ticker"]}) {ed} 어닝 변동성 주의')
+
+        # 섹터 집중 경고
+        from collections import Counter
+        industries = [s['industry'] for s in selected if s.get('industry')]
+        tech_keywords = ['반도체', '전자부품', 'HW', '통신장비', '계측']
+        tech_count = sum(1 for ind in industries if any(kw in ind for kw in tech_keywords))
+        sector_counts = Counter(industries)
+        concentrated = [f'{name} {cnt}' for name, cnt in sector_counts.most_common() if cnt >= 3]
+        if tech_count >= 3:
+            warnings.append(f'테크/반도체 {tech_count}/{len(selected)}종목 집중 — 동반 하락 리스크')
+        elif concentrated:
+            warnings.append(f'업종 집중: {", ".join(concentrated)} — 분산 점검')
+
         if warnings:
             lines.append('')
-            lines.append('⚠️ <b>주의사항</b>')
+            lines.append('⚠️ <b>주의</b>')
             for w in warnings:
-                lines.append(f'· {w}')
+                lines.append(f'  {w}')
 
         lines.extend([
             '',
-            '💡 <b>활용법</b>',
-            '· 목록에 있으면 보유, 빠지면 매도 검토',
-            '· 최소 2주 보유, 매일 후보 갱신 확인',
-            '⚠️ 참고용이며, 투자 판단은 본인 책임이에요.',
+            '목록에 있으면 보유, 빠지면 매도 검토',
+            '최소 2주 보유 · 매일 후보 갱신 확인',
+            '<i>참고용이며, 투자 판단은 본인 책임이에요.</i>',
         ])
 
         log("포트폴리오 추천 완료")
