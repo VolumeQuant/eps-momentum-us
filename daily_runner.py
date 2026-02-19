@@ -584,10 +584,27 @@ def fetch_revenue_growth(df):
     log(f"매출 성장률 수집: {len(tickers)}종목")
 
     rev_map = {}
+    quality_map = {}  # v33: 품질 데이터도 같이 수집
     for t in tickers:
         try:
             info = yf.Ticker(t).info
             rev_map[t] = info.get('revenueGrowth')
+            # v33: 같은 .info에서 품질 지표 추출
+            if info.get('marketCap'):
+                quality_map[t] = (
+                    info.get('marketCap'),
+                    info.get('freeCashflow'),
+                    info.get('returnOnEquity'),
+                    info.get('debtToEquity'),
+                    info.get('operatingMargins'),
+                    info.get('grossMargins'),
+                    info.get('currentRatio'),
+                    info.get('totalDebt'),
+                    info.get('totalCash'),
+                    info.get('enterpriseValue'),
+                    info.get('ebitda'),
+                    info.get('beta'),
+                )
         except Exception:
             rev_map[t] = None
 
@@ -595,61 +612,41 @@ def fetch_revenue_growth(df):
     log(f"매출 성장률 수집 완료: {success}/{len(tickers)}")
 
     df['rev_growth'] = df['ticker'].map(rev_map)
+    df.attrs['quality_map'] = quality_map  # v33: DB 저장용
     return df
 
 
 def fetch_quality_fundamentals(df, today_str):
-    """전체 유니버스 재무 품질 데이터 수집 → DB 저장 (v33)
+    """eligible 종목 재무 품질 데이터 DB 저장 (v33)
 
-    목적: 나중에 재무 건전성 분석용 원본 데이터 축적.
-    현재 전략/메시지/포트폴리오에 영향 없음.
+    fetch_revenue_growth()에서 이미 수집한 quality_map을 DB에 저장.
+    추가 API 호출 없음.
     """
-    import yfinance as yf
-
-    tickers = list(df['ticker'].unique())
-    log(f"재무 품질 수집 시작: {len(tickers)}종목")
+    quality_map = df.attrs.get('quality_map', {})
+    if not quality_map:
+        log("품질 데이터 없음 (quality_map 비어있음)")
+        return
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     saved = 0
 
-    for i, t in enumerate(tickers):
+    for t, data in quality_map.items():
         try:
-            info = yf.Ticker(t).info
-            if not info or not info.get('marketCap'):
-                continue
             cursor.execute('''
                 UPDATE ntm_screening
                 SET market_cap=?, free_cashflow=?, roe=?, debt_to_equity=?,
                     operating_margin=?, gross_margin=?, current_ratio=?,
                     total_debt=?, total_cash=?, ev=?, ebitda=?, beta=?
                 WHERE date=? AND ticker=?
-            ''', (
-                info.get('marketCap'),
-                info.get('freeCashflow'),
-                info.get('returnOnEquity'),
-                info.get('debtToEquity'),
-                info.get('operatingMargins'),
-                info.get('grossMargins'),
-                info.get('currentRatio'),
-                info.get('totalDebt'),
-                info.get('totalCash'),
-                info.get('enterpriseValue'),
-                info.get('ebitda'),
-                info.get('beta'),
-                today_str, t
-            ))
+            ''', (*data, today_str, t))
             saved += 1
         except Exception:
             continue
 
-        if (i + 1) % 100 == 0:
-            log(f"  품질 수집 진행: {i+1}/{len(tickers)}")
-            conn.commit()
-
     conn.commit()
     conn.close()
-    log(f"재무 품질 저장 완료: {saved}/{len(tickers)}")
+    log(f"재무 품질 저장 완료: {saved}/{len(quality_map)}")
 
 
 def get_part2_candidates(df, top_n=None):
