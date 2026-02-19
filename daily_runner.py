@@ -128,8 +128,9 @@ def init_ntm_database():
         except sqlite3.OperationalError:
             pass  # 이미 존재
 
-    # v33: 재무 품질 데이터 컬럼
-    for col, col_type in [('market_cap', 'REAL'), ('free_cashflow', 'REAL'),
+    # v33: 재무 품질 + rev_growth 컬럼
+    for col, col_type in [('rev_growth', 'REAL'),
+                          ('market_cap', 'REAL'), ('free_cashflow', 'REAL'),
                           ('roe', 'REAL'), ('debt_to_equity', 'REAL'),
                           ('operating_margin', 'REAL'), ('gross_margin', 'REAL'),
                           ('current_ratio', 'REAL'), ('total_debt', 'REAL'),
@@ -584,27 +585,10 @@ def fetch_revenue_growth(df):
     log(f"매출 성장률 수집: {len(tickers)}종목")
 
     rev_map = {}
-    quality_map = {}  # v33: 품질 데이터도 같이 수집
     for t in tickers:
         try:
             info = yf.Ticker(t).info
             rev_map[t] = info.get('revenueGrowth')
-            # v33: 같은 .info에서 품질 지표 추출
-            if info.get('marketCap'):
-                quality_map[t] = (
-                    info.get('marketCap'),
-                    info.get('freeCashflow'),
-                    info.get('returnOnEquity'),
-                    info.get('debtToEquity'),
-                    info.get('operatingMargins'),
-                    info.get('grossMargins'),
-                    info.get('currentRatio'),
-                    info.get('totalDebt'),
-                    info.get('totalCash'),
-                    info.get('enterpriseValue'),
-                    info.get('ebitda'),
-                    info.get('beta'),
-                )
         except Exception:
             rev_map[t] = None
 
@@ -612,41 +596,70 @@ def fetch_revenue_growth(df):
     log(f"매출 성장률 수집 완료: {success}/{len(tickers)}")
 
     df['rev_growth'] = df['ticker'].map(rev_map)
-    df.attrs['quality_map'] = quality_map  # v33: DB 저장용
     return df
 
 
 def fetch_quality_fundamentals(df, today_str):
-    """eligible 종목 재무 품질 데이터 DB 저장 (v33)
+    """전체 유니버스 재무 품질 + rev_growth DB 저장 (v33)
 
-    fetch_revenue_growth()에서 이미 수집한 quality_map을 DB에 저장.
-    추가 API 호출 없음.
+    916종목 전체 yfinance .info → rev_growth + 12개 재무 지표 DB 저장.
+    월요일만 실행 (재무 데이터는 분기 실적 기준, 매일 불필요).
+    백테스팅을 위해 전체 유니버스 수집.
     """
-    quality_map = df.attrs.get('quality_map', {})
-    if not quality_map:
-        log("품질 데이터 없음 (quality_map 비어있음)")
+    import yfinance as yf
+    from datetime import datetime
+
+    # 월요일(0)만 실행
+    if datetime.now().weekday() != 0:
+        log("재무 품질 수집 스킵 (월요일만 실행)")
         return
+
+    tickers = list(df['ticker'].unique())
+    log(f"재무 품질 수집 시작: {len(tickers)}종목 (주간)")
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     saved = 0
 
-    for t, data in quality_map.items():
+    for i, t in enumerate(tickers):
         try:
+            info = yf.Ticker(t).info
+            if not info or not info.get('marketCap'):
+                continue
             cursor.execute('''
                 UPDATE ntm_screening
-                SET market_cap=?, free_cashflow=?, roe=?, debt_to_equity=?,
-                    operating_margin=?, gross_margin=?, current_ratio=?,
-                    total_debt=?, total_cash=?, ev=?, ebitda=?, beta=?
+                SET rev_growth=?, market_cap=?, free_cashflow=?, roe=?,
+                    debt_to_equity=?, operating_margin=?, gross_margin=?,
+                    current_ratio=?, total_debt=?, total_cash=?,
+                    ev=?, ebitda=?, beta=?
                 WHERE date=? AND ticker=?
-            ''', (*data, today_str, t))
+            ''', (
+                info.get('revenueGrowth'),
+                info.get('marketCap'),
+                info.get('freeCashflow'),
+                info.get('returnOnEquity'),
+                info.get('debtToEquity'),
+                info.get('operatingMargins'),
+                info.get('grossMargins'),
+                info.get('currentRatio'),
+                info.get('totalDebt'),
+                info.get('totalCash'),
+                info.get('enterpriseValue'),
+                info.get('ebitda'),
+                info.get('beta'),
+                today_str, t
+            ))
             saved += 1
         except Exception:
             continue
 
+        if (i + 1) % 100 == 0:
+            log(f"  품질 수집 진행: {i+1}/{len(tickers)}")
+            conn.commit()
+
     conn.commit()
     conn.close()
-    log(f"재무 품질 저장 완료: {saved}/{len(quality_map)}")
+    log(f"재무 품질 저장 완료: {saved}/{len(tickers)}")
 
 
 def get_part2_candidates(df, top_n=None):
