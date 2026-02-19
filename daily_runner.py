@@ -589,7 +589,8 @@ def fetch_revenue_growth(df):
 def get_part2_candidates(df, top_n=None):
     """Part 2 매수 후보 필터링 (공통 함수)
 
-    필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA60, rev_growth ≥ 10%
+    필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA60,
+          rev_growth ≥ 10%, num_analysts ≥ 3, 하향 비율 ≤ 30%
     정렬: composite score (adj_gap 70% + rev_growth 30%) 또는 adj_gap
     """
     import numpy as np
@@ -619,6 +620,25 @@ def get_part2_candidates(df, top_n=None):
             log(f"매출 성장 부족(<10%) 제외: {', '.join(low_rev['ticker'].tolist())}")
         filtered = filtered[filtered['rev_growth'] >= 0.10].copy()
 
+    # 애널리스트 품질 필터: 저커버리지 + 하향 과다
+    if 'num_analysts' in filtered.columns:
+        low_cov = filtered[filtered['num_analysts'].fillna(0) < 3]
+        if len(low_cov) > 0:
+            log(f"저커버리지(<3명) 제외: {', '.join(low_cov['ticker'].tolist())}")
+        filtered = filtered[filtered['num_analysts'].fillna(0) >= 3].copy()
+
+    if 'rev_up30' in filtered.columns and 'rev_down30' in filtered.columns:
+        up = filtered['rev_up30'].fillna(0)
+        dn = filtered['rev_down30'].fillna(0)
+        total = up + dn
+        down_ratio = dn / total.replace(0, float('nan'))
+        high_down = filtered[down_ratio > 0.3]
+        if len(high_down) > 0:
+            details = [f"{r['ticker']}(↑{int(r.get('rev_up30',0))}↓{int(r.get('rev_down30',0))})" for _, r in high_down.iterrows()]
+            log(f"하향 과다(>30%) 제외: {', '.join(details)}")
+        filtered = filtered[~(down_ratio > 0.3)].copy()
+
+    if has_rev:
         # z-score 정규화
         gap_mean, gap_std = filtered['adj_gap'].mean(), filtered['adj_gap'].std()
         rev_mean, rev_std = filtered['rev_growth'].mean(), filtered['rev_growth'].std()

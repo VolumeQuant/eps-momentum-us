@@ -170,7 +170,8 @@
       "Bash(git -C \"C:\\\\dev\\\\claude code\\\\quant_py-main\" status)",
       "Bash(output \")",
       "Bash(git checkout:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(gh workflow:*)"
     ]
   }
 }
