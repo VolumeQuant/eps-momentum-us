@@ -128,6 +128,18 @@ def init_ntm_database():
         except sqlite3.OperationalError:
             pass  # 이미 존재
 
+    # v33: 재무 품질 데이터 컬럼
+    for col, col_type in [('market_cap', 'REAL'), ('free_cashflow', 'REAL'),
+                          ('roe', 'REAL'), ('debt_to_equity', 'REAL'),
+                          ('operating_margin', 'REAL'), ('gross_margin', 'REAL'),
+                          ('current_ratio', 'REAL'), ('total_debt', 'REAL'),
+                          ('total_cash', 'REAL'), ('ev', 'REAL'),
+                          ('ebitda', 'REAL'), ('beta', 'REAL')]:
+        try:
+            cursor.execute(f'ALTER TABLE ntm_screening ADD COLUMN {col} {col_type}')
+        except sqlite3.OperationalError:
+            pass
+
     # 기존 eps_snapshots 테이블 삭제
     cursor.execute('DROP TABLE IF EXISTS eps_snapshots')
 
@@ -584,6 +596,60 @@ def fetch_revenue_growth(df):
 
     df['rev_growth'] = df['ticker'].map(rev_map)
     return df
+
+
+def fetch_quality_fundamentals(df, today_str):
+    """전체 유니버스 재무 품질 데이터 수집 → DB 저장 (v33)
+
+    목적: 나중에 재무 건전성 분석용 원본 데이터 축적.
+    현재 전략/메시지/포트폴리오에 영향 없음.
+    """
+    import yfinance as yf
+
+    tickers = list(df['ticker'].unique())
+    log(f"재무 품질 수집 시작: {len(tickers)}종목")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    saved = 0
+
+    for i, t in enumerate(tickers):
+        try:
+            info = yf.Ticker(t).info
+            if not info or not info.get('marketCap'):
+                continue
+            cursor.execute('''
+                UPDATE ntm_screening
+                SET market_cap=?, free_cashflow=?, roe=?, debt_to_equity=?,
+                    operating_margin=?, gross_margin=?, current_ratio=?,
+                    total_debt=?, total_cash=?, ev=?, ebitda=?, beta=?
+                WHERE date=? AND ticker=?
+            ''', (
+                info.get('marketCap'),
+                info.get('freeCashflow'),
+                info.get('returnOnEquity'),
+                info.get('debtToEquity'),
+                info.get('operatingMargins'),
+                info.get('grossMargins'),
+                info.get('currentRatio'),
+                info.get('totalDebt'),
+                info.get('totalCash'),
+                info.get('enterpriseValue'),
+                info.get('ebitda'),
+                info.get('beta'),
+                today_str, t
+            ))
+            saved += 1
+        except Exception:
+            continue
+
+        if (i + 1) % 100 == 0:
+            log(f"  품질 수집 진행: {i+1}/{len(tickers)}")
+            conn.commit()
+
+    conn.commit()
+    conn.close()
+    log(f"재무 품질 저장 완료: {saved}/{len(tickers)}")
 
 
 def get_part2_candidates(df, top_n=None):
@@ -2434,6 +2500,9 @@ def main():
         # 매출 성장률 수집 → composite score (adj_gap 70% + rev_growth 30%)
         results_df = fetch_revenue_growth(results_df)
         save_part2_ranks(results_df, today_str)
+
+        # v33: 재무 품질 데이터 수집 (DB 축적용, 전략 영향 없음)
+        fetch_quality_fundamentals(results_df, today_str)
 
         # 오늘 Part 2 후보 티커 목록 (Top 30)
         candidates = get_part2_candidates(results_df, top_n=30)
