@@ -849,6 +849,54 @@ def get_rank_history(today_tickers):
     return history
 
 
+def compute_weighted_ranks(today_tickers):
+    """3일 가중 순위 계산 — T0×0.5 + T1×0.3 + T2×0.2
+    미등재 날짜는 패널티 순위 50 적용.
+    Returns: {ticker: {'weighted': float, 'r0': int, 'r1': int, 'r2': int}}
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
+    )
+    dates = sorted([r[0] for r in cursor.fetchall()])
+
+    if not dates:
+        conn.close()
+        return {}
+
+    PENALTY = 50
+
+    rank_by_date = {}
+    for d in dates:
+        cursor.execute(
+            'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 30',
+            (d,)
+        )
+        rank_by_date[d] = {r[0]: r[1] for r in cursor.fetchall()}
+    conn.close()
+
+    today = dates[-1]
+    t1 = dates[-2] if len(dates) >= 2 else None
+    t2 = dates[-3] if len(dates) >= 3 else None
+
+    result = {}
+    for t in today_tickers:
+        r0 = rank_by_date.get(today, {}).get(t, PENALTY)
+        r1 = rank_by_date.get(t1, {}).get(t, PENALTY) if t1 else PENALTY
+        r2 = rank_by_date.get(t2, {}).get(t, PENALTY) if t2 else PENALTY
+
+        weighted = r0 * 0.5 + r1 * 0.3 + r2 * 0.2
+        result[t] = {
+            'weighted': round(weighted, 1),
+            'r0': r0, 'r1': r1, 'r2': r2
+        }
+
+    log(f"가중 순위: {len(result)}개 종목 계산 (날짜 {len(dates)}일)")
+    return result
+
+
 def get_daily_changes(today_tickers):
     """어제 대비 리스트 변동 — 신규 진입 / 이탈 종목 (단순 set 비교)"""
     conn = sqlite3.connect(DB_PATH)
@@ -1508,8 +1556,8 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
     return '\n'.join(lines)
 
 
-def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30, risk_status=None):
-    """[2/4] 매수 후보 — composite 순 Top 30, ✅/⏳/🆕 표시, 순위 이력, 이탈 사유"""
+def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30, risk_status=None, weighted_ranks=None):
+    """[2/4] 매수 후보 — 가중 순위(T0×0.5+T1×0.3+T2×0.2) 정렬, ✅/⏳/🆕 표시, 이탈 사유"""
     import pandas as pd
     from collections import Counter
 
@@ -1522,6 +1570,16 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
         exited_tickers = {}
     if rank_history is None:
         rank_history = {}
+    if weighted_ranks is None:
+        weighted_ranks = {}
+
+    # 가중 순위로 정렬 (없으면 composite 순 유지)
+    if weighted_ranks:
+        filtered = filtered.copy()
+        filtered['_weighted'] = filtered['ticker'].map(
+            lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
+        )
+        filtered = filtered.sort_values('_weighted').reset_index(drop=True)
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
@@ -1549,7 +1607,6 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
         eps_90d = row.get('eps_change_90d')
 
         marker = status_map.get(ticker, '🆕')
-        hist = rank_history.get(ticker, '')
         rev_g = row.get('rev_growth')
         rev_up = int(row.get('rev_up30', 0) or 0)
         rev_down = int(row.get('rev_down30', 0) or 0)
@@ -1564,11 +1621,21 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
             parts.append(f'매출 {rev_g*100:+.0f}%')
         if parts:
             lines.append(' · '.join(parts))
-        # hist가 전부 '-'이면 현재 순위라도 표시 (save와 display 불일치 방지)
-        if hist and not all(p == '-' for p in hist.split('→')):
-            rank_str = hist
+
+        # 순위 이력 + 가중 순위 표시
+        w_info = weighted_ranks.get(ticker)
+        if w_info:
+            r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
+            r2_str = str(r2) if r2 < 50 else '-'
+            r1_str = str(r1) if r1 < 50 else '-'
+            r0_str = str(r0)
+            rank_str = f'{r2_str}→{r1_str}→{r0_str}'
         else:
-            rank_str = f'-→-→{rank}'
+            hist = rank_history.get(ticker, '')
+            if hist and not all(p == '-' for p in hist.split('→')):
+                rank_str = hist
+            else:
+                rank_str = f'-→-→{rank}'
         lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
         lines.append('──────────────────')
 
@@ -1939,8 +2006,8 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
         return None
 
 
-def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=None, risk_status=None):
-    """포트폴리오 추천 — 3일 검증(✅) + 리스크 필터 통과 종목 + 시장 위험 반영"""
+def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=None, risk_status=None, weighted_ranks=None):
+    """포트폴리오 추천 — 3일 검증(✅) + 리스크 필터 통과 종목 + 가중 순위 정렬"""
     try:
         import re
         import yfinance as yf
@@ -1956,11 +2023,21 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 
         if status_map is None:
             status_map = {}
+        if weighted_ranks is None:
+            weighted_ranks = {}
 
         # ✅ (3일 검증) 종목만 대상 — 🆕는 포트폴리오 제외
         verified_tickers = {t for t, s in status_map.items() if s == '✅'}
         if status_map:
             filtered = filtered[filtered['ticker'].isin(verified_tickers)]
+
+        # 가중 순위로 정렬 (✅ 종목 중 가중 순위 높은 순)
+        if weighted_ranks:
+            filtered = filtered.copy()
+            filtered['_weighted'] = filtered['ticker'].map(
+                lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
+            )
+            filtered = filtered.sort_values('_weighted').reset_index(drop=True)
 
         if biz_day is None:
             biz_day = get_last_business_day()
@@ -2047,10 +2124,16 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         concordance = risk_status.get('concordance', 'both_stable') if risk_status else 'both_stable'
         final_action = risk_status.get('final_action', '') if risk_status else ''
 
-        # 종목 선정 = 알파 (항상 Top 5)
-        log("포트폴리오: composite 순위 (괴리 70% + 매출성장 30%):")
+        # 종목 선정 = 알파 (항상 Top 5) — 가중 순위순
+        if weighted_ranks:
+            for s in safe:
+                s['_weighted'] = weighted_ranks.get(s['ticker'], {}).get('weighted', 50.0)
+            safe.sort(key=lambda x: x['_weighted'])
+
+        log("포트폴리오: 가중 순위 (T0×0.5 + T1×0.3 + T2×0.2):")
         for i, s in enumerate(safe):
-            log(f"    {i+1}. {s['ticker']}: gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
+            w = s.get('_weighted', '-')
+            log(f"    {i+1}. {s['ticker']}: 가중={w} gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
 
         # L3: both_warn 시 신규 진입 종목 포트폴리오 제외
         if concordance == 'both_warn':
@@ -2190,7 +2273,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             '━━━━━━━━━━━━━━━━━━━',
             f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
             '',
-            f'916종목 → Top 20 진입 → ✅ 검증 → <b>최종 {len(selected)}종목</b>',
+            f'916종목 → Top 30 → ✅ 3일 검증 → 가중순위 → <b>최종 {len(selected)}종목</b>',
             '',
             '📊 <b>비중 한눈에 보기</b>',
             summary_line,
@@ -2344,6 +2427,7 @@ def main():
             today_str = datetime.now().strftime('%Y-%m-%d')
     status_map = {}
     rank_history = {}
+    weighted_ranks = {}
     exited_tickers = []
 
     if not results_df.empty:
@@ -2357,6 +2441,7 @@ def main():
 
         status_map = get_3day_status(today_tickers)
         rank_history = get_rank_history(today_tickers)
+        weighted_ranks = compute_weighted_ranks(today_tickers)
         _, exited_tickers = get_daily_changes(today_tickers)
 
     stats['exited_count'] = len(exited_tickers) if exited_tickers else 0
@@ -2380,7 +2465,7 @@ def main():
 
     # 3. 메시지 생성
     msg_market = create_market_message(results_df, market_lines, risk_status=risk_status) if not results_df.empty else None
-    msg_candidates = create_candidates_message(results_df, status_map, exited_tickers, rank_history, risk_status=risk_status) if not results_df.empty else None
+    msg_candidates = create_candidates_message(results_df, status_map, exited_tickers, rank_history, risk_status=risk_status, weighted_ranks=weighted_ranks) if not results_df.empty else None
 
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()
@@ -2431,7 +2516,7 @@ def main():
             log(f"[3/4] AI 리스크 필터 전송 완료 → {dest}")
 
         # [4/4] 최종 추천
-        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day, risk_status=risk_status)
+        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day, risk_status=risk_status, weighted_ranks=weighted_ranks)
         if msg_portfolio:
             if send_to_channel:
                 send_telegram_long(msg_portfolio, config, chat_id=channel_id)
