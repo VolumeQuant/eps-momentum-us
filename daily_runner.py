@@ -1508,7 +1508,8 @@ def create_guide_message():
         '━━━━━━━━━━━━━━━━━━━',
         '🚨 <b>시장 현황 [1/4]</b>',
         '계절 = 신용시장 기반 시장 국면',
-        '🌸봄(회복) · ☀️여름(성장) · 🍂가을(과열) · ❄️겨울(침체)',
+        '🌸봄(회복) · ☀️여름(성장)',
+        '🍂가을(과열) · ❄️겨울(침체)',
         '🟢안정 🔴위험 — 🏦신용 · ⚡변동성',
         '🟢 많으면 적극, 🔴 많으면 매수 중단',
         '',
@@ -1563,7 +1564,7 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
                 hy_desc = '평균 이하지만 상승 중'
             else:
                 hy_desc = '평균 이상, 계속 상승'
-            lines.append(f"🏦 HY Spread {hy_val:.2f}% · {hy_desc}")
+            lines.append(f"🏦 <b>HY Spread</b>: {hy_val:.2f}% · {hy_desc}")
 
         # VIX 1줄 요약
         if vix_data:
@@ -1572,9 +1573,9 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
             slope_arrow = '↑' if vix_data['vix_slope_dir'] == 'rising' else ('↓' if vix_data['vix_slope_dir'] == 'falling' else '')
             regime_label = vix_data['regime_label']
             if vix_data['regime'] == 'normal':
-                lines.append(f"⚡ VIX {v:.1f} ({vix_pct:.0f}th) · 안정")
+                lines.append(f"⚡ <b>VIX</b>: {v:.1f} ({vix_pct:.0f}th) · 안정")
             else:
-                lines.append(f"⚡ VIX {v:.1f} ({vix_pct:.0f}th) {slope_arrow} · {regime_label}")
+                lines.append(f"⚡ <b>VIX</b>: {v:.1f} ({vix_pct:.0f}th) {slope_arrow} · {regime_label}")
         lines.append('')
 
         # 신호등 + 액션 (결론)
@@ -2276,6 +2277,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 - 단순히 "EPS X% 상승"처럼 숫자만 반복하지 마. 그 숫자 뒤의 사업적 이유를 써.
 - 주의/경고/유의 표현 금지. 긍정적 매력만.
 - "선정", "포함", "선택" 같은 시스템 용어 금지.
+- 서두/인사말/도입문 금지. "다음은", "요청하신", "소개해" 등 절대 쓰지 마. 첫 번째 종목부터 바로 시작.
 - 종목마다 다른 문장 구조로 써."""
 
         def generate_template_descriptions(stocks):
@@ -2346,6 +2348,13 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 
                 text = extract_text(response)
                 if text:
+                    # Gemini 서두 제거: 첫 번째 종목(**1.) 전 텍스트 삭제
+                    first_stock = re.search(r'\*\*1\.', text)
+                    if first_stock and first_stock.start() > 0:
+                        removed = text[:first_stock.start()].strip()
+                        if removed:
+                            log(f"포트폴리오: Gemini 서두 제거 — '{removed[:50]}'")
+                        text = text[first_stock.start():]
                     html = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                     html = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', html)
                     html = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', html)
