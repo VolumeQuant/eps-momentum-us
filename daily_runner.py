@@ -619,10 +619,16 @@ def fetch_revenue_growth(df, today_str):
         rev_map[t] = rg
 
         # 어닝 날짜 추출 (.info earningsTimestampEnd → calendar 별도 호출 불필요)
+        # 장후(16시 ET 이후) 발표 → 시장 영향은 다음 거래일이므로 +1일
         ets = info.get('earningsTimestampEnd') or info.get('earningsTimestampStart') or info.get('earningsTimestamp')
         if ets and isinstance(ets, (int, float)) and ets > 0:
             try:
-                earnings_map[t] = datetime.fromtimestamp(ets).date()
+                from zoneinfo import ZoneInfo
+                dt_et = datetime.fromtimestamp(ets, tz=ZoneInfo('America/New_York'))
+                earn_date = dt_et.date()
+                if dt_et.hour >= 16:  # 장후 발표 → 다음 거래일
+                    earn_date += timedelta(days=1)
+                earnings_map[t] = earn_date
             except (ValueError, OSError):
                 pass
 
