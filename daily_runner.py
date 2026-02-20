@@ -2256,16 +2256,12 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 차등 비중: composite 상위에 더 많이 배분
-        weight_table = {
-            5: [25, 25, 20, 15, 15],
-            4: [30, 25, 25, 20],
-            3: [35, 35, 30],
-        }
+        # 동일 비중 (v21)
         n = len(selected)
-        weights = weight_table.get(n, [100 // n] * n)
+        base = 100 // n
+        remainder = 100 - base * n
         for i, s in enumerate(selected):
-            s['weight'] = weights[i]
+            s['weight'] = base + (1 if i < remainder else 0)
 
         log(f"포트폴리오: {n}종목 선정 — " +
             ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
