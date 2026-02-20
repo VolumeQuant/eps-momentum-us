@@ -780,31 +780,71 @@ def log_portfolio_trades(selected, today_str):
 
 
 def save_part2_ranks(results_df, today_str):
-    """Part 2 eligible 종목 part2_rank 저장 — Top 30 저장"""
-    candidates = get_part2_candidates(results_df, top_n=30)
-    if candidates.empty:
-        log("Part 2 후보 0개 — part2_rank 저장 스킵")
-        return
+    """Part 2 eligible 종목 part2_rank 저장 — 가중순위 기반 Top 30
 
+    1. 전체 eligible 후보의 composite 순위 산출
+    2. 이전 2일 part2_rank와 가중 결합 (T0×0.5 + T1×0.3 + T2×0.2)
+    3. 가중순위 상위 30개 저장
+    Returns: Top 30 티커 리스트 (가중순위 순)
+    """
+    all_candidates = get_part2_candidates(results_df, top_n=None)
+    if all_candidates.empty:
+        log("Part 2 후보 0개 — part2_rank 저장 스킵")
+        return []
+
+    # 1. 오늘의 composite 순위 (1~N)
+    all_candidates = all_candidates.reset_index(drop=True)
+    composite_ranks = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_candidates.iterrows())}
+
+    # 2. 이전 날짜의 part2_rank 조회
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    cursor.execute(
+        'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date < ? ORDER BY date DESC LIMIT 2',
+        (today_str,)
+    )
+    prev_dates = sorted([r[0] for r in cursor.fetchall()])
 
-    # 기존 part2_rank 초기화
+    PENALTY = 50
+    rank_by_date = {}
+    for d in prev_dates:
+        cursor.execute(
+            'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 30',
+            (d,)
+        )
+        rank_by_date[d] = {r[0]: r[1] for r in cursor.fetchall()}
+
+    t1 = prev_dates[-1] if len(prev_dates) >= 1 else None
+    t2 = prev_dates[-2] if len(prev_dates) >= 2 else None
+
+    # 3. 가중순위 계산
+    weighted = {}
+    for ticker, r0 in composite_ranks.items():
+        r1 = rank_by_date.get(t1, {}).get(ticker, PENALTY) if t1 else PENALTY
+        r2 = rank_by_date.get(t2, {}).get(ticker, PENALTY) if t2 else PENALTY
+        weighted[ticker] = r0 * 0.5 + r1 * 0.3 + r2 * 0.2
+
+    # 4. 가중순위로 정렬 → Top 30
+    sorted_tickers = sorted(weighted.items(), key=lambda x: x[1])
+    top30 = sorted_tickers[:30]
+
+    # 5. DB 저장
     cursor.execute('UPDATE ntm_screening SET part2_rank=NULL WHERE date=?', (today_str,))
 
     saved_count = 0
-    for i, (_, row) in enumerate(candidates.iterrows()):
-        rank = i + 1
-        ticker = row['ticker']
+    top30_tickers = []
+    for rank, (ticker, w) in enumerate(top30, 1):
         cursor.execute(
             'UPDATE ntm_screening SET part2_rank=? WHERE date=? AND ticker=?',
             (rank, today_str, ticker)
         )
         saved_count += 1
+        top30_tickers.append(ticker)
 
     conn.commit()
     conn.close()
-    log(f"Part 2 rank 저장: {saved_count}개 종목 (Top 30)")
+    log(f"Part 2 rank 저장: {saved_count}개 종목 (가중순위 Top 30, eligible {len(composite_ranks)}개)")
+    return top30_tickers
 
 
 def is_cold_start():
@@ -2539,11 +2579,9 @@ def main():
     if not results_df.empty:
         # 매출+품질 수집 → rev_growth composite score + 12개 재무지표 DB 저장 (v33)
         results_df = fetch_revenue_growth(results_df, today_str)
-        save_part2_ranks(results_df, today_str)
 
-        # 오늘 Part 2 후보 티커 목록 (Top 30)
-        candidates = get_part2_candidates(results_df, top_n=30)
-        today_tickers = list(candidates['ticker']) if not candidates.empty else []
+        # 가중순위 기반 Top 30 선정 + DB 저장
+        today_tickers = save_part2_ranks(results_df, today_str) or []
 
         status_map = get_3day_status(today_tickers)
         rank_history = get_rank_history(today_tickers)
