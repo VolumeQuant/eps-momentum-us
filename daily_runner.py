@@ -166,6 +166,18 @@ def init_ntm_database():
         )
     ''')
 
+    # AI 분석 저장 테이블 (대시보드용)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ai_analysis (
+            date           TEXT NOT NULL,
+            analysis_type  TEXT NOT NULL,
+            ticker         TEXT DEFAULT '__ALL__',
+            content        TEXT NOT NULL,
+            created_at     TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (date, analysis_type, ticker)
+        )
+    ''')
+
     conn.commit()
     conn.close()
     log("NTM 데이터베이스 초기화 완료")
@@ -229,7 +241,7 @@ def run_ntm_collection(config):
         rows = cursor.execute('''
             SELECT ticker, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d,
                    adj_score, adj_gap, price, ma60, is_turnaround,
-                   rev_up30, rev_down30, num_analysts
+                   rev_up30, rev_down30, num_analysts, rev_growth
             FROM ntm_screening WHERE date=? AND adj_score IS NOT NULL
         ''', (today_str,)).fetchall()
 
@@ -261,6 +273,7 @@ def run_ntm_collection(config):
                 'adj_gap': r[8],
                 'is_turnaround': r[11],
                 'rev_up30': r[12] or 0, 'rev_down30': r[13] or 0, 'num_analysts': r[14] or 0,
+                'rev_growth': r[15],
                 'price': r[9],
                 'ma60': r[10],
             }
@@ -828,7 +841,7 @@ def save_part2_ranks(results_df, today_str):
             (crank, today_str, ticker)
         )
 
-    # 2. 이전 날짜의 composite_rank 조회 (part2_rank가 아닌 composite_rank!)
+    # 2. 이전 날짜의 composite_rank 조회
     cursor.execute(
         'SELECT DISTINCT date FROM ntm_screening WHERE composite_rank IS NOT NULL AND date < ? ORDER BY date DESC LIMIT 2',
         (today_str,)
@@ -2109,6 +2122,20 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
         analysis_html = analysis_html.replace('---', '━━━')
         analysis_html = re.sub(r'\n*\[SEP\]\n*', '\n─────────\n', analysis_html)
 
+        # DB 저장 (대시보드용)
+        if biz_day and analysis_text:
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                conn.execute(
+                    'INSERT OR REPLACE INTO ai_analysis (date, analysis_type, ticker, content) VALUES (?,?,?,?)',
+                    (biz_day.strftime('%Y-%m-%d'), 'ai_review', '__ALL__', analysis_text)
+                )
+                conn.commit()
+                conn.close()
+                log("AI 분석 결과 DB 저장 완료")
+            except Exception as e:
+                log(f"AI 분석 DB 저장 실패: {e}", "WARN")
+
         # 텔레그램 메시지 포맷팅
         lines = []
         lines.append('━━━━━━━━━━━━━━━━━━━')
@@ -2422,6 +2449,20 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         if not html:
             html = generate_template_descriptions(selected)
             log("포트폴리오: 코드 템플릿 fallback")
+
+        # DB 저장 (대시보드용) — 포트폴리오 AI 설명
+        if biz_day and html:
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                conn.execute(
+                    'INSERT OR REPLACE INTO ai_analysis (date, analysis_type, ticker, content) VALUES (?,?,?,?)',
+                    (biz_day.strftime('%Y-%m-%d'), 'portfolio_narrative', '__ALL__', html)
+                )
+                conn.commit()
+                conn.close()
+                log("포트폴리오 AI 설명 DB 저장 완료")
+            except Exception as e:
+                log(f"포트폴리오 AI 설명 DB 저장 실패: {e}", "WARN")
 
         lines = [
             '━━━━━━━━━━━━━━━━━━━',

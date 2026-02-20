@@ -41,6 +41,28 @@
 > **v35.1**: 2026-02-20 집 PC — composite_rank 분리: DB에 composite_rank 컬럼 추가, 가중순위는 항상 composite에서 계산 (누적 방지)
 > **v35.2**: 2026-02-20 집 PC — 데이터 일관성 확보: rev_growth backfill + recalc_ranks composite_rank 저장 + 한국 프로젝트 교차 검증
 > **v35.3**: 2026-02-20 집 PC — 어닝 일정 수정: .calendar Rate Limit → .info earningsTimestamp 활용 + 장후(16시 ET) 발표 +1일 보정
+> **v35.4**: 2026-02-20 집 PC — 데이터 보호 캐시 경로 rev_growth 누락 수정: 재수집 스킵 시 part2_rank 0건 버그
+
+---
+
+## v35.4 — 데이터 보호 캐시 경로 rev_growth 누락 수정 (2026-02-20)
+
+### 배경
+- 데이터 보호 (같은 마켓 날짜 재수집 방지)가 작동하면 DB에서 캐시 로드
+- 캐시 경로의 SELECT문에 `rev_growth` 컬럼이 빠져있었음
+- `results_df`에 rev_growth가 없으면 `get_part2_candidates()`에서 `has_rev=False` → composite score 대신 adj_gap 단독 정렬
+- 이로 인해 매출 10% 필터가 미적용되고, composite 순위가 달라지면서 가중순위 T-1/T-2 참조 시 불일치 발생
+- 결과: `save_part2_ranks()`에서 composite_rank UPDATE → part2_rank UPDATE 실행은 되지만, 이전 composite_rank가 없어 가중순위가 전부 PENALTY 50으로 계산됨
+
+### 변경 사항
+
+| 항목 | Before | After |
+|------|--------|-------|
+| 캐시 SELECT | rev_up30, rev_down30, num_analysts만 | **+ rev_growth** 추가 |
+| row_dict | rev_growth 키 없음 | `'rev_growth': r[15]` 추가 |
+
+### 변경 파일
+- `daily_runner.py` — run_ntm_collection() 캐시 경로 SELECT + row_dict
 
 ---
 

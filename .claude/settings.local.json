@@ -186,7 +186,12 @@
       "Bash(npx tsc:*)",
       "Bash(curl:*)",
       "Bash(taskkill:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(pkill:*)",
+      "Bash(netstat:*)",
+      "Bash(# Force kill old PID taskkill //F //PID 19844 sleep 1 # Verify curl -s http://localhost:8000/api/screening/2026-02-20)",
+      "Bash(# Find ALL processes on port 8000 netstat -ano)",
+      "Bash(# Check if 8001 has anything else netstat -ano)"
     ]
   }
 }
