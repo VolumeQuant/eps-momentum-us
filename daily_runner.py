@@ -1651,11 +1651,10 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
     top_sectors = sector_counts.most_common()
     sector_parts = [f'{name} {cnt}' for name, cnt in top_sectors if cnt >= 2]
 
-    lines.append('─────────────────')
-
     if sector_parts:
         lines.append(f'📊 주도 업종: {" · ".join(sector_parts)}')
-        lines.append('─────────────────')
+
+    lines.append('─────────────────')
 
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
