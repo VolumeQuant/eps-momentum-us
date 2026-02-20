@@ -2523,6 +2523,11 @@ def main():
     weighted_ranks = {}
     exited_tickers = []
 
+    # 2.5. 시장 지수 수집 (yfinance rate limit 전에 먼저)
+    market_lines = get_market_context()
+    if market_lines:
+        log(f"시장 지수: {len(market_lines)}개")
+
     if not results_df.empty:
         # 매출+품질 수집 → rev_growth composite score + 12개 재무지표 DB 저장 (v33)
         results_df = fetch_revenue_growth(results_df, today_str)
@@ -2539,10 +2544,7 @@ def main():
 
     stats['exited_count'] = len(exited_tickers) if exited_tickers else 0
 
-    # 2.5. 시장 지수 + HY Spread 수집
-    market_lines = get_market_context()
-    if market_lines:
-        log(f"시장 지수: {len(market_lines)}개")
+    # HY Spread + VIX 수집 (FRED — yfinance와 별개)
     risk_status = get_market_risk_status()
     hy_data = risk_status['hy']
     vix_data = risk_status['vix']
