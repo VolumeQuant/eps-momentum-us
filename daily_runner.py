@@ -604,6 +604,7 @@ def fetch_revenue_growth(df, today_str):
 
     # DB 일괄 저장
     rev_map = {}
+    earnings_map = {}  # {ticker: datetime.date} — 어닝 날짜 (.info에서 추출)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     saved = 0
@@ -616,6 +617,14 @@ def fetch_revenue_growth(df, today_str):
 
         rg = info.get('revenueGrowth')
         rev_map[t] = rg
+
+        # 어닝 날짜 추출 (.info earningsTimestampEnd → calendar 별도 호출 불필요)
+        ets = info.get('earningsTimestampEnd') or info.get('earningsTimestampStart') or info.get('earningsTimestamp')
+        if ets and isinstance(ets, (int, float)) and ets > 0:
+            try:
+                earnings_map[t] = datetime.fromtimestamp(ets).date()
+            except (ValueError, OSError):
+                pass
 
         if info.get('marketCap'):
             cursor.execute('''
@@ -650,7 +659,7 @@ def fetch_revenue_growth(df, today_str):
     log(f"매출+품질 수집 완료: {saved}/{len(tickers)} (rev_growth {success}개)")
 
     df['rev_growth'] = df['ticker'].map(rev_map)
-    return df
+    return df, earnings_map
 
 
 def get_part2_candidates(df, top_n=None):
@@ -1867,7 +1876,7 @@ def create_system_log_message(stats, elapsed, config):
 # AI 리스크 체크 (Gemini 2.5 Flash + Google Search)
 # ============================================================
 
-def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk_status=None):
+def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk_status=None, earnings_map=None):
     """[3/4] AI 브리핑 — 정량 위험 신호 + 시장 환경 기반 리스크 해석"""
     api_key = config.get('gemini_api_key', '')
     if not api_key:
@@ -1886,6 +1895,9 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
 
         import re
         import yfinance as yf
+
+        if earnings_map is None:
+            earnings_map = {}
 
         # Part 2 종목 추출 + 위험 신호 수집
         if results_df is None or results_df.empty:
@@ -1938,23 +1950,11 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
             if num_analysts < 3:
                 flags.append(f"📉 애널리스트 {num_analysts}명 (저커버리지)")
 
-            # 3. 어닝 임박
-            try:
-                stock = yf.Ticker(ticker)
-                cal = stock.calendar
-                if cal is not None:
-                    earn_dates = cal.get('Earnings Date', [])
-                    if not isinstance(earn_dates, list):
-                        earn_dates = [earn_dates]
-                    for ed in earn_dates:
-                        if hasattr(ed, 'date'):
-                            ed = ed.date()
-                        if today_date <= ed <= two_weeks_date:
-                            flags.append(f"📅 어닝 {ed.month}/{ed.day}")
-                            earnings_tickers.append(f"{name} ({ticker}) {ed.month}/{ed.day}")
-                            break
-            except Exception:
-                pass
+            # 3. 어닝 임박 (earnings_map에서 조회 — .calendar 별도 호출 불필요)
+            ed = earnings_map.get(ticker)
+            if ed and today_date <= ed <= two_weeks_date:
+                flags.append(f"📅 어닝 {ed.month}/{ed.day}")
+                earnings_tickers.append(f"{name} ({ticker}) {ed.month}/{ed.day}")
 
             # 종목 라인 구성
             header = f"{name} ({ticker}) · {industry} · {lights} {desc} · 점수 {adj_score:.1f}"
@@ -2124,11 +2124,14 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
         return None
 
 
-def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=None, risk_status=None, weighted_ranks=None):
+def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=None, risk_status=None, weighted_ranks=None, earnings_map=None):
     """포트폴리오 추천 — 3일 검증(✅) + 리스크 필터 통과 종목 + 가중 순위 정렬"""
     try:
         import re
         import yfinance as yf
+
+        if earnings_map is None:
+            earnings_map = {}
 
         if results_df is None or results_df.empty:
             return None
@@ -2197,22 +2200,11 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
                 flags.append("하향우세")
             if num_analysts < 3:
                 flags.append("저커버리지")
-            # 어닝 임박: 표시만 (포트폴리오 제외 안 함)
+            # 어닝 임박: 표시만 (포트폴리오 제외 안 함, earnings_map 활용)
             earnings_note = ""
-            try:
-                cal = yf.Ticker(t).calendar
-                if cal:
-                    eds = cal.get('Earnings Date', [])
-                    if not isinstance(eds, list):
-                        eds = [eds]
-                    for ed in eds:
-                        if hasattr(ed, 'date'):
-                            ed = ed.date()
-                        if today_date <= ed <= two_weeks:
-                            earnings_note = f" 📅어닝 {ed.month}/{ed.day}"
-                            break
-            except Exception:
-                pass
+            ed = earnings_map.get(t)
+            if ed and today_date <= ed <= two_weeks:
+                earnings_note = f" 📅어닝 {ed.month}/{ed.day}"
 
             if flags:
                 log(f"  ❌ {t}: {','.join(flags)} (gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')})")
@@ -2590,7 +2582,7 @@ def main():
 
     if not results_df.empty:
         # 매출+품질 수집 → rev_growth composite score + 12개 재무지표 DB 저장 (v33)
-        results_df = fetch_revenue_growth(results_df, today_str)
+        results_df, earnings_map = fetch_revenue_growth(results_df, today_str)
 
         # 가중순위 기반 Top 30 선정 + DB 저장
         today_tickers = save_part2_ranks(results_df, today_str) or []
@@ -2661,7 +2653,7 @@ def main():
 
         # [3/4] AI 리스크 필터
         biz_day = get_last_business_day()
-        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day, risk_status=risk_status)
+        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day, risk_status=risk_status, earnings_map=earnings_map)
         if msg_ai:
             if send_to_channel:
                 send_telegram_long(msg_ai, config, chat_id=channel_id)
@@ -2669,7 +2661,7 @@ def main():
             log(f"[3/4] AI 리스크 필터 전송 완료 → {dest}")
 
         # [4/4] 최종 추천
-        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day, risk_status=risk_status, weighted_ranks=weighted_ranks)
+        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day, risk_status=risk_status, weighted_ranks=weighted_ranks, earnings_map=earnings_map)
         if msg_portfolio:
             if send_to_channel:
                 send_telegram_long(msg_portfolio, config, chat_id=channel_id)
