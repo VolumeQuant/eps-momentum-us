@@ -40,6 +40,40 @@
 > **v35**: 2026-02-20 집 PC — 가중순위 기반 Top 30 선정: eligible 전체에서 T0×0.5+T1×0.3+T2×0.2로 Top 30 경계 결정, 과거 8일 DB 재계산
 > **v35.1**: 2026-02-20 집 PC — composite_rank 분리: DB에 composite_rank 컬럼 추가, 가중순위는 항상 composite에서 계산 (누적 방지)
 > **v35.2**: 2026-02-20 집 PC — 데이터 일관성 확보: rev_growth backfill + recalc_ranks composite_rank 저장 + 한국 프로젝트 교차 검증
+> **v35.3**: 2026-02-20 집 PC — 어닝 일정 수정: .calendar Rate Limit → .info earningsTimestamp 활용 + 장후(16시 ET) 발표 +1일 보정
+
+---
+
+## v35.3 — 어닝 일정 수정 (2026-02-20)
+
+### 배경
+- [3/4] AI 리스크 필터에서 "📅 어닝 주의: 해당 없음" — Top 30 전체 어닝 미감지
+- NVDA(2/26), NEM(2/20) 등 2주 내 어닝 종목이 있는데도 0건
+- 원인 1: `fetch_revenue_growth()`에서 861종목 `.info` 호출 후 Rate Limit → `.calendar` 30건 전부 실패 (except: pass가 에러 삼킴)
+- 원인 2: NEM `.info` earningsTimestamp가 2/19 16:00 ET (장후) → `.date()` 하면 2/19 → `today_date(2/20) <= 2/19` 실패
+
+### 변경 사항
+
+| 항목 | Before | After |
+|------|--------|-------|
+| 어닝 날짜 소스 | `.calendar` 별도 호출 (30건) | `.info` `earningsTimestamp` 활용 (추가 0건) |
+| 장후 보정 | 없음 | hour >= 16 ET → +1일 (시장 영향일 기준) |
+| 전달 방식 | 각 함수에서 yf.Ticker().calendar 직접 호출 | `earnings_map` dict로 run_ai_analysis/run_portfolio_recommendation에 전달 |
+| 결과 | 어닝 0종목 | **어닝 4종목** (NEM 2/20, NVDA 2/26, THO 3/3, DY 3/4) |
+
+### 핵심 코드
+```python
+# fetch_revenue_growth()에서 .info 수집 시 어닝 날짜도 추출
+ets = info.get('earningsTimestampEnd') or info.get('earningsTimestampStart') or info.get('earningsTimestamp')
+dt_et = datetime.fromtimestamp(ets, tz=ZoneInfo('America/New_York'))
+earn_date = dt_et.date()
+if dt_et.hour >= 16:  # 장후 발표 → 다음 거래일
+    earn_date += timedelta(days=1)
+earnings_map[t] = earn_date
+```
+
+### 변경 파일
+- `daily_runner.py` — fetch_revenue_growth() earnings_map 반환 + run_ai_analysis/run_portfolio_recommendation 파라미터 추가
 
 ---
 
