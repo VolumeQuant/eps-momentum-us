@@ -1347,10 +1347,16 @@ def get_market_context():
                     chg = (close / prev - 1) * 100
                     icon = "🟢" if chg > 0.5 else ("🔴" if chg < -0.5 else "🟡")
                     lines.append(f"{icon} {name}  {close:,.0f} ({chg:+.2f}%)")
-            except Exception:
+                else:
+                    log(f"시장 지수 {symbol}: 데이터 부족 ({len(hist)}행)", "WARN")
+            except Exception as e:
+                log(f"시장 지수 {symbol} 수집 실패: {e}", "WARN")
                 continue
+        if not lines:
+            log("시장 지수: 전부 수집 실패", "WARN")
         return lines
-    except Exception:
+    except Exception as e:
+        log(f"시장 지수 모듈 오류: {e}", "WARN")
         return []
 
 
