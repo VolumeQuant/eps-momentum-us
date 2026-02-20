@@ -39,6 +39,46 @@
 > **v34.2**: 2026-02-20 집 PC — [1/4] 다우존스 추가, [3/4] AI 지수 수치 반복 금지, 국내 가중치 개편(V45Q15G10M30, 공식 유지)
 > **v35**: 2026-02-20 집 PC — 가중순위 기반 Top 30 선정: eligible 전체에서 T0×0.5+T1×0.3+T2×0.2로 Top 30 경계 결정, 과거 8일 DB 재계산
 > **v35.1**: 2026-02-20 집 PC — composite_rank 분리: DB에 composite_rank 컬럼 추가, 가중순위는 항상 composite에서 계산 (누적 방지)
+> **v35.2**: 2026-02-20 집 PC — 데이터 일관성 확보: rev_growth backfill + recalc_ranks composite_rank 저장 + 한국 프로젝트 교차 검증
+
+---
+
+## v35.2 — 데이터 일관성 확보 (2026-02-20)
+
+### 배경 (v35.1 → v35.2)
+- v35.1 배포 후 텔레그램에 🆕 18개, 이탈 17개 — 비정상적 대규모 턴오버
+- **원인**: rev_growth가 2/6~2/18에 전부 NULL → rev 필터 미적용 → 2/19에만 적용되어 스코어링 공식 불일치
+- recalc_ranks.py에서 composite_rank를 DB에 저장하지 않아 가중순위 계산에 차질
+
+### 변경 사항
+
+| 항목 | Before | After |
+|------|--------|-------|
+| rev_growth (과거) | 2/6~2/18 전부 NULL | 2/19 값으로 backfill (870/913) |
+| recalc_ranks.py | part2_rank만 저장 | **composite_rank** 전체 eligible 저장 추가 |
+| 턴오버 | 🆕 18, 이탈 17 | 🆕 1(ADI), 이탈 1(CIEN) — 정상 |
+
+### rev_growth backfill 방법
+1. 2/19 날짜의 rev_growth 값을 전체 과거 날짜에 복사 (연간 매출성장률이라 변동 미미)
+2. 2/19에 없는 13개 티커를 yfinance에서 추가 수집
+3. migrate_weighted_ranks.py 재실행 → 전체 8일 part2_rank/composite_rank 재계산
+4. 결과: eligible 28~37개/일 (일관됨), 턴오버 정상화
+
+### 재무지표 (market_cap, roe 등) 결정
+- 과거 날짜: backfill 안 함 (시가총액 등은 매일 변하는 값 → 현재 값 소급 부적절)
+- 앞으로: daily_runner가 매일 전체 종목 자동 저장 (2/19부터 정상 작동 확인)
+- 순위 계산에 미사용 (adj_gap + rev_growth만 사용) → 영향 없음
+
+### 한국 프로젝트 교차 검증 결과
+- composite_rank 존재: 6개 JSON 전체 ✅
+- 가중순위 정확성: 15개 독립 검증 일치 ✅
+- 누적 방지: composite_rank(순수 점수)만 사용 ✅
+- 턴오버: 2~6종목/일 정상 ✅
+- ranking_manager.py + send_telegram_auto.py: composite_rank 사용 ✅
+
+### 변경 파일
+- `recalc_ranks.py` — composite_rank 저장 로직 추가
+- `eps_momentum_data.db` — rev_growth backfill + composite_rank 재계산
 
 ---
 
