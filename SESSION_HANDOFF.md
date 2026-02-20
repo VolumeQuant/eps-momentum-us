@@ -37,6 +37,42 @@
 > **v34**: 2026-02-19 집 PC — UX 대폭 개선: 읽는 법 각 메시지 상단 이동, 날씨 아이콘 설명, 아이콘 교체(🛡️→🚨🤖), [3/4] 어제 마감 집중, [4/4] Google Search Grounding으로 비즈니스 맥락 검색+비중요약 삭제+주의사항 정리+퍼널 간결화, 국내 프로젝트 동기화
 > **v34.1**: 2026-02-20 집 PC — 읽는 법 📖 가이드로 통합, yfinance Rate Limit 해결, 사계절 2줄 분리, HY/VIX 볼드+콜론, Gemini 서두 자동 제거, 국내 동기화(오늘의 메시지 목차 삭제)
 > **v34.2**: 2026-02-20 집 PC — [1/4] 다우존스 추가, [3/4] AI 지수 수치 반복 금지, 국내 가중치 개편(V45Q15G10M30, 공식 유지)
+> **v35**: 2026-02-20 집 PC — 가중순위 기반 Top 30 선정: eligible 전체에서 T0×0.5+T1×0.3+T2×0.2로 Top 30 경계 결정, 과거 8일 DB 재계산
+
+---
+
+## v35 — 가중순위 기반 Top 30 선정 (2026-02-20)
+
+### 배경
+- 기존: composite 순으로 Top 30 확정 → 가중순위는 표시/포트폴리오 정렬에만 사용
+- 문제: 어제 10위였던 종목이 하루 조정으로 32위 → Top 30 탈락. 가중순위로는 22.5위인데 빠져버림
+- 가중순위가 Top 30 경계에도 적용되어야 일관성 있음
+
+### 변경 사항
+
+| 항목 | Before | After |
+|------|--------|-------|
+| Top 30 선정 | composite 순 Top 30 | **가중순위 순 Top 30** |
+| eligible 범위 | Top 30만 | 전체 eligible (~50개) |
+| save_part2_ranks() | composite Top 30 저장 | 가중순위 Top 30 저장 + 티커 리턴 |
+| main flow | get_part2_candidates() 재호출 | save_part2_ranks() 리턴값 사용 |
+| 과거 데이터 | composite 기반 | 가중순위로 8일 재계산 |
+
+### 가중순위 공식
+```
+weighted_rank = composite_rank × 0.5 + prev_day_rank × 0.3 + prev2_day_rank × 0.2
+미등재 = PENALTY 50
+```
+
+### 효과
+- 하루 조정으로 갑자기 탈락하는 문제 완화
+- 꾸준히 상위권인 종목이 안정적으로 Top 30 유지
+- Top 30 경계 / 표시 순서 / 포트폴리오 선정이 모두 동일 기준
+
+### 변경 파일
+- `daily_runner.py` — `save_part2_ranks()` 전면 개편 + main flow 수정
+- `migrate_weighted_ranks.py` — 과거 8일 DB 재계산 스크립트
+- `eps_momentum_data.db` — 과거 part2_rank 가중순위로 업데이트
 
 ---
 
