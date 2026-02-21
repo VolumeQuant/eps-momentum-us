@@ -1057,9 +1057,9 @@ def get_rank_change_tags(today_tickers, weighted_ranks):
 
         # 실적축 — 실적 먼저 표시
         if score_delta >= SCORE_STD:
-            tag_parts.append('💪실적↑')
+            tag_parts.append('💪전망↑')
         elif score_delta <= -SCORE_STD:
-            tag_parts.append('⚠️실적↓')
+            tag_parts.append('⚠️전망↓')
 
         # 가격축 — 실제 주가 변동
         if price_chg_pct >= PRICE_STD:
@@ -1798,20 +1798,7 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
 
         name = row.get('short_name', ticker)
         tag = rank_change_tags.get(ticker, '') if marker != '🆕' else ''
-        # 단일 태그: 설명문 추가 / 복합 태그: 아이콘만
-        TAG_DESC = {
-            '📈가격↑': '가격이 올랐어요',
-            '📉가격↓': '가격이 내렸어요',
-            '💪실적↑': '실적이 좋아졌어요',
-            '⚠️실적↓': '실적이 나빠졌어요',
-        }
-        if tag and ' ' not in tag:
-            tag_suffix = f' {tag} {TAG_DESC.get(tag, "")}'.rstrip()
-        elif tag:
-            tag_suffix = f' {tag}'
-        else:
-            tag_suffix = ''
-        lines.append(f'{marker} <b>{rank}.</b> {name}({ticker}){tag_suffix}')
+        lines.append(f'{marker} <b>{rank}.</b> {name}({ticker})')
         lines.append(f'{industry} · {lights} {desc}')
         parts = []
         if pd.notna(eps_90d):
@@ -1835,7 +1822,8 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
                 rank_str = hist
             else:
                 rank_str = f'-→-→{rank}'
-        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
+        tag_suffix = f' ({tag})' if tag else ''
+        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}{tag_suffix}')
         lines.append('──────────────────')
 
     # 이탈 종목: 구분선 + 분류
