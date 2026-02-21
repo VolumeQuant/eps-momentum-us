@@ -1041,20 +1041,32 @@ def get_rank_change_tags(today_tickers, weighted_ranks):
         gap_delta = (t0.get('adj_gap') or 0) - (ref.get('adj_gap') or 0)
         score_delta = (t0.get('adj_score') or 0) - (ref.get('adj_score') or 0)
 
-        if rank_chg > 0:  # 순위 하락
-            if gap_delta >= GAP_DELTA_THRESHOLD:
-                tags[ticker] = '📈주가↑'
-            elif score_delta <= -SCORE_DELTA_THRESHOLD:
-                tags[ticker] = '📉모멘텀↓'
-            else:
-                tags[ticker] = '🔄상대변동'
-        else:  # 순위 상승
+        rank_improved = rank_chg < 0  # 순위 숫자↓ = 개선
+
+        # 순위 방향에 맞는 delta만 수집 (방향 일치 필터)
+        candidates = {}
+        if rank_improved:
+            # 순위 개선: gap↓(저평가 확대) 또는 score↑(모멘텀 가속)
             if gap_delta <= -GAP_DELTA_THRESHOLD:
-                tags[ticker] = '💡저평가↑'
-            elif score_delta >= SCORE_DELTA_THRESHOLD:
-                tags[ticker] = '📈모멘텀↑'
+                candidates['gap'] = abs(gap_delta) / GAP_DELTA_THRESHOLD
+            if score_delta >= SCORE_DELTA_THRESHOLD:
+                candidates['score'] = abs(score_delta) / SCORE_DELTA_THRESHOLD
+        else:
+            # 순위 하락: gap↑(주가 반영) 또는 score↓(모멘텀 둔화)
+            if gap_delta >= GAP_DELTA_THRESHOLD:
+                candidates['gap'] = abs(gap_delta) / GAP_DELTA_THRESHOLD
+            if score_delta <= -SCORE_DELTA_THRESHOLD:
+                candidates['score'] = abs(score_delta) / SCORE_DELTA_THRESHOLD
+
+        if not candidates:
+            tags[ticker] = '🔄상대변동'
+        else:
+            # 정규화 delta(|delta|/threshold) 가장 큰 팩터 = 지배적 원인
+            dominant = max(candidates, key=candidates.get)
+            if rank_improved:
+                tags[ticker] = '💡저평가↑' if dominant == 'gap' else '📈모멘텀↑'
             else:
-                tags[ticker] = '🔄상대변동'
+                tags[ticker] = '📈주가↑' if dominant == 'gap' else '📉모멘텀↓'
 
     tag_count = sum(1 for v in tags.values() if v)
     log(f"순위 변동 태그: {tag_count}개 종목 (임계값: rank±{RANK_THRESHOLD}, gap±{GAP_DELTA_THRESHOLD}, score±{SCORE_DELTA_THRESHOLD})")
