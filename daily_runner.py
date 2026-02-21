@@ -960,7 +960,7 @@ def compute_weighted_ranks(today_tickers):
 def get_rank_change_tags(today_tickers, weighted_ranks):
     """순위 변동 원인 태그 — 2축 독립 판정 (v36.4)
 
-    가격축(adj_gap)과 실적축(adj_score)을 독립적으로 판정.
+    가격축(실제 주가 변동%)과 실적축(adj_score 변동)을 독립적으로 판정.
     각 축의 일간 변동 표준편차(1.0σ) 기준으로 임계값 설정.
     둘 다 해당하면 둘 다 표시. |순위변동| < 3이면 태그 없음.
 
@@ -970,8 +970,8 @@ def get_rank_change_tags(today_tickers, weighted_ranks):
     """
     RANK_THRESHOLD = 3
     # 1.0σ 기반 임계값 (7일 데이터 기준, 데이터 축적 후 업데이트)
-    GAP_STD = 3.96
-    SCORE_STD = 1.48
+    PRICE_STD = 2.83   # 주가 일간 수익률 σ (%)
+    SCORE_STD = 1.48   # adj_score 일간 변동 σ
     PENALTY = 50
 
     if not weighted_ranks:
@@ -993,15 +993,15 @@ def get_rank_change_tags(today_tickers, weighted_ranks):
     t1_date = dates[1]
     t2_date = dates[2] if len(dates) >= 3 else None
 
-    # 각 날짜별 메트릭 조회
+    # 각 날짜별 메트릭 조회 (price + adj_score)
     metric_by_date = {}
     for d in dates:
         cursor.execute(
-            'SELECT ticker, adj_gap, adj_score FROM ntm_screening '
+            'SELECT ticker, price, adj_score FROM ntm_screening '
             'WHERE date=? AND composite_rank IS NOT NULL',
             (d,)
         )
-        metric_by_date[d] = {r[0]: {'adj_gap': r[1], 'adj_score': r[2]} for r in cursor.fetchall()}
+        metric_by_date[d] = {r[0]: {'price': r[1], 'adj_score': r[2]} for r in cursor.fetchall()}
 
     conn.close()
 
@@ -1041,28 +1041,36 @@ def get_rank_change_tags(today_tickers, weighted_ranks):
         t0 = today_data.get(ticker, {})
         ref = ref_data.get(ticker, {})
 
-        gap_delta = (t0.get('adj_gap') or 0) - (ref.get('adj_gap') or 0)
+        # 가격축: 실제 주가 변동률 (%)
+        p0 = t0.get('price')
+        p_ref = ref.get('price')
+        if p0 and p_ref and p_ref > 0:
+            price_chg_pct = (p0 - p_ref) / p_ref * 100
+        else:
+            price_chg_pct = 0
+
+        # 실적축: adj_score 변동
         score_delta = (t0.get('adj_score') or 0) - (ref.get('adj_score') or 0)
 
         # 2축 독립 판정: 각 축별 1.0σ 초과 여부
         tag_parts = []
 
-        # 실적축 (adj_score) — 실적 먼저 표시
+        # 실적축 — 실적 먼저 표시
         if score_delta >= SCORE_STD:
             tag_parts.append('💪실적↑')
         elif score_delta <= -SCORE_STD:
             tag_parts.append('⚠️실적↓')
 
-        # 가격축 (adj_gap)
-        if gap_delta >= GAP_STD:
+        # 가격축 — 실제 주가 변동
+        if price_chg_pct >= PRICE_STD:
             tag_parts.append('📈가격↑')
-        elif gap_delta <= -GAP_STD:
+        elif price_chg_pct <= -PRICE_STD:
             tag_parts.append('📉가격↓')
 
         tags[ticker] = ' '.join(tag_parts)
 
     tag_count = sum(1 for v in tags.values() if v)
-    log(f"순위 변동 태그: {tag_count}개 종목 (1.0σ 기준: gap±{GAP_STD}, score±{SCORE_STD})")
+    log(f"순위 변동 태그: {tag_count}개 종목 (1.0σ 기준: price±{PRICE_STD}%, score±{SCORE_STD})")
     return tags
 
 
