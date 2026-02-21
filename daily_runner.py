@@ -1724,12 +1724,16 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
     return '\n'.join(lines)
 
 
-def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30, risk_status=None, weighted_ranks=None, rank_change_tags=None):
+def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30, risk_status=None, weighted_ranks=None, rank_change_tags=None, today_tickers=None):
     """[2/4] 매수 후보 — 가중 순위(T0×0.5+T1×0.3+T2×0.2) 정렬, ✅/⏳/🆕 표시, 이탈 사유"""
     import pandas as pd
     from collections import Counter
 
-    filtered = get_part2_candidates(df, top_n=top_n)
+    # DB의 가중순위 Top 30과 동일한 목록 사용 (표시≠DB 불일치 방지)
+    if today_tickers:
+        filtered = df[df['ticker'].isin(today_tickers)].copy()
+    else:
+        filtered = get_part2_candidates(df, top_n=top_n)
     count = len(filtered)
 
     if status_map is None:
@@ -2642,6 +2646,7 @@ def main():
     weighted_ranks = {}
     rank_change_tags = {}
     exited_tickers = []
+    today_tickers = []
 
     # 2.5. 시장 지수 수집 (yfinance rate limit 전에 먼저)
     market_lines = get_market_context()
@@ -2679,7 +2684,7 @@ def main():
 
     # 3. 메시지 생성
     msg_market = create_market_message(results_df, market_lines, risk_status=risk_status) if not results_df.empty else None
-    msg_candidates = create_candidates_message(results_df, status_map, exited_tickers, rank_history, risk_status=risk_status, weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags) if not results_df.empty else None
+    msg_candidates = create_candidates_message(results_df, status_map, exited_tickers, rank_history, risk_status=risk_status, weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags, today_tickers=today_tickers) if not results_df.empty else None
 
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()
