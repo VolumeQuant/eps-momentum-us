@@ -48,6 +48,37 @@
 > **v36.2**: 2026-02-21 집 PC — 표시/DB 불일치 수정: create_candidates_message가 composite Top 30 표시 vs save_part2_ranks가 weighted Top 30 DB 저장 → 최대 8종목 불일치(유령 상태). today_tickers 전달로 통일
 > **v36.3**: 2026-02-21 집 PC — 태그 방향 일치 + 지배적 팩터: gap 우선순위 제거, 순위 방향에 맞는 delta만 수집 → 정규화(|delta|/threshold) 최대 팩터 선택
 > **v36.6**: 2026-02-21 집 PC — 방향 필터 제거(상태 표시 전환) + 매매 규칙 백테스트(Top5 진입+Top30 이탈+최대 보유 제한)
+> **v37**: 2026-02-21 집 PC — [4/4] 포트폴리오 시장 연동: portfolio_mode(normal/caution/reduced/stop) 도입, 매수 중단 시 추천 안 함
+
+---
+
+## v37 — [4/4] 포트폴리오 시장 상황 연동 (2026-02-21)
+
+### 배경
+- 한국 프로젝트에서 발견한 모순: final_action이 "매수 중단"이면서 [4/4]에서 Top 5 추천
+- `run_portfolio_recommendation()`이 `final_action` 내용을 완전히 무시하고 항상 Top 5 표시
+
+### portfolio_mode (14케이스 → 4모드)
+
+| 모드 | 표시 | 해당 시장 |
+|---|---|---|
+| `normal` | Top 5 정상 | Q1(봄), Q2+VIX안정 |
+| `caution` | Top 5 + ⚠️ 경고 | Q2+VIX경계, Q3(가을) |
+| `reduced` | Top 3 축소 | Q4>60d+VIX안정 (바닥 분할매수) |
+| `stop` | 추천 안 함, 매수 중단 메시지 | Q3+VIX경계, Q4≤60d, Q4>60d+VIX경계 |
+
+### 변경 사항
+1. `get_market_risk_status()`: return dict에 `portfolio_mode` 추가
+2. `run_portfolio_recommendation()`:
+   - `stop`: Top 5 대신 "🚫 신규 매수 중단" + final_action + "Top 30 이탈 시 매도" 안내
+   - `reduced`: `safe[:3]`으로 Top 3만 선정 + "겨울 후기 분할 매수" 안내
+   - `caution`: Top 5 + ⚠️ 경고 배너(final_action 포함)
+   - `normal`: 기존 그대로
+
+### 핵심 원칙
+- **종목 레벨 매도** = Top 30 이탈 (Death List)
+- **시스템 레벨 매수 중단** = portfolio_mode=stop (시장 위험)
+- 둘 다 있어야 매도/매수 신호가 완전
 
 ---
 

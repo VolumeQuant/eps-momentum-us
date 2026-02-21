@@ -1435,13 +1435,31 @@ def get_market_risk_status():
         else:
             final_action = '평소대로 투자하세요.'
 
-    log(f"Concordance: {concordance} (q_days={hy.get('q_days', 'N/A') if hy else 'N/A'}) → {final_action}")
+    # portfolio_mode: 시장 상황에 따른 [4/4] 포트폴리오 표시 방식
+    # normal: Top 5 정상 | caution: Top 5 + 경고 | reduced: Top 3 | stop: 추천 안 함
+    if hy and q:
+        if q == 'Q1':
+            portfolio_mode = 'normal'
+        elif q == 'Q2':
+            portfolio_mode = 'normal' if vix_ok else 'caution'
+        elif q == 'Q3':
+            portfolio_mode = 'stop' if not vix_ok else 'caution'
+        else:  # Q4
+            if q_days <= 60:
+                portfolio_mode = 'stop'
+            else:
+                portfolio_mode = 'reduced' if vix_ok else 'stop'
+    else:
+        portfolio_mode = 'caution' if vix and vix_dir == 'warn' else 'normal'
+
+    log(f"Concordance: {concordance} (q_days={hy.get('q_days', 'N/A') if hy else 'N/A'}) → {final_action} [portfolio: {portfolio_mode}]")
 
     return {
         'hy': hy,
         'vix': vix,
         'concordance': concordance,
         'final_action': final_action,
+        'portfolio_mode': portfolio_mode,
     }
 
 
@@ -2420,7 +2438,31 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             if excluded > 0:
                 log(f"L3 시장 동결: both_warn — 신규 진입 {excluded}개 제외 (기존 ✅만 유지)")
 
-        selected = safe[:5]
+        portfolio_mode = risk_status.get('portfolio_mode', 'normal') if risk_status else 'normal'
+
+        # stop 모드: 추천 안 함 — 매수 중단 메시지만 표시
+        if portfolio_mode == 'stop':
+            log(f"포트폴리오: portfolio_mode=stop → 추천 중단 ({final_action})")
+            lines = [
+                '━━━━━━━━━━━━━━━━━━━',
+                '   [4/4] 🎯 최종 추천',
+                '━━━━━━━━━━━━━━━━━━━',
+                f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
+                '',
+                '🚫 <b>신규 매수 중단</b>',
+                '',
+                final_action,
+                '',
+                '기존 보유 종목은 Top 30 이탈 시 매도하세요.',
+                '<i>시장 안정 후 추천을 재개합니다.</i>',
+            ]
+            return '\n'.join(lines)
+
+        # reduced 모드: Top 3만 (겨울 후기 분할 매수)
+        if portfolio_mode == 'reduced':
+            selected = safe[:3]
+        else:
+            selected = safe[:5]
 
         if len(selected) < 3:
             log("포트폴리오: 선정 종목 부족", "WARN")
@@ -2637,6 +2679,13 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             warnings.append(f'테크/반도체 {tech_count}/{len(selected)}종목 집중 — 동반 하락 리스크')
         elif concentrated:
             warnings.append(f'업종 집중: {", ".join(concentrated)} — 분산 점검')
+
+        # caution 모드: 시장 주의 경고
+        if portfolio_mode == 'caution':
+            warnings.append(f'시장 주의 — {final_action}')
+        # reduced 모드: 분할 매수 안내
+        if portfolio_mode == 'reduced':
+            warnings.append('겨울 후기 분할 매수 — Top 3 축소 추천')
 
         if warnings:
             lines.append('')
