@@ -1826,19 +1826,17 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
         lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}{tag_suffix}')
         lines.append('──────────────────')
 
-    # 이탈 종목: 구분선 + 분류
+    # 이탈 종목: Top 30과 동일 포맷으로 표시
     if exited_tickers:
         all_eligible = get_part2_candidates(df)
         current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
         sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
-        name_map = dict(zip(df['ticker'], df.get('short_name', df['ticker'])))
         full_data = {row['ticker']: row for _, row in df.iterrows()}
 
         # 이탈 분류: 목표달성(괴리+만) vs 펀더멘탈 악화
-        achieved = []  # ✅ 주가가 EPS 상향분 반영
-        degraded = []  # ⚠️ 펀더멘탈 악화
+        achieved = []  # (ticker, prev_rank, reasons)
+        degraded = []
         for t, prev_rank in sorted_exits:
-            t_name = name_map.get(t, t)
             cur_rank = current_rank_map.get(t)
             reasons = []
             if t in full_data:
@@ -1855,29 +1853,53 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
                 reasons.append('순위↓')
             if not reasons:
                 reasons.append('순위↓')
-            reason_tag = ' '.join(f'[{r}]' for r in reasons)
-            rank_info = f'{prev_rank}위→{cur_rank}위' if cur_rank else f'{prev_rank}위→탈락'
-            line = f'{t_name}({t}) · {rank_info} {reason_tag}'
 
-            # 괴리+만 있으면 목표달성, 나머지는 악화
             if reasons == ['괴리+']:
-                achieved.append(line)
+                achieved.append((t, prev_rank, cur_rank, reasons))
             else:
-                degraded.append(line)
+                degraded.append((t, prev_rank, cur_rank, reasons))
+
+        def _render_exit_block(exit_list):
+            """이탈 종목을 Top 30과 동일 포맷으로 렌더링"""
+            for t, prev_rank, cur_rank, reasons in exit_list:
+                row = full_data.get(t, {})
+                name = row.get('short_name', t) if isinstance(row, dict) else (row.get('short_name', t) if hasattr(row, 'get') else t)
+                industry = row.get('industry', '') if hasattr(row, 'get') else ''
+                lights = row.get('trend_lights', '') if hasattr(row, 'get') else ''
+                desc = row.get('trend_desc', '') if hasattr(row, 'get') else ''
+                eps_90d = row.get('eps_change_90d') if hasattr(row, 'get') else None
+                rev_g = row.get('rev_growth') if hasattr(row, 'get') else None
+                rev_up = int(row.get('rev_up30', 0) or 0) if hasattr(row, 'get') else 0
+                rev_down = int(row.get('rev_down30', 0) or 0) if hasattr(row, 'get') else 0
+                tag = rank_change_tags.get(t, '')
+
+                lines.append(f'{name}({t})')
+                lines.append(f'{industry} · {lights} {desc}')
+                parts = []
+                if eps_90d is not None and pd.notna(eps_90d):
+                    parts.append(f'EPS {eps_90d:+.0f}%')
+                if rev_g is not None and pd.notna(rev_g):
+                    parts.append(f'매출 {rev_g*100:+.0f}%')
+                if parts:
+                    lines.append(' · '.join(parts))
+
+                rank_info = f'{prev_rank}→{cur_rank}' if cur_rank else f'{prev_rank}→탈락'
+                reason_tag = ' '.join(f'[{r}]' for r in reasons)
+                tag_suffix = f' ({tag})' if tag else ''
+                lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_info} {reason_tag}{tag_suffix}')
+                lines.append('──────────────────')
 
         lines.append('')
         lines.append('📉 <b>이탈 종목</b>')
         lines.append('─────────────────')
         if achieved:
             lines.append(f'✅ <b>목표 달성</b> ({len(achieved)}개) — 수익 실현 검토')
-            for a in achieved:
-                lines.append(f'  {a}')
+            _render_exit_block(achieved)
         if degraded:
             if achieved:
                 lines.append('')
             lines.append(f'⚠️ <b>펀더멘탈 악화</b> ({len(degraded)}개) — 매도 검토')
-            for d in degraded:
-                lines.append(f'  {d}')
+            _render_exit_block(degraded)
 
     lines.append('─────────────────')
     lines.append('👉 다음: AI 리스크 필터 [3/4]')
@@ -1939,7 +1961,7 @@ def create_system_log_message(stats, elapsed, config):
 # AI 리스크 체크 (Gemini 2.5 Flash + Google Search)
 # ============================================================
 
-def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk_status=None, earnings_map=None):
+def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk_status=None, earnings_map=None, rank_change_tags=None, exited_tickers=None, weighted_ranks=None):
     """[3/4] AI 브리핑 — 정량 위험 신호 + 시장 환경 기반 리스크 해석"""
     api_key = config.get('gemini_api_key', '')
     if not api_key:
@@ -1961,6 +1983,12 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
 
         if earnings_map is None:
             earnings_map = {}
+        if rank_change_tags is None:
+            rank_change_tags = {}
+        if exited_tickers is None:
+            exited_tickers = {}
+        if weighted_ranks is None:
+            weighted_ranks = {}
 
         # Part 2 종목 추출 + 위험 신호 수집
         if results_df is None or results_df.empty:
@@ -2019,9 +2047,25 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
                 flags.append(f"📅 어닝 {ed.month}/{ed.day}")
                 earnings_tickers.append(f"{name} ({ticker}) {ed.month}/{ed.day}")
 
+            # 순위 이력 + 태그
+            w_info = weighted_ranks.get(ticker)
+            if w_info:
+                r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
+                r2_s = str(r2) if r2 < 50 else '-'
+                r1_s = str(r1) if r1 < 50 else '-'
+                rank_str = f'{r2_s}→{r1_s}→{r0}'
+            else:
+                rank_str = ''
+            tag = rank_change_tags.get(ticker, '')
+            rank_tag_info = ''
+            if rank_str:
+                rank_tag_info = f" · 순위 {rank_str}"
+                if tag:
+                    rank_tag_info += f" ({tag})"
+
             # 종목 라인 구성
             header = f"{name} ({ticker}) · {industry} · {lights} {desc} · 점수 {adj_score:.1f}"
-            header += f"\n  EPS {eps_chg:+.1f}% / 주가 {price_chg:+.1f}% · 애널리스트 의견 ↑{rev_up} ↓{rev_down} · Fwd PE {fwd_pe:.1f}"
+            header += f"\n  EPS {eps_chg:+.1f}% / 주가 {price_chg:+.1f}% · 애널리스트 의견 ↑{rev_up} ↓{rev_down} · Fwd PE {fwd_pe:.1f}{rank_tag_info}"
 
             if flags:
                 header += "\n  " + " | ".join(flags)
@@ -2031,7 +2075,36 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
         signals_data = '\n\n'.join(signal_lines)
         earnings_info = ' · '.join(earnings_tickers) if earnings_tickers else '해당 없음'
 
-        log(f"위험 신호 수집 완료: {stock_count}종목, 어닝 {len(earnings_tickers)}종목")
+        # 이탈 종목 데이터 구성
+        exit_lines = []
+        if exited_tickers:
+            all_eligible = get_part2_candidates(results_df)
+            exit_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
+            full_data = {row['ticker']: row for _, row in results_df.iterrows()}
+            for t, prev_rank in sorted(exited_tickers.items(), key=lambda x: x[1]):
+                cur_rank = exit_rank_map.get(t)
+                r = full_data.get(t, {})
+                t_name = r.get('short_name', t) if hasattr(r, 'get') else t
+                reasons = []
+                if hasattr(r, 'get'):
+                    if (r.get('price', 0) or 0) < (r.get('ma60', 0) or 0) and (r.get('ma60', 0) or 0) > 0:
+                        reasons.append('MA60↓')
+                    if (r.get('adj_gap', 0) or 0) > 0:
+                        reasons.append('괴리+')
+                    if (r.get('adj_score', 0) or 0) <= 9:
+                        reasons.append('점수↓')
+                    if (r.get('eps_change_90d', 0) or 0) <= 0:
+                        reasons.append('EPS↓')
+                if not reasons:
+                    reasons.append('순위↓')
+                category = '✅ 목표달성' if reasons == ['괴리+'] else '⚠️ 펀더멘탈악화'
+                rank_info = f'{prev_rank}→{cur_rank}' if cur_rank else f'{prev_rank}→탈락'
+                tag = rank_change_tags.get(t, '')
+                tag_str = f' ({tag})' if tag else ''
+                exit_lines.append(f"{category}: {t_name} ({t}) · 순위 {rank_info} · 사유 {', '.join(reasons)}{tag_str}")
+        exit_data = '\n'.join(exit_lines) if exit_lines else '이탈 종목 없음'
+
+        log(f"위험 신호 수집 완료: {stock_count}종목, 어닝 {len(earnings_tickers)}종목, 이탈 {len(exit_lines)}종목")
 
         # #3: 시장 환경 컨텍스트 구성
         market_env = ""
@@ -2065,13 +2138,23 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
 📉 저커버리지 = 커버리지 애널리스트 3명 미만 (추정치 신뢰도 낮음)
 📅 어닝 = 2주 내 실적 발표 예정 (발표 전후 변동성 주의)
 
+[순위 변동 태그 설명]
+📈가격↑ = 주가가 1σ(2.83%) 이상 상승 → 순위 하락 원인이 가격 반영이면 양호한 신호
+📉가격↓ = 주가가 1σ 이상 하락
+💪전망↑ = EPS 전망(adj_score)이 1σ(1.48) 이상 상승
+⚠️전망↓ = EPS 전망이 1σ 이상 하락 → 펀더멘탈 악화 주의
+순위: A→B→C = T-2→T-1→오늘 composite_rank 이력
+
+[이탈 종목 — 어제 Top 30에서 오늘 빠진 종목]
+{exit_data}
+
 [출력 규칙]
 - 한국어, 친절하고 따뜻한 말투 (~예요/~해요 체)
 - 딱딱한 보고서 말투 금지. 친구에게 설명하듯 자연스럽게.
-- 인사말, 서두, 맺음말 금지. 아래 3개 섹션만 출력.
-- 총 1500자 이내.
+- 인사말, 서두, 맺음말 금지. 아래 4개 섹션만 출력.
+- 총 2000자 이내.
 
-=== 반드시 출력할 3개 섹션 ===
+=== 반드시 출력할 4개 섹션 ===
 
 📰 시장 동향
 (필수) {biz_str} 미국 시장 마감 결과를 Google 검색해서 2~3줄로 요약해줘. 이 섹션은 반드시 출력해야 해.
@@ -2093,6 +2176,13 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
 [SEP]
 **XYZ Inc(XYZ)**
 커버리지 애널리스트가 2명뿐이라 추정치를 100% 믿기 어려워요.
+
+📉 이탈 종목
+위 [이탈 종목] 데이터를 참고해서 이탈 사유를 1~2줄로 해석해줘.
+- ✅ 목표달성(괴리+): "주가가 EPS 상향분을 충분히 반영했어요. 수익 실현 타이밍이에요." 식으로 긍정적 해석.
+- ⚠️ 펀더멘탈악화: 구체적 사유(MA60 이탈, 점수 하락, EPS 둔화)를 언급하며 주의 환기.
+- 이탈 종목이 없으면 "✅ 오늘 이탈 종목이 없어요." 한 줄만 출력해.
+- 순위 태그(📈가격↑ 등)가 있으면 참고해서 원인을 설명해줘.
 
 📅 어닝 주의
 {earnings_info}
@@ -2657,7 +2747,7 @@ def main():
     rank_history = {}
     weighted_ranks = {}
     rank_change_tags = {}
-    exited_tickers = []
+    exited_tickers = {}
     today_tickers = []
 
     # 2.5. 시장 지수 수집 (yfinance rate limit 전에 먼저)
@@ -2739,7 +2829,7 @@ def main():
 
         # [3/4] AI 리스크 필터
         biz_day = get_last_business_day()
-        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day, risk_status=risk_status, earnings_map=earnings_map)
+        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day, risk_status=risk_status, earnings_map=earnings_map, rank_change_tags=rank_change_tags, exited_tickers=exited_tickers, weighted_ranks=weighted_ranks)
         if msg_ai:
             if send_to_channel:
                 send_telegram_long(msg_ai, config, chat_id=channel_id)
