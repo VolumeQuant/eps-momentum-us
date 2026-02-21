@@ -957,6 +957,98 @@ def compute_weighted_ranks(today_tickers):
     return result
 
 
+def get_rank_change_tags(today_tickers, weighted_ranks):
+    """순위 변동 원인 태그 — composite_rank T-1 대비 T0 변화 분석
+
+    adj_gap 변동(주가↑/저평가↑) → adj_score 변동(모멘텀) → 상대변동 우선순위로 판정.
+    Returns: {ticker: tag_str} — tag_str은 '' 또는 '📈주가↑' 등
+    """
+    RANK_THRESHOLD = 3
+    GAP_DELTA_THRESHOLD = 3.0
+    SCORE_DELTA_THRESHOLD = 1.5
+
+    if not weighted_ranks:
+        return {}
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # 최근 2일 날짜
+    cursor.execute(
+        'SELECT DISTINCT date FROM ntm_screening WHERE composite_rank IS NOT NULL ORDER BY date DESC LIMIT 2'
+    )
+    dates = [r[0] for r in cursor.fetchall()]
+    if len(dates) < 2:
+        conn.close()
+        return {}
+
+    today_date, yesterday_date = dates[0], dates[1]
+
+    # 어제 메트릭
+    cursor.execute(
+        'SELECT ticker, adj_gap, adj_score FROM ntm_screening '
+        'WHERE date=? AND composite_rank IS NOT NULL',
+        (yesterday_date,)
+    )
+    yesterday_data = {r[0]: {'adj_gap': r[1], 'adj_score': r[2]} for r in cursor.fetchall()}
+
+    # 오늘 메트릭
+    cursor.execute(
+        'SELECT ticker, adj_gap, adj_score FROM ntm_screening '
+        'WHERE date=? AND composite_rank IS NOT NULL',
+        (today_date,)
+    )
+    today_data = {r[0]: {'adj_gap': r[1], 'adj_score': r[2]} for r in cursor.fetchall()}
+
+    conn.close()
+
+    tags = {}
+    for ticker in today_tickers:
+        w_info = weighted_ranks.get(ticker)
+        if not w_info:
+            tags[ticker] = ''
+            continue
+
+        r0 = w_info.get('r0', 50)
+        r1 = w_info.get('r1', 50)
+
+        # 신규 진입(r1=PENALTY)이면 태그 없음
+        if r1 >= 50:
+            tags[ticker] = ''
+            continue
+
+        rank_chg = r0 - r1  # 양수 = 순위↓, 음수 = 순위↑
+
+        if abs(rank_chg) < RANK_THRESHOLD:
+            tags[ticker] = ''
+            continue
+
+        t0 = today_data.get(ticker, {})
+        t1 = yesterday_data.get(ticker, {})
+
+        gap_delta = (t0.get('adj_gap') or 0) - (t1.get('adj_gap') or 0)
+        score_delta = (t0.get('adj_score') or 0) - (t1.get('adj_score') or 0)
+
+        if rank_chg > 0:  # 순위 하락
+            if gap_delta >= GAP_DELTA_THRESHOLD:
+                tags[ticker] = '📈주가↑'
+            elif score_delta <= -SCORE_DELTA_THRESHOLD:
+                tags[ticker] = '📉모멘텀↓'
+            else:
+                tags[ticker] = '🔄상대변동'
+        else:  # 순위 상승
+            if gap_delta <= -GAP_DELTA_THRESHOLD:
+                tags[ticker] = '💡저평가↑'
+            elif score_delta >= SCORE_DELTA_THRESHOLD:
+                tags[ticker] = '📈모멘텀↑'
+            else:
+                tags[ticker] = '🔄상대변동'
+
+    tag_count = sum(1 for v in tags.values() if v)
+    log(f"순위 변동 태그: {tag_count}개 종목 (임계값: rank±{RANK_THRESHOLD}, gap±{GAP_DELTA_THRESHOLD}, score±{SCORE_DELTA_THRESHOLD})")
+    return tags
+
+
 def get_daily_changes(today_tickers):
     """어제 대비 리스트 변동 — 신규 진입 / 이탈 종목 (단순 set 비교)"""
     conn = sqlite3.connect(DB_PATH)
@@ -1620,7 +1712,7 @@ def create_market_message(df, market_lines=None, risk_status=None, top_n=30):
     return '\n'.join(lines)
 
 
-def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30, risk_status=None, weighted_ranks=None):
+def create_candidates_message(df, status_map=None, exited_tickers=None, rank_history=None, top_n=30, risk_status=None, weighted_ranks=None, rank_change_tags=None):
     """[2/4] 매수 후보 — 가중 순위(T0×0.5+T1×0.3+T2×0.2) 정렬, ✅/⏳/🆕 표시, 이탈 사유"""
     import pandas as pd
     from collections import Counter
@@ -1636,6 +1728,8 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
         rank_history = {}
     if weighted_ranks is None:
         weighted_ranks = {}
+    if rank_change_tags is None:
+        rank_change_tags = {}
 
     # 가중 순위로 정렬 (없으면 composite 순 유지)
     if weighted_ranks:
@@ -1698,7 +1792,9 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
                 rank_str = hist
             else:
                 rank_str = f'-→-→{rank}'
-        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
+        tag = rank_change_tags.get(ticker, '')
+        tag_suffix = f' {tag}' if tag else ''
+        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}{tag_suffix}')
         lines.append('──────────────────')
 
     # 이탈 종목: 구분선 + 분류
@@ -2532,6 +2628,7 @@ def main():
     status_map = {}
     rank_history = {}
     weighted_ranks = {}
+    rank_change_tags = {}
     exited_tickers = []
 
     # 2.5. 시장 지수 수집 (yfinance rate limit 전에 먼저)
@@ -2549,6 +2646,7 @@ def main():
         status_map = get_3day_status(today_tickers)
         rank_history = get_rank_history(today_tickers)
         weighted_ranks = compute_weighted_ranks(today_tickers)
+        rank_change_tags = get_rank_change_tags(today_tickers, weighted_ranks)
         _, exited_tickers = get_daily_changes(today_tickers)
 
     stats['exited_count'] = len(exited_tickers) if exited_tickers else 0
@@ -2569,7 +2667,7 @@ def main():
 
     # 3. 메시지 생성
     msg_market = create_market_message(results_df, market_lines, risk_status=risk_status) if not results_df.empty else None
-    msg_candidates = create_candidates_message(results_df, status_map, exited_tickers, rank_history, risk_status=risk_status, weighted_ranks=weighted_ranks) if not results_df.empty else None
+    msg_candidates = create_candidates_message(results_df, status_map, exited_tickers, rank_history, risk_status=risk_status, weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags) if not results_df.empty else None
 
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()

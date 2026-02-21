@@ -53,8 +53,8 @@ def get_eligible_tickers_with_ranks(cursor, date_str):
 
         gaps = [g for _, g, _ in filtered]
         revs = [r for _, _, r in filtered]
-        gap_mean, gap_std = np.mean(gaps), np.std(gaps)
-        rev_mean, rev_std = np.mean(revs), np.std(revs)
+        gap_mean, gap_std = np.mean(gaps), np.std(gaps, ddof=1)
+        rev_mean, rev_std = np.mean(revs), np.std(revs, ddof=1)
 
         if gap_std > 0 and rev_std > 0:
             scored = []

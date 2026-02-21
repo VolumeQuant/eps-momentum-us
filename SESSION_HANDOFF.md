@@ -43,6 +43,42 @@
 > **v35.3**: 2026-02-20 집 PC — 어닝 일정 수정: .calendar Rate Limit → .info earningsTimestamp 활용 + 장후(16시 ET) 발표 +1일 보정
 > **v35.4**: 2026-02-20 집 PC — 데이터 보호 캐시 경로 rev_growth 누락 수정: 재수집 스킵 시 part2_rank 0건 버그
 > **v35.5**: 2026-02-21 집 PC — 종합 감사: 데이터 보호 모드 제거, today_str 단일화, exit 가격 버그 수정(어제종가→퇴출일종가), DB 백필 복구, 버전 v31 표기
+> **v36**: 2026-02-21 집 PC — 순위 변동 원인 태그: get_rank_change_tags() 신규, [2/4] 순위 줄에 📈주가↑/💡저평가↑/📉모멘텀↓/📈모멘텀↑/🔄상대변동 태그 표시 + migrate_weighted_ranks.py ddof=1 통일
+
+---
+
+## v36 — 순위 변동 원인 태그 + ddof 통일 (2026-02-21)
+
+### 배경
+- LITE(EPS +79%, 매출 +66%)가 순위 4→14로 떨어지는데 이유가 안 보임
+- 실제 원인: 주가 상승 → adj_gap 양수 전환 → composite score 하락
+- 구독자가 "펀더멘탈 좋은데 왜 떨어지지?" 혼란 발생
+
+### 구현
+- `get_rank_change_tags(today_tickers, weighted_ranks)`: T-1 vs T0 composite_rank 변동 분석
+- DB에서 어제/오늘 adj_gap, adj_score 조회 → 변동량 비교
+- 판정 우선순위: adj_gap(70% 가중치) → adj_score → 상대변동
+- 임계값: |Δrank| ≥ 3, adj_gap Δ ≥ 3pp, adj_score Δ ≥ 1.5pt
+
+### 태그 5종
+| 태그 | 의미 | 조건 |
+|---|---|---|
+| 📈주가↑ | 주가가 EPS 반영 (보유자 긍정) | 순위↓ + adj_gap 3pp↑ |
+| 💡저평가↑ | 저평가 확대 (매수 기회) | 순위↑ + adj_gap 3pp↓ |
+| 📉모멘텀↓ | EPS 추세 둔화 | 순위↓ + adj_score 1.5pt↓ |
+| 📈모멘텀↑ | EPS 추세 가속 | 순위↑ + adj_score 1.5pt↑ |
+| 🔄상대변동 | 풀 구성 변화 | 위 조건 해당 없음 |
+
+### ddof 통일
+- migrate_weighted_ranks.py: `np.std(gaps)` → `np.std(gaps, ddof=1)`
+- daily_runner.py의 `pd.Series.std()` (ddof=1)와 일치시킴
+- N=34일 때 ~1.5% 차이 해소
+
+### 검증 결과 (2026-02-20 데이터)
+- 30종목 중 11개에 태그 표시
+- LITE(11→14): 📈주가↑, TTMI(25→30): 📈주가↑
+- ANET(6→3): 💡저평가↑
+- SNDK(1→1), NVDA(2→2): 태그 없음 (정상)
 
 ---
 
