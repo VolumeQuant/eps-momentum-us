@@ -46,6 +46,7 @@
 > **v36**: 2026-02-21 집 PC — 순위 변동 원인 태그: get_rank_change_tags() 신규, [2/4] 순위 줄에 📈주가↑/💡저평가↑/📉모멘텀↓/📈모멘텀↑/🔄상대변동 태그 표시 + migrate_weighted_ranks.py ddof=1 통일
 > **v36.1**: 2026-02-21 집 PC — 태그 비교 구간 수정: 3일 궤적 종목은 T0 vs T2 비교 (1일 delta로는 threshold 못 넘어 🔄상대변동 오분류 → 2일 누적 delta로 정확한 진단)
 > **v36.2**: 2026-02-21 집 PC — 표시/DB 불일치 수정: create_candidates_message가 composite Top 30 표시 vs save_part2_ranks가 weighted Top 30 DB 저장 → 최대 8종목 불일치(유령 상태). today_tickers 전달로 통일
+> **v36.3**: 2026-02-21 집 PC — 태그 방향 일치 + 지배적 팩터: gap 우선순위 제거, 순위 방향에 맞는 delta만 수집 → 정규화(|delta|/threshold) 최대 팩터 선택
 
 ---
 
