@@ -1768,7 +1768,9 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
         rev_down = int(row.get('rev_down30', 0) or 0)
 
         name = row.get('short_name', ticker)
-        lines.append(f'{marker} <b>{rank}.</b> {name}({ticker})')
+        tag = rank_change_tags.get(ticker, '')
+        tag_suffix = f' {tag}' if tag else ''
+        lines.append(f'{marker} <b>{rank}.</b> {name}({ticker}){tag_suffix}')
         lines.append(f'{industry} · {lights} {desc}')
         parts = []
         if pd.notna(eps_90d):
@@ -1792,9 +1794,7 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
                 rank_str = hist
             else:
                 rank_str = f'-→-→{rank}'
-        tag = rank_change_tags.get(ticker, '')
-        tag_suffix = f' {tag}' if tag else ''
-        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}{tag_suffix}')
+        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
         lines.append('──────────────────')
 
     # 이탈 종목: 구분선 + 분류
