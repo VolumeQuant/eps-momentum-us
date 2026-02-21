@@ -218,91 +218,6 @@ def run_ntm_collection(config):
     all_tickers = sorted(set(t for tlist in INDICES.values() for t in tlist))
     log(f"유니버스: {len(all_tickers)}개 종목")
 
-    # Step 0: 데이터 보호 — 같은 마켓 날짜 재수집 방지 (NTM 컨센서스 일중 변동 차단)
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    existing_count = cursor.execute(
-        'SELECT COUNT(*) FROM ntm_screening WHERE date=? AND adj_score IS NOT NULL',
-        (today_str,)
-    ).fetchone()[0]
-
-    if existing_count > 100:
-        log(f"[데이터 보호] {today_str} 이미 {existing_count}건 수집됨 — DB 데이터 사용")
-
-        cache_path = PROJECT_ROOT / 'ticker_info_cache.json'
-        ticker_cache = {}
-        if cache_path.exists():
-            try:
-                with open(cache_path, 'r', encoding='utf-8') as f:
-                    ticker_cache = json.load(f)
-            except Exception:
-                ticker_cache = {}
-
-        rows = cursor.execute('''
-            SELECT ticker, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d,
-                   adj_score, adj_gap, price, ma60, is_turnaround,
-                   rev_up30, rev_down30, num_analysts, rev_growth
-            FROM ntm_screening WHERE date=? AND adj_score IS NOT NULL
-        ''', (today_str,)).fetchall()
-
-        results = []
-        turnaround = []
-        for r in rows:
-            ticker = r[0]
-            ntm = {'current': r[2], '7d': r[3], '30d': r[4], '60d': r[5], '90d': r[6]}
-            score_val, seg1, seg2, seg3, seg4, is_turn, adj_score_val, direction = calculate_ntm_score(ntm)
-            eps_change_90d = calculate_eps_change_90d(ntm)
-            trend_lights, trend_desc = get_trend_lights(seg1, seg2, seg3, seg4)
-            cached = ticker_cache.get(ticker, {})
-            row_dict = {
-                'ticker': ticker,
-                'short_name': cached.get('shortName', ticker),
-                'industry': cached.get('industry', ''),
-                'score': r[1],
-                'adj_score': r[7],
-                'direction': direction,
-                'seg1': seg1, 'seg2': seg2, 'seg3': seg3, 'seg4': seg4,
-                'ntm_cur': ntm['current'], 'ntm_7d': ntm['7d'],
-                'ntm_30d': ntm['30d'], 'ntm_60d': ntm['60d'], 'ntm_90d': ntm['90d'],
-                'eps_change_90d': eps_change_90d,
-                'trend_lights': trend_lights,
-                'trend_desc': trend_desc,
-                'price_chg': None, 'price_chg_weighted': None, 'eps_chg_weighted': None,
-                'fwd_pe': (r[9] / ntm['current']) if ntm['current'] and ntm['current'] > 0 and r[9] else None,
-                'fwd_pe_chg': None,
-                'adj_gap': r[8],
-                'is_turnaround': r[11],
-                'rev_up30': r[12] or 0, 'rev_down30': r[13] or 0, 'num_analysts': r[14] or 0,
-                'rev_growth': r[15],
-                'price': r[9],
-                'ma60': r[10],
-            }
-            if r[11]:
-                turnaround.append(row_dict)
-            else:
-                results.append(row_dict)
-
-        results_df = pd.DataFrame(results)
-        if not results_df.empty:
-            results_df = results_df.sort_values('adj_score', ascending=False).reset_index(drop=True)
-            results_df['rank'] = results_df.index + 1
-        turnaround_df = pd.DataFrame(turnaround)
-        if not turnaround_df.empty:
-            turnaround_df = turnaround_df.sort_values('score', ascending=False).reset_index(drop=True)
-        conn.close()
-
-        stats = {
-            'universe': len(all_tickers),
-            'main_count': len(results),
-            'turnaround_count': len(turnaround),
-            'no_data_count': 0, 'error_count': 0, 'error_tickers': [],
-            'total_collected': len(results) + len(turnaround),
-        }
-        log(f"DB 로드 완료: 메인 {len(results)}, 턴어라운드 {len(turnaround)}")
-        return results_df, turnaround_df, stats
-
-    conn.close()
-
     # Step 1: 종목 정보 캐시 로드
     cache_path = PROJECT_ROOT / 'ticker_info_cache.json'
     ticker_cache = {}
@@ -574,7 +489,7 @@ def run_ntm_collection(config):
     log(f"수집 완료: 메인 {len(results)}, 턴어라운드 {len(turnaround)}, "
         f"데이터없음 {len(no_data)}, 에러 {len(errors)}")
 
-    return results_df, turnaround_df, stats
+    return results_df, turnaround_df, stats, today_str
 
 
 # ============================================================
@@ -778,8 +693,12 @@ def log_portfolio_trades(selected, today_str):
     # 퇴출: 어제 있었는데 오늘 없는 종목
     for t in prev_tickers - today_tickers:
         p = prev[t]
-        # 퇴출 가격은 어제 종가 (오늘 스크리닝 시점에서 퇴출 결정)
-        exit_price = p['price']
+        # 퇴출 가격 = 오늘(퇴출 결정일) 종가
+        row = cursor.execute(
+            'SELECT price FROM ntm_screening WHERE date=? AND ticker=?',
+            (today_str, t)
+        ).fetchone()
+        exit_price = row[0] if row and row[0] else p['price']
         entry_price = p['entry_price']
         ret = ((exit_price - entry_price) / entry_price * 100) if entry_price and entry_price > 0 else 0
         cursor.execute(
@@ -2590,9 +2509,9 @@ def send_telegram_long(message, config, chat_id=None):
 # ============================================================
 
 def main():
-    """NTM EPS 시스템 v19 메인 실행 — Safety & Trend Fusion"""
+    """NTM EPS 시스템 v31 메인 실행 — Balanced Review"""
     log("=" * 60)
-    log("EPS Momentum Daily Runner v19 - Safety & Trend Fusion")
+    log("EPS Momentum Daily Runner v31 - Balanced Review")
     log("=" * 60)
 
     start_time = datetime.now()
@@ -2605,18 +2524,11 @@ def main():
     log("=" * 60)
     log("NTM EPS 데이터 수집 시작")
     log("=" * 60)
-    results_df, turnaround_df, stats = run_ntm_collection(config)
+    results_df, turnaround_df, stats, today_str = run_ntm_collection(config)
 
     # 2. Part 2 rank 저장 + 3일 교집합 + 어제 대비 변동
     import pandas as pd
 
-    today_str = os.environ.get('MARKET_DATE') or ''
-    if not today_str:
-        try:
-            spy_hist = yf.Ticker("SPY").history(period="5d")
-            today_str = spy_hist.index[-1].strftime('%Y-%m-%d')
-        except Exception:
-            today_str = datetime.now().strftime('%Y-%m-%d')
     status_map = {}
     rank_history = {}
     weighted_ranks = {}
