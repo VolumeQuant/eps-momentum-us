@@ -1052,22 +1052,16 @@ def get_rank_change_tags(today_tickers, weighted_ranks):
         # 실적축: adj_score 변동
         score_delta = (t0.get('adj_score') or 0) - (ref.get('adj_score') or 0)
 
-        # 순위 변동 방향을 설명하는 태그만 표시
-        # 순위 하락(숫자↑): 📈가격↑(비싸짐), ⚠️전망↓(전망악화)
-        # 순위 개선(숫자↓): 📉가격↓(싸짐), 💪전망↑(전망개선)
+        # σ 넘은 변동은 방향 무관하게 전부 표시 (상태 정보)
         tag_parts = []
-        rank_worsened = rank_chg > 0  # 순위 숫자가 커짐 = 하락
-
-        if rank_worsened:
-            if score_delta <= -SCORE_STD:
-                tag_parts.append('⚠️전망↓')
-            if price_chg_pct >= PRICE_STD:
-                tag_parts.append('📈가격↑')
-        else:
-            if score_delta >= SCORE_STD:
-                tag_parts.append('💪전망↑')
-            if price_chg_pct <= -PRICE_STD:
-                tag_parts.append('📉가격↓')
+        if price_chg_pct >= PRICE_STD:
+            tag_parts.append('📈가격↑')
+        elif price_chg_pct <= -PRICE_STD:
+            tag_parts.append('📉가격↓')
+        if score_delta >= SCORE_STD:
+            tag_parts.append('💪전망↑')
+        elif score_delta <= -SCORE_STD:
+            tag_parts.append('⚠️전망↓')
 
         tags[ticker] = ' '.join(tag_parts)
 
