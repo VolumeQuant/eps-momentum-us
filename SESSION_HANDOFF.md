@@ -42,8 +42,35 @@
 > **v35.2**: 2026-02-20 집 PC — 데이터 일관성 확보: rev_growth backfill + recalc_ranks composite_rank 저장 + 한국 프로젝트 교차 검증
 > **v35.3**: 2026-02-20 집 PC — 어닝 일정 수정: .calendar Rate Limit → .info earningsTimestamp 활용 + 장후(16시 ET) 발표 +1일 보정
 > **v35.4**: 2026-02-20 집 PC — 데이터 보호 캐시 경로 rev_growth 누락 수정: 재수집 스킵 시 part2_rank 0건 버그
+> **v35.5**: 2026-02-21 집 PC — 종합 감사: 데이터 보호 모드 제거, today_str 단일화, exit 가격 버그 수정(어제종가→퇴출일종가), DB 백필 복구, 버전 v31 표기
 
 ---
+
+## v35.5 — 종합 감사 + exit 가격 수정 (2026-02-21)
+
+### 배경
+- 실투자용 시스템 종합 재점검 요청
+- Feb 20 데이터가 stale (데이터 보호 모드가 Feb 19 가격 캐싱 → 910/912 동일가격)
+- portfolio_log의 exit 가격이 퇴출일이 아닌 전일 종가 사용 — 수익률 부정확
+
+### 변경 사항
+
+| 항목 | Before | After |
+|------|--------|-------|
+| 데이터 보호 | 같은 날짜 재수집 방지 (캐시) | **제거** — 항상 새로 수집 |
+| today_str | run_ntm_collection + main 중복 결정 | run_ntm_collection에서만 반환 |
+| exit 가격 | `p['price']` (어제 종가) | ntm_screening에서 퇴출일 종가 조회 |
+| 버전 문자열 | v19 | v31 |
+
+### DB 복구
+- Feb 20 stale 데이터 삭제 (ntm_screening + portfolio_log + ai_analysis)
+- rev_growth 백필: Feb 19 → Feb 06~18 (858종목/일)
+- composite_rank + part2_rank 재계산: migrate_weighted_ranks.py (6일분)
+- portfolio_log entry_price=0 복구 + MU exit 가격 보정 ($399.78→$420.95, 0%→+5.3%)
+
+### 변경 파일
+- `daily_runner.py` — 데이터 보호 제거, today_str 단일화, exit 가격 수정, 버전 문자열
+- `eps_momentum_data.db` — 백필 + 재계산 + exit 가격 보정
 
 ## v35.4 — 데이터 보호 캐시 경로 rev_growth 누락 수정 (2026-02-20)
 
