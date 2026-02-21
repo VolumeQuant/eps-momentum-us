@@ -1810,20 +1810,21 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
         if parts:
             lines.append(' · '.join(parts))
 
-        # 순위 이력 + 가중 순위 표시
+        # 순위 이력: 상태 마커와 일치 (🆕: 오늘만, ⏳: 2일, ✅: 3일)
         w_info = weighted_ranks.get(ticker)
         if w_info:
             r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
-            r2_str = str(r2) if r2 < 50 else '-'
-            r1_str = str(r1) if r1 < 50 else '-'
-            r0_str = str(r0)
-            rank_str = f'{r2_str}→{r1_str}→{r0_str}'
-        else:
-            hist = rank_history.get(ticker, '')
-            if hist and not all(p == '-' for p in hist.split('→')):
-                rank_str = hist
+            if marker == '🆕':
+                rank_str = f'-→-→{r0}'
+            elif marker == '⏳':
+                r1_str = str(r1) if r1 < 50 else '-'
+                rank_str = f'-→{r1_str}→{r0}'
             else:
-                rank_str = f'-→-→{rank}'
+                r2_str = str(r2) if r2 < 50 else '-'
+                r1_str = str(r1) if r1 < 50 else '-'
+                rank_str = f'{r2_str}→{r1_str}→{r0}'
+        else:
+            rank_str = f'-→-→{rank}'
         tag_suffix = f' ({tag})' if tag else ''
         lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}{tag_suffix}')
         lines.append('──────────────────')
