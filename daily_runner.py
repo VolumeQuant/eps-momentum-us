@@ -958,14 +958,17 @@ def compute_weighted_ranks(today_tickers):
 
 
 def get_rank_change_tags(today_tickers, weighted_ranks):
-    """순위 변동 원인 태그 — composite_rank T-1 대비 T0 변화 분석
+    """순위 변동 원인 태그 — 궤적 기간에 맞춘 비교 구간
 
+    3일 궤적(r2 < PENALTY) → T0 vs T2 비교 (2일치 누적 delta)
+    2일 궤적(r2 = PENALTY) → T0 vs T1 비교 (1일치 delta)
     adj_gap 변동(주가↑/저평가↑) → adj_score 변동(모멘텀) → 상대변동 우선순위로 판정.
-    Returns: {ticker: tag_str} — tag_str은 '' 또는 '📈주가↑' 등
+    Returns: {ticker: tag_str}
     """
     RANK_THRESHOLD = 3
     GAP_DELTA_THRESHOLD = 3.0
     SCORE_DELTA_THRESHOLD = 1.5
+    PENALTY = 50
 
     if not weighted_ranks:
         return {}
@@ -973,34 +976,34 @@ def get_rank_change_tags(today_tickers, weighted_ranks):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # 최근 2일 날짜
+    # 최근 3일 날짜 (T0, T1, T2)
     cursor.execute(
-        'SELECT DISTINCT date FROM ntm_screening WHERE composite_rank IS NOT NULL ORDER BY date DESC LIMIT 2'
+        'SELECT DISTINCT date FROM ntm_screening WHERE composite_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
     )
     dates = [r[0] for r in cursor.fetchall()]
     if len(dates) < 2:
         conn.close()
         return {}
 
-    today_date, yesterday_date = dates[0], dates[1]
+    today_date = dates[0]
+    t1_date = dates[1]
+    t2_date = dates[2] if len(dates) >= 3 else None
 
-    # 어제 메트릭
-    cursor.execute(
-        'SELECT ticker, adj_gap, adj_score FROM ntm_screening '
-        'WHERE date=? AND composite_rank IS NOT NULL',
-        (yesterday_date,)
-    )
-    yesterday_data = {r[0]: {'adj_gap': r[1], 'adj_score': r[2]} for r in cursor.fetchall()}
-
-    # 오늘 메트릭
-    cursor.execute(
-        'SELECT ticker, adj_gap, adj_score FROM ntm_screening '
-        'WHERE date=? AND composite_rank IS NOT NULL',
-        (today_date,)
-    )
-    today_data = {r[0]: {'adj_gap': r[1], 'adj_score': r[2]} for r in cursor.fetchall()}
+    # 각 날짜별 메트릭 조회
+    metric_by_date = {}
+    for d in dates:
+        cursor.execute(
+            'SELECT ticker, adj_gap, adj_score FROM ntm_screening '
+            'WHERE date=? AND composite_rank IS NOT NULL',
+            (d,)
+        )
+        metric_by_date[d] = {r[0]: {'adj_gap': r[1], 'adj_score': r[2]} for r in cursor.fetchall()}
 
     conn.close()
+
+    today_data = metric_by_date.get(today_date, {})
+    t1_data = metric_by_date.get(t1_date, {})
+    t2_data = metric_by_date.get(t2_date, {}) if t2_date else {}
 
     tags = {}
     for ticker in today_tickers:
@@ -1009,25 +1012,34 @@ def get_rank_change_tags(today_tickers, weighted_ranks):
             tags[ticker] = ''
             continue
 
-        r0 = w_info.get('r0', 50)
-        r1 = w_info.get('r1', 50)
+        r0 = w_info.get('r0', PENALTY)
+        r1 = w_info.get('r1', PENALTY)
+        r2 = w_info.get('r2', PENALTY)
 
-        # 신규 진입(r1=PENALTY)이면 태그 없음
-        if r1 >= 50:
-            tags[ticker] = ''
-            continue
+        # 3일 궤적: r2 < PENALTY → T0 vs T2 비교
+        # 2일 궤적: r2 = PENALTY → T0 vs T1 비교
+        has_3day = r2 < PENALTY
 
-        rank_chg = r0 - r1  # 양수 = 순위↓, 음수 = 순위↑
+        if has_3day:
+            rank_chg = r0 - r2      # 2일간 순위 변동
+            ref_data = t2_data       # T-2 메트릭
+        else:
+            # 신규 진입(r1=PENALTY)이면 태그 없음
+            if r1 >= PENALTY:
+                tags[ticker] = ''
+                continue
+            rank_chg = r0 - r1      # 1일간 순위 변동
+            ref_data = t1_data       # T-1 메트릭
 
         if abs(rank_chg) < RANK_THRESHOLD:
             tags[ticker] = ''
             continue
 
         t0 = today_data.get(ticker, {})
-        t1 = yesterday_data.get(ticker, {})
+        ref = ref_data.get(ticker, {})
 
-        gap_delta = (t0.get('adj_gap') or 0) - (t1.get('adj_gap') or 0)
-        score_delta = (t0.get('adj_score') or 0) - (t1.get('adj_score') or 0)
+        gap_delta = (t0.get('adj_gap') or 0) - (ref.get('adj_gap') or 0)
+        score_delta = (t0.get('adj_score') or 0) - (ref.get('adj_score') or 0)
 
         if rank_chg > 0:  # 순위 하락
             if gap_delta >= GAP_DELTA_THRESHOLD:

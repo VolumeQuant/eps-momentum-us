@@ -44,6 +44,7 @@
 > **v35.4**: 2026-02-20 집 PC — 데이터 보호 캐시 경로 rev_growth 누락 수정: 재수집 스킵 시 part2_rank 0건 버그
 > **v35.5**: 2026-02-21 집 PC — 종합 감사: 데이터 보호 모드 제거, today_str 단일화, exit 가격 버그 수정(어제종가→퇴출일종가), DB 백필 복구, 버전 v31 표기
 > **v36**: 2026-02-21 집 PC — 순위 변동 원인 태그: get_rank_change_tags() 신규, [2/4] 순위 줄에 📈주가↑/💡저평가↑/📉모멘텀↓/📈모멘텀↑/🔄상대변동 태그 표시 + migrate_weighted_ranks.py ddof=1 통일
+> **v36.1**: 2026-02-21 집 PC — 태그 비교 구간 수정: 3일 궤적 종목은 T0 vs T2 비교 (1일 delta로는 threshold 못 넘어 🔄상대변동 오분류 → 2일 누적 delta로 정확한 진단)
 
 ---
 
@@ -55,9 +56,10 @@
 - 구독자가 "펀더멘탈 좋은데 왜 떨어지지?" 혼란 발생
 
 ### 구현
-- `get_rank_change_tags(today_tickers, weighted_ranks)`: T-1 vs T0 composite_rank 변동 분석
-- DB에서 어제/오늘 adj_gap, adj_score 조회 → 변동량 비교
-- 판정 우선순위: adj_gap(70% 가중치) → adj_score → 상대변동
+- `get_rank_change_tags(today_tickers, weighted_ranks)`: composite_rank 변동 분석
+- **비교 구간**: 3일 궤적(r2 < PENALTY) → T0 vs T2 | 2일 궤적 → T0 vs T1 (v36.1)
+- DB에서 3일간 adj_gap, adj_score 조회 → 궤적 기간에 맞춘 delta 비교
+- 판정 우선순위: adj_gap → adj_score → 상대변동
 - 임계값: |Δrank| ≥ 3, adj_gap Δ ≥ 3pp, adj_score Δ ≥ 1.5pt
 
 ### 태그 5종
@@ -74,11 +76,18 @@
 - daily_runner.py의 `pd.Series.std()` (ddof=1)와 일치시킴
 - N=34일 때 ~1.5% 차이 해소
 
-### 검증 결과 (2026-02-20 데이터)
-- 30종목 중 11개에 태그 표시
-- LITE(11→14): 📈주가↑, TTMI(25→30): 📈주가↑
-- ANET(6→3): 💡저평가↑
-- SNDK(1→1), NVDA(2→2): 태그 없음 (정상)
+### 비교 구간 수정 (v36.1)
+- **문제**: 1일 delta(T0-T1)만 비교 → threshold 못 넘어 대부분 🔄상대변동
+- **수정**: 3일 궤적 종목(r2 < PENALTY) → T0 vs T2 비교 (2일 누적 delta)
+- **근거**: 한국 프로젝트 실데이터 검증 — 지엔씨에너지(8→5→4) T0-T1 gap=+0.041<0.05(놓침) vs T0-T2 gap=+0.074>0.05(정확)
+- **개선**: 오탐 3개 제거(bounce-back: LRCX 21→17→22, TPR 23→19→23, WWD 18→22→19), 정확한 진단 5개 승격(STX/MTSI/ADI 등 상대변동→저평가↑)
+
+### 검증 결과 (2026-02-20 데이터, v36.1)
+- 30종목 중 17개에 태그 표시 (v36: 10개)
+- LITE(4→11→14): 📈주가↑, TTMI(8→25→31): 📈주가↑
+- ANET(7→6→3): 💡저평가↑, ADI(25→9→8): 💡저평가↑
+- LRCX(21→17→22): bounce-back → 태그 제거 (v36에서는 오탐 📈주가↑)
+- SNDK(1→1→1), NVDA(2→2→2): 태그 없음 (정상)
 
 ---
 
