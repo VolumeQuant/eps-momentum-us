@@ -958,16 +958,20 @@ def compute_weighted_ranks(today_tickers):
 
 
 def get_rank_change_tags(today_tickers, weighted_ranks):
-    """순위 변동 원인 태그 — 궤적 기간에 맞춘 비교 구간
+    """순위 변동 원인 태그 — 2축 독립 판정 (v36.4)
+
+    가격축(adj_gap)과 실적축(adj_score)을 독립적으로 판정.
+    각 축의 일간 변동 표준편차(1.0σ) 기준으로 임계값 설정.
+    둘 다 해당하면 둘 다 표시. |순위변동| < 3이면 태그 없음.
 
     3일 궤적(r2 < PENALTY) → T0 vs T2 비교 (2일치 누적 delta)
     2일 궤적(r2 = PENALTY) → T0 vs T1 비교 (1일치 delta)
-    adj_gap 변동(주가↑/저평가↑) → adj_score 변동(모멘텀) → 상대변동 우선순위로 판정.
     Returns: {ticker: tag_str}
     """
     RANK_THRESHOLD = 3
-    GAP_DELTA_THRESHOLD = 3.0
-    SCORE_DELTA_THRESHOLD = 1.5
+    # 1.0σ 기반 임계값 (7일 데이터 기준, 데이터 축적 후 업데이트)
+    GAP_STD = 3.96
+    SCORE_STD = 1.48
     PENALTY = 50
 
     if not weighted_ranks:
@@ -1021,15 +1025,14 @@ def get_rank_change_tags(today_tickers, weighted_ranks):
         has_3day = r2 < PENALTY
 
         if has_3day:
-            rank_chg = r0 - r2      # 2일간 순위 변동
-            ref_data = t2_data       # T-2 메트릭
+            rank_chg = r0 - r2
+            ref_data = t2_data
         else:
-            # 신규 진입(r1=PENALTY)이면 태그 없음
             if r1 >= PENALTY:
                 tags[ticker] = ''
                 continue
-            rank_chg = r0 - r1      # 1일간 순위 변동
-            ref_data = t1_data       # T-1 메트릭
+            rank_chg = r0 - r1
+            ref_data = t1_data
 
         if abs(rank_chg) < RANK_THRESHOLD:
             tags[ticker] = ''
@@ -1041,35 +1044,25 @@ def get_rank_change_tags(today_tickers, weighted_ranks):
         gap_delta = (t0.get('adj_gap') or 0) - (ref.get('adj_gap') or 0)
         score_delta = (t0.get('adj_score') or 0) - (ref.get('adj_score') or 0)
 
-        rank_improved = rank_chg < 0  # 순위 숫자↓ = 개선
+        # 2축 독립 판정: 각 축별 1.0σ 초과 여부
+        tag_parts = []
 
-        # 순위 방향에 맞는 delta만 수집 (방향 일치 필터)
-        candidates = {}
-        if rank_improved:
-            # 순위 개선: gap↓(저평가 확대) 또는 score↑(모멘텀 가속)
-            if gap_delta <= -GAP_DELTA_THRESHOLD:
-                candidates['gap'] = abs(gap_delta) / GAP_DELTA_THRESHOLD
-            if score_delta >= SCORE_DELTA_THRESHOLD:
-                candidates['score'] = abs(score_delta) / SCORE_DELTA_THRESHOLD
-        else:
-            # 순위 하락: gap↑(주가 반영) 또는 score↓(모멘텀 둔화)
-            if gap_delta >= GAP_DELTA_THRESHOLD:
-                candidates['gap'] = abs(gap_delta) / GAP_DELTA_THRESHOLD
-            if score_delta <= -SCORE_DELTA_THRESHOLD:
-                candidates['score'] = abs(score_delta) / SCORE_DELTA_THRESHOLD
+        # 실적축 (adj_score) — 실적 먼저 표시
+        if score_delta >= SCORE_STD:
+            tag_parts.append('💪실적↑')
+        elif score_delta <= -SCORE_STD:
+            tag_parts.append('⚠️실적↓')
 
-        if not candidates:
-            tags[ticker] = '🔄상대변동'
-        else:
-            # 정규화 delta(|delta|/threshold) 가장 큰 팩터 = 지배적 원인
-            dominant = max(candidates, key=candidates.get)
-            if rank_improved:
-                tags[ticker] = '💡저평가↑' if dominant == 'gap' else '📈모멘텀↑'
-            else:
-                tags[ticker] = '📈주가↑' if dominant == 'gap' else '📉모멘텀↓'
+        # 가격축 (adj_gap)
+        if gap_delta >= GAP_STD:
+            tag_parts.append('📈가격↑')
+        elif gap_delta <= -GAP_STD:
+            tag_parts.append('📉가격↓')
+
+        tags[ticker] = ' '.join(tag_parts)
 
     tag_count = sum(1 for v in tags.values() if v)
-    log(f"순위 변동 태그: {tag_count}개 종목 (임계값: rank±{RANK_THRESHOLD}, gap±{GAP_DELTA_THRESHOLD}, score±{SCORE_DELTA_THRESHOLD})")
+    log(f"순위 변동 태그: {tag_count}개 종목 (1.0σ 기준: gap±{GAP_STD}, score±{SCORE_STD})")
     return tags
 
 
@@ -1796,8 +1789,20 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
         rev_down = int(row.get('rev_down30', 0) or 0)
 
         name = row.get('short_name', ticker)
-        tag = rank_change_tags.get(ticker, '')
-        tag_suffix = f' {tag}' if tag else ''
+        tag = rank_change_tags.get(ticker, '') if marker != '🆕' else ''
+        # 단일 태그: 설명문 추가 / 복합 태그: 아이콘만
+        TAG_DESC = {
+            '📈가격↑': '가격이 올랐어요',
+            '📉가격↓': '가격이 내렸어요',
+            '💪실적↑': '실적이 좋아졌어요',
+            '⚠️실적↓': '실적이 나빠졌어요',
+        }
+        if tag and ' ' not in tag:
+            tag_suffix = f' {tag} {TAG_DESC.get(tag, "")}'.rstrip()
+        elif tag:
+            tag_suffix = f' {tag}'
+        else:
+            tag_suffix = ''
         lines.append(f'{marker} <b>{rank}.</b> {name}({ticker}){tag_suffix}')
         lines.append(f'{industry} · {lights} {desc}')
         parts = []
@@ -2336,14 +2341,13 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             log("포트폴리오: 선정 종목 부족", "WARN")
             return None
 
-        # 차등 비중: composite 상위에 더 많이 배분
-        weight_table = {
-            5: [25, 25, 20, 15, 15],
-            4: [30, 25, 25, 20],
-            3: [35, 35, 30],
-        }
+        # 동일 비중: 1위 변동성이 커서 집중보다 분산이 유리 (v36 백테스트)
         n = len(selected)
-        weights = weight_table.get(n, [100 // n] * n)
+        base = 100 // n
+        remainder = 100 - base * n
+        weights = [base] * n
+        for i in range(remainder):
+            weights[i] += 1
         for i, s in enumerate(selected):
             s['weight'] = weights[i]
 
