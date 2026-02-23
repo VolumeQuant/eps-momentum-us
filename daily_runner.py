@@ -3149,7 +3149,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
                 rank_str = f'{r2_str}→{r1_str}→{r0}위'
             tag = rank_change_tags.get(ticker, '')
             tag_suffix = f' ({tag})' if tag else ''
-            lines.append(f'3일 순위 {rank_str} (916종목 중){tag_suffix}')
+            lines.append(f'3일 순위 {rank_str}{tag_suffix}')
 
         # L2: 팩터 등수 (선정과정 채점 기준과 동일 어휘)
         fr = factor_ranks.get(ticker, {})
@@ -3359,34 +3359,25 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         tag = rank_change_tags.get(ticker, '') if marker != '🆕' else ''
         adj_gap = row.get('adj_gap', 0) or 0
 
-        # L0: 종목명
-        lines.append(f'{marker} <b>{rank}. {name}({ticker})</b>')
+        # L0: 종목명 + 업종 (한 줄)
+        lines.append(f'{marker} <b>{rank}. {name}({ticker})</b> {industry}')
 
-        # L1: 업종 + EPS추이 (아이콘 + 설명)
+        # L1: EPS추이 + 팩터등수 (합산)
+        l1_parts = []
         if lights and desc:
-            lines.append(f'{industry} · EPS추이 {lights} {desc}')
-        else:
-            lines.append(f'{industry}')
-
-        # L2: 팩터 등수 + 실제값 (채점 기준과 동일 어휘)
+            l1_parts.append(f'EPS추이 {lights} {desc}')
         fr = factor_ranks.get(ticker, {})
         if fr:
-            gap_v = fr.get('gap_val', 0)
-            rev_v = fr.get('rev_val', 0)
-            gap_pct = int(round(gap_v))  # -0 방지
-            gap_str = f'저평가 {fr["gap_rank"]}등({gap_pct:+d}%)'
-            rev_str = f'매출성장 {fr["rev_rank"]}등({rev_v*100:+.0f}%)' if rev_v else f'매출성장 {fr["rev_rank"]}등'
-            lines.append(f'{gap_str} · {rev_str}')
+            l1_parts.append(f'저평가 {fr["gap_rank"]}등')
+            l1_parts.append(f'매출성장 {fr["rev_rank"]}등')
         else:
-            growth_parts = []
             if adj_gap:
-                growth_parts.append(f'저평가 {adj_gap:+.0f}%')
+                l1_parts.append(f'저평가 {adj_gap:+.0f}%')
             if pd.notna(rev_g):
-                growth_parts.append(f'매출성장 {rev_g*100:+.0f}%')
-            lines.append(' · '.join(growth_parts) if growth_parts else '')
+                l1_parts.append(f'매출성장 {rev_g*100:+.0f}%')
+        lines.append(' · '.join(l1_parts))
 
-        # L3: 의견 + 순위
-        l3_parts = [f'의견 ↑{rev_up} ↓{rev_down}']
+        # L2: 의견 + 순위
         w_info = weighted_ranks.get(ticker)
         if w_info:
             r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
@@ -3402,26 +3393,14 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         else:
             rank_str = f'-→-→{rank}위'
         tag_suffix = f' ({tag})' if tag else ''
-        l3_parts.append(f'3일 순위 {rank_str}{tag_suffix}')
-        lines.append(' · '.join(l3_parts))
-        lines.append('─ ─ ─ ─ ─ ─ ─ ─')
-
-    # ── 주도 업종 (하단) ──
-    if sector_parts:
-        lines.append('')
-        lines.append(f'📊 주도 업종 — {" · ".join(sector_parts)}')
-
-    # ── 범례 (하단, 최소화) ──
-    lines.append('')
-    lines.append('<i>✅ 3일연속 · ⏳ 2일차 · 🆕 신규 · 3일 순위 2일전→1일전→오늘</i>')
-    lines.append('<i>EPS추이 🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락</i>')
-    lines.append('<i>저평가(-)=EPS 전망 대비 할인 · 의견=EPS 수정 수</i>')
-    lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
+        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 3일 순위 {rank_str}{tag_suffix}')
 
     msg_watchlist = '\n'.join(lines)
 
-    # ── 이탈 종목: 별도 메시지 ──
-    msg_exit = None
+    # ── 부록 메시지: 이탈종목 + 주도업종 + 범례 (항상 생성) ──
+    supp_lines = []
+
+    # 이탈 종목
     if exited_tickers:
         all_eligible = get_part2_candidates(results_df)
         current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
@@ -3453,9 +3432,8 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                 degraded.append((t, prev_rank, cur_rank, reasons))
 
         if achieved or degraded:
-            exit_lines = []
-            exit_lines.append('📉 <b>Top 30 이탈 종목</b>')
-            exit_lines.append('━━━━━━━━━━━━━━━')
+            supp_lines.append('📉 <b>Top 30 이탈 종목</b>')
+            supp_lines.append('━━━━━━━━━━━━━━━')
 
             def _render_exit(elist, target):
                 for t, prev_rank, cur_rank, reasons in elist:
@@ -3480,7 +3458,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                         growth_parts.append(f'EPS {ep:+.0f}%')
                     if rv is not None and pd.notna(rv):
                         growth_parts.append(f'매출 {rv*100:+.0f}%')
-                    growth_parts.append(f'의견 ↑{ru} ↓{rd}')
+                    growth_parts.append(f'의견 ↑{ru}↓{rd}')
                     target.append(' · '.join(growth_parts))
                     ri = f'{prev_rank}→{cur_rank}위' if cur_rank else f'{prev_rank}위→탈락'
                     rt = ' '.join(f'[{r}]' for r in reasons)
@@ -3489,20 +3467,33 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                     target.append('─ ─ ─ ─ ─ ─ ─ ─')
 
             if achieved:
-                exit_lines.append(f'🎯 <b>주가 선반영</b> ({len(achieved)}개) — <i>수익 실현 검토</i>')
-                _render_exit(achieved, exit_lines)
+                supp_lines.append(f'🎯 <b>주가 선반영</b> ({len(achieved)}개) — <i>수익 실현 검토</i>')
+                _render_exit(achieved, supp_lines)
             if degraded:
                 if achieved:
-                    exit_lines.append('')
-                exit_lines.append(f'⚠️ <b>펀더멘탈 악화</b> ({len(degraded)}개) — <i>매도 검토</i>')
-                _render_exit(degraded, exit_lines)
+                    supp_lines.append('')
+                supp_lines.append(f'⚠️ <b>펀더멘탈 악화</b> ({len(degraded)}개) — <i>매도 검토</i>')
+                _render_exit(degraded, supp_lines)
 
-            exit_lines.append('')
-            exit_lines.append('<i>보유 중이라면 매도를 검토하세요.</i>')
+            supp_lines.append('')
+            supp_lines.append('<i>보유 중이라면 매도를 검토하세요.</i>')
 
-            msg_exit = '\n'.join(exit_lines)
+    # 주도 업종
+    if sector_parts:
+        if supp_lines:
+            supp_lines.append('')
+        supp_lines.append(f'📊 주도 업종 — {" · ".join(sector_parts)}')
 
-    return msg_watchlist, msg_exit
+    # 범례
+    supp_lines.append('')
+    supp_lines.append('<i>✅ 3일연속 · ⏳ 2일차 · 🆕 신규 · 3일 순위 2일전→1일전→오늘</i>')
+    supp_lines.append('<i>EPS추이 🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락</i>')
+    supp_lines.append('<i>저평가(-)=EPS 전망 대비 할인 · 의견=EPS 수정 수</i>')
+    supp_lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
+
+    msg_supplement = '\n'.join(supp_lines)
+
+    return msg_watchlist, msg_supplement
 
 
 # ============================================================
@@ -3706,22 +3697,22 @@ def main():
                 send_telegram_long(msg_signal, config, chat_id=private_id)
                 log(f"v2 시그널 메시지 전송 완료 → {dest}")
 
-            # 메시지 2: 매수 후보 30 + 메시지 3: 이탈종목
-            msg_watchlist, msg_exit = create_v2_watchlist_message(
+            # 메시지 2: Top 30 종목 + 메시지 3: 부록(이탈+업종+범례)
+            msg_watchlist, msg_supplement = create_v2_watchlist_message(
                 results_df, status_map, exited_tickers, today_tickers, biz_day,
                 weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags,
                 filter_count=filter_count, factor_ranks=factor_ranks
             )
-            if msg_exit:
-                if send_to_channel:
-                    send_telegram_long(msg_exit, config, chat_id=channel_id)
-                send_telegram_long(msg_exit, config, chat_id=private_id)
-                log(f"v2 이탈종목 전송 완료 → {dest}")
             if msg_watchlist:
                 if send_to_channel:
                     send_telegram_long(msg_watchlist, config, chat_id=channel_id)
                 send_telegram_long(msg_watchlist, config, chat_id=private_id)
                 log(f"v2 워치리스트 전송 완료 → {dest}")
+            if msg_supplement:
+                if send_to_channel:
+                    send_telegram_long(msg_supplement, config, chat_id=channel_id)
+                send_telegram_long(msg_supplement, config, chat_id=private_id)
+                log(f"v2 부록(이탈+범례) 전송 완료 → {dest}")
 
         else:
             # ===== v1: 기존 6개 메시지 (변경 없음) =====

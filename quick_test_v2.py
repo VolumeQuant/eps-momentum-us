@@ -268,28 +268,28 @@ def main():
         print(msg_signal[:500] + '...' if len(msg_signal) > 500 else msg_signal)
 
     print("\n--- Watchlist Message ---")
-    msg_watchlist, msg_exit = create_v2_watchlist_message(
+    msg_watchlist, msg_supplement = create_v2_watchlist_message(
         results_df, status_map, exited_tickers, today_tickers, biz_day,
         weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags,
         filter_count=filter_count, factor_ranks=factor_ranks
     )
     if msg_watchlist:
         print(msg_watchlist[:500] + '...' if len(msg_watchlist) > 500 else msg_watchlist)
-    if msg_exit:
-        print("\n--- Exit Message ---")
-        print(msg_exit[:300] + '...' if len(msg_exit) > 300 else msg_exit)
+    if msg_supplement:
+        print("\n--- Supplement Message ---")
+        print(msg_supplement[:500] + '...' if len(msg_supplement) > 500 else msg_supplement)
 
     # 10. 텔레그램 발송
     print("\n\n=== 텔레그램 전송 ===")
     if msg_signal:
         send_telegram_long(msg_signal, config, chat_id=private_id)
         print("Signal 전송 완료")
-    if msg_exit:
-        send_telegram_long(msg_exit, config, chat_id=private_id)
-        print("Exit 전송 완료")
     if msg_watchlist:
         send_telegram_long(msg_watchlist, config, chat_id=private_id)
         print("Watchlist 전송 완료")
+    if msg_supplement:
+        send_telegram_long(msg_supplement, config, chat_id=private_id)
+        print("Supplement 전송 완료")
 
     print("\nDone!")
     return 0
