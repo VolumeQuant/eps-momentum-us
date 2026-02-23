@@ -7,6 +7,10 @@ on:
         description: 'Market date (YYYY-MM-DD). Leave empty for auto-detect.'
         required: false
         default: ''
+      message_version:
+        description: 'Message format: v1 (기존 6개) or v2 (압축 2개)'
+        required: false
+        default: 'v1'
 
 permissions:
   contents: write
@@ -42,6 +46,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TZ: 'America/New_York'
           MARKET_DATE: ${{ github.event.inputs.market_date }}
+          MESSAGE_VERSION: ${{ github.event.inputs.message_version }}
           # TELEGRAM_CHAT_ID 미설정 → 채널 전송 안함, 개인봇만
         run: python daily_runner.py
 
