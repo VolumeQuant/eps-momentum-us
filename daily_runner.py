@@ -3076,10 +3076,16 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     return '\n'.join(lines)
 
 
-def create_v2_watchlist_message(results_df, status_map, exit_reasons, today_tickers, biz_day):
-    """v2 메시지 2: 매수 후보 30 (압축 1줄 포맷)"""
+def create_v2_watchlist_message(results_df, status_map, exit_reasons, today_tickers, biz_day,
+                                weighted_ranks=None, rank_change_tags=None):
+    """v2 메시지 2: 매수 후보 30 (순위 궤적 + 변동 태그 포함)"""
     if results_df is None or results_df.empty:
         return None
+
+    if weighted_ranks is None:
+        weighted_ranks = {}
+    if rank_change_tags is None:
+        rank_change_tags = {}
 
     biz_str = biz_day.strftime('%m.%d')
     weekdays = ['월', '화', '수', '목', '금', '토', '일']
@@ -3120,14 +3126,33 @@ def create_v2_watchlist_message(results_df, status_map, exit_reasons, today_tick
         rev = row.get('rev_growth', 0) or 0
         status = status_map.get(ticker, '✅')
 
-        # 업종 4글자 축약
+        # 업종 축약
         ind_short = industry[:4] if len(industry) > 4 else industry
 
-        # EPS/Rev 정수로
+        # EPS/매출 정수로
         eps_str = f'EPS{"↑" if eps_chg > 0 else "↓"}{abs(eps_chg):.0f}'
-        rev_str = f'Rev{"↑" if rev > 0 else "↓"}{abs(rev*100):.0f}' if rev else ''
+        rev_str = f'매출{"↑" if rev > 0 else "↓"}{abs(rev*100):.0f}' if rev else ''
 
-        line = f'{status} {rank:>2} {ticker:<5} {ind_short:<5} {eps_str} {rev_str}'
+        # 순위 궤적
+        w_info = weighted_ranks.get(ticker)
+        rank_str = ''
+        if w_info:
+            r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
+            if status == '🆕':
+                rank_str = f' →{r0}'
+            elif status == '⏳':
+                r1_str = str(r1) if r1 < 50 else '-'
+                rank_str = f' {r1_str}→{r0}'
+            else:
+                r2_str = str(r2) if r2 < 50 else '-'
+                r1_str = str(r1) if r1 < 50 else '-'
+                rank_str = f' {r2_str}→{r1_str}→{r0}'
+
+        # 변동 태그
+        tag = rank_change_tags.get(ticker, '') if status != '🆕' else ''
+        tag_str = f' {tag}' if tag else ''
+
+        line = f'{status} {rank:>2} {ticker:<5} {ind_short:<4} {eps_str} {rev_str}{rank_str}{tag_str}'
         lines.append(line)
 
     # 이탈 종목 (사유 포함)
@@ -3336,7 +3361,8 @@ def main():
 
             # 메시지 2: 매수 후보 30
             msg_watchlist = create_v2_watchlist_message(
-                results_df, status_map, exit_reasons, today_tickers, biz_day
+                results_df, status_map, exit_reasons, today_tickers, biz_day,
+                weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags
             )
             if msg_watchlist:
                 if send_to_channel:
