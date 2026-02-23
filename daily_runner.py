@@ -3371,22 +3371,26 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                     break
         lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b> {industry}')
 
-        # L1: EPS추이 아이콘 + 팩터등수 (라벨·설명 생략, 범례 참조)
-        l1_parts = []
-        if lights:
-            l1_parts.append(lights)
+        # L1: EPS추이 아이콘 + 설명
+        if lights and desc:
+            lines.append(f'{lights} {desc}')
+        elif lights:
+            lines.append(lights)
+
+        # L2: 팩터등수
         fr = factor_ranks.get(ticker, {})
         if fr:
-            l1_parts.append(f'저평가 {fr["gap_rank"]}등')
-            l1_parts.append(f'매출성장 {fr["rev_rank"]}등')
+            lines.append(f'저평가 {fr["gap_rank"]}등 · 매출성장 {fr["rev_rank"]}등')
         else:
+            l2_parts = []
             if adj_gap:
-                l1_parts.append(f'저평가 {adj_gap:+.0f}%')
+                l2_parts.append(f'저평가 {adj_gap:+.0f}%')
             if pd.notna(rev_g):
-                l1_parts.append(f'매출성장 {rev_g*100:+.0f}%')
-        lines.append(' · '.join(l1_parts))
+                l2_parts.append(f'매출성장 {rev_g*100:+.0f}%')
+            if l2_parts:
+                lines.append(' · '.join(l2_parts))
 
-        # L2: ↑↓ + 3일 순위 ("의견" 라벨 생략, 범례 참조)
+        # L3: ↑↓ + 3일 순위
         w_info = weighted_ranks.get(ticker)
         if w_info:
             r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
@@ -3496,7 +3500,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
     # 범례
     supp_lines.append('')
     supp_lines.append('<i>✅ 3일연속 · ⏳ 2일차 · 🆕 신규 · 3일 순위 2일전→1일전→오늘</i>')
-    supp_lines.append('<i>🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락=EPS추이</i>')
+    supp_lines.append('<i>EPS추이 🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락</i>')
     supp_lines.append('<i>저평가(-)=EPS 대비 할인 · ↑↓=EPS 수정 수</i>')
     supp_lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
 
