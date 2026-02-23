@@ -1652,39 +1652,6 @@ def get_today_kst():
     return datetime.now().date()
 
 
-def create_part1_message(df, top_n=30):
-    """Part 1: 이익 모멘텀 랭킹 메시지 생성 (EPS 점수 순)"""
-    biz_day = get_last_business_day()
-    biz_str = biz_day.strftime('%Y년 %m월 %d일')
-
-    lines = []
-    lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f' [1/4] 📈 EPS 모멘텀 Top {top_n}')
-    lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f'📅 {biz_str} (미국장 기준)')
-    lines.append('')
-    lines.append('미국 916종목 중 애널리스트 EPS 전망치를')
-    lines.append('가장 많이 올린 기업 순위예요.')
-    lines.append('')
-
-    for _, row in df.head(top_n).iterrows():
-        rank = int(row['rank'])
-        ticker = row['ticker']
-        name = row.get('short_name', ticker)
-        industry = row.get('industry', '')
-        adj_score = row.get('adj_score', row.get('score', 0))
-        lights = row.get('trend_lights', '')
-        desc = row.get('trend_desc', '')
-
-        lines.append(f'<b>{rank}위</b> {name} ({ticker})')
-        lines.append(f'<i>{industry}</i> · {lights} {desc} · <b>{adj_score:.1f}</b>점')
-        lines.append('──────────────────')
-
-    lines.append('')
-    lines.append('👉 다음: 매수 후보 선정 [2/4]')
-
-    return '\n'.join(lines)
-
 
 def create_guide_message():
     """📖 투자 가이드 — 시스템 개요, 선정 과정, 보유/매도 기준"""
