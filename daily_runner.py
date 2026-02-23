@@ -2871,18 +2871,18 @@ def run_v2_ai_analysis(config, selected, biz_day, risk_status=None):
 
 {market_ctx}
 
-[구조] 아래 순서대로 4~5줄 작성:
-1. 당일 시장 흐름 — 상승/하락 원인, 주도 섹터 (1~2줄)
-2. 핵심 이슈 — 관세, 금리, 실적, 지정학 등 시장 움직인 뉴스 (1~2줄)
-3. 투자 판단 — 위 시장 판단 참고하여 행동 제안 (1줄)
+[구조] 3~4문장, 총 150자 이내로 작성:
+- 당일 시장 흐름 — 상승/하락 원인 (1문장)
+- 핵심 이슈 — 가장 중요한 뉴스 1개 (1문장)
+- 다음 주요 일정 있으면 언급 (1문장)
 
 [규칙]
+- 반드시 150자 이내. 짧게 핵심만.
 - 지수 수치(S&P, 나스닥 등)는 별도 표시하니 생략.
-- 구체적으로 써 — "관세 이슈" 대신 "트럼프 10% 글로벌 관세 발표에..." 같이.
-- 날짜가 가까운 주요 일정(FOMC, 어닝 등) 있으면 언급.
-- 한국어, ~예요 체.
-- 인사말/서두/맺음말 없이 바로 시작.
-- 줄바꿈으로 구분. 번호나 불릿 쓰지 마."""
+- 구체적으로 써 — "관세 이슈" 대신 "트럼프 10% 관세에..." 같이.
+- GDP, PCE 같은 경제지표는 시장에 큰 영향 줬을 때만 한 줄로.
+- 한국어, ~예요 체. 번역투 금지.
+- 인사말/서두/맺음말 없이 바로 시작."""
 
         resp = client.models.generate_content(
             model='gemini-2.5-flash',
@@ -2921,14 +2921,17 @@ def run_v2_ai_analysis(config, selected, biz_day, risk_status=None):
 {chr(10).join(stock_lines)}
 
 [형식]
-종목별로 1~2문장. 종목 사이에 [SEP] 표시.
+종목별로 1~2문장(최대 80자). 종목 사이에 [SEP] 표시.
 형식: TICKER: 설명
 
 [규칙]
 - 각 종목의 실적 성장 배경(왜 EPS/매출이 오르는지)을 검색해서 1~2문장으로 써.
-  예: "NVDA: NVDA는 AI 데이터센터 GPU 수요 확대와 블랙웰 아키텍처 출시에 힘입어 매출이 급증하고 있어요."
-  예: "VST: VST는 전력 수요 폭증과 원전 재가동 기대감에 힘입어 실적이 크게 개선되고 있어요."
-- 반드시 "[회사명]는 [원인]에 힘입어/따라 [결과]하고 있어요" 구조로 써.
+  좋은 예: "NVDA는 AI 데이터센터 GPU 수요 확대와 블랙웰 출시에 힘입어 매출이 급증하고 있어요."
+  좋은 예: "VST는 전력 수요 폭증과 원전 재가동 기대감에 힘입어 실적이 크게 개선되고 있어요."
+  나쁜 예: "NVIDIA Corporation은 생성형 AI 모델 개발에 필요한 칩에 대한 강력한 수요와..." ← 번역투, 너무 김
+- 회사명은 티커만 써 (NVDA, APH 등). "Corporation", "Inc.", 풀네임 금지.
+- 번역투 금지: "탁월한", "유기적", "전략적 인수 프로그램", "모멘텀에 힘입어" 같은 표현 쓰지 마.
+- 자연스러운 한국어로 써: "AI 서버 수요가 늘면서", "반도체 가격이 오르면서" 같이 쉽게.
 - 단순히 "EPS X% 상승"처럼 숫자만 반복하지 마. 그 숫자 뒤의 사업적 이유를 써.
 - 주의/경고/유의 표현 금지. 긍정적 매력만.
 - 한국어, ~예요 체, 종목마다 다른 문장 구조.
@@ -3090,15 +3093,15 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     lines.append('')
     lines.append('📋 선정 과정')
-    lines.append('미국 대·중형주 916종목에서')
-    lines.append('→ 4가지 기준으로 필터')
-    lines.append('▸ EPS모멘텀 — 90일간 상향')
-    lines.append('▸ 매출성장 — 전년비 10% 이상')
-    lines.append('▸ 추세 — 60일 이동평균 위')
-    lines.append('▸ 커버리지 — 애널리스트 3명 이상')
+    lines.append('<i>미국 대·중형주 916종목에서</i>')
+    lines.append('<i>→ 4가지 기준으로 필터</i>')
+    lines.append('<i>  ▸ EPS모멘텀 — 90일간 상향</i>')
+    lines.append('<i>  ▸ 매출성장 — 전년비 10% 이상</i>')
+    lines.append('<i>  ▸ 추세 — 60일 이동평균 위</i>')
+    lines.append('<i>  ▸ 커버리지 — 애널리스트 3명 이상</i>')
     fc_str = f'{filter_count}개 통과' if filter_count else '필터 통과'
-    lines.append(f'→ {fc_str} → 저평가·매출성장 종합 채점')
-    lines.append(f'→ 상위 30 → 3일 검증 → 최종 {len(selected)}종목')
+    lines.append(f'<i>→ {fc_str} → 저평가·매출성장 종합 채점</i>')
+    lines.append(f'<i>→ 상위 30 → 3일 검증 → 최종 {len(selected)}종목</i>')
 
     # Q1 + both_stable
     hy_q = (risk_status.get('hy') or {}).get('quadrant', '') if risk_status else ''
@@ -3151,7 +3154,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         # L2: 팩터 등수 (선정과정 채점 기준과 동일 어휘)
         fr = factor_ranks.get(ticker, {})
         if fr:
-            lines.append(f'EPS 전망 대비 저평가 {fr["gap_rank"]}등, 매출 성장률(YoY) {fr["rev_rank"]}등')
+            lines.append(f'저평가 {fr["gap_rank"]}등 · 매출성장 {fr["rev_rank"]}등')
         else:
             # fallback: 등수 없으면 값 표시
             l2_parts = []
@@ -3237,7 +3240,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         else:
             lines.append(signal_str)
 
-        lines.append(f'→ {final_action}')
+        lines.append(f'<i>→ {final_action}</i>')
 
     # 포워드 테스트
     if forward_test and forward_test['n_days'] >= 20:
@@ -3254,9 +3257,8 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         lines.append(f'📰 {market_text}')
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # 섹션 5: 매도 검토 + 경고
+    # 섹션 5: 포트폴리오 경고 (매도 검토는 Exit 메시지로 분리됨)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    has_exits = exit_reasons and (exit_reasons.get('achieved') or exit_reasons.get('degraded'))
     warnings = []
     earnings_stocks = [s for s in selected if s.get('earnings_note')]
     for s in earnings_stocks:
@@ -3273,30 +3275,18 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     if portfolio_mode == 'reduced':
         warnings.append('겨울 후기 — Top 3 축소')
 
-    if has_exits or warnings:
+    if warnings:
         lines.append('')
-        lines.append('🔔 매도 검토')
-        if exit_reasons:
-            achieved = exit_reasons.get('achieved', [])
-            degraded = exit_reasons.get('degraded', [])
-            for t, reasons in achieved:
-                lines.append(f'{t} — 실적 대비 주가 이미 상승')
-            for t, reasons in degraded:
-                reason_str = ', '.join(reasons)
-                lines.append(f'{t} ⚠️{reason_str} — Top 30 이탈')
-        if has_exits:
-            lines.append('보유 중이라면 매도를 검토하세요.')
-        if warnings:
-            lines.append('⚠️ ' + ' | '.join(warnings))
+        lines.append('⚠️ ' + ' | '.join(warnings))
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # 범례 + 면책
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('순위는 2일전→1일전→오늘 · 등수는 Top 30 내')
-    lines.append('목록에 있으면 보유, 빠지면 매도 검토.')
-    lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
+    lines.append('<i>순위는 2일전→1일전→오늘 · 등수는 Top 30 내</i>')
+    lines.append('<i>목록에 있으면 보유, 빠지면 매도 검토.</i>')
+    lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
 
     return '\n'.join(lines)
 
@@ -3350,10 +3340,8 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
 
     lines = []
     lines.append(f'📋 <b>Top 30 종목 현황</b>')
-    lines.append('이 목록에 있으면 보유, 빠지면 매도 검토.')
-    if sector_parts:
-        lines.append(f'📊 {" · ".join(sector_parts)}')
-    lines.append('─────────────────')
+    lines.append('<i>이 목록에 있으면 보유, 빠지면 매도 검토.</i>')
+    lines.append('━━━━━━━━━━━━━━━')
 
     # ── 30종목 전체 동일 코어 포맷 ──
     for idx, (_, row) in enumerate(filtered.iterrows()):
@@ -3416,14 +3404,19 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         tag_suffix = f' ({tag})' if tag else ''
         l3_parts.append(f'순위 {rank_str}{tag_suffix}')
         lines.append(' · '.join(l3_parts))
-        lines.append('──────────────────')
+        lines.append('─ ─ ─ ─ ─ ─ ─ ─')
+
+    # ── 주도 업종 (하단) ──
+    if sector_parts:
+        lines.append('')
+        lines.append(f'📊 주도 업종 — {" · ".join(sector_parts)}')
 
     # ── 범례 (하단, 최소화) ──
     lines.append('')
-    lines.append('✅ 3일연속 · ⏳ 2일차 · 🆕 신규 · 순위 2일전→1일전→오늘')
-    lines.append('EPS추이 🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락')
-    lines.append('저평가(-)=EPS 전망 대비 할인 · 의견=EPS 수정 수')
-    lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
+    lines.append('<i>✅ 3일연속 · ⏳ 2일차 · 🆕 신규 · 순위 2일전→1일전→오늘</i>')
+    lines.append('<i>EPS추이 🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락</i>')
+    lines.append('<i>저평가(-)=EPS 전망 대비 할인 · 의견=EPS 수정 수</i>')
+    lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
 
     msg_watchlist = '\n'.join(lines)
 
@@ -3462,7 +3455,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         if achieved or degraded:
             exit_lines = []
             exit_lines.append('📉 <b>Top 30 이탈 종목</b>')
-            exit_lines.append('─────────────────')
+            exit_lines.append('━━━━━━━━━━━━━━━')
 
             def _render_exit(elist, target):
                 for t, prev_rank, cur_rank, reasons in elist:
@@ -3493,19 +3486,19 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                     rt = ' '.join(f'[{r}]' for r in reasons)
                     ts = f' ({tg})' if tg else ''
                     target.append(f'순위 {ri} {rt}{ts}')
-                    target.append('──────────────────')
+                    target.append('─ ─ ─ ─ ─ ─ ─ ─')
 
             if achieved:
-                exit_lines.append(f'✅ <b>주가 선반영</b> ({len(achieved)}개) — 수익 실현 검토')
+                exit_lines.append(f'✅ <b>주가 선반영</b> ({len(achieved)}개) — <i>수익 실현 검토</i>')
                 _render_exit(achieved, exit_lines)
             if degraded:
                 if achieved:
                     exit_lines.append('')
-                exit_lines.append(f'⚠️ <b>펀더멘탈 악화</b> ({len(degraded)}개) — 매도 검토')
+                exit_lines.append(f'⚠️ <b>펀더멘탈 악화</b> ({len(degraded)}개) — <i>매도 검토</i>')
                 _render_exit(degraded, exit_lines)
 
             exit_lines.append('')
-            exit_lines.append('보유 중이라면 매도를 검토하세요.')
+            exit_lines.append('<i>보유 중이라면 매도를 검토하세요.</i>')
 
             msg_exit = '\n'.join(exit_lines)
 
