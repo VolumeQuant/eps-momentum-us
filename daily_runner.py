@@ -3104,37 +3104,26 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         tag_em = f' {_sig_tag_emoji.get(tag, "")}' if tag and _sig_tag_emoji.get(tag) else ''
         lines.append(f'<b>{i+1}. {display_name}({ticker}) {industry}{price_str}</b>{earnings_tag}{tag_em}')
 
-        # L1: 순위
-        w_info = weighted_ranks.get(ticker)
-        if w_info:
-            r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
-            v_status = s.get('v_status', '✅')
-            if v_status == '🆕':
-                rank_str = f'-→-→{r0}위'
-            elif v_status == '⏳':
-                r1_str = f'{r1}' if r1 < 50 else '-'
-                rank_str = f'-→{r1_str}→{r0}위'
-            else:
-                r2_str = f'{r2}' if r2 < 50 else '-'
-                r1_str = f'{r1}' if r1 < 50 else '-'
-                rank_str = f'{r2_str}→{r1_str}→{r0}위'
-            lines.append(f'순위 {rank_str}')
+        # L1: EPS추이
+        lights = s.get('lights', '')
+        desc = s.get('desc', '')
+        if lights and desc:
+            lines.append(f'EPS추이 {lights} {desc}')
+        elif lights:
+            lines.append(f'EPS추이 {lights}')
 
-        # L2: 팩터 등수 (선정과정 채점 기준과 동일 어휘)
-        fr = factor_ranks.get(ticker, {})
-        if fr:
-            lines.append(f'저평가 {fr["gap_rank"]}등 · 매출성장 {fr["rev_rank"]}등')
-        else:
-            # fallback: 등수 없으면 값 표시
-            l2_parts = []
-            if adj_gap:
-                l2_parts.append(f'저평가 {adj_gap:+.0f}%')
-            if rev_pct:
-                l2_parts.append(f'매출성장 {rev_pct}')
-            if l2_parts:
-                lines.append(' · '.join(l2_parts))
+        # L2: EPS + 매출 + 의견
+        rev_up = int(s.get('rev_up', 0) or 0)
+        rev_down = int(s.get('rev_down', 0) or 0)
+        growth_parts = []
+        if eps_chg:
+            growth_parts.append(f'EPS {int(round(eps_chg)):+d}%')
+        if rev:
+            growth_parts.append(f'매출 {int(round(rev * 100)):+d}%')
+        growth_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
+        lines.append(' · '.join(growth_parts))
 
-        # L3: AI 내러티브 (의견/추이는 Watchlist에서)
+        # L3: AI 내러티브
         narrative = narratives.get(ticker, '')
         if narrative:
             lines.append(f'💬 {narrative}')
