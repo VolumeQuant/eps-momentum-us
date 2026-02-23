@@ -3410,6 +3410,8 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
             supp_lines.append('<i>보유 중이라면 매도를 검토하세요.</i>')
             supp_lines.append('━━━━━━━━━━━━━━━')
 
+            _exit_tag_emoji = {'주가↑': '📈', '주가↓': '📉', '전망↑': '⬆', '전망↓': '⬇'}
+
             def _render_exit(elist, target):
                 for t, prev_rank, cur_rank, reasons in elist:
                     row = full_data.get(t, {})
@@ -3417,26 +3419,20 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                     ind = row.get('industry', '') if hasattr(row, 'get') else ''
                     lt = row.get('trend_lights', '') if hasattr(row, 'get') else ''
                     ds = row.get('trend_desc', '') if hasattr(row, 'get') else ''
-                    ep = row.get('eps_change_90d') if hasattr(row, 'get') else None
-                    rv = row.get('rev_growth') if hasattr(row, 'get') else None
                     ru = int(row.get('rev_up30', 0) or 0) if hasattr(row, 'get') else 0
                     rd = int(row.get('rev_down30', 0) or 0) if hasattr(row, 'get') else 0
                     tg = rank_change_tags.get(t, '')
+                    tg_em = f' {_exit_tag_emoji.get(tg, "")}' if tg and _exit_tag_emoji.get(tg) else ''
 
-                    target.append(f'{nm}({t}) {ind}')
+                    # L0: 이름 + 업종 + 태그이모지
+                    target.append(f'{nm}({t}) {ind}{tg_em}')
+                    # L1: EPS추이
                     if lt and ds:
                         target.append(f'EPS추이 {lt} {ds}')
-                    growth_parts = []
-                    if ep is not None and pd.notna(ep):
-                        growth_parts.append(f'EPS {ep:+.0f}%')
-                    if rv is not None and pd.notna(rv):
-                        growth_parts.append(f'매출 {rv*100:+.0f}%')
-                    growth_parts.append(f'의견 ↑{ru}↓{rd}')
-                    target.append(' · '.join(growth_parts))
+                    # L2: 의견 + 순위 + 사유
                     ri = f'{prev_rank}→{cur_rank}위' if cur_rank else f'{prev_rank}위→탈락'
                     rt = ' '.join(f'[{r}]' for r in reasons)
-                    ts = f' ({tg})' if tg else ''
-                    target.append(f'3일 순위 {ri} {rt}{ts}')
+                    target.append(f'의견 ↑{ru}↓{rd} · 순위 {ri} {rt}')
 
             if achieved:
                 supp_lines.append(f'🎯 <b>주가 선반영</b> ({len(achieved)}개) — <i>수익 실현 검토</i>')
