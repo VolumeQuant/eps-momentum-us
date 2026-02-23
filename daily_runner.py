@@ -2947,10 +2947,12 @@ def run_v2_ai_analysis(config, selected, biz_day, risk_status=None):
                 text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
                 text = re.sub(r'#{1,3}\s*', '', text)
 
+                # [SEP]로 먼저 분리 (Gemini가 한 줄로 반환하는 경우 대응)
+                text = text.replace('[SEP]', '\n')
                 # 파싱: "TICKER: 설명" 패턴 (여러 변형 허용)
                 for line in text.split('\n'):
                     line = line.strip()
-                    if not line or line == '[SEP]':
+                    if not line:
                         continue
                     # "TICKER: 설명" / "N. TICKER: 설명" / "- TICKER: 설명"
                     m = re.match(r'(?:\d+\.\s*)?(?:-\s*)?([A-Z]{1,5})[\s:：]+(.{10,})', line)
@@ -3194,32 +3196,30 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         if idx_parts:
             lines.append(' · '.join(idx_parts))
 
-    # 신용시장 + 변동성 (구조화, 각 수치에 맥락)
+    # 신용시장 + 변동성 (각 1줄로)
     if risk_status:
         if hy_data:
             hy_spread = hy_data.get('hy_spread', 0)
-            lines.append(f'🏦 신용시장 — HY 스프레드 {hy_spread:.2f}%')
-            # 10년 중위 3.76% 기준 맥락
             if hy_spread < 3.0:
-                lines.append('  평균(3.76%)보다 낮아 안정적')
+                hy_ctx = '안정'
             elif hy_spread < 4.5:
-                lines.append('  평균(3.76%) 근처, 보통 수준')
+                hy_ctx = '보통'
             else:
-                lines.append('  평균(3.76%)보다 높아 주의')
+                hy_ctx = '주의'
+            lines.append(f'🏦 신용시장 — HY {hy_spread:.2f}% ({hy_ctx}, 평균 3.76%)')
 
         if vix_data:
             vix_cur = vix_data.get('vix_current', 0)
             vix_pct = vix_data.get('vix_percentile', 0)
             if vix_pct < 67:
-                vix_ctx = '평소 범위 안, 안정적이에요.'
+                vix_ctx = '안정'
             elif vix_pct < 80:
-                vix_ctx = '평소보다 다소 높지만 안정적이에요.'
+                vix_ctx = '다소 높음'
             elif vix_pct < 90:
-                vix_ctx = '상당히 높아요. 주의가 필요해요.'
+                vix_ctx = '주의'
             else:
-                vix_ctx = '매우 높아요. 시장 불안 구간이에요.'
-            lines.append(f'⚡ 변동성 — VIX {vix_cur:.1f}')
-            lines.append(f'  {vix_ctx}')
+                vix_ctx = '위험'
+            lines.append(f'⚡ 변동성 — VIX {vix_cur:.1f} ({vix_ctx})')
 
         # 종합 신호
         conc = risk_status.get('concordance', 'both_stable')
@@ -3296,10 +3296,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('순위는 그제→어제→오늘 (916종목 중)')
-    lines.append('괴리·매출 등수는 상위 30개 중 채점 순위')
-    lines.append('괴리 1등=EPS 대비 가장 저평가')
-    lines.append('상세 의견·추이는 다음 메시지 참조')
+    lines.append('목록에 있으면 보유, 빠지면 매도 검토.')
     lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
 
     return '\n'.join(lines)
@@ -3386,7 +3383,8 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         if fr:
             gap_v = fr.get('gap_val', 0)
             rev_v = fr.get('rev_val', 0)
-            gap_str = f'괴리 {fr["gap_rank"]}등({gap_v:+.0f}%)'
+            gap_pct = int(round(gap_v))  # -0 방지
+            gap_str = f'괴리 {fr["gap_rank"]}등({gap_pct:+d}%)'
             rev_str = f'매출 {fr["rev_rank"]}등({rev_v*100:+.0f}%)' if rev_v else f'매출 {fr["rev_rank"]}등'
             lines.append(f'{gap_str} · {rev_str}')
         else:
@@ -3501,14 +3499,9 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
     if sector_parts:
         lines.append(f'📊 주도 업종: {" · ".join(sector_parts)}')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('순위는 그제→어제→오늘 (916종목 중)')
-    lines.append('괴리·매출 등수는 상위 30개 중 채점 순위')
-    lines.append('괴리 1등=EPS 대비 가장 저평가')
-    lines.append('의견=애널리스트 EPS 수정 수(30일)')
-    lines.append('EPS추이: 90→60→30→7일 4구간 변화')
-    lines.append('🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락')
     lines.append('✅3일연속 ⏳2일차 🆕신규')
-    lines.append('Top 5=포트폴리오 · 6~30=대기 · 이탈=매도 검토')
+    lines.append('EPS추이 🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락')
+    lines.append('괴리(-)=EPS 대비 저평가 · 의견=EPS 수정 수')
     lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
 
     return '\n'.join(lines)
