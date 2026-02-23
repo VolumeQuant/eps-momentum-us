@@ -1060,13 +1060,13 @@ def get_rank_change_tags(today_tickers, weighted_ranks):
         # σ 넘은 변동은 방향 무관하게 전부 표시 (상태 정보)
         tag_parts = []
         if price_chg_pct >= PRICE_STD:
-            tag_parts.append('📈가격↑')
+            tag_parts.append('주가↑')
         elif price_chg_pct <= -PRICE_STD:
-            tag_parts.append('📉가격↓')
+            tag_parts.append('주가↓')
         if score_delta >= SCORE_STD:
-            tag_parts.append('💪전망↑')
+            tag_parts.append('전망↑')
         elif score_delta <= -SCORE_STD:
-            tag_parts.append('⚠️전망↓')
+            tag_parts.append('전망↓')
 
         tags[ticker] = ' '.join(tag_parts)
 
@@ -2963,7 +2963,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
 
     # ── 프로세스 라인 ──
     lines.append('')
-    lines.append(f'916종목 → Top 30 → ✅ 3일 검증 → <b>최종 {len(selected)}종목</b>')
+    lines.append(f'미국 916종목 중 EPS·매출 성장 상위 30개를 3일 검증, <b>최종 {len(selected)}종목</b> 선정')
 
     # Q1 + both_stable: 역사적 매수 기회
     hy_q = (risk_status.get('hy') or {}).get('quadrant', '') if risk_status else ''
@@ -3000,7 +3000,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
             lines.append(f'{s["industry"]}')
 
         # 라인 3: 실적 + 분석가 (숫자 근거)
-        analyst_str = f' · 의견 ↑{rev_up}↓{rev_down}' if num_analysts > 0 else ''
+        analyst_str = f' · 분석가 ↑{rev_up} ↓{rev_down}' if num_analysts > 0 else ''
         lines.append(f'EPS {eps_chg:+.0f}% · 매출 {rev_pct}{analyst_str}')
 
         # 라인 4: 순위 궤적 (3일간 안정성 증명)
@@ -3019,7 +3019,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
                 rank_str = f'{r2_str}→{r1_str}→{r0}'
             tag = rank_change_tags.get(ticker, '')
             tag_suffix = f' ({tag})' if tag else ''
-            lines.append(f'순위 {rank_str}{tag_suffix}')
+            lines.append(f'3일순위 {rank_str}{tag_suffix}')
 
         # 라인 5: AI 내러티브 (왜 실적이 좋은지 — 있으면 보너스)
         narrative = narratives.get(ticker, '')
@@ -3031,14 +3031,14 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     earnings_stocks = [s for s in selected if s.get('earnings_note')]
     for s in earnings_stocks:
         ed_str = s["earnings_note"].replace("📅어닝 ", "").replace("📅", "").strip()
-        warnings.append(f'{s["ticker"]} 어닝 {ed_str}')
+        warnings.append(f'{s["ticker"]} 실적발표 {ed_str}')
 
     from collections import Counter
     industries = [s['industry'] for s in selected if s.get('industry')]
     tech_keywords = ['반도체', '전자부품', 'HW', '통신장비', '계측']
     tech_count = sum(1 for ind in industries if any(kw in ind for kw in tech_keywords))
     if tech_count >= 3:
-        warnings.append(f'테크 {tech_count}/{len(selected)} 집중')
+        warnings.append(f'테크 {tech_count}/{len(selected)}종목 집중')
 
     if portfolio_mode == 'caution':
         warnings.append('시장 주의')
@@ -3060,7 +3060,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
             reason_str = ','.join(reasons)
             exit_parts.append(f'{t}({reason_str})')
         if exit_parts:
-            lines.append(f'📉 이탈: {" · ".join(exit_parts)}')
+            lines.append(f'📉 Top 30 이탈: {" · ".join(exit_parts)}')
 
     # ── 시장 요약 (AI, 없으면 생략) ──
     market_summary = ai_content.get('market_summary', '') if ai_content else ''
@@ -3080,7 +3080,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                                 weighted_ranks=None, rank_change_tags=None):
     """v2 메시지 2: 매수 후보 30 — v1 [2/4]와 동일 포맷
 
-    종목당 4줄(이름/업종·트렌드/실적/의견·순위) + 이탈 상세 — 전체 증거를 보여주는 메시지.
+    종목당 4줄(이름/업종·트렌드/실적/분석가·3일순위) + 이탈 상세 — 전체 증거를 보여주는 메시지.
     신용이 없는 발신자의 메시지에서 신뢰를 만드는 건 "과정의 투명성"이므로 정보를 줄이지 않는다.
     """
     import pandas as pd
@@ -3166,7 +3166,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         else:
             rank_str = f'-→-→{rank}'
         tag_suffix = f' ({tag})' if tag else ''
-        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}{tag_suffix}')
+        lines.append(f'분석가 ↑{rev_up} ↓{rev_down} · 3일순위 {rank_str}{tag_suffix}')
         lines.append('──────────────────')
 
     # ── 이탈 종목: v1과 동일한 상세 포맷 ──
@@ -3225,11 +3225,11 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                 ri = f'{prev_rank}→{cur_rank}' if cur_rank else f'{prev_rank}→탈락'
                 rt = ' '.join(f'[{r}]' for r in reasons)
                 ts = f' ({tg})' if tg else ''
-                lines.append(f'의견 ↑{ru}↓{rd} · 순위 {ri} {rt}{ts}')
+                lines.append(f'분석가 ↑{ru} ↓{rd} · 3일순위 {ri} {rt}{ts}')
                 lines.append('──────────────────')
 
         lines.append('')
-        lines.append('📉 <b>이탈 종목</b>')
+        lines.append('📉 <b>Top 30 이탈 종목</b>')
         lines.append('─────────────────')
         if achieved:
             lines.append(f'✅ <b>목표 달성</b> ({len(achieved)}개) — 수익 실현 검토')
@@ -3243,6 +3243,8 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
     lines.append('')
     lines.append('Top 5 = 포트폴리오, 6~30 = 대기')
     lines.append('이탈 = 매도 검토 대상이에요.')
+    lines.append('')
+    lines.append('☀️상승 ☁️보합 🌧️하락 🔥급등 | ✅3일검증 ⏳2일 🆕신규')
 
     return '\n'.join(lines)
 
