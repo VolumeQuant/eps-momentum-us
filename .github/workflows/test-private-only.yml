@@ -10,7 +10,7 @@ on:
       message_version:
         description: 'Message format: v1 (기존 6개) or v2 (압축 2개)'
         required: false
-        default: 'v1'
+        default: 'v2'
 
 permissions:
   contents: write
