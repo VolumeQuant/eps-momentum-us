@@ -2888,14 +2888,15 @@ def run_v2_ai_analysis(config, selected, biz_day, risk_status=None):
 {chr(10).join(stock_lines)}
 
 [형식]
-종목별로 1~2문장(최대 80자). 종목 사이에 [SEP] 표시.
+종목별 2~3문장(120~150자). 종목 사이에 [SEP] 표시.
 형식: TICKER: 설명
 
 [규칙]
-- 각 종목의 실적 성장 배경(왜 EPS/매출이 오르는지)을 검색해서 1~2문장으로 써.
-  좋은 예: "NVDA는 AI 데이터센터 GPU 수요 확대와 블랙웰 출시에 힘입어 매출이 급증하고 있어요."
-  좋은 예: "VST는 전력 수요 폭증과 원전 재가동 기대감에 힘입어 실적이 크게 개선되고 있어요."
-  나쁜 예: "NVIDIA Corporation은 생성형 AI 모델 개발에 필요한 칩에 대한 강력한 수요와..." ← 번역투, 너무 김
+- 각 종목의 실적 성장 배경(왜 EPS/매출이 오르는지)을 검색해서 2~3문장으로 자세히 써.
+  좋은 예: "최근 재상장된 SNDK는 스마트폰, 데이터센터, AI 통합 등 소비자 가전 및 5G 네트워크의 플래시 메모리 수요 증가에 힘입어 성장하고 있어요."
+  좋은 예: "AI 인프라 구축을 위한 데이터센터의 폭발적인 GPU 수요와 주요 클라우드 제공업체들의 AI 클라우드 서비스 투자 확대가 실적 성장을 이끌고 있어요."
+  나쁜 예: "SSD 매출 증가와 제품 믹스 개선으로 실적이 크게 성장했어요." ← 너무 짧고 구체적 내용 없음
+- 구체적으로: 어떤 제품/서비스가, 어떤 시장에서, 왜 수요가 느는지 써.
 - 회사명은 티커만 써 (NVDA, APH 등). "Corporation", "Inc.", 풀네임 금지.
 - 번역투 금지: "탁월한", "유기적", "전략적 인수 프로그램", "모멘텀에 힘입어" 같은 표현 쓰지 마.
 - 자연스러운 한국어로 써: "AI 서버 수요가 늘면서", "반도체 가격이 오르면서" 같이 쉽게.
@@ -3103,7 +3104,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         tag_em = f' {_sig_tag_emoji.get(tag, "")}' if tag and _sig_tag_emoji.get(tag) else ''
         lines.append(f'<b>{i+1}. {display_name}({ticker}) {industry}{price_str}</b>{earnings_tag}{tag_em}')
 
-        # L1: 3일 순위
+        # L1: 순위
         w_info = weighted_ranks.get(ticker)
         if w_info:
             r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
@@ -3117,7 +3118,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
                 r2_str = f'{r2}' if r2 < 50 else '-'
                 r1_str = f'{r1}' if r1 < 50 else '-'
                 rank_str = f'{r2_str}→{r1_str}→{r0}위'
-            lines.append(f'3일 순위 {rank_str}')
+            lines.append(f'순위 {rank_str}')
 
         # L2: 팩터 등수 (선정과정 채점 기준과 동일 어휘)
         fr = factor_ranks.get(ticker, {})
@@ -3252,7 +3253,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('<i>3일 순위는 2일전→1일전→오늘 · 등수는 Top 30 내</i>')
+    lines.append('<i>순위는 2일전→1일전→오늘 · 등수는 Top 30 내</i>')
     lines.append('<i>목록에 있으면 보유, 빠지면 매도 검토.</i>')
     lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
 
@@ -3316,13 +3317,15 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
     # 태그 텍스트 → 이모지 변환
     _tag_emoji = {'주가↑': '📈', '주가↓': '📉', '전망↑': '⬆', '전망↓': '⬇'}
 
-    # ── 30종목 전체 동일 코어 포맷 (3줄 + 구분선) ──
+    # ── 30종목 전체 동일 코어 포맷 (4줄 + 구분선) ──
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
         ticker = row['ticker']
         industry = row.get('industry', '')
         lights = row.get('trend_lights', '')
         desc = row.get('trend_desc', '')
+        eps_90d = row.get('eps_change_90d')
+        rev_g = row.get('rev_growth')
         rev_up = int(row.get('rev_up30', 0) or 0)
         rev_down = int(row.get('rev_down30', 0) or 0)
         marker = status_map.get(ticker, '🆕')
@@ -3349,7 +3352,16 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         elif lights:
             lines.append(f'EPS추이 {lights}')
 
-        # L2: 의견 + 3일 순위
+        # L2: EPS + 매출 + 의견
+        growth_parts = []
+        if eps_90d is not None and pd.notna(eps_90d):
+            growth_parts.append(f'EPS {int(round(eps_90d)):+d}%')
+        if rev_g is not None and pd.notna(rev_g):
+            growth_parts.append(f'매출 {int(round(rev_g * 100)):+d}%')
+        growth_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
+        lines.append(' · '.join(growth_parts))
+
+        # L3: 순위
         w_info = weighted_ranks.get(ticker)
         if w_info:
             r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
@@ -3364,7 +3376,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                 rank_str = f'{r2_s}→{r1_s}→{r0}위'
         else:
             rank_str = f'-→-→{rank}위'
-        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 3일 순위 {rank_str}')
+        lines.append(f'순위 {rank_str}')
 
         # 점선 구분선
         if rank < 30:
@@ -3419,6 +3431,8 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                     ind = row.get('industry', '') if hasattr(row, 'get') else ''
                     lt = row.get('trend_lights', '') if hasattr(row, 'get') else ''
                     ds = row.get('trend_desc', '') if hasattr(row, 'get') else ''
+                    ep = row.get('eps_change_90d') if hasattr(row, 'get') else None
+                    rv = row.get('rev_growth') if hasattr(row, 'get') else None
                     ru = int(row.get('rev_up30', 0) or 0) if hasattr(row, 'get') else 0
                     rd = int(row.get('rev_down30', 0) or 0) if hasattr(row, 'get') else 0
                     tg = rank_change_tags.get(t, '')
@@ -3429,10 +3443,18 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                     # L1: EPS추이
                     if lt and ds:
                         target.append(f'EPS추이 {lt} {ds}')
-                    # L2: 의견 + 순위 + 사유
+                    # L2: EPS + 매출 + 의견
+                    gp = []
+                    if ep is not None and pd.notna(ep):
+                        gp.append(f'EPS {int(round(ep)):+d}%')
+                    if rv is not None and pd.notna(rv):
+                        gp.append(f'매출 {int(round(rv * 100)):+d}%')
+                    gp.append(f'의견 ↑{ru}↓{rd}')
+                    target.append(' · '.join(gp))
+                    # L3: 순위 + 사유
                     ri = f'{prev_rank}→{cur_rank}위' if cur_rank else f'{prev_rank}위→탈락'
                     rt = ' '.join(f'[{r}]' for r in reasons)
-                    target.append(f'의견 ↑{ru}↓{rd} · 순위 {ri} {rt}')
+                    target.append(f'순위 {ri} {rt}')
 
             if achieved:
                 supp_lines.append(f'🎯 <b>주가 선반영</b> ({len(achieved)}개) — <i>수익 실현 검토</i>')
