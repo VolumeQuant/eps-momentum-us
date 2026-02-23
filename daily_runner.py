@@ -2885,13 +2885,20 @@ def run_v2_ai_analysis(config, selected, biz_day, risk_status=None):
 
 def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
                               exit_reasons, biz_day, ai_content, portfolio_mode,
-                              concordance, final_action):
+                              concordance, final_action,
+                              weighted_ranks=None, rank_change_tags=None):
     """v2 메시지 1: 오늘의 추천
 
-    구조: 성적표 → 프로세스 → 추천(코드뼈대+AI살) → 리스크 → 이탈 → 시장요약 → 면책
-    코드 기반 데이터가 뼈대이므로 AI 실패해도 정상 작동.
+    구조: 성적표 → 프로세스 → 추천(스토리텔링) → 리스크 → 이탈 → 시장요약 → 면책
+    각 종목: 업종+트렌드 → 실적+분석가 → 순위궤적 → AI내러티브
+    → 읽으면서 "이 논리라면 사볼만하겠다"고 납득하는 흐름.
     """
     import re
+
+    if weighted_ranks is None:
+        weighted_ranks = {}
+    if rank_change_tags is None:
+        rank_change_tags = {}
 
     biz_str = biz_day.strftime('%m.%d')
     weekdays = ['월', '화', '수', '목', '금', '토', '일']
@@ -2954,7 +2961,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         lines.append('이번 회차는 <b>관망</b>을 권장해요.')
         return '\n'.join(lines)
 
-    # ── 프로세스 라인: "어떻게 골랐는지" ──
+    # ── 프로세스 라인 ──
     lines.append('')
     lines.append(f'916종목 → Top 30 → ✅ 3일 검증 → <b>최종 {len(selected)}종목</b>')
 
@@ -2963,7 +2970,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     if hy_q == 'Q1' and concordance == 'both_stable':
         lines.append('💎 <b>역사적 매수 기회!</b> 모든 지표가 매수를 가리켜요.')
 
-    # ── 추천 종목 (코드 뼈대 + AI 보조) ──
+    # ── 추천 종목 (스토리텔링) ──
     lines.append('')
     lines.append(f'━━ 오늘의 포트폴리오 ━━')
 
@@ -2984,11 +2991,37 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         # 라인 1: 종목명 + 비중 + 어닝
         lines.append(f'<b>{i+1}. {s["name"]}({ticker}) · {s["weight"]}%</b>{earnings_tag}')
 
-        # 라인 2: 코드 뼈대 — 업종 + EPS + 매출 + 애널리스트 (100% 안정)
-        analyst_str = f' · 상향 {rev_up}/{num_analysts}' if num_analysts > 0 else ''
-        lines.append(f'{s["industry"]} · EPS {eps_chg:+.0f}% · 매출 {rev_pct}{analyst_str}')
+        # 라인 2: 업종 + 트렌드 (이 종목이 어떤 흐름인지)
+        lights = s.get('lights', '')
+        desc = s.get('desc', '')
+        if lights and desc:
+            lines.append(f'{s["industry"]} · {lights} {desc}')
+        else:
+            lines.append(f'{s["industry"]}')
 
-        # 라인 3: AI 내러티브 (있으면 보너스, 없어도 OK)
+        # 라인 3: 실적 + 분석가 (숫자 근거)
+        analyst_str = f' · 의견 ↑{rev_up}↓{rev_down}' if num_analysts > 0 else ''
+        lines.append(f'EPS {eps_chg:+.0f}% · 매출 {rev_pct}{analyst_str}')
+
+        # 라인 4: 순위 궤적 (3일간 안정성 증명)
+        w_info = weighted_ranks.get(ticker)
+        if w_info:
+            r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
+            v_status = s.get('v_status', '✅')
+            if v_status == '🆕':
+                rank_str = f'-→-→{r0}'
+            elif v_status == '⏳':
+                r1_str = str(r1) if r1 < 50 else '-'
+                rank_str = f'-→{r1_str}→{r0}'
+            else:
+                r2_str = str(r2) if r2 < 50 else '-'
+                r1_str = str(r1) if r1 < 50 else '-'
+                rank_str = f'{r2_str}→{r1_str}→{r0}'
+            tag = rank_change_tags.get(ticker, '')
+            tag_suffix = f' ({tag})' if tag else ''
+            lines.append(f'순위 {rank_str}{tag_suffix}')
+
+        # 라인 5: AI 내러티브 (왜 실적이 좋은지 — 있으면 보너스)
         narrative = narratives.get(ticker, '')
         if narrative:
             lines.append(f'💬 {narrative}')
@@ -3292,7 +3325,8 @@ def main():
             msg_signal = create_v2_signal_message(
                 selected, risk_status, market_lines, earnings_map,
                 exit_reasons, biz_day, ai_content, portfolio_mode,
-                concordance, final_action
+                concordance, final_action,
+                weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags
             )
             if msg_signal:
                 if send_to_channel:
