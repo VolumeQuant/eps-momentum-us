@@ -2785,7 +2785,7 @@ def classify_exit_reasons(exited_tickers, results_df):
     return result
 
 
-def run_v2_ai_analysis(config, selected, biz_day, risk_status=None):
+def run_v2_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=None):
     """v2: Gemini 2회 호출 — (1) 시장 요약 (2) 종목 내러티브
 
     AI 실패 시에도 빈 결과를 반환하여 메시지 정상 작동 보장.
@@ -2834,8 +2834,21 @@ def run_v2_ai_analysis(config, selected, biz_day, risk_status=None):
             if f_action:
                 market_ctx = f"현재 시장 판단: {f_action}"
 
+        # 실제 지수 데이터를 프롬프트에 포함 (AI가 상승/하락 반대로 말하는 것 방지)
+        idx_ctx = ""
+        if market_lines:
+            import re as _re
+            idx_parts = []
+            for ml in market_lines:
+                _m = _re.match(r'[🟢🔴🟡]\s*(.+)', ml)
+                if _m:
+                    idx_parts.append(_m.group(1).strip())
+            if idx_parts:
+                idx_ctx = f"[당일 지수 마감] {' / '.join(idx_parts)}"
+
         market_prompt = f"""{biz_str} 미국 주식시장 마감 결과를 Google 검색해서 요약해줘.
 
+{idx_ctx}
 {market_ctx}
 
 [구조] 3~4문장, 총 150자 이내로 작성:
@@ -2845,6 +2858,7 @@ def run_v2_ai_analysis(config, selected, biz_day, risk_status=None):
 
 [규칙]
 - 반드시 150자 이내. 짧게 핵심만.
+- 위 [당일 지수 마감] 데이터와 반드시 일치해야 해. 지수가 마이너스면 "하락", 플러스면 "상승".
 - 지수 수치(S&P, 나스닥 등)는 별도 표시하니 생략.
 - 구체적으로 써 — "관세 이슈" 대신 "트럼프 10% 관세에..." 같이.
 - GDP, PCE 같은 경제지표는 시장에 큰 영향 줬을 때만 한 줄로.
@@ -3643,7 +3657,7 @@ def main():
                 log(f"포워드 테스트 요약 실패: {e}", "WARN")
 
             # AI 2회 호출 (시장 요약 + 종목 내러티브, 실패해도 OK)
-            ai_content = run_v2_ai_analysis(config, selected, biz_day, risk_status)
+            ai_content = run_v2_ai_analysis(config, selected, biz_day, risk_status, market_lines=market_lines)
 
             # 팩터 등수 (저평가·매출성장, Top 30 내)
             factor_ranks = compute_factor_ranks(results_df, today_tickers)
