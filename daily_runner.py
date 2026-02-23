@@ -48,6 +48,7 @@ DEFAULT_CONFIG = {
     "telegram_chat_id": "",
     "telegram_channel_id": "",
     "telegram_private_id": "",
+    "message_version": "v1",
 }
 
 
@@ -75,6 +76,10 @@ def load_config():
         config['telegram_chat_id'] = os.environ['TELEGRAM_PRIVATE_ID']
 
     config['is_github_actions'] = bool(os.environ.get('GITHUB_ACTIONS'))
+
+    # 메시지 버전 (v1=기존 6개, v2=압축 2개)
+    if os.environ.get('MESSAGE_VERSION'):
+        config['message_version'] = os.environ['MESSAGE_VERSION']
 
     # Gemini API 키 (AI 분석용)
     if os.environ.get('GEMINI_API_KEY'):
@@ -2267,141 +2272,168 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
         return None
 
 
+def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, earnings_map=None, risk_status=None):
+    """포트폴리오 종목 선정 — ✅ 필터 → 리스크 필터 → 가중순위 정렬 → Top N
+
+    Returns: (selected, portfolio_mode, concordance, final_action)
+        selected: 선정된 종목 리스트 (dict, weight 포함) 또는 빈 리스트
+        portfolio_mode: 'normal'|'caution'|'reduced'|'stop'
+        concordance: 'both_stable'|'both_warn'|...
+        final_action: 행동 권장 메시지
+    """
+    if earnings_map is None:
+        earnings_map = {}
+    if status_map is None:
+        status_map = {}
+    if weighted_ranks is None:
+        weighted_ranks = {}
+
+    concordance = risk_status.get('concordance', 'both_stable') if risk_status else 'both_stable'
+    final_action = risk_status.get('final_action', '') if risk_status else ''
+    portfolio_mode = risk_status.get('portfolio_mode', 'normal') if risk_status else 'normal'
+
+    if results_df is None or results_df.empty:
+        return [], portfolio_mode, concordance, final_action
+
+    filtered = get_part2_candidates(results_df, top_n=30)
+    if filtered.empty:
+        return [], portfolio_mode, concordance, final_action
+
+    # ✅ (3일 검증) 종목만 대상
+    verified_tickers = {t for t, s in status_map.items() if s == '✅'}
+    if status_map:
+        filtered = filtered[filtered['ticker'].isin(verified_tickers)]
+
+    # 가중 순위로 정렬
+    if weighted_ranks:
+        filtered = filtered.copy()
+        filtered['_weighted'] = filtered['ticker'].map(
+            lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
+        )
+        filtered = filtered.sort_values('_weighted').reset_index(drop=True)
+
+    if filtered.empty:
+        log("포트폴리오: ✅ 검증 종목 없음", "WARN")
+        return [], portfolio_mode, concordance, final_action
+
+    today_date = datetime.now().date()
+    two_weeks = (datetime.now() + timedelta(days=14)).date()
+
+    # 리스크 플래그 → 안전 종목만 선별
+    log("포트폴리오: ✅ 종목 리스크 필터 적용 중...")
+    safe = []
+    for _, row in filtered.iterrows():
+        t = row['ticker']
+        eps_chg = row.get('eps_change_90d', 0) or 0
+        price_chg = row.get('price_chg', 0) or 0
+        fwd_pe = row.get('fwd_pe', 0) or 0
+        rev_up = int(row.get('rev_up30', 0) or 0)
+        rev_down = int(row.get('rev_down30', 0) or 0)
+        num_analysts = int(row.get('num_analysts', 0) or 0)
+
+        flags = []
+        total_rev = rev_up + rev_down
+        if total_rev > 0 and rev_down / total_rev > 0.3:
+            flags.append("하향과반")
+        elif rev_down >= rev_up and rev_down >= 2:
+            flags.append("하향우세")
+        if num_analysts < 3:
+            flags.append("저커버리지")
+        earnings_note = ""
+        ed = earnings_map.get(t)
+        if ed and today_date <= ed <= two_weeks:
+            earnings_note = f" 📅어닝 {ed.month}/{ed.day}"
+
+        if flags:
+            log(f"  ❌ {t}: {','.join(flags)} (gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')})")
+        else:
+            v_status = status_map.get(t, '✅') if status_map else '✅'
+            safe.append({
+                'ticker': t,
+                'name': row.get('short_name', t),
+                'industry': row.get('industry', ''),
+                'eps_chg': eps_chg, 'price_chg': price_chg,
+                'fwd_pe': fwd_pe,
+                'adj_gap': row.get('adj_gap', 0) or 0,
+                'rev_up': rev_up, 'rev_down': rev_down,
+                'adj_score': row.get('adj_score', 0) or 0,
+                'lights': row.get('trend_lights', ''),
+                'desc': row.get('trend_desc', ''),
+                'v_status': v_status,
+                'price': row.get('price', 0) or 0,
+                'rev_growth': row.get('rev_growth', 0) or 0,
+                'earnings_note': earnings_note,
+            })
+            log(f"  {v_status} {t}: gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}{earnings_note}")
+
+    if not safe:
+        log("포트폴리오: ✅ 종목 없음", "WARN")
+        return [], portfolio_mode, concordance, final_action
+
+    # 가중 순위 정렬
+    if weighted_ranks:
+        for s in safe:
+            s['_weighted'] = weighted_ranks.get(s['ticker'], {}).get('weighted', 50.0)
+        safe.sort(key=lambda x: x['_weighted'])
+
+    log("포트폴리오: 가중 순위 (T0×0.5 + T1×0.3 + T2×0.2):")
+    for i, s in enumerate(safe):
+        w = s.get('_weighted', '-')
+        log(f"    {i+1}. {s['ticker']}: 가중={w} gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
+
+    # L3: both_warn 시 신규 진입 종목 포트폴리오 제외
+    if concordance == 'both_warn':
+        before = len(safe)
+        safe = [s for s in safe if s['v_status'] == '✅']
+        excluded = before - len(safe)
+        if excluded > 0:
+            log(f"L3 시장 동결: both_warn — 신규 진입 {excluded}개 제외 (기존 ✅만 유지)")
+
+    # stop 모드: 빈 리스트 반환
+    if portfolio_mode == 'stop':
+        log(f"포트폴리오: portfolio_mode=stop → 추천 중단 ({final_action})")
+        return [], portfolio_mode, concordance, final_action
+
+    # reduced 모드: Top 3만
+    if portfolio_mode == 'reduced':
+        selected = safe[:3]
+    else:
+        selected = safe[:5]
+
+    if len(selected) < 3:
+        log("포트폴리오: 선정 종목 부족", "WARN")
+        return [], portfolio_mode, concordance, final_action
+
+    # 동일 비중
+    n = len(selected)
+    base = 100 // n
+    remainder = 100 - base * n
+    weights = [base] * n
+    for i in range(remainder):
+        weights[i] += 1
+    for i, s in enumerate(selected):
+        s['weight'] = weights[i]
+
+    log(f"포트폴리오: {n}종목 선정 — " +
+        ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
+
+    return selected, portfolio_mode, concordance, final_action
+
+
 def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=None, risk_status=None, weighted_ranks=None, earnings_map=None):
     """포트폴리오 추천 — 3일 검증(✅) + 리스크 필터 통과 종목 + 가중 순위 정렬"""
     try:
         import re
         import yfinance as yf
 
-        if earnings_map is None:
-            earnings_map = {}
-
-        if results_df is None or results_df.empty:
-            return None
-
-        # 공통 필터 사용
-        filtered = get_part2_candidates(results_df, top_n=30)
-
-        if filtered.empty:
-            return None
-
-        if status_map is None:
-            status_map = {}
-        if weighted_ranks is None:
-            weighted_ranks = {}
-
-        # ✅ (3일 검증) 종목만 대상 — 🆕는 포트폴리오 제외
-        verified_tickers = {t for t, s in status_map.items() if s == '✅'}
-        if status_map:
-            filtered = filtered[filtered['ticker'].isin(verified_tickers)]
-
-        # 가중 순위로 정렬 (✅ 종목 중 가중 순위 높은 순)
-        if weighted_ranks:
-            filtered = filtered.copy()
-            filtered['_weighted'] = filtered['ticker'].map(
-                lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
-            )
-            filtered = filtered.sort_values('_weighted').reset_index(drop=True)
-
         if biz_day is None:
             biz_day = get_last_business_day()
 
-        if filtered.empty:
-            log("포트폴리오: ✅ 검증 종목 없음", "WARN")
-            return '\n'.join([
-                '━━━━━━━━━━━━━━━━━━━',
-                '   [4/4] 🎯 최종 추천',
-                '━━━━━━━━━━━━━━━━━━━',
-                f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
-                '',
-                '검증된 종목 중 안전한 종목이 없어요.',
-                '이번 회차는 <b>관망</b>을 권장합니다.',
-                '',
-                '무리한 진입보다 기다림이 나을 때도 있어요.',
-            ])
+        selected, portfolio_mode, concordance, final_action = select_portfolio_stocks(
+            results_df, status_map, weighted_ranks, earnings_map, risk_status
+        )
 
-        today_date = datetime.now().date()
-        two_weeks = (datetime.now() + timedelta(days=14)).date()
-
-        # 리스크 플래그 → 안전 종목만 선별
-        log("포트폴리오: ✅ 종목 리스크 필터 적용 중...")
-        safe = []
-        for _, row in filtered.iterrows():
-            t = row['ticker']
-            eps_chg = row.get('eps_change_90d', 0) or 0
-            price_chg = row.get('price_chg', 0) or 0
-            fwd_pe = row.get('fwd_pe', 0) or 0
-            rev_up = int(row.get('rev_up30', 0) or 0)
-            rev_down = int(row.get('rev_down30', 0) or 0)
-            num_analysts = int(row.get('num_analysts', 0) or 0)
-
-            flags = []
-            total_rev = rev_up + rev_down
-            if total_rev > 0 and rev_down / total_rev > 0.3:
-                flags.append("하향과반")
-            elif rev_down >= rev_up and rev_down >= 2:
-                flags.append("하향우세")
-            if num_analysts < 3:
-                flags.append("저커버리지")
-            # 어닝 임박: 표시만 (포트폴리오 제외 안 함, earnings_map 활용)
-            earnings_note = ""
-            ed = earnings_map.get(t)
-            if ed and today_date <= ed <= two_weeks:
-                earnings_note = f" 📅어닝 {ed.month}/{ed.day}"
-
-            if flags:
-                log(f"  ❌ {t}: {','.join(flags)} (gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')})")
-            else:
-                v_status = status_map.get(t, '✅') if status_map else '✅'
-                safe.append({
-                    'ticker': t,
-                    'name': row.get('short_name', t),
-                    'industry': row.get('industry', ''),
-                    'eps_chg': eps_chg, 'price_chg': price_chg,
-                    'fwd_pe': fwd_pe,
-                    'adj_gap': row.get('adj_gap', 0) or 0,
-                    'rev_up': rev_up, 'rev_down': rev_down,
-                    'adj_score': row.get('adj_score', 0) or 0,
-                    'lights': row.get('trend_lights', ''),
-                    'desc': row.get('trend_desc', ''),
-                    'v_status': v_status,
-                    'price': row.get('price', 0) or 0,
-                    'rev_growth': row.get('rev_growth', 0) or 0,
-                    'earnings_note': earnings_note,
-                })
-                log(f"  {v_status} {t}: gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}{earnings_note}")
-
-        if not safe:
-            log("포트폴리오: ✅ 종목 없음", "WARN")
-            return None
-
-        concordance = risk_status.get('concordance', 'both_stable') if risk_status else 'both_stable'
-        final_action = risk_status.get('final_action', '') if risk_status else ''
-
-        # 종목 선정 = 알파 (항상 Top 5) — 가중 순위순
-        if weighted_ranks:
-            for s in safe:
-                s['_weighted'] = weighted_ranks.get(s['ticker'], {}).get('weighted', 50.0)
-            safe.sort(key=lambda x: x['_weighted'])
-
-        log("포트폴리오: 가중 순위 (T0×0.5 + T1×0.3 + T2×0.2):")
-        for i, s in enumerate(safe):
-            w = s.get('_weighted', '-')
-            log(f"    {i+1}. {s['ticker']}: 가중={w} gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
-
-        # L3: both_warn 시 신규 진입 종목 포트폴리오 제외
-        if concordance == 'both_warn':
-            before = len(safe)
-            safe = [s for s in safe if s['v_status'] == '✅']
-            excluded = before - len(safe)
-            if excluded > 0:
-                log(f"L3 시장 동결: both_warn — 신규 진입 {excluded}개 제외 (기존 ✅만 유지)")
-
-        portfolio_mode = risk_status.get('portfolio_mode', 'normal') if risk_status else 'normal'
-
-        # stop 모드: 추천 안 함 — 매수 중단 메시지만 표시
         if portfolio_mode == 'stop':
-            log(f"포트폴리오: portfolio_mode=stop → 추천 중단 ({final_action})")
             lines = [
                 '━━━━━━━━━━━━━━━━━━━',
                 '   [4/4] 🎯 최종 추천',
@@ -2417,28 +2449,19 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
             ]
             return '\n'.join(lines)
 
-        # reduced 모드: Top 3만 (겨울 후기 분할 매수)
-        if portfolio_mode == 'reduced':
-            selected = safe[:3]
-        else:
-            selected = safe[:5]
-
-        if len(selected) < 3:
-            log("포트폴리오: 선정 종목 부족", "WARN")
-            return None
-
-        # 동일 비중: 1위 변동성이 커서 집중보다 분산이 유리 (v36 백테스트)
-        n = len(selected)
-        base = 100 // n
-        remainder = 100 - base * n
-        weights = [base] * n
-        for i in range(remainder):
-            weights[i] += 1
-        for i, s in enumerate(selected):
-            s['weight'] = weights[i]
-
-        log(f"포트폴리오: {n}종목 선정 — " +
-            ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
+        if not selected:
+            log("포트폴리오: 선정 종목 없음", "WARN")
+            return '\n'.join([
+                '━━━━━━━━━━━━━━━━━━━',
+                '   [4/4] 🎯 최종 추천',
+                '━━━━━━━━━━━━━━━━━━━',
+                f'📅 {biz_day.strftime("%Y년 %m월 %d일")} (미국장 기준)',
+                '',
+                '검증된 종목 중 안전한 종목이 없어요.',
+                '이번 회차는 <b>관망</b>을 권장합니다.',
+                '',
+                '무리한 진입보다 기다림이 나을 때도 있어요.',
+            ])
 
         # Forward Test: 포트폴리오 이력 기록
         try:
@@ -2668,6 +2691,331 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 
 
 # ============================================================
+# v2 메시지 (압축 2개 포맷)
+# ============================================================
+
+def run_v2_ai_analysis(config, selected, biz_day, risk_status=None):
+    """v2: Gemini 1회 호출 — 시장 요약 + 종목 내러티브 동시 생성
+
+    Returns: {'market_summary': str, 'narratives': {ticker: str}}
+    """
+    api_key = config.get('gemini_api_key', '')
+    result = {'market_summary': '', 'narratives': {}}
+
+    if not api_key or not selected:
+        return result
+
+    try:
+        from google import genai
+        from google.genai import types
+        import re
+
+        biz_str = biz_day.strftime('%Y년 %m월 %d일')
+
+        # 시장 환경 컨텍스트
+        market_ctx = ""
+        if risk_status:
+            hy = risk_status.get('hy')
+            if hy:
+                market_ctx += f"HY Spread: {hy['hy_spread']:.2f}% ({hy['quadrant_label']}, {hy.get('q_days', 0)}일째)\n"
+            vix = risk_status.get('vix')
+            if vix:
+                market_ctx += f"VIX: {vix['vix_current']:.1f} ({vix.get('vix_percentile', 0):.0f}th, {vix['regime_label']})\n"
+            conc = risk_status.get('concordance', '')
+            f_action = risk_status.get('final_action', '')
+            if conc:
+                market_ctx += f"종합: {conc}\n"
+            if f_action:
+                market_ctx += f"행동: {f_action}\n"
+
+        stock_lines = []
+        for i, s in enumerate(selected):
+            rev = s.get('rev_growth', 0) or 0
+            stock_lines.append(
+                f"{i+1}. {s['name']}({s['ticker']}) · {s['industry']} · "
+                f"EPS {s['eps_chg']:+.1f}% · 매출 {rev:+.0%}"
+            )
+
+        prompt = f"""분석 기준일: {biz_str} (미국 영업일)
+
+[시장 환경]
+{market_ctx if market_ctx else '데이터 없음'}
+
+[추천 종목]
+{chr(10).join(stock_lines)}
+
+아래 2개 섹션을 출력해줘. 인사말/서두/맺음말 없이 바로 시작.
+
+[MARKET]
+{biz_str} 미국 시장 마감 결과를 Google 검색해서 2~3줄로 요약.
+- 핵심 이슈(원인, 테마)만. 지수 수치는 별도 표시하니 생략.
+- 오늘/내일 주요 이벤트 있으면 한 줄 추가.
+- 위 시장 환경의 행동 권장을 참고해서 투자 판단 한마디.
+- 한국어, ~예요 체
+
+[STOCKS]
+각 종목의 최근 실적 성장 배경을 Google 검색해서 한 줄씩.
+형식: TICKER: 설명 한 줄
+- "EPS X% 상승" 같은 숫자 반복 금지. 사업적 이유를 써.
+- ~예요 체, 종목마다 다른 문장 구조."""
+
+        client = genai.Client(api_key=api_key)
+        grounding_tool = types.Tool(google_search=types.GoogleSearch())
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[grounding_tool],
+                temperature=0.2,
+            ),
+        )
+
+        def extract_text(resp):
+            try:
+                if resp.text:
+                    return resp.text
+            except Exception:
+                pass
+            try:
+                parts = resp.candidates[0].content.parts
+                texts = [p.text for p in parts if hasattr(p, 'text') and p.text]
+                if texts:
+                    return '\n'.join(texts)
+            except Exception:
+                pass
+            return None
+
+        text = extract_text(response)
+        if text:
+            # [MARKET] 섹션 추출
+            market_match = re.search(r'\[MARKET\]\s*\n(.*?)(?=\[STOCKS\]|\Z)', text, re.DOTALL)
+            if market_match:
+                result['market_summary'] = market_match.group(1).strip()
+
+            # [STOCKS] 섹션에서 티커별 내러티브 추출
+            stocks_match = re.search(r'\[STOCKS\]\s*\n(.*)', text, re.DOTALL)
+            if stocks_match:
+                for line in stocks_match.group(1).strip().split('\n'):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # "TICKER: 설명" 또는 "N. TICKER: 설명" 패턴
+                    m = re.match(r'(?:\d+\.\s*)?([A-Z]{1,5}):\s*(.+)', line)
+                    if m:
+                        result['narratives'][m.group(1)] = m.group(2).strip()
+
+            log(f"v2 AI: 시장요약 {len(result['market_summary'])}자, 내러티브 {len(result['narratives'])}종목")
+        else:
+            log("v2 AI: Gemini 응답 없음", "WARN")
+
+    except Exception as e:
+        log(f"v2 AI 호출 실패: {e}", "WARN")
+
+    return result
+
+
+def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
+                              exited_tickers, biz_day, ai_content, portfolio_mode,
+                              concordance, final_action):
+    """v2 메시지 1: 오늘의 추천 (시장+추천+리스크+요약 통합)"""
+    biz_str = biz_day.strftime('%m.%d')
+    weekdays = ['월', '화', '수', '목', '금', '토', '일']
+    weekday = weekdays[biz_day.weekday()]
+
+    lines = []
+    lines.append(f'📊 EPS 모멘텀 US · {biz_str}({weekday})')
+    lines.append('')
+
+    # 시장 상태 2줄
+    hy_data = risk_status.get('hy') if risk_status else None
+    vix_data = risk_status.get('vix') if risk_status else None
+
+    signal_dots = ''
+    if risk_status:
+        conc = risk_status.get('concordance', 'both_stable')
+        if conc == 'both_stable':
+            signal_dots = '🟢🟢 안정'
+        elif conc == 'both_warn':
+            signal_dots = '🔴🔴 위험'
+        else:
+            signal_dots = '🟢🔴 주의'
+
+    if hy_data:
+        q_days = hy_data.get('q_days', 0)
+        lines.append(f'{signal_dots} · {hy_data["quadrant_icon"]} {hy_data["quadrant_label"]} {q_days}일째')
+    elif signal_dots:
+        lines.append(signal_dots)
+
+    # 지수
+    if market_lines:
+        idx_parts = []
+        for ml in market_lines:
+            # "🟢 S&P 500  6,910 (+0.69%)" → "S&P 6,910(+0.7%)"
+            import re
+            m = re.match(r'[🟢🔴🟡]\s*(\S+(?:\s+\d+)?)\s+([\d,]+(?:\.\d+)?)\s+\(([^)]+)\)', ml)
+            if m:
+                name = m.group(1).replace(' 500', '').strip()
+                val = m.group(2)
+                chg = m.group(3)
+                # 소수점 1자리로 축소
+                try:
+                    chg_val = float(chg.replace('%', '').replace('+', ''))
+                    chg = f'{chg_val:+.1f}%'
+                except ValueError:
+                    pass
+                idx_parts.append(f'{name} {val}({chg})')
+        if idx_parts:
+            lines.append(' · '.join(idx_parts))
+
+    # stop 모드
+    if portfolio_mode == 'stop':
+        lines.append('')
+        lines.append('🚫 <b>신규 매수 중단</b>')
+        lines.append(final_action)
+        lines.append('')
+        lines.append('기존 보유 종목은 Top 30 이탈 시 매도하세요.')
+        return '\n'.join(lines)
+
+    # 추천 종목이 없는 경우
+    if not selected:
+        lines.append('')
+        lines.append('검증된 종목 중 안전한 종목이 없어요.')
+        lines.append('이번 회차는 <b>관망</b>을 권장해요.')
+        return '\n'.join(lines)
+
+    lines.append('')
+    lines.append(f'━━ 추천 Top {len(selected)} ━━')
+
+    narratives = ai_content.get('narratives', {}) if ai_content else {}
+
+    for i, s in enumerate(selected):
+        lines.append('')
+        ticker = s['ticker']
+        eps_chg = s['eps_chg']
+        rev = s.get('rev_growth', 0) or 0
+        rev_pct = f'{rev*100:+.0f}%' if rev else ''
+        earnings = s.get('earnings_note', '')
+        earnings_tag = f' 📅{earnings.replace("📅어닝 ", "").replace("📅", "").strip()}' if earnings else ''
+
+        lines.append(f'<b>{i+1}. {s["name"]}({ticker}) · {s["weight"]}%</b>{earnings_tag}')
+        lines.append(f'{s["industry"]} · EPS {eps_chg:+.0f}% · 매출 {rev_pct}')
+
+        # AI 내러티브 (있으면 1줄 추가)
+        narrative = narratives.get(ticker, '')
+        if narrative:
+            lines.append(narrative)
+
+    # 경고
+    warnings = []
+    today_date = datetime.now().date()
+    two_weeks = (datetime.now() + timedelta(days=14)).date()
+    earnings_stocks = [s for s in selected if s.get('earnings_note')]
+    for s in earnings_stocks:
+        ed_str = s["earnings_note"].replace("📅어닝 ", "").replace("📅", "").strip()
+        warnings.append(f'{s["ticker"]} 어닝 {ed_str}')
+
+    from collections import Counter
+    industries = [s['industry'] for s in selected if s.get('industry')]
+    tech_keywords = ['반도체', '전자부품', 'HW', '통신장비', '계측']
+    tech_count = sum(1 for ind in industries if any(kw in ind for kw in tech_keywords))
+    if tech_count >= 3:
+        warnings.append(f'테크 {tech_count}/{len(selected)} 집중')
+
+    if portfolio_mode == 'caution':
+        warnings.append(f'시장 주의')
+
+    if warnings:
+        lines.append('')
+        lines.append('⚠️ ' + ' | '.join(warnings))
+
+    # 이탈 종목
+    if exited_tickers:
+        exit_tickers = [t for t, _ in sorted(exited_tickers.items(), key=lambda x: x[1])]
+        lines.append(f'📉 이탈: {"·".join(exit_tickers)}')
+
+    # 시장 요약
+    market_summary = ai_content.get('market_summary', '') if ai_content else ''
+    if market_summary:
+        lines.append('')
+        lines.append(f'📰 {market_summary}')
+
+    lines.append('')
+    lines.append('목록에 있으면 보유, 빠지면 매도 검토해요.')
+    lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
+
+    return '\n'.join(lines)
+
+
+def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_tickers, biz_day):
+    """v2 메시지 2: 매수 후보 30 (압축 1줄 포맷)"""
+    if results_df is None or results_df.empty:
+        return None
+
+    biz_str = biz_day.strftime('%m.%d')
+    weekdays = ['월', '화', '수', '목', '금', '토', '일']
+    weekday = weekdays[biz_day.weekday()]
+
+    filtered = get_part2_candidates(results_df, top_n=30)
+    if filtered.empty:
+        return None
+
+    # today_tickers 기준 정렬
+    if today_tickers:
+        ticker_order = {t: i for i, t in enumerate(today_tickers)}
+        filtered = filtered.copy()
+        filtered['_order'] = filtered['ticker'].map(lambda t: ticker_order.get(t, 999))
+        filtered = filtered.sort_values('_order').reset_index(drop=True)
+
+    if status_map is None:
+        status_map = {}
+
+    lines = []
+    lines.append(f'📋 매수 후보 {len(filtered)} · {biz_str}({weekday})')
+
+    # 주도 업종
+    from collections import Counter
+    sector_counts = Counter(row.get('industry', '기타') for _, row in filtered.iterrows())
+    top_sectors = sector_counts.most_common()
+    sector_parts = [f'{name} {cnt}' for name, cnt in top_sectors if cnt >= 2]
+    if sector_parts:
+        lines.append(f'주도: {" · ".join(sector_parts)}')
+
+    lines.append('')
+
+    for idx, (_, row) in enumerate(filtered.iterrows()):
+        rank = idx + 1
+        ticker = row['ticker']
+        industry = row.get('industry', '')
+        eps_chg = row.get('eps_change_90d', 0) or 0
+        rev = row.get('rev_growth', 0) or 0
+        status = status_map.get(ticker, '✅')
+
+        # 업종 4글자 축약
+        ind_short = industry[:4] if len(industry) > 4 else industry
+
+        # EPS/Rev 정수로
+        eps_str = f'EPS{"↑" if eps_chg > 0 else "↓"}{abs(eps_chg):.0f}'
+        rev_str = f'Rev{"↑" if rev > 0 else "↓"}{abs(rev*100):.0f}' if rev else ''
+
+        # 어닝 마커
+        earnings_tag = ''
+        # earnings_map은 여기서 접근 불가하므로 간단히 처리
+
+        line = f'{status} {rank:>2} {ticker:<5} {ind_short:<5} {eps_str} {rev_str}'
+        lines.append(line)
+
+    # 이탈 종목
+    if exited_tickers:
+        lines.append('')
+        exit_parts = []
+        for t, prev_rank in sorted(exited_tickers.items(), key=lambda x: x[1]):
+            exit_parts.append(t)
+        lines.append(f'📉 이탈: {"·".join(exit_parts)}')
+
+    return '\n'.join(lines)
+
+
+# ============================================================
 # 텔레그램 전송
 # ============================================================
 
@@ -2756,6 +3104,7 @@ def main():
     rank_change_tags = {}
     exited_tickers = {}
     today_tickers = []
+    earnings_map = {}
 
     # 2.5. 시장 지수 수집 (yfinance rate limit 전에 먼저)
     market_lines = get_market_context()
@@ -2799,7 +3148,7 @@ def main():
     elapsed = (datetime.now() - start_time).total_seconds()
     msg_log = create_system_log_message(stats, elapsed, config)
 
-    # 4. 텔레그램 발송: 📖 가이드 → [1/4] 시장 → [2/4] 매수 후보 → [3/4] AI → [4/4] 최종 → 로그
+    # 4. 텔레그램 발송
     if config.get('telegram_enabled', False):
         is_github = config.get('is_github_actions', False)
         private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
@@ -2812,46 +3161,92 @@ def main():
             log(f"Cold start — 채널 전송 비활성화 (3일 데이터 축적 전)")
 
         dest = '채널+개인봇' if send_to_channel else '개인봇'
-
-        # 📖 투자 가이드
-        msg_guide = create_guide_message()
-        if send_to_channel:
-            send_telegram_long(msg_guide, config, chat_id=channel_id)
-        send_telegram_long(msg_guide, config, chat_id=private_id)
-        log(f"📖 투자 가이드 전송 완료 → {dest}")
-
-        # [1/4] 시장 현황
-        if msg_market:
-            if send_to_channel:
-                send_telegram_long(msg_market, config, chat_id=channel_id)
-            send_telegram_long(msg_market, config, chat_id=private_id)
-            log(f"[1/4] 시장 현황 전송 완료 → {dest}")
-
-        # [2/4] 매수 후보
-        if msg_candidates:
-            if send_to_channel:
-                send_telegram_long(msg_candidates, config, chat_id=channel_id)
-            send_telegram_long(msg_candidates, config, chat_id=private_id)
-            log(f"[2/4] 매수 후보 전송 완료 → {dest}")
-
-        # [3/4] AI 리스크 필터
+        message_version = config.get('message_version', 'v1')
         biz_day = get_last_business_day()
-        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day, risk_status=risk_status, earnings_map=earnings_map, rank_change_tags=rank_change_tags, weighted_ranks=weighted_ranks)
-        if msg_ai:
-            if send_to_channel:
-                send_telegram_long(msg_ai, config, chat_id=channel_id)
-            send_telegram_long(msg_ai, config, chat_id=private_id)
-            log(f"[3/4] AI 리스크 필터 전송 완료 → {dest}")
 
-        # [4/4] 최종 추천
-        msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day, risk_status=risk_status, weighted_ranks=weighted_ranks, earnings_map=earnings_map)
-        if msg_portfolio:
-            if send_to_channel:
-                send_telegram_long(msg_portfolio, config, chat_id=channel_id)
-            send_telegram_long(msg_portfolio, config, chat_id=private_id)
-            log(f"[4/4] 최종 추천 전송 완료 → {dest}")
+        if message_version == 'v2':
+            # ===== v2: 압축 2개 메시지 =====
+            log(f"메시지 버전: v2 (압축 포맷)")
 
-        # 시스템 로그 → 개인봇에만 (항상)
+            # 포트폴리오 종목 선정
+            selected, portfolio_mode, concordance, final_action = select_portfolio_stocks(
+                results_df, status_map, weighted_ranks, earnings_map, risk_status
+            )
+
+            # Forward Test 기록
+            if selected:
+                try:
+                    log_portfolio_trades(selected, biz_day.strftime('%Y-%m-%d'))
+                except Exception as e:
+                    log(f"Forward Test 기록 실패: {e}", "WARN")
+
+            # AI 1회 호출 (시장 요약 + 종목 내러티브)
+            ai_content = run_v2_ai_analysis(config, selected, biz_day, risk_status)
+
+            # 메시지 1: 오늘의 추천
+            msg_signal = create_v2_signal_message(
+                selected, risk_status, market_lines, earnings_map,
+                exited_tickers, biz_day, ai_content, portfolio_mode,
+                concordance, final_action
+            )
+            if msg_signal:
+                if send_to_channel:
+                    send_telegram_long(msg_signal, config, chat_id=channel_id)
+                send_telegram_long(msg_signal, config, chat_id=private_id)
+                log(f"v2 시그널 메시지 전송 완료 → {dest}")
+
+            # 메시지 2: 매수 후보 30
+            msg_watchlist = create_v2_watchlist_message(
+                results_df, status_map, exited_tickers, today_tickers, biz_day
+            )
+            if msg_watchlist:
+                if send_to_channel:
+                    send_telegram_long(msg_watchlist, config, chat_id=channel_id)
+                send_telegram_long(msg_watchlist, config, chat_id=private_id)
+                log(f"v2 워치리스트 전송 완료 → {dest}")
+
+        else:
+            # ===== v1: 기존 6개 메시지 (변경 없음) =====
+            log(f"메시지 버전: v1 (기존 포맷)")
+
+            # 📖 투자 가이드
+            msg_guide = create_guide_message()
+            if send_to_channel:
+                send_telegram_long(msg_guide, config, chat_id=channel_id)
+            send_telegram_long(msg_guide, config, chat_id=private_id)
+            log(f"📖 투자 가이드 전송 완료 → {dest}")
+
+            # [1/4] 시장 현황
+            if msg_market:
+                if send_to_channel:
+                    send_telegram_long(msg_market, config, chat_id=channel_id)
+                send_telegram_long(msg_market, config, chat_id=private_id)
+                log(f"[1/4] 시장 현황 전송 완료 → {dest}")
+
+            # [2/4] 매수 후보
+            if msg_candidates:
+                if send_to_channel:
+                    send_telegram_long(msg_candidates, config, chat_id=channel_id)
+                send_telegram_long(msg_candidates, config, chat_id=private_id)
+                log(f"[2/4] 매수 후보 전송 완료 → {dest}")
+
+            # [3/4] AI 리스크 필터
+            msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day, risk_status=risk_status, earnings_map=earnings_map, rank_change_tags=rank_change_tags, weighted_ranks=weighted_ranks)
+            if msg_ai:
+                if send_to_channel:
+                    send_telegram_long(msg_ai, config, chat_id=channel_id)
+                send_telegram_long(msg_ai, config, chat_id=private_id)
+                log(f"[3/4] AI 리스크 필터 전송 완료 → {dest}")
+
+            # [4/4] 최종 추천
+            msg_portfolio = run_portfolio_recommendation(config, results_df, status_map, biz_day=biz_day, risk_status=risk_status, weighted_ranks=weighted_ranks, earnings_map=earnings_map)
+            if msg_portfolio:
+                if send_to_channel:
+                    send_telegram_long(msg_portfolio, config, chat_id=channel_id)
+                send_telegram_long(msg_portfolio, config, chat_id=private_id)
+                log(f"[4/4] 최종 추천 전송 완료 → {dest}")
+
+        # 시스템 로그 → 개인봇에만 (항상, v1/v2 공통)
         send_telegram_long(msg_log, config, chat_id=private_id)
         log("시스템 로그 전송 완료 → 개인봇")
 
