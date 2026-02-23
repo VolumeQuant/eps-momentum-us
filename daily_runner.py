@@ -3344,14 +3344,16 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
 
     from collections import Counter
 
-    lines = []
-    lines.append(f'📋 <b>매수 후보 {count}개</b>')
-    lines.append('─────────────────')
-
-    # 주도 업종 (하단에 표시)
+    # 주도 업종
     sector_counts = Counter(row.get('industry', '기타') for _, row in filtered.iterrows())
     top_sectors = sector_counts.most_common()
     sector_parts = [f'{name} {cnt}' for name, cnt in top_sectors if cnt >= 2]
+
+    lines = []
+    lines.append(f'📋 <b>매수 후보 {count}개</b>')
+    if sector_parts:
+        lines.append(f'📊 {" · ".join(sector_parts)}')
+    lines.append('─────────────────')
 
     # ── 30종목 전체 동일 코어 포맷 ──
     for idx, (_, row) in enumerate(filtered.iterrows()):
@@ -3416,7 +3418,17 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         lines.append(' · '.join(l3_parts))
         lines.append('──────────────────')
 
-    # ── 이탈 종목: 동일 상세 포맷 ──
+    # ── 범례 (하단, 최소화) ──
+    lines.append('')
+    lines.append('✅3일연속 ⏳2일차 🆕신규')
+    lines.append('EPS추이 🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락')
+    lines.append('괴리(-)=EPS 대비 저평가 · 의견=EPS 수정 수')
+    lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
+
+    msg_watchlist = '\n'.join(lines)
+
+    # ── 이탈 종목: 별도 메시지 ──
+    msg_exit = None
     if exited_tickers:
         all_eligible = get_part2_candidates(results_df)
         current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
@@ -3447,64 +3459,57 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
             else:
                 degraded.append((t, prev_rank, cur_rank, reasons))
 
-        def _render_exit(exit_list):
-            for t, prev_rank, cur_rank, reasons in exit_list:
-                row = full_data.get(t, {})
-                nm = _clean_company_name(row.get('short_name', t), t) if hasattr(row, 'get') else t
-                ind = row.get('industry', '') if hasattr(row, 'get') else ''
-                lt = row.get('trend_lights', '') if hasattr(row, 'get') else ''
-                ds = row.get('trend_desc', '') if hasattr(row, 'get') else ''
-                ep = row.get('eps_change_90d') if hasattr(row, 'get') else None
-                rv = row.get('rev_growth') if hasattr(row, 'get') else None
-                ru = int(row.get('rev_up30', 0) or 0) if hasattr(row, 'get') else 0
-                rd = int(row.get('rev_down30', 0) or 0) if hasattr(row, 'get') else 0
-                tg = rank_change_tags.get(t, '')
+        if achieved or degraded:
+            exit_lines = []
+            exit_lines.append('📉 <b>Top 30 이탈 종목</b>')
+            exit_lines.append('─────────────────')
 
-                # L0: 종목명
-                lines.append(f'{nm}({t})')
-                # L1: 업종 + EPS추이 (아이콘 + 설명)
-                if lt and ds:
-                    lines.append(f'{ind} · EPS추이 {lt} {ds}')
-                else:
-                    lines.append(f'{ind}')
-                # L2: EPS + 매출 + 의견 (코어 동일)
-                growth_parts = []
-                if ep is not None and pd.notna(ep):
-                    growth_parts.append(f'EPS {ep:+.0f}%')
-                if rv is not None and pd.notna(rv):
-                    growth_parts.append(f'매출 {rv*100:+.0f}%')
-                growth_parts.append(f'의견 ↑{ru} ↓{rd}')
-                lines.append(' · '.join(growth_parts))
-                # L3: 순위 + 사유
-                ri = f'{prev_rank}→{cur_rank}위' if cur_rank else f'{prev_rank}위→탈락'
-                rt = ' '.join(f'[{r}]' for r in reasons)
-                ts = f' ({tg})' if tg else ''
-                lines.append(f'순위 {ri} {rt}{ts}')
-                lines.append('──────────────────')
+            def _render_exit(elist, target):
+                for t, prev_rank, cur_rank, reasons in elist:
+                    row = full_data.get(t, {})
+                    nm = _clean_company_name(row.get('short_name', t), t) if hasattr(row, 'get') else t
+                    ind = row.get('industry', '') if hasattr(row, 'get') else ''
+                    lt = row.get('trend_lights', '') if hasattr(row, 'get') else ''
+                    ds = row.get('trend_desc', '') if hasattr(row, 'get') else ''
+                    ep = row.get('eps_change_90d') if hasattr(row, 'get') else None
+                    rv = row.get('rev_growth') if hasattr(row, 'get') else None
+                    ru = int(row.get('rev_up30', 0) or 0) if hasattr(row, 'get') else 0
+                    rd = int(row.get('rev_down30', 0) or 0) if hasattr(row, 'get') else 0
+                    tg = rank_change_tags.get(t, '')
 
-        lines.append('')
-        lines.append('📉 <b>Top 30 이탈 종목</b>')
-        lines.append('─────────────────')
-        if achieved:
-            lines.append(f'✅ <b>주가 선반영(실적 대비 주가 이미 상승)</b> ({len(achieved)}개) — 수익 실현 검토')
-            _render_exit(achieved)
-        if degraded:
+                    target.append(f'{nm}({t})')
+                    if lt and ds:
+                        target.append(f'{ind} · EPS추이 {lt} {ds}')
+                    else:
+                        target.append(f'{ind}')
+                    growth_parts = []
+                    if ep is not None and pd.notna(ep):
+                        growth_parts.append(f'EPS {ep:+.0f}%')
+                    if rv is not None and pd.notna(rv):
+                        growth_parts.append(f'매출 {rv*100:+.0f}%')
+                    growth_parts.append(f'의견 ↑{ru} ↓{rd}')
+                    target.append(' · '.join(growth_parts))
+                    ri = f'{prev_rank}→{cur_rank}위' if cur_rank else f'{prev_rank}위→탈락'
+                    rt = ' '.join(f'[{r}]' for r in reasons)
+                    ts = f' ({tg})' if tg else ''
+                    target.append(f'순위 {ri} {rt}{ts}')
+                    target.append('──────────────────')
+
             if achieved:
-                lines.append('')
-            lines.append(f'⚠️ <b>펀더멘탈 악화</b> ({len(degraded)}개) — 매도 검토')
-            _render_exit(degraded)
+                exit_lines.append(f'✅ <b>주가 선반영</b> ({len(achieved)}개) — 수익 실현 검토')
+                _render_exit(achieved, exit_lines)
+            if degraded:
+                if achieved:
+                    exit_lines.append('')
+                exit_lines.append(f'⚠️ <b>펀더멘탈 악화</b> ({len(degraded)}개) — 매도 검토')
+                _render_exit(degraded, exit_lines)
 
-    # ── 주도 업종 + 범례 (하단) ──
-    lines.append('')
-    if sector_parts:
-        lines.append(f'📊 주도 업종: {" · ".join(sector_parts)}')
-    lines.append('━━━━━━━━━━━━━━━')
-    lines.append('✅3일연속 ⏳2일차 🆕신규')
-    lines.append('EPS추이 🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락')
-    lines.append('괴리(-)=EPS 대비 저평가 · 의견=EPS 수정 수')
-    lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
+            exit_lines.append('')
+            exit_lines.append('보유 중이라면 매도를 검토하세요.')
 
-    return '\n'.join(lines)
+            msg_exit = '\n'.join(exit_lines)
+
+    return msg_watchlist, msg_exit
 
 
 # ============================================================
@@ -3708,8 +3713,8 @@ def main():
                 send_telegram_long(msg_signal, config, chat_id=private_id)
                 log(f"v2 시그널 메시지 전송 완료 → {dest}")
 
-            # 메시지 2: 매수 후보 30 (하이브리드 포맷)
-            msg_watchlist = create_v2_watchlist_message(
+            # 메시지 2: 매수 후보 30 + 메시지 3: 이탈종목
+            msg_watchlist, msg_exit = create_v2_watchlist_message(
                 results_df, status_map, exited_tickers, today_tickers, biz_day,
                 weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags,
                 filter_count=filter_count, factor_ranks=factor_ranks
@@ -3719,6 +3724,11 @@ def main():
                     send_telegram_long(msg_watchlist, config, chat_id=channel_id)
                 send_telegram_long(msg_watchlist, config, chat_id=private_id)
                 log(f"v2 워치리스트 전송 완료 → {dest}")
+            if msg_exit:
+                if send_to_channel:
+                    send_telegram_long(msg_exit, config, chat_id=channel_id)
+                send_telegram_long(msg_exit, config, chat_id=private_id)
+                log(f"v2 이탈종목 전송 완료 → {dest}")
 
         else:
             # ===== v1: 기존 6개 메시지 (변경 없음) =====
