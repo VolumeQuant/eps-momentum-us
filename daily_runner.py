@@ -3046,7 +3046,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     if factor_ranks is None:
         factor_ranks = {}
 
-    biz_str = biz_day.strftime('%m.%d')
+    biz_str = f'{biz_day.year}.{biz_day.month}.{biz_day.day}'
     weekdays = ['월', '화', '수', '목', '금', '토', '일']
     weekday = weekdays[biz_day.weekday()]
 
@@ -3133,7 +3133,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         price_str = f' · ${price:,.0f}' if price else ''
         lines.append(f'<b>{i+1}. {display_name}({ticker}) {industry}{price_str}</b>{earnings_tag}')
 
-        # L1: 3일순위 (916종목 중)
+        # L1: 3일 순위 (916종목 중)
         w_info = weighted_ranks.get(ticker)
         if w_info:
             r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
@@ -3149,7 +3149,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
                 rank_str = f'{r2_str}→{r1_str}→{r0}위'
             tag = rank_change_tags.get(ticker, '')
             tag_suffix = f' ({tag})' if tag else ''
-            lines.append(f'3일순위 {rank_str} (916종목 중){tag_suffix}')
+            lines.append(f'3일 순위 {rank_str} (916종목 중){tag_suffix}')
 
         # L2: 팩터 등수 (선정과정 채점 기준과 동일 어휘)
         fr = factor_ranks.get(ticker, {})
@@ -3284,7 +3284,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('<i>순위는 2일전→1일전→오늘 · 등수는 Top 30 내</i>')
+    lines.append('<i>3일 순위는 2일전→1일전→오늘 · 등수는 Top 30 내</i>')
     lines.append('<i>목록에 있으면 보유, 빠지면 매도 검토.</i>')
     lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
 
@@ -3402,7 +3402,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         else:
             rank_str = f'-→-→{rank}위'
         tag_suffix = f' ({tag})' if tag else ''
-        l3_parts.append(f'순위 {rank_str}{tag_suffix}')
+        l3_parts.append(f'3일 순위 {rank_str}{tag_suffix}')
         lines.append(' · '.join(l3_parts))
         lines.append('─ ─ ─ ─ ─ ─ ─ ─')
 
@@ -3413,7 +3413,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
 
     # ── 범례 (하단, 최소화) ──
     lines.append('')
-    lines.append('<i>✅ 3일연속 · ⏳ 2일차 · 🆕 신규 · 순위 2일전→1일전→오늘</i>')
+    lines.append('<i>✅ 3일연속 · ⏳ 2일차 · 🆕 신규 · 3일 순위 2일전→1일전→오늘</i>')
     lines.append('<i>EPS추이 🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락</i>')
     lines.append('<i>저평가(-)=EPS 전망 대비 할인 · 의견=EPS 수정 수</i>')
     lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
@@ -3485,11 +3485,11 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                     ri = f'{prev_rank}→{cur_rank}위' if cur_rank else f'{prev_rank}위→탈락'
                     rt = ' '.join(f'[{r}]' for r in reasons)
                     ts = f' ({tg})' if tg else ''
-                    target.append(f'순위 {ri} {rt}{ts}')
+                    target.append(f'3일 순위 {ri} {rt}{ts}')
                     target.append('─ ─ ─ ─ ─ ─ ─ ─')
 
             if achieved:
-                exit_lines.append(f'✅ <b>주가 선반영</b> ({len(achieved)}개) — <i>수익 실현 검토</i>')
+                exit_lines.append(f'🎯 <b>주가 선반영</b> ({len(achieved)}개) — <i>수익 실현 검토</i>')
                 _render_exit(achieved, exit_lines)
             if degraded:
                 if achieved:
