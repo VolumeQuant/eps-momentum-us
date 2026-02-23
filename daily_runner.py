@@ -3076,9 +3076,15 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     return '\n'.join(lines)
 
 
-def create_v2_watchlist_message(results_df, status_map, exit_reasons, today_tickers, biz_day,
+def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_tickers, biz_day,
                                 weighted_ranks=None, rank_change_tags=None):
-    """v2 메시지 2: 매수 후보 30 (순위 궤적 + 변동 태그 포함)"""
+    """v2 메시지 2: 매수 후보 30 — v1 [2/4]와 동일 포맷
+
+    종목당 4줄(이름/업종·트렌드/실적/의견·순위) + 이탈 상세 — 전체 증거를 보여주는 메시지.
+    신용이 없는 발신자의 메시지에서 신뢰를 만드는 건 "과정의 투명성"이므로 정보를 줄이지 않는다.
+    """
+    import pandas as pd
+
     if results_df is None or results_df.empty:
         return None
 
@@ -3086,87 +3092,153 @@ def create_v2_watchlist_message(results_df, status_map, exit_reasons, today_tick
         weighted_ranks = {}
     if rank_change_tags is None:
         rank_change_tags = {}
-
-    biz_str = biz_day.strftime('%m.%d')
-    weekdays = ['월', '화', '수', '목', '금', '토', '일']
-    weekday = weekdays[biz_day.weekday()]
-
-    filtered = get_part2_candidates(results_df, top_n=30)
-    if filtered.empty:
-        return None
-
-    # today_tickers 기준 정렬
-    if today_tickers:
-        ticker_order = {t: i for i, t in enumerate(today_tickers)}
-        filtered = filtered.copy()
-        filtered['_order'] = filtered['ticker'].map(lambda t: ticker_order.get(t, 999))
-        filtered = filtered.sort_values('_order').reset_index(drop=True)
-
     if status_map is None:
         status_map = {}
+    if exited_tickers is None:
+        exited_tickers = {}
+
+    # DB의 가중순위 Top 30과 동일한 목록 사용
+    if today_tickers:
+        filtered = results_df[results_df['ticker'].isin(today_tickers)].copy()
+    else:
+        filtered = get_part2_candidates(results_df, top_n=30)
+    count = len(filtered)
+
+    # 가중 순위로 정렬
+    if weighted_ranks:
+        filtered = filtered.copy()
+        filtered['_weighted'] = filtered['ticker'].map(
+            lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
+        )
+        filtered = filtered.sort_values('_weighted').reset_index(drop=True)
+
+    from collections import Counter
 
     lines = []
-    lines.append(f'📋 매수 후보 {len(filtered)} · {biz_str}({weekday})')
+    lines.append(f'📋 <b>매수 후보 {count}개</b>')
 
     # 주도 업종
-    from collections import Counter
     sector_counts = Counter(row.get('industry', '기타') for _, row in filtered.iterrows())
     top_sectors = sector_counts.most_common()
     sector_parts = [f'{name} {cnt}' for name, cnt in top_sectors if cnt >= 2]
     if sector_parts:
-        lines.append(f'주도: {" · ".join(sector_parts)}')
+        lines.append(f'📊 주도 업종: {" · ".join(sector_parts)}')
+    lines.append('─────────────────')
 
-    lines.append('')
-
+    # ── 30종목 상세 (v1 [2/4] 동일 포맷) ──
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
         ticker = row['ticker']
         industry = row.get('industry', '')
-        eps_chg = row.get('eps_change_90d', 0) or 0
-        rev = row.get('rev_growth', 0) or 0
-        status = status_map.get(ticker, '✅')
+        lights = row.get('trend_lights', '')
+        desc = row.get('trend_desc', '')
+        eps_90d = row.get('eps_change_90d')
+        rev_g = row.get('rev_growth')
+        rev_up = int(row.get('rev_up30', 0) or 0)
+        rev_down = int(row.get('rev_down30', 0) or 0)
+        marker = status_map.get(ticker, '🆕')
+        name = row.get('short_name', ticker)
+        tag = rank_change_tags.get(ticker, '') if marker != '🆕' else ''
 
-        # 업종 축약
-        ind_short = industry[:4] if len(industry) > 4 else industry
-
-        # EPS/매출 정수로
-        eps_str = f'EPS{"↑" if eps_chg > 0 else "↓"}{abs(eps_chg):.0f}'
-        rev_str = f'매출{"↑" if rev > 0 else "↓"}{abs(rev*100):.0f}' if rev else ''
+        lines.append(f'{marker} <b>{rank}.</b> {name}({ticker})')
+        lines.append(f'{industry} · {lights} {desc}')
+        parts = []
+        if pd.notna(eps_90d):
+            parts.append(f'EPS {eps_90d:+.0f}%')
+        if pd.notna(rev_g):
+            parts.append(f'매출 {rev_g*100:+.0f}%')
+        if parts:
+            lines.append(' · '.join(parts))
 
         # 순위 궤적
         w_info = weighted_ranks.get(ticker)
-        rank_str = ''
         if w_info:
             r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
-            if status == '🆕':
-                rank_str = f' →{r0}'
-            elif status == '⏳':
+            if marker == '🆕':
+                rank_str = f'-→-→{r0}'
+            elif marker == '⏳':
                 r1_str = str(r1) if r1 < 50 else '-'
-                rank_str = f' {r1_str}→{r0}'
+                rank_str = f'-→{r1_str}→{r0}'
             else:
                 r2_str = str(r2) if r2 < 50 else '-'
                 r1_str = str(r1) if r1 < 50 else '-'
-                rank_str = f' {r2_str}→{r1_str}→{r0}'
+                rank_str = f'{r2_str}→{r1_str}→{r0}'
+        else:
+            rank_str = f'-→-→{rank}'
+        tag_suffix = f' ({tag})' if tag else ''
+        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}{tag_suffix}')
+        lines.append('──────────────────')
 
-        # 변동 태그
-        tag = rank_change_tags.get(ticker, '') if status != '🆕' else ''
-        tag_str = f' {tag}' if tag else ''
+    # ── 이탈 종목: v1과 동일한 상세 포맷 ──
+    if exited_tickers:
+        all_eligible = get_part2_candidates(results_df)
+        current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
+        sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
+        full_data = {row['ticker']: row for _, row in results_df.iterrows()}
 
-        line = f'{status} {rank:>2} {ticker:<5} {ind_short:<4} {eps_str} {rev_str}{rank_str}{tag_str}'
-        lines.append(line)
+        achieved = []
+        degraded = []
+        for t, prev_rank in sorted_exits:
+            cur_rank = current_rank_map.get(t)
+            reasons = []
+            if t in full_data:
+                r = full_data[t]
+                if (r.get('price', 0) or 0) < (r.get('ma60', 0) or 0) and (r.get('ma60', 0) or 0) > 0:
+                    reasons.append('MA60↓')
+                if (r.get('adj_gap', 0) or 0) > 0:
+                    reasons.append('괴리+')
+                if (r.get('adj_score', 0) or 0) <= 9:
+                    reasons.append('점수↓')
+                if (r.get('eps_change_90d', 0) or 0) <= 0:
+                    reasons.append('EPS↓')
+            if not reasons and cur_rank and cur_rank > 30:
+                reasons.append('순위↓')
+            if not reasons:
+                reasons.append('순위↓')
+            if reasons == ['괴리+']:
+                achieved.append((t, prev_rank, cur_rank, reasons))
+            else:
+                degraded.append((t, prev_rank, cur_rank, reasons))
 
-    # 이탈 종목 (사유 포함)
-    if exit_reasons:
-        achieved = exit_reasons.get('achieved', [])
-        degraded = exit_reasons.get('degraded', [])
-        exit_parts = []
-        for t, reasons in achieved:
-            exit_parts.append(f'{t}(목표달성)')
-        for t, reasons in degraded:
-            exit_parts.append(f'{t}({",".join(reasons)})')
-        if exit_parts:
-            lines.append('')
-            lines.append(f'📉 이탈: {" · ".join(exit_parts)}')
+        def _render_exit(exit_list):
+            for t, prev_rank, cur_rank, reasons in exit_list:
+                row = full_data.get(t, {})
+                nm = row.get('short_name', t) if hasattr(row, 'get') else t
+                ind = row.get('industry', '') if hasattr(row, 'get') else ''
+                lt = row.get('trend_lights', '') if hasattr(row, 'get') else ''
+                ds = row.get('trend_desc', '') if hasattr(row, 'get') else ''
+                ep = row.get('eps_change_90d') if hasattr(row, 'get') else None
+                rv = row.get('rev_growth') if hasattr(row, 'get') else None
+                ru = int(row.get('rev_up30', 0) or 0) if hasattr(row, 'get') else 0
+                rd = int(row.get('rev_down30', 0) or 0) if hasattr(row, 'get') else 0
+                tg = rank_change_tags.get(t, '')
+
+                lines.append(f'{nm}({t})')
+                lines.append(f'{ind} · {lt} {ds}')
+                pts = []
+                if ep is not None and pd.notna(ep):
+                    pts.append(f'EPS {ep:+.0f}%')
+                if rv is not None and pd.notna(rv):
+                    pts.append(f'매출 {rv*100:+.0f}%')
+                if pts:
+                    lines.append(' · '.join(pts))
+                ri = f'{prev_rank}→{cur_rank}' if cur_rank else f'{prev_rank}→탈락'
+                rt = ' '.join(f'[{r}]' for r in reasons)
+                ts = f' ({tg})' if tg else ''
+                lines.append(f'의견 ↑{ru}↓{rd} · 순위 {ri} {rt}{ts}')
+                lines.append('──────────────────')
+
+        lines.append('')
+        lines.append('📉 <b>이탈 종목</b>')
+        lines.append('─────────────────')
+        if achieved:
+            lines.append(f'✅ <b>목표 달성</b> ({len(achieved)}개) — 수익 실현 검토')
+            _render_exit(achieved)
+        if degraded:
+            if achieved:
+                lines.append('')
+            lines.append(f'⚠️ <b>펀더멘탈 악화</b> ({len(degraded)}개) — 매도 검토')
+            _render_exit(degraded)
 
     lines.append('')
     lines.append('Top 5 = 포트폴리오, 6~30 = 대기')
@@ -3359,9 +3431,9 @@ def main():
                 send_telegram_long(msg_signal, config, chat_id=private_id)
                 log(f"v2 시그널 메시지 전송 완료 → {dest}")
 
-            # 메시지 2: 매수 후보 30
+            # 메시지 2: 매수 후보 30 (v1 [2/4] 동일 포맷)
             msg_watchlist = create_v2_watchlist_message(
-                results_df, status_map, exit_reasons, today_tickers, biz_day,
+                results_df, status_map, exited_tickers, today_tickers, biz_day,
                 weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags
             )
             if msg_watchlist:
