@@ -241,13 +241,13 @@ def main():
     }
     # 선정된 종목에 대해 mock narrative
     mock_narratives = {
-        'SNDK': '데이터센터·AI 스토리지 수요 폭증, 분리 후 실적 급성장',
-        'NVDA': 'AI 컴퓨팅 수요 지속, 블랙웰 GPU 판매 호조',
-        'APH': 'IT 데이터 통신 전 부문 유기적 성장',
-        'CMC': '북미 건설·철강 수요 견조, 마진 확대 중',
-        'ANET': '클라우드·AI 네트워킹 솔루션 수요 견고',
-        'MU': 'HBM 수요 급증, AI 서버 메모리 고성장',
-        'DAR': '지속가능 항공연료(SAF) 수요 확대, 원료 조달 안정',
+        'SNDK': 'SNDK는 데이터센터와 AI 워크로드 급증에 따른 스토리지 수요 확대에 힘입어 WD에서 분리 후 실적이 크게 성장하고 있어요.',
+        'NVDA': 'NVDA는 AI 데이터센터 GPU 수요 폭증과 블랙웰 아키텍처 출시에 힘입어 역대급 매출 성장을 이어가고 있어요.',
+        'APH': 'APH는 AI 서버와 데이터센터 인프라 확장에 따라 IT 데이터 통신 전 부문에서 유기적 성장을 달성하고 있어요.',
+        'CMC': 'CMC는 북미 건설·인프라 투자 확대와 철강 수요 견조에 힘입어 마진이 개선되며 실적 성장을 이끌고 있어요.',
+        'ANET': 'ANET은 클라우드 대기업과 AI 클러스터의 네트워킹 솔루션 수요 증가에 따라 고성장을 지속하고 있어요.',
+        'MU': 'MU는 AI 서버용 HBM 수요 급증과 데이터센터 메모리 업그레이드 사이클에 힘입어 매출이 빠르게 회복되고 있어요.',
+        'DAR': 'DAR는 지속가능 항공연료(SAF) 시장 확대와 안정적인 원료 조달에 힘입어 실적 개선이 이어지고 있어요.',
     }
     for s in selected:
         t = s['ticker']
@@ -284,12 +284,12 @@ def main():
     if msg_signal:
         send_telegram_long(msg_signal, config, chat_id=private_id)
         print("Signal 전송 완료")
-    if msg_watchlist:
-        send_telegram_long(msg_watchlist, config, chat_id=private_id)
-        print("Watchlist 전송 완료")
     if msg_exit:
         send_telegram_long(msg_exit, config, chat_id=private_id)
         print("Exit 전송 완료")
+    if msg_watchlist:
+        send_telegram_long(msg_watchlist, config, chat_id=private_id)
+        print("Watchlist 전송 완료")
 
     print("\nDone!")
     return 0

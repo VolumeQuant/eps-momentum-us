@@ -1902,7 +1902,7 @@ def create_candidates_message(df, status_map=None, exited_tickers=None, rank_his
 
         name = row.get('short_name', ticker)
         tag = rank_change_tags.get(ticker, '') if marker != '🆕' else ''
-        lines.append(f'{marker} <b>{rank}.</b> {name}({ticker})')
+        lines.append(f'{marker} <b>{rank}. {name}({ticker})</b>')
         lines.append(f'{industry} · {lights} {desc}')
         parts = []
         if pd.notna(eps_90d):
@@ -2915,19 +2915,20 @@ def run_v2_ai_analysis(config, selected, biz_day, risk_status=None):
                     f"   EPS {s['eps_chg']:+.1f}% · 매출 {rev:+.0%}"
                 )
 
-            stock_prompt = f"""아래 {len(selected)}종목 각각의 최근 실적 성장 배경을 Google 검색해서 한 줄씩 써줘.
+            stock_prompt = f"""아래 {len(selected)}종목 각각의 최근 실적 성장 배경을 Google 검색해서 써줘.
 
 [종목]
 {chr(10).join(stock_lines)}
 
 [형식]
-종목별로 한 줄씩. 종목 사이에 [SEP] 표시.
-형식: TICKER: 설명 한 줄
+종목별로 1~2문장. 종목 사이에 [SEP] 표시.
+형식: TICKER: 설명
 
 [규칙]
-- 각 종목의 실적 성장 배경(왜 EPS/매출이 오르는지)을 검색해서 써.
-  예: "NVDA: AI 데이터센터 GPU 수요 확대로 매출이 급증하고 있어요"
-  예: "VST: 전력 수요 폭증에 원전 재가동 기대감까지 더해졌어요"
+- 각 종목의 실적 성장 배경(왜 EPS/매출이 오르는지)을 검색해서 1~2문장으로 써.
+  예: "NVDA: NVDA는 AI 데이터센터 GPU 수요 확대와 블랙웰 아키텍처 출시에 힘입어 매출이 급증하고 있어요."
+  예: "VST: VST는 전력 수요 폭증과 원전 재가동 기대감에 힘입어 실적이 크게 개선되고 있어요."
+- 반드시 "[회사명]는 [원인]에 힘입어/따라 [결과]하고 있어요" 구조로 써.
 - 단순히 "EPS X% 상승"처럼 숫자만 반복하지 마. 그 숫자 뒤의 사업적 이유를 써.
 - 주의/경고/유의 표현 금지. 긍정적 매력만.
 - 한국어, ~예요 체, 종목마다 다른 문장 구조.
@@ -2991,11 +2992,11 @@ def _clean_company_name(name, ticker):
 
 
 def compute_factor_ranks(results_df, today_tickers):
-    """Top 30 내 팩터별 등수 계산 — 괴리(adj_gap)·매출(rev_growth)
+    """Top 30 내 팩터별 등수 계산 — 저평가(adj_gap)·매출성장(rev_growth)
 
     Returns: {ticker: {'gap_rank': int, 'rev_rank': int, 'gap_val': float, 'rev_val': float}}
-    괴리: 낮을수록(더 음수) 1등 (저평가)
-    매출: 높을수록 1등 (성장)
+    저평가: adj_gap 낮을수록(더 음수) 1등 (EPS 전망 대비 할인 큰 순)
+    매출성장: rev_growth 높을수록 1등 (YoY 성장률 높은 순)
     """
     if results_df is None or results_df.empty or not today_tickers:
         return {}
@@ -3077,7 +3078,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     weight = selected[0]['weight'] if selected else 20
-    lines.append(f'🛒 매수 후보 TOP {len(selected)} (각 {weight}%)')
+    lines.append(f'🛒 <b>매수 후보 TOP {len(selected)}</b> (각 {weight}%)')
     lines.append('━━━━━━━━━━━━━━━')
     # 종목명(티커) 번호별 한 줄씩 (볼드)
     for idx, s in enumerate(selected):
@@ -3096,7 +3097,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     lines.append('▸ 추세 — 60일 이동평균 위')
     lines.append('▸ 커버리지 — 애널리스트 3명 이상')
     fc_str = f'{filter_count}개 통과' if filter_count else '필터 통과'
-    lines.append(f'→ {fc_str} → 괴리·매출 종합 채점')
+    lines.append(f'→ {fc_str} → 저평가·매출성장 종합 채점')
     lines.append(f'→ 상위 30 → 3일 검증 → 최종 {len(selected)}종목')
 
     # Q1 + both_stable
@@ -3150,14 +3151,14 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         # L2: 팩터 등수 (선정과정 채점 기준과 동일 어휘)
         fr = factor_ranks.get(ticker, {})
         if fr:
-            lines.append(f'괴리 {fr["gap_rank"]}등 · 매출 {fr["rev_rank"]}등')
+            lines.append(f'EPS 전망 대비 저평가 {fr["gap_rank"]}등, 매출 성장률(YoY) {fr["rev_rank"]}등')
         else:
             # fallback: 등수 없으면 값 표시
             l2_parts = []
             if adj_gap:
-                l2_parts.append(f'괴리 {adj_gap:+.0f}%')
+                l2_parts.append(f'저평가 {adj_gap:+.0f}%')
             if rev_pct:
-                l2_parts.append(f'매출 {rev_pct}')
+                l2_parts.append(f'매출성장 {rev_pct}')
             if l2_parts:
                 lines.append(' · '.join(l2_parts))
 
@@ -3246,14 +3247,11 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
             ft_line += f' (S&amp;P {ft["spy_return"]:+.1f}%)'
         lines.append(ft_line)
 
-    # AI 시장 요약
+    # AI 시장 요약 (한 문단으로)
     if market_summary:
         lines.append('')
-        lines.append('📰 시장 뉴스')
-        for ml in market_summary.split('\n'):
-            ml = ml.strip()
-            if ml:
-                lines.append(ml)
+        market_text = ' '.join(ml.strip() for ml in market_summary.split('\n') if ml.strip())
+        lines.append(f'📰 {market_text}')
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # 섹션 5: 매도 검토 + 경고
@@ -3296,6 +3294,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
+    lines.append('순위는 2일전→1일전→오늘 · 등수는 Top 30 내')
     lines.append('목록에 있으면 보유, 빠지면 매도 검토.')
     lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
 
@@ -3350,7 +3349,8 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
     sector_parts = [f'{name} {cnt}' for name, cnt in top_sectors if cnt >= 2]
 
     lines = []
-    lines.append(f'📋 <b>매수 후보 {count}개</b>')
+    lines.append(f'📋 <b>Top 30 종목 현황</b>')
+    lines.append('이 목록에 있으면 보유, 빠지면 매도 검토.')
     if sector_parts:
         lines.append(f'📊 {" · ".join(sector_parts)}')
     lines.append('─────────────────')
@@ -3372,7 +3372,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         adj_gap = row.get('adj_gap', 0) or 0
 
         # L0: 종목명
-        lines.append(f'{marker} <b>{rank}.</b> {name}({ticker})')
+        lines.append(f'{marker} <b>{rank}. {name}({ticker})</b>')
 
         # L1: 업종 + EPS추이 (아이콘 + 설명)
         if lights and desc:
@@ -3386,15 +3386,15 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
             gap_v = fr.get('gap_val', 0)
             rev_v = fr.get('rev_val', 0)
             gap_pct = int(round(gap_v))  # -0 방지
-            gap_str = f'괴리 {fr["gap_rank"]}등({gap_pct:+d}%)'
-            rev_str = f'매출 {fr["rev_rank"]}등({rev_v*100:+.0f}%)' if rev_v else f'매출 {fr["rev_rank"]}등'
+            gap_str = f'저평가 {fr["gap_rank"]}등({gap_pct:+d}%)'
+            rev_str = f'매출성장 {fr["rev_rank"]}등({rev_v*100:+.0f}%)' if rev_v else f'매출성장 {fr["rev_rank"]}등'
             lines.append(f'{gap_str} · {rev_str}')
         else:
             growth_parts = []
             if adj_gap:
-                growth_parts.append(f'괴리 {adj_gap:+.0f}%')
+                growth_parts.append(f'저평가 {adj_gap:+.0f}%')
             if pd.notna(rev_g):
-                growth_parts.append(f'매출 {rev_g*100:+.0f}%')
+                growth_parts.append(f'매출성장 {rev_g*100:+.0f}%')
             lines.append(' · '.join(growth_parts) if growth_parts else '')
 
         # L3: 의견 + 순위
@@ -3420,9 +3420,9 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
 
     # ── 범례 (하단, 최소화) ──
     lines.append('')
-    lines.append('✅3일연속 ⏳2일차 🆕신규')
+    lines.append('✅ 3일연속 · ⏳ 2일차 · 🆕 신규 · 순위 2일전→1일전→오늘')
     lines.append('EPS추이 🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락')
-    lines.append('괴리(-)=EPS 대비 저평가 · 의견=EPS 수정 수')
+    lines.append('저평가(-)=EPS 전망 대비 할인 · 의견=EPS 수정 수')
     lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
 
     msg_watchlist = '\n'.join(lines)
@@ -3695,7 +3695,7 @@ def main():
             # AI 2회 호출 (시장 요약 + 종목 내러티브, 실패해도 OK)
             ai_content = run_v2_ai_analysis(config, selected, biz_day, risk_status)
 
-            # 팩터 등수 (괴리·매출, Top 30 내)
+            # 팩터 등수 (저평가·매출성장, Top 30 내)
             factor_ranks = compute_factor_ranks(results_df, today_tickers)
 
             # 메시지 1: 오늘의 추천
@@ -3719,16 +3719,16 @@ def main():
                 weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags,
                 filter_count=filter_count, factor_ranks=factor_ranks
             )
-            if msg_watchlist:
-                if send_to_channel:
-                    send_telegram_long(msg_watchlist, config, chat_id=channel_id)
-                send_telegram_long(msg_watchlist, config, chat_id=private_id)
-                log(f"v2 워치리스트 전송 완료 → {dest}")
             if msg_exit:
                 if send_to_channel:
                     send_telegram_long(msg_exit, config, chat_id=channel_id)
                 send_telegram_long(msg_exit, config, chat_id=private_id)
                 log(f"v2 이탈종목 전송 완료 → {dest}")
+            if msg_watchlist:
+                if send_to_channel:
+                    send_telegram_long(msg_watchlist, config, chat_id=channel_id)
+                send_telegram_long(msg_watchlist, config, chat_id=private_id)
+                log(f"v2 워치리스트 전송 완료 → {dest}")
 
         else:
             # ===== v1: 기존 6개 메시지 (변경 없음) =====
