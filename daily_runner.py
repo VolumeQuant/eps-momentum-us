@@ -2356,6 +2356,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, ea
                 'fwd_pe': fwd_pe,
                 'adj_gap': row.get('adj_gap', 0) or 0,
                 'rev_up': rev_up, 'rev_down': rev_down,
+                'num_analysts': num_analysts,
                 'adj_score': row.get('adj_score', 0) or 0,
                 'lights': row.get('trend_lights', ''),
                 'desc': row.get('trend_desc', ''),
@@ -2694,130 +2695,204 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 # v2 메시지 (압축 2개 포맷)
 # ============================================================
 
-def run_v2_ai_analysis(config, selected, biz_day, risk_status=None):
-    """v2: Gemini 1회 호출 — 시장 요약 + 종목 내러티브 동시 생성
+def classify_exit_reasons(exited_tickers, results_df):
+    """이탈 종목 사유 분류 — 목표달성(괴리+만) vs 펀더멘탈 악화
 
+    Returns: {'achieved': [(ticker, reasons)], 'degraded': [(ticker, reasons)]}
+    """
+    import pandas as pd
+    result = {'achieved': [], 'degraded': []}
+    if not exited_tickers or results_df is None or results_df.empty:
+        return result
+
+    # 현재 데이터에서 이탈 종목 정보 조회
+    full_data = {}
+    for _, row in results_df.iterrows():
+        t = row.get('ticker', '')
+        if t in exited_tickers:
+            full_data[t] = row
+
+    for t, prev_rank in sorted(exited_tickers.items(), key=lambda x: x[1]):
+        reasons = []
+        if t in full_data:
+            r = full_data[t]
+            if (r.get('price', 0) or 0) < (r.get('ma60', 0) or 0) and (r.get('ma60', 0) or 0) > 0:
+                reasons.append('MA60↓')
+            if (r.get('adj_gap', 0) or 0) > 0:
+                reasons.append('괴리+')
+            if (r.get('adj_score', 0) or 0) <= 9:
+                reasons.append('점수↓')
+            if (r.get('eps_change_90d', 0) or 0) <= 0:
+                reasons.append('EPS↓')
+        if not reasons:
+            reasons.append('순위↓')
+
+        if reasons == ['괴리+']:
+            result['achieved'].append((t, reasons))
+        else:
+            result['degraded'].append((t, reasons))
+
+    return result
+
+
+def run_v2_ai_analysis(config, selected, biz_day, risk_status=None):
+    """v2: Gemini 2회 호출 — (1) 시장 요약 (2) 종목 내러티브
+
+    AI 실패 시에도 빈 결과를 반환하여 메시지 정상 작동 보장.
     Returns: {'market_summary': str, 'narratives': {ticker: str}}
     """
+    import re
+
     api_key = config.get('gemini_api_key', '')
     result = {'market_summary': '', 'narratives': {}}
 
-    if not api_key or not selected:
+    if not api_key:
+        log("v2 AI: GEMINI_API_KEY 미설정 — AI 없이 진행")
         return result
 
     try:
         from google import genai
         from google.genai import types
-        import re
-
-        biz_str = biz_day.strftime('%Y년 %m월 %d일')
-
-        # 시장 환경 컨텍스트
-        market_ctx = ""
-        if risk_status:
-            hy = risk_status.get('hy')
-            if hy:
-                market_ctx += f"HY Spread: {hy['hy_spread']:.2f}% ({hy['quadrant_label']}, {hy.get('q_days', 0)}일째)\n"
-            vix = risk_status.get('vix')
-            if vix:
-                market_ctx += f"VIX: {vix['vix_current']:.1f} ({vix.get('vix_percentile', 0):.0f}th, {vix['regime_label']})\n"
-            conc = risk_status.get('concordance', '')
-            f_action = risk_status.get('final_action', '')
-            if conc:
-                market_ctx += f"종합: {conc}\n"
-            if f_action:
-                market_ctx += f"행동: {f_action}\n"
-
-        stock_lines = []
-        for i, s in enumerate(selected):
-            rev = s.get('rev_growth', 0) or 0
-            stock_lines.append(
-                f"{i+1}. {s['name']}({s['ticker']}) · {s['industry']} · "
-                f"EPS {s['eps_chg']:+.1f}% · 매출 {rev:+.0%}"
-            )
-
-        prompt = f"""분석 기준일: {biz_str} (미국 영업일)
-
-[시장 환경]
-{market_ctx if market_ctx else '데이터 없음'}
-
-[추천 종목]
-{chr(10).join(stock_lines)}
-
-아래 2개 섹션을 출력해줘. 인사말/서두/맺음말 없이 바로 시작.
-
-[MARKET]
-{biz_str} 미국 시장 마감 결과를 Google 검색해서 2~3줄로 요약.
-- 핵심 이슈(원인, 테마)만. 지수 수치는 별도 표시하니 생략.
-- 오늘/내일 주요 이벤트 있으면 한 줄 추가.
-- 위 시장 환경의 행동 권장을 참고해서 투자 판단 한마디.
-- 한국어, ~예요 체
-
-[STOCKS]
-각 종목의 최근 실적 성장 배경을 Google 검색해서 한 줄씩.
-형식: TICKER: 설명 한 줄
-- "EPS X% 상승" 같은 숫자 반복 금지. 사업적 이유를 써.
-- ~예요 체, 종목마다 다른 문장 구조."""
-
         client = genai.Client(api_key=api_key)
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
-        response = client.models.generate_content(
+    except Exception as e:
+        log(f"v2 AI: Gemini 초기화 실패: {e}", "WARN")
+        return result
+
+    def extract_text(resp):
+        try:
+            if resp.text:
+                return resp.text
+        except Exception:
+            pass
+        try:
+            parts = resp.candidates[0].content.parts
+            texts = [p.text for p in parts if hasattr(p, 'text') and p.text]
+            if texts:
+                return '\n'.join(texts)
+        except Exception:
+            pass
+        return None
+
+    biz_str = biz_day.strftime('%Y년 %m월 %d일')
+
+    # ── 호출 1: 시장 요약 ──
+    try:
+        market_ctx = ""
+        if risk_status:
+            f_action = risk_status.get('final_action', '')
+            if f_action:
+                market_ctx = f"현재 시장 판단: {f_action}"
+
+        market_prompt = f"""{biz_str} 미국 주식시장 마감 결과를 Google 검색해서 2~3줄로 요약해줘.
+
+{market_ctx}
+
+규칙:
+- 핵심 이슈(원인, 테마)만 간결하게.
+- 지수 수치(S&P, 나스닥 등)는 별도 표시하니 생략.
+- 주요 이벤트 있으면 한 줄 추가.
+- 마지막에 투자 판단 한마디 (위 시장 판단 참고).
+- 한국어, ~예요 체.
+- 인사말/서두/맺음말 없이 바로 시작."""
+
+        resp = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=prompt,
+            contents=market_prompt,
             config=types.GenerateContentConfig(
                 tools=[grounding_tool],
                 temperature=0.2,
             ),
         )
-
-        def extract_text(resp):
-            try:
-                if resp.text:
-                    return resp.text
-            except Exception:
-                pass
-            try:
-                parts = resp.candidates[0].content.parts
-                texts = [p.text for p in parts if hasattr(p, 'text') and p.text]
-                if texts:
-                    return '\n'.join(texts)
-            except Exception:
-                pass
-            return None
-
-        text = extract_text(response)
+        text = extract_text(resp)
         if text:
-            # [MARKET] 섹션 추출
-            market_match = re.search(r'\[MARKET\]\s*\n(.*?)(?=\[STOCKS\]|\Z)', text, re.DOTALL)
-            if market_match:
-                result['market_summary'] = market_match.group(1).strip()
-
-            # [STOCKS] 섹션에서 티커별 내러티브 추출
-            stocks_match = re.search(r'\[STOCKS\]\s*\n(.*)', text, re.DOTALL)
-            if stocks_match:
-                for line in stocks_match.group(1).strip().split('\n'):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    # "TICKER: 설명" 또는 "N. TICKER: 설명" 패턴
-                    m = re.match(r'(?:\d+\.\s*)?([A-Z]{1,5}):\s*(.+)', line)
-                    if m:
-                        result['narratives'][m.group(1)] = m.group(2).strip()
-
-            log(f"v2 AI: 시장요약 {len(result['market_summary'])}자, 내러티브 {len(result['narratives'])}종목")
+            # 마크다운 제거
+            text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+            text = re.sub(r'#{1,3}\s*', '', text)
+            result['market_summary'] = text.strip()
+            log(f"v2 AI: 시장요약 {len(result['market_summary'])}자")
         else:
-            log("v2 AI: Gemini 응답 없음", "WARN")
-
+            log("v2 AI: 시장요약 Gemini 응답 없음", "WARN")
     except Exception as e:
-        log(f"v2 AI 호출 실패: {e}", "WARN")
+        log(f"v2 AI: 시장요약 실패: {e}", "WARN")
+
+    # ── 호출 2: 종목 내러티브 (v1 프롬프트 패턴 활용) ──
+    if selected:
+        try:
+            stock_lines = []
+            for i, s in enumerate(selected):
+                rev = s.get('rev_growth', 0) or 0
+                stock_lines.append(
+                    f"{i+1}. {s['name']}({s['ticker']}) · {s['industry']}\n"
+                    f"   EPS {s['eps_chg']:+.1f}% · 매출 {rev:+.0%}"
+                )
+
+            stock_prompt = f"""아래 {len(selected)}종목 각각의 최근 실적 성장 배경을 Google 검색해서 한 줄씩 써줘.
+
+[종목]
+{chr(10).join(stock_lines)}
+
+[형식]
+종목별로 한 줄씩. 종목 사이에 [SEP] 표시.
+형식: TICKER: 설명 한 줄
+
+[규칙]
+- 각 종목의 실적 성장 배경(왜 EPS/매출이 오르는지)을 검색해서 써.
+  예: "NVDA: AI 데이터센터 GPU 수요 확대로 매출이 급증하고 있어요"
+  예: "VST: 전력 수요 폭증에 원전 재가동 기대감까지 더해졌어요"
+- 단순히 "EPS X% 상승"처럼 숫자만 반복하지 마. 그 숫자 뒤의 사업적 이유를 써.
+- 주의/경고/유의 표현 금지. 긍정적 매력만.
+- 한국어, ~예요 체, 종목마다 다른 문장 구조.
+- 서두/인사말/맺음말 금지. 첫 종목부터 바로 시작."""
+
+            resp = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=stock_prompt,
+                config=types.GenerateContentConfig(
+                    tools=[grounding_tool],
+                    temperature=0.3,
+                ),
+            )
+            text = extract_text(resp)
+            if text:
+                # 마크다운 볼드 제거
+                text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+                text = re.sub(r'#{1,3}\s*', '', text)
+
+                # 파싱: "TICKER: 설명" 패턴 (여러 변형 허용)
+                for line in text.split('\n'):
+                    line = line.strip()
+                    if not line or line == '[SEP]':
+                        continue
+                    # "TICKER: 설명" / "N. TICKER: 설명" / "- TICKER: 설명"
+                    m = re.match(r'(?:\d+\.\s*)?(?:-\s*)?([A-Z]{1,5})[\s:：]+(.{10,})', line)
+                    if m:
+                        ticker = m.group(1)
+                        narrative = m.group(2).strip()
+                        # "TICKER:" 등 잔여 제거
+                        narrative = re.sub(r'^[:\s]+', '', narrative)
+                        if narrative:
+                            result['narratives'][ticker] = narrative
+
+                log(f"v2 AI: 내러티브 {len(result['narratives'])}종목")
+            else:
+                log("v2 AI: 내러티브 Gemini 응답 없음", "WARN")
+        except Exception as e:
+            log(f"v2 AI: 내러티브 실패: {e}", "WARN")
 
     return result
 
 
 def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
-                              exited_tickers, biz_day, ai_content, portfolio_mode,
+                              exit_reasons, biz_day, ai_content, portfolio_mode,
                               concordance, final_action):
-    """v2 메시지 1: 오늘의 추천 (시장+추천+리스크+요약 통합)"""
+    """v2 메시지 1: 오늘의 추천
+
+    구조: 성적표 → 프로세스 → 추천(코드뼈대+AI살) → 리스크 → 이탈 → 시장요약 → 면책
+    코드 기반 데이터가 뼈대이므로 AI 실패해도 정상 작동.
+    """
+    import re
+
     biz_str = biz_day.strftime('%m.%d')
     weekdays = ['월', '화', '수', '목', '금', '토', '일']
     weekday = weekdays[biz_day.weekday()]
@@ -2826,9 +2901,8 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     lines.append(f'📊 EPS 모멘텀 US · {biz_str}({weekday})')
     lines.append('')
 
-    # 시장 상태 2줄
+    # ── 성적표: 시장 상태 2줄 ──
     hy_data = risk_status.get('hy') if risk_status else None
-    vix_data = risk_status.get('vix') if risk_status else None
 
     signal_dots = ''
     if risk_status:
@@ -2846,18 +2920,15 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     elif signal_dots:
         lines.append(signal_dots)
 
-    # 지수
+    # 지수 1줄
     if market_lines:
         idx_parts = []
         for ml in market_lines:
-            # "🟢 S&P 500  6,910 (+0.69%)" → "S&P 6,910(+0.7%)"
-            import re
             m = re.match(r'[🟢🔴🟡]\s*(\S+(?:\s+\d+)?)\s+([\d,]+(?:\.\d+)?)\s+\(([^)]+)\)', ml)
             if m:
                 name = m.group(1).replace(' 500', '').strip()
                 val = m.group(2)
                 chg = m.group(3)
-                # 소수점 1자리로 축소
                 try:
                     chg_val = float(chg.replace('%', '').replace('+', ''))
                     chg = f'{chg_val:+.1f}%'
@@ -2867,7 +2938,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         if idx_parts:
             lines.append(' · '.join(idx_parts))
 
-    # stop 모드
+    # ── stop 모드 ──
     if portfolio_mode == 'stop':
         lines.append('')
         lines.append('🚫 <b>신규 매수 중단</b>')
@@ -2876,15 +2947,25 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         lines.append('기존 보유 종목은 Top 30 이탈 시 매도하세요.')
         return '\n'.join(lines)
 
-    # 추천 종목이 없는 경우
+    # ── 추천 종목 없음 ──
     if not selected:
         lines.append('')
         lines.append('검증된 종목 중 안전한 종목이 없어요.')
         lines.append('이번 회차는 <b>관망</b>을 권장해요.')
         return '\n'.join(lines)
 
+    # ── 프로세스 라인: "어떻게 골랐는지" ──
     lines.append('')
-    lines.append(f'━━ 추천 Top {len(selected)} ━━')
+    lines.append(f'916종목 → Top 30 → ✅ 3일 검증 → <b>최종 {len(selected)}종목</b>')
+
+    # Q1 + both_stable: 역사적 매수 기회
+    hy_q = (risk_status.get('hy') or {}).get('quadrant', '') if risk_status else ''
+    if hy_q == 'Q1' and concordance == 'both_stable':
+        lines.append('💎 <b>역사적 매수 기회!</b> 모든 지표가 매수를 가리켜요.')
+
+    # ── 추천 종목 (코드 뼈대 + AI 보조) ──
+    lines.append('')
+    lines.append(f'━━ 오늘의 포트폴리오 ━━')
 
     narratives = ai_content.get('narratives', {}) if ai_content else {}
 
@@ -2894,21 +2975,26 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         eps_chg = s['eps_chg']
         rev = s.get('rev_growth', 0) or 0
         rev_pct = f'{rev*100:+.0f}%' if rev else ''
+        rev_up = s.get('rev_up', 0)
+        rev_down = s.get('rev_down', 0)
+        num_analysts = s.get('num_analysts', rev_up + rev_down)
         earnings = s.get('earnings_note', '')
         earnings_tag = f' 📅{earnings.replace("📅어닝 ", "").replace("📅", "").strip()}' if earnings else ''
 
+        # 라인 1: 종목명 + 비중 + 어닝
         lines.append(f'<b>{i+1}. {s["name"]}({ticker}) · {s["weight"]}%</b>{earnings_tag}')
-        lines.append(f'{s["industry"]} · EPS {eps_chg:+.0f}% · 매출 {rev_pct}')
 
-        # AI 내러티브 (있으면 1줄 추가)
+        # 라인 2: 코드 뼈대 — 업종 + EPS + 매출 + 애널리스트 (100% 안정)
+        analyst_str = f' · 상향 {rev_up}/{num_analysts}' if num_analysts > 0 else ''
+        lines.append(f'{s["industry"]} · EPS {eps_chg:+.0f}% · 매출 {rev_pct}{analyst_str}')
+
+        # 라인 3: AI 내러티브 (있으면 보너스, 없어도 OK)
         narrative = narratives.get(ticker, '')
         if narrative:
-            lines.append(narrative)
+            lines.append(f'💬 {narrative}')
 
-    # 경고
+    # ── 경고 ──
     warnings = []
-    today_date = datetime.now().date()
-    two_weeks = (datetime.now() + timedelta(days=14)).date()
     earnings_stocks = [s for s in selected if s.get('earnings_note')]
     for s in earnings_stocks:
         ed_str = s["earnings_note"].replace("📅어닝 ", "").replace("📅", "").strip()
@@ -2922,23 +3008,34 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         warnings.append(f'테크 {tech_count}/{len(selected)} 집중')
 
     if portfolio_mode == 'caution':
-        warnings.append(f'시장 주의')
+        warnings.append('시장 주의')
+    if portfolio_mode == 'reduced':
+        warnings.append('겨울 후기 — Top 3 축소')
 
     if warnings:
         lines.append('')
         lines.append('⚠️ ' + ' | '.join(warnings))
 
-    # 이탈 종목
-    if exited_tickers:
-        exit_tickers = [t for t, _ in sorted(exited_tickers.items(), key=lambda x: x[1])]
-        lines.append(f'📉 이탈: {"·".join(exit_tickers)}')
+    # ── 이탈 종목 (사유 포함) ──
+    if exit_reasons:
+        achieved = exit_reasons.get('achieved', [])
+        degraded = exit_reasons.get('degraded', [])
+        exit_parts = []
+        for t, reasons in achieved:
+            exit_parts.append(f'{t}(목표달성)')
+        for t, reasons in degraded:
+            reason_str = ','.join(reasons)
+            exit_parts.append(f'{t}({reason_str})')
+        if exit_parts:
+            lines.append(f'📉 이탈: {" · ".join(exit_parts)}')
 
-    # 시장 요약
+    # ── 시장 요약 (AI, 없으면 생략) ──
     market_summary = ai_content.get('market_summary', '') if ai_content else ''
     if market_summary:
         lines.append('')
         lines.append(f'📰 {market_summary}')
 
+    # ── 면책 ──
     lines.append('')
     lines.append('목록에 있으면 보유, 빠지면 매도 검토해요.')
     lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
@@ -2946,7 +3043,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     return '\n'.join(lines)
 
 
-def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_tickers, biz_day):
+def create_v2_watchlist_message(results_df, status_map, exit_reasons, today_tickers, biz_day):
     """v2 메시지 2: 매수 후보 30 (압축 1줄 포맷)"""
     if results_df is None or results_df.empty:
         return None
@@ -2997,20 +3094,25 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         eps_str = f'EPS{"↑" if eps_chg > 0 else "↓"}{abs(eps_chg):.0f}'
         rev_str = f'Rev{"↑" if rev > 0 else "↓"}{abs(rev*100):.0f}' if rev else ''
 
-        # 어닝 마커
-        earnings_tag = ''
-        # earnings_map은 여기서 접근 불가하므로 간단히 처리
-
         line = f'{status} {rank:>2} {ticker:<5} {ind_short:<5} {eps_str} {rev_str}'
         lines.append(line)
 
-    # 이탈 종목
-    if exited_tickers:
-        lines.append('')
+    # 이탈 종목 (사유 포함)
+    if exit_reasons:
+        achieved = exit_reasons.get('achieved', [])
+        degraded = exit_reasons.get('degraded', [])
         exit_parts = []
-        for t, prev_rank in sorted(exited_tickers.items(), key=lambda x: x[1]):
-            exit_parts.append(t)
-        lines.append(f'📉 이탈: {"·".join(exit_parts)}')
+        for t, reasons in achieved:
+            exit_parts.append(f'{t}(목표달성)')
+        for t, reasons in degraded:
+            exit_parts.append(f'{t}({",".join(reasons)})')
+        if exit_parts:
+            lines.append('')
+            lines.append(f'📉 이탈: {" · ".join(exit_parts)}')
+
+    lines.append('')
+    lines.append('Top 5 = 포트폴리오, 6~30 = 대기')
+    lines.append('이탈 = 매도 검토 대상이에요.')
 
     return '\n'.join(lines)
 
@@ -3180,13 +3282,16 @@ def main():
                 except Exception as e:
                     log(f"Forward Test 기록 실패: {e}", "WARN")
 
-            # AI 1회 호출 (시장 요약 + 종목 내러티브)
+            # 이탈 종목 사유 분류
+            exit_reasons = classify_exit_reasons(exited_tickers, results_df)
+
+            # AI 2회 호출 (시장 요약 + 종목 내러티브, 실패해도 OK)
             ai_content = run_v2_ai_analysis(config, selected, biz_day, risk_status)
 
             # 메시지 1: 오늘의 추천
             msg_signal = create_v2_signal_message(
                 selected, risk_status, market_lines, earnings_map,
-                exited_tickers, biz_day, ai_content, portfolio_mode,
+                exit_reasons, biz_day, ai_content, portfolio_mode,
                 concordance, final_action
             )
             if msg_signal:
@@ -3197,7 +3302,7 @@ def main():
 
             # 메시지 2: 매수 후보 30
             msg_watchlist = create_v2_watchlist_message(
-                results_df, status_map, exited_tickers, today_tickers, biz_day
+                results_df, status_map, exit_reasons, today_tickers, biz_day
             )
             if msg_watchlist:
                 if send_to_channel:
