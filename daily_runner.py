@@ -1978,7 +1978,7 @@ def create_system_log_message(stats, elapsed, config):
 # AI 리스크 체크 (Gemini 2.5 Flash + Google Search)
 # ============================================================
 
-def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk_status=None, earnings_map=None, rank_change_tags=None, exited_tickers=None, weighted_ranks=None):
+def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk_status=None, earnings_map=None, rank_change_tags=None, weighted_ranks=None):
     """[3/4] AI 브리핑 — 정량 위험 신호 + 시장 환경 기반 리스크 해석"""
     api_key = config.get('gemini_api_key', '')
     if not api_key:
@@ -2002,8 +2002,6 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
             earnings_map = {}
         if rank_change_tags is None:
             rank_change_tags = {}
-        if exited_tickers is None:
-            exited_tickers = {}
         if weighted_ranks is None:
             weighted_ranks = {}
 
@@ -2092,36 +2090,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
         signals_data = '\n\n'.join(signal_lines)
         earnings_info = ' · '.join(earnings_tickers) if earnings_tickers else '해당 없음'
 
-        # 이탈 종목 데이터 구성
-        exit_lines = []
-        if exited_tickers:
-            all_eligible = get_part2_candidates(results_df)
-            exit_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
-            full_data = {row['ticker']: row for _, row in results_df.iterrows()}
-            for t, prev_rank in sorted(exited_tickers.items(), key=lambda x: x[1]):
-                cur_rank = exit_rank_map.get(t)
-                r = full_data.get(t, {})
-                t_name = r.get('short_name', t) if hasattr(r, 'get') else t
-                reasons = []
-                if hasattr(r, 'get'):
-                    if (r.get('price', 0) or 0) < (r.get('ma60', 0) or 0) and (r.get('ma60', 0) or 0) > 0:
-                        reasons.append('MA60↓')
-                    if (r.get('adj_gap', 0) or 0) > 0:
-                        reasons.append('괴리+')
-                    if (r.get('adj_score', 0) or 0) <= 9:
-                        reasons.append('점수↓')
-                    if (r.get('eps_change_90d', 0) or 0) <= 0:
-                        reasons.append('EPS↓')
-                if not reasons:
-                    reasons.append('순위↓')
-                category = '✅ 목표달성' if reasons == ['괴리+'] else '⚠️ 펀더멘탈악화'
-                rank_info = f'{prev_rank}→{cur_rank}' if cur_rank else f'{prev_rank}→탈락'
-                tag = rank_change_tags.get(t, '')
-                tag_str = f' ({tag})' if tag else ''
-                exit_lines.append(f"{category}: {t_name} ({t}) · 순위 {rank_info} · 사유 {', '.join(reasons)}{tag_str}")
-        exit_data = '\n'.join(exit_lines) if exit_lines else '이탈 종목 없음'
-
-        log(f"위험 신호 수집 완료: {stock_count}종목, 어닝 {len(earnings_tickers)}종목, 이탈 {len(exit_lines)}종목")
+        log(f"위험 신호 수집 완료: {stock_count}종목, 어닝 {len(earnings_tickers)}종목")
 
         # #3: 시장 환경 컨텍스트 구성
         market_env = ""
@@ -2145,7 +2114,7 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
 
 아래는 EPS 모멘텀 시스템의 매수 후보 {stock_count}종목과 각 종목의 정량적 위험 신호야.
 이 종목들은 EPS 전망치가 상향 중이라 선정된 거야.
-네 역할: 아래 3개 섹션을 순서대로 반드시 모두 출력하는 거야. 인사말이나 서두 없이 바로 시작해.
+네 역할: 아래 섹션을 순서대로 반드시 모두 출력하는 거야. 인사말이나 서두 없이 바로 시작해.
 
 [종목별 데이터 & 위험 신호 — 시스템이 계산한 팩트]
 {signals_data}
@@ -2162,16 +2131,13 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
 ⚠️전망↓ = EPS 전망이 1σ 이상 하락 → 펀더멘탈 악화 주의
 순위: A→B→C = T-2→T-1→오늘 composite_rank 이력
 
-[이탈 종목 — 어제 Top 30에서 오늘 빠진 종목]
-{exit_data}
-
 [출력 규칙]
 - 한국어, 친절하고 따뜻한 말투 (~예요/~해요 체)
 - 딱딱한 보고서 말투 금지. 친구에게 설명하듯 자연스럽게.
-- 인사말, 서두, 맺음말 금지. 아래 4개 섹션만 출력.
+- 인사말, 서두, 맺음말 금지. 아래 3개 섹션만 출력.
 - 총 2000자 이내.
 
-=== 반드시 출력할 4개 섹션 ===
+=== 반드시 출력할 3개 섹션 ===
 
 📰 시장 동향
 (필수) {biz_str} 미국 시장 마감 결과를 Google 검색해서 2~3줄로 요약해줘. 이 섹션은 반드시 출력해야 해.
@@ -2193,13 +2159,6 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
 [SEP]
 **XYZ Inc(XYZ)**
 커버리지 애널리스트가 2명뿐이라 추정치를 100% 믿기 어려워요.
-
-📉 이탈 종목
-위 [이탈 종목] 데이터를 참고해서 이탈 사유를 1~2줄로 해석해줘.
-- ✅ 목표달성(괴리+): "주가가 EPS 상향분을 충분히 반영했어요. 수익 실현 타이밍이에요." 식으로 긍정적 해석.
-- ⚠️ 펀더멘탈악화: 구체적 사유(MA60 이탈, 점수 하락, EPS 둔화)를 언급하며 주의 환기.
-- 이탈 종목이 없으면 "✅ 오늘 이탈 종목이 없어요." 한 줄만 출력해.
-- 순위 태그(📈가격↑ 등)가 있으면 참고해서 원인을 설명해줘.
 
 📅 어닝 주의
 {earnings_info}
@@ -2877,7 +2836,7 @@ def main():
 
         # [3/4] AI 리스크 필터
         biz_day = get_last_business_day()
-        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day, risk_status=risk_status, earnings_map=earnings_map, rank_change_tags=rank_change_tags, exited_tickers=exited_tickers, weighted_ranks=weighted_ranks)
+        msg_ai = run_ai_analysis(config, results_df=results_df, status_map=status_map, biz_day=biz_day, risk_status=risk_status, earnings_map=earnings_map, rank_change_tags=rank_change_tags, weighted_ranks=weighted_ranks)
         if msg_ai:
             if send_to_channel:
                 send_telegram_long(msg_ai, config, chat_id=channel_id)
