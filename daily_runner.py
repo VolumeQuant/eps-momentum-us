@@ -3425,7 +3425,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
             _exit_tag_emoji = {'주가↑': '📈', '주가↓': '📉', '전망↑': '⬆', '전망↓': '⬇'}
 
             def _render_exit(elist, target):
-                for t, prev_rank, cur_rank, reasons in elist:
+                for idx_e, (t, prev_rank, cur_rank, reasons) in enumerate(elist):
                     row = full_data.get(t, {})
                     nm = _clean_company_name(row.get('short_name', t), t) if hasattr(row, 'get') else t
                     ind = row.get('industry', '') if hasattr(row, 'get') else ''
@@ -3455,6 +3455,9 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                     ri = f'{prev_rank}→{cur_rank}위' if cur_rank else f'{prev_rank}위→탈락'
                     rt = ' '.join(f'[{r}]' for r in reasons)
                     target.append(f'순위 {ri} {rt}')
+                    # 점선 구분선 (마지막 제외)
+                    if idx_e < len(elist) - 1:
+                        target.append('- - - - - - - - - - - - -')
 
             if achieved:
                 supp_lines.append(f'🎯 <b>주가 선반영</b> ({len(achieved)}개) — <i>수익 실현 검토</i>')
