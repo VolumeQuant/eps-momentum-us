@@ -3373,9 +3373,9 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
 
         # L1: EPS추이 아이콘 + 설명
         if lights and desc:
-            lines.append(f'{lights} {desc}')
+            lines.append(f'EPS추이 {lights} {desc}')
         elif lights:
-            lines.append(lights)
+            lines.append(f'EPS추이 {lights}')
 
         # L2: 팩터등수
         fr = factor_ranks.get(ticker, {})
