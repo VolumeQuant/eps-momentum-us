@@ -2696,7 +2696,7 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
 # ============================================================
 
 def classify_exit_reasons(exited_tickers, results_df):
-    """이탈 종목 사유 분류 — 목표달성(괴리+만) vs 펀더멘탈 악화
+    """이탈 종목 사유 분류 — 주가선반영(adj_gap>0만) vs 펀더멘탈 악화
 
     Returns: {'achieved': [(ticker, reasons)], 'degraded': [(ticker, reasons)]}
     """
@@ -2719,7 +2719,7 @@ def classify_exit_reasons(exited_tickers, results_df):
             if (r.get('price', 0) or 0) < (r.get('ma60', 0) or 0) and (r.get('ma60', 0) or 0) > 0:
                 reasons.append('MA60↓')
             if (r.get('adj_gap', 0) or 0) > 0:
-                reasons.append('괴리+')
+                reasons.append('주가선반영')
             if (r.get('adj_score', 0) or 0) <= 9:
                 reasons.append('점수↓')
             if (r.get('eps_change_90d', 0) or 0) <= 0:
@@ -2727,7 +2727,7 @@ def classify_exit_reasons(exited_tickers, results_df):
         if not reasons:
             reasons.append('순위↓')
 
-        if reasons == ['괴리+']:
+        if reasons == ['주가선반영']:
             result['achieved'].append((t, reasons))
         else:
             result['degraded'].append((t, reasons))
@@ -2915,11 +2915,11 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     if risk_status:
         conc = risk_status.get('concordance', 'both_stable')
         if conc == 'both_stable':
-            signal_dots = '🟢🟢 안정'
+            signal_dots = '🟢🟢 안정(신용·변동성)'
         elif conc == 'both_warn':
-            signal_dots = '🔴🔴 위험'
+            signal_dots = '🔴🔴 위험(신용·변동성)'
         else:
-            signal_dots = '🟢🔴 주의'
+            signal_dots = '🟢🔴 주의(신용·변동성 엇갈림)'
 
     if hy_data:
         q_days = hy_data.get('q_days', 0)
@@ -2963,7 +2963,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
 
     # ── 프로세스 라인 ──
     lines.append('')
-    lines.append(f'미국 916종목 중 EPS·매출 성장 상위 30개를 3일 검증, <b>최종 {len(selected)}종목</b> 선정')
+    lines.append(f'미국 대형·중형주 916종목 중 EPS 전망·매출 성장 상위 30개를 3일 연속 선정, <b>최종 {len(selected)}종목</b>')
 
     # Q1 + both_stable: 역사적 매수 기회
     hy_q = (risk_status.get('hy') or {}).get('quadrant', '') if risk_status else ''
@@ -2991,17 +2991,18 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         # 라인 1: 종목명 + 비중 + 어닝
         lines.append(f'<b>{i+1}. {s["name"]}({ticker}) · {s["weight"]}%</b>{earnings_tag}')
 
-        # 라인 2: 업종 + 트렌드 (이 종목이 어떤 흐름인지)
+        # 라인 2: 업종 + EPS 전망 추이 (이 종목이 어떤 흐름인지)
         lights = s.get('lights', '')
         desc = s.get('desc', '')
         if lights and desc:
-            lines.append(f'{s["industry"]} · {lights} {desc}')
+            lines.append(f'{s["industry"]} · EPS추이 {lights} {desc}')
         else:
             lines.append(f'{s["industry"]}')
 
         # 라인 3: 실적 + 분석가 (숫자 근거)
-        analyst_str = f' · 분석가 ↑{rev_up} ↓{rev_down}' if num_analysts > 0 else ''
-        lines.append(f'EPS {eps_chg:+.0f}% · 매출 {rev_pct}{analyst_str}')
+        analyst_str = f' · EPS상향 {rev_up} 하향 {rev_down}(30일)' if num_analysts > 0 else ''
+        rev_suffix = '(전년비)' if rev_pct else ''
+        lines.append(f'EPS전망 {eps_chg:+.0f}%(90일) · 매출 {rev_pct}{rev_suffix}{analyst_str}')
 
         # 라인 4: 순위 궤적 (3일간 안정성 증명)
         w_info = weighted_ranks.get(ticker)
@@ -3055,7 +3056,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         degraded = exit_reasons.get('degraded', [])
         exit_parts = []
         for t, reasons in achieved:
-            exit_parts.append(f'{t}(목표달성)')
+            exit_parts.append(f'{t}(주가 선반영)')
         for t, reasons in degraded:
             reason_str = ','.join(reasons)
             exit_parts.append(f'{t}({reason_str})')
@@ -3070,7 +3071,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
 
     # ── 면책 ──
     lines.append('')
-    lines.append('목록에 있으면 보유, 빠지면 매도 검토해요.')
+    lines.append('Top 30에 있으면 보유, 빠지면 매도 검토해요.')
     lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
 
     return '\n'.join(lines)
@@ -3141,12 +3142,12 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         tag = rank_change_tags.get(ticker, '') if marker != '🆕' else ''
 
         lines.append(f'{marker} <b>{rank}.</b> {name}({ticker})')
-        lines.append(f'{industry} · {lights} {desc}')
+        lines.append(f'{industry} · EPS추이 {lights} {desc}')
         parts = []
         if pd.notna(eps_90d):
-            parts.append(f'EPS {eps_90d:+.0f}%')
+            parts.append(f'EPS전망 {eps_90d:+.0f}%(90일)')
         if pd.notna(rev_g):
-            parts.append(f'매출 {rev_g*100:+.0f}%')
+            parts.append(f'매출 {rev_g*100:+.0f}%(전년비)')
         if parts:
             lines.append(' · '.join(parts))
 
@@ -3166,7 +3167,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         else:
             rank_str = f'-→-→{rank}'
         tag_suffix = f' ({tag})' if tag else ''
-        lines.append(f'분석가 ↑{rev_up} ↓{rev_down} · 3일순위 {rank_str}{tag_suffix}')
+        lines.append(f'EPS상향 {rev_up} 하향 {rev_down}(30일) · 3일순위 {rank_str}{tag_suffix}')
         lines.append('──────────────────')
 
     # ── 이탈 종목: v1과 동일한 상세 포맷 ──
@@ -3186,7 +3187,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                 if (r.get('price', 0) or 0) < (r.get('ma60', 0) or 0) and (r.get('ma60', 0) or 0) > 0:
                     reasons.append('MA60↓')
                 if (r.get('adj_gap', 0) or 0) > 0:
-                    reasons.append('괴리+')
+                    reasons.append('주가선반영')
                 if (r.get('adj_score', 0) or 0) <= 9:
                     reasons.append('점수↓')
                 if (r.get('eps_change_90d', 0) or 0) <= 0:
@@ -3195,7 +3196,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                 reasons.append('순위↓')
             if not reasons:
                 reasons.append('순위↓')
-            if reasons == ['괴리+']:
+            if reasons == ['주가선반영']:
                 achieved.append((t, prev_rank, cur_rank, reasons))
             else:
                 degraded.append((t, prev_rank, cur_rank, reasons))
@@ -3214,25 +3215,25 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                 tg = rank_change_tags.get(t, '')
 
                 lines.append(f'{nm}({t})')
-                lines.append(f'{ind} · {lt} {ds}')
+                lines.append(f'{ind} · EPS추이 {lt} {ds}')
                 pts = []
                 if ep is not None and pd.notna(ep):
-                    pts.append(f'EPS {ep:+.0f}%')
+                    pts.append(f'EPS전망 {ep:+.0f}%(90일)')
                 if rv is not None and pd.notna(rv):
-                    pts.append(f'매출 {rv*100:+.0f}%')
+                    pts.append(f'매출 {rv*100:+.0f}%(전년비)')
                 if pts:
                     lines.append(' · '.join(pts))
                 ri = f'{prev_rank}→{cur_rank}' if cur_rank else f'{prev_rank}→탈락'
                 rt = ' '.join(f'[{r}]' for r in reasons)
                 ts = f' ({tg})' if tg else ''
-                lines.append(f'분석가 ↑{ru} ↓{rd} · 3일순위 {ri} {rt}{ts}')
+                lines.append(f'EPS상향 {ru} 하향 {rd}(30일) · 3일순위 {ri} {rt}{ts}')
                 lines.append('──────────────────')
 
         lines.append('')
         lines.append('📉 <b>Top 30 이탈 종목</b>')
         lines.append('─────────────────')
         if achieved:
-            lines.append(f'✅ <b>목표 달성</b> ({len(achieved)}개) — 수익 실현 검토')
+            lines.append(f'✅ <b>주가 선반영</b> ({len(achieved)}개) — 수익 실현 검토')
             _render_exit(achieved)
         if degraded:
             if achieved:
@@ -3244,7 +3245,8 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
     lines.append('Top 5 = 포트폴리오, 6~30 = 대기')
     lines.append('이탈 = 매도 검토 대상이에요.')
     lines.append('')
-    lines.append('☀️상승 ☁️보합 🌧️하락 🔥급등 | ✅3일검증 ⏳2일 🆕신규')
+    lines.append('EPS 전망 추이: ☀️상승 ☁️보합 🌧️하락 🔥급등 (90→60→30→7일)')
+    lines.append('✅3일연속 ⏳2일차 🆕신규')
 
     return '\n'.join(lines)
 
