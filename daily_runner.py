@@ -2961,9 +2961,10 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         lines.append('이번 회차는 <b>관망</b>을 권장해요.')
         return '\n'.join(lines)
 
-    # ── 프로세스 라인 ──
+    # ── 프로세스 라인 (단계별 필터링 파이프라인) ──
     lines.append('')
-    lines.append(f'미국 대형·중형주 916종목 중 EPS 전망·매출 성장 상위 30개를 3일 연속 선정, <b>최종 {len(selected)}종목</b>')
+    lines.append('S&amp;P500 + 나스닥100 + 미드캡400 = 916종목')
+    lines.append(f'→ EPS 전망 상향 + 매출 성장 필터 → 상위 30 → 3일 연속 → <b>최종 {len(selected)}종목</b>')
 
     # Q1 + both_stable: 역사적 매수 기회
     hy_q = (risk_status.get('hy') or {}).get('quadrant', '') if risk_status else ''
