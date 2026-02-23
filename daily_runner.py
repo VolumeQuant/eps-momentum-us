@@ -3359,13 +3359,22 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         tag = rank_change_tags.get(ticker, '') if marker != '🆕' else ''
         adj_gap = row.get('adj_gap', 0) or 0
 
-        # L0: 종목명 + 업종 (한 줄)
-        lines.append(f'{marker} <b>{rank}. {name}({ticker})</b> {industry}')
+        # L0: 종목명 + 업종 (한 줄, 이름 12자 제한)
+        short_name = name
+        if len(name) > 12:
+            words = name.split()
+            short_name = words[0]
+            for w in words[1:]:
+                if len(short_name) + 1 + len(w) <= 12:
+                    short_name += ' ' + w
+                else:
+                    break
+        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b> {industry}')
 
-        # L1: EPS추이 + 팩터등수 (합산)
+        # L1: EPS추이 아이콘 + 팩터등수 (라벨·설명 생략, 범례 참조)
         l1_parts = []
-        if lights and desc:
-            l1_parts.append(f'EPS추이 {lights} {desc}')
+        if lights:
+            l1_parts.append(lights)
         fr = factor_ranks.get(ticker, {})
         if fr:
             l1_parts.append(f'저평가 {fr["gap_rank"]}등')
@@ -3377,7 +3386,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                 l1_parts.append(f'매출성장 {rev_g*100:+.0f}%')
         lines.append(' · '.join(l1_parts))
 
-        # L2: 의견 + 순위
+        # L2: ↑↓ + 3일 순위 ("의견" 라벨 생략, 범례 참조)
         w_info = weighted_ranks.get(ticker)
         if w_info:
             r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
@@ -3393,7 +3402,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         else:
             rank_str = f'-→-→{rank}위'
         tag_suffix = f' ({tag})' if tag else ''
-        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 3일 순위 {rank_str}{tag_suffix}')
+        lines.append(f'↑{rev_up}↓{rev_down} · 3일 순위 {rank_str}{tag_suffix}')
 
     msg_watchlist = '\n'.join(lines)
 
@@ -3487,8 +3496,8 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
     # 범례
     supp_lines.append('')
     supp_lines.append('<i>✅ 3일연속 · ⏳ 2일차 · 🆕 신규 · 3일 순위 2일전→1일전→오늘</i>')
-    supp_lines.append('<i>EPS추이 🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락</i>')
-    supp_lines.append('<i>저평가(-)=EPS 전망 대비 할인 · 의견=EPS 수정 수</i>')
+    supp_lines.append('<i>🔥급등 ☀️상승 🌤️소폭↑ ☁️보합 🌧️하락=EPS추이</i>')
+    supp_lines.append('<i>저평가(-)=EPS 대비 할인 · ↑↓=EPS 수정 수</i>')
     supp_lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
 
     msg_supplement = '\n'.join(supp_lines)
