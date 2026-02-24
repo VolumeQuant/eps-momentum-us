@@ -3226,6 +3226,24 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         q_days = hy_data.get('q_days', 0)
         lines.append(f'{hy_data["quadrant_icon"]} {hy_data["quadrant_label"]} {q_days}일째')
 
+    # ── 종합 해석 한 줄 ──
+    if hy_data and vix_data:
+        hy_spread = hy_data.get('hy_spread', 0)
+        vix_pct = vix_data.get('vix_percentile', 0)
+        quadrant = hy_data.get('quadrant', '')
+        if hy_spread >= 4.5 or vix_pct >= 90:
+            lines.append('→ 시장 불안 신호. 신규 매수 신중하게.')
+        elif hy_spread >= 3.0 or vix_pct >= 80:
+            lines.append('→ 변동성 확대 구간. 비중 조절 고려.')
+        elif quadrant == 'Q1':
+            lines.append(f'→ 회복 초기. 과거 이 구간 연평균 +14%.')
+        elif quadrant == 'Q2':
+            lines.append(f'→ 안정적 성장 구간. 기본 투자 유지.')
+        elif quadrant == 'Q3':
+            lines.append('→ 과열 조짐. 수익 실현 일부 고려.')
+        else:
+            lines.append('→ 기본 투자 유지.')
+
     # ── 📰 시장 동향 (AI 해석) ──
     market_summary = ai_content.get('market_summary', '') if ai_content else ''
     if market_summary:
