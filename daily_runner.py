@@ -3084,9 +3084,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
     lines.append('')
     lines.append('📋 선정 과정')
-    lines.append('전체 916종목')
-    lines.append(f'→ EPS 상향 + 매출·추세·커버리지 스크리닝 → {filter_count}종목' if filter_count else '→ EPS 상향 + 매출·추세·커버리지 스크리닝')
-    lines.append(f'→ 저평가·매출성장 종합 채점 → 상위 30')
+    lines.append(f'916종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else '916종목 중 EPS 상향 스크리닝')
+    lines.append('→ 저평가·성장 채점 → 상위 30')
     lines.append(f'→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목')
 
     # ━━ 섹션 3: 종목별 근거 ━━
@@ -3450,9 +3449,8 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
     lines.append('')
     lines.append('📋 선정 과정')
-    lines.append('<i>전체 916종목</i>')
-    lines.append(f'<i>→ EPS 상향 + 매출·추세·커버리지 스크리닝 → {filter_count}종목</i>' if filter_count else '<i>→ EPS 상향 + 매출·추세·커버리지 스크리닝</i>')
-    lines.append(f'<i>→ 저평가·매출성장 종합 채점 → 상위 30</i>')
+    lines.append(f'<i>916종목 중 EPS 상향 상위 {filter_count}종목</i>' if filter_count else '<i>916종목 중 EPS 상향 스크리닝</i>')
+    lines.append('<i>→ 저평가·성장 채점 → 상위 30</i>')
     lines.append(f'<i>→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목</i>')
 
     # Q1 + both_stable
