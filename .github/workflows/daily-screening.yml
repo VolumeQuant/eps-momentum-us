@@ -48,7 +48,7 @@ jobs:
         python daily_runner.py
       env:
         TZ: 'America/New_York'
-        MESSAGE_VERSION: 'v2'
+        MESSAGE_VERSION: 'v3'
 
     - name: Commit and push results
       run: |
