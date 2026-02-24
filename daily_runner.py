@@ -3041,13 +3041,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     if weighted_ranks is None:
         weighted_ranks = {}
 
-    biz_str = f'{biz_day.year}.{biz_day.month}.{biz_day.day}'
-    weekdays = ['월', '화', '수', '목', '금', '토', '일']
-    weekday = weekdays[biz_day.weekday()]
     narratives = ai_content.get('narratives', {}) if ai_content else {}
 
     lines = []
-    lines.append(f'📊 EPS 모멘텀 US · {biz_str}({weekday})')
 
     # ── stop 모드 ──
     if portfolio_mode == 'stop':
@@ -3075,10 +3071,19 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         name = _clean_company_name(s['name'], s['ticker'])
         lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
 
-    # ━━ 섹션 2: 선정 과정 (압축) ━━
-    fc_str = f'{filter_count}개' if filter_count else ''
+    # ━━ 섹션 2: 선정 과정 ━━
     lines.append('')
-    lines.append(f'<i>916종목 → 필터 {fc_str} → Top 30 → 3일 검증 → {len(selected)}종목</i>')
+    lines.append('📋 선정 과정')
+    lines.append('미국 대·중형주 916종목에서')
+    lines.append('→ EPS 전망 상향 종목만 선별')
+    lines.append('→ 4가지 필터')
+    lines.append('  ▸ 매출성장 — 전년비 10% 이상')
+    lines.append('  ▸ 추세 — 120일 이동평균 위')
+    lines.append('  ▸ 커버리지 — 애널리스트 3명 이상')
+    lines.append('  ▸ 하향 의견 30% 미만')
+    fc_str = f'{filter_count}개 통과' if filter_count else '필터 통과'
+    lines.append(f'→ {fc_str} → 저평가·매출성장 종합 채점')
+    lines.append(f'→ 상위 30 → 3일 검증 → 최종 {len(selected)}종목')
 
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
