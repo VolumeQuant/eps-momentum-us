@@ -3030,7 +3030,8 @@ def compute_factor_ranks(results_df, today_tickers):
 
 def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_content,
                           portfolio_mode, final_action,
-                          weighted_ranks=None, filter_count=None):
+                          weighted_ranks=None, filter_count=None,
+                          status_map=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -3080,18 +3081,13 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
 
     # ━━ 섹션 2: 선정 과정 ━━
+    verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
     lines.append('')
     lines.append('📋 선정 과정')
-    lines.append('미국 대·중형주 916종목에서')
-    lines.append('→ EPS 전망 상향 종목만 선별')
-    lines.append('→ 4가지 필터')
-    lines.append('  ▸ 매출성장 — 전년비 10% 이상')
-    lines.append('  ▸ 추세 — 120일 이동평균 위')
-    lines.append('  ▸ 커버리지 — 애널리스트 3명 이상')
-    lines.append('  ▸ 하향 의견 30% 미만')
-    fc_str = f'{filter_count}개 통과' if filter_count else '필터 통과'
-    lines.append(f'→ {fc_str} → 저평가·매출성장 종합 채점')
-    lines.append(f'→ 상위 30 → 3일 검증 → 최종 {len(selected)}종목')
+    lines.append('전체 916종목')
+    lines.append(f'→ EPS 상향 + 매출·추세·커버리지 스크리닝 → {filter_count}종목' if filter_count else '→ EPS 상향 + 매출·추세·커버리지 스크리닝')
+    lines.append(f'→ 저평가·매출성장 종합 채점 → 상위 30')
+    lines.append(f'→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목')
 
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
@@ -3389,7 +3385,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
                               concordance, final_action,
                               weighted_ranks=None, rank_change_tags=None,
                               forward_test=None, filter_count=None,
-                              factor_ranks=None):
+                              factor_ranks=None, status_map=None):
     """v2 메시지 1: 오늘의 추천
 
     핵심 원칙:
@@ -3451,17 +3447,13 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # 섹션 2: 선정 과정
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
     lines.append('')
     lines.append('📋 선정 과정')
-    lines.append('<i>미국 대·중형주 916종목에서</i>')
-    lines.append('<i>→ 4가지 기준으로 필터</i>')
-    lines.append('<i>  ▸ EPS모멘텀 — 90일간 상향</i>')
-    lines.append('<i>  ▸ 매출성장 — 전년비 10% 이상</i>')
-    lines.append('<i>  ▸ 추세 — 120일 이동평균 위</i>')
-    lines.append('<i>  ▸ 커버리지 — 애널리스트 3명 이상</i>')
-    fc_str = f'{filter_count}개 통과' if filter_count else '필터 통과'
-    lines.append(f'<i>→ {fc_str} → 저평가·매출성장 종합 채점</i>')
-    lines.append(f'<i>→ 상위 30 → 3일 검증 → 최종 {len(selected)}종목</i>')
+    lines.append('<i>전체 916종목</i>')
+    lines.append(f'<i>→ EPS 상향 + 매출·추세·커버리지 스크리닝 → {filter_count}종목</i>' if filter_count else '<i>→ EPS 상향 + 매출·추세·커버리지 스크리닝</i>')
+    lines.append(f'<i>→ 저평가·매출성장 종합 채점 → 상위 30</i>')
+    lines.append(f'<i>→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목</i>')
 
     # Q1 + both_stable
     hy_q = (risk_status.get('hy') or {}).get('quadrant', '') if risk_status else ''
@@ -4032,7 +4024,8 @@ def main():
             msg_signal = create_signal_message(
                 selected, earnings_map, exit_reasons, biz_day, ai_content,
                 portfolio_mode, final_action,
-                weighted_ranks=weighted_ranks, filter_count=filter_count
+                weighted_ranks=weighted_ranks, filter_count=filter_count,
+                status_map=status_map
             )
             if msg_signal:
                 if send_to_channel:
@@ -4106,7 +4099,7 @@ def main():
                 concordance, final_action,
                 weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags,
                 forward_test=forward_test, filter_count=filter_count,
-                factor_ranks=factor_ranks
+                factor_ranks=factor_ranks, status_map=status_map
             )
             if msg_signal:
                 if send_to_channel:
