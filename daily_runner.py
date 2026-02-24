@@ -2865,18 +2865,19 @@ def run_v2_ai_analysis(config, selected, biz_day, risk_status=None, market_lines
 {idx_ctx}
 {market_ctx}
 
-[구조] 3~4문장, 총 150자 이내로 작성:
-- 당일 시장 흐름 — 상승/하락 원인 (1문장)
-- 핵심 이슈 — 가장 중요한 뉴스 1개 (1문장)
-- 다음 주요 일정 있으면 언급 (1문장)
+[구조] 4~6문장, 총 250~350자로 작성:
+1. 당일 시장 흐름 — 상승/하락 원인 (1~2문장)
+2. 핵심 이슈 — 가장 중요한 뉴스와 시장 반응 (1~2문장)
+3. 섹터/테마 동향 — 어떤 업종이 강했고 어떤 업종이 약했는지 (1문장)
+4. 향후 일정 — 다음 주요 경제지표·이벤트 (1문장)
 
 [규칙]
-- 반드시 150자 이내. 짧게 핵심만.
+- 250~350자. 너무 짧으면 안 돼.
 - 위 [당일 지수 마감] 데이터와 반드시 일치해야 해. 지수가 마이너스면 "하락", 플러스면 "상승".
 - 지수 수치(S&P, 나스닥 등)는 별도 표시하니 생략.
-- 구체적으로 써 — "관세 이슈" 대신 "트럼프 10% 관세에..." 같이.
-- GDP, PCE 같은 경제지표는 시장에 큰 영향 줬을 때만 한 줄로.
-- 한국어, ~예요 체. 번역투 금지.
+- 구체적으로 써 — "관세 이슈" 대신 "트럼프 15% 글로벌 관세 발표에..." 같이.
+- 섹터 동향도 구체적으로 — "기술주 약세" 대신 "AI·반도체주가 2% 넘게 하락" 같이.
+- 한국어, ~예요 체. 번역투 금지. 자연스럽게.
 - 인사말/서두/맺음말 없이 바로 시작."""
 
         resp = client.models.generate_content(
@@ -3166,7 +3167,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
     lines.append('')
     lines.append('📊 <b>시장 환경</b>')
 
-    # 지수
+    # 지수 (줄바꿈 방지: 3개 이상이면 2줄로 분리)
     if market_lines:
         idx_parts = []
         for ml in market_lines:
@@ -3181,7 +3182,10 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
                 except ValueError:
                     pass
                 idx_parts.append(f'{name} {val}({chg})')
-        if idx_parts:
+        if len(idx_parts) >= 3:
+            lines.append(' · '.join(idx_parts[:2]))
+            lines.append(' · '.join(idx_parts[2:]))
+        elif idx_parts:
             lines.append(' · '.join(idx_parts))
 
     # HY / VIX / 사계절 (각 한 줄)
@@ -3222,18 +3226,27 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         lines.append('📰 <b>시장 동향</b>')
         lines.append(market_summary)
 
-    # ── ⚠️ 매수 주의 (어닝 + 기타 리스크 통합) ──
+    # ── ⚠️ 매수 주의 (14일 이내 어닝만) ──
     warnings = []
     if selected and earnings_map:
         for s in selected:
             ticker = s['ticker']
             if ticker in earnings_map:
                 ed = earnings_map[ticker]
-                ed_str = ed.strftime('%-m/%d') if hasattr(ed, 'strftime') else str(ed)
+                # 14일 이내 어닝만 표시
+                try:
+                    if hasattr(ed, 'date'):
+                        days_until = (ed.date() - biz_day.date()).days if hasattr(biz_day, 'date') else (ed - biz_day).days
+                    else:
+                        days_until = (ed - biz_day.date()).days
+                    if days_until > 14:
+                        continue
+                except Exception:
+                    pass
                 try:
                     ed_str = f'{ed.month}/{ed.day}'
                 except Exception:
-                    pass
+                    ed_str = str(ed)
                 name = _clean_company_name(s['name'], ticker)
                 warnings.append(f'{name}({ticker}) — {ed_str} 실적 발표 예정. 변동성 주의.')
 
