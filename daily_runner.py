@@ -3061,8 +3061,15 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append('이번 회차는 <b>관망</b> 구간.')
         return '\n'.join(lines)
 
+    # ━━ 헤더 ━━
+    biz_str = f'{biz_day.year}.{biz_day.month}.{biz_day.day}'
+    weekdays = ['월', '화', '수', '목', '금', '토', '일']
+    weekday = weekdays[biz_day.weekday()]
+    lines.append(f'📊 <b>AI 종목 브리핑 US</b> · {biz_str}({weekday})')
+    lines.append('월가 애널리스트의 이익 전망 변화를 추적해')
+    lines.append('유망 종목을 매일 선별해 드려요.')
+
     # ━━ 섹션 1: 결론 먼저 ━━
-    lines.append('EPS 전망이 오르는 종목을 골라냈어요.')
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     weight = selected[0]['weight'] if selected else 20
