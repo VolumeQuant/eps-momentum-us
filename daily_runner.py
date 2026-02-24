@@ -3223,25 +3223,21 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
     # ── ⚠️ 매수 주의 (14일 이내 어닝만) ──
     warnings = []
     if selected and earnings_map:
+        # biz_day를 date로 통일
+        biz_date = biz_day.date() if hasattr(biz_day, 'date') and callable(biz_day.date) else biz_day
         for s in selected:
             ticker = s['ticker']
             if ticker in earnings_map:
                 ed = earnings_map[ticker]
-                # 14일 이내 어닝만 표시
+                # ed를 date로 통일
                 try:
-                    if hasattr(ed, 'date'):
-                        days_until = (ed.date() - biz_day.date()).days if hasattr(biz_day, 'date') else (ed - biz_day).days
-                    else:
-                        days_until = (ed - biz_day.date()).days
-                    if days_until > 14:
-                        continue
+                    ed_date = ed.date() if hasattr(ed, 'hour') else ed
+                    days_until = (ed_date - biz_date).days
                 except Exception:
-                    pass
-                try:
-                    ed_str = f'{ed.month}/{ed.day}'
-                except Exception:
-                    ed_str = str(ed)
-                warnings.append(f'{ticker} {ed_str} 실적발표 주의')
+                    continue  # 날짜 비교 실패 시 스킵
+                if days_until < 0 or days_until > 14:
+                    continue
+                warnings.append(f'{ticker} {ed_date.month}/{ed_date.day} 실적발표 주의')
 
     if warnings:
         lines.append('')
