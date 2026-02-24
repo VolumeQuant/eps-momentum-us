@@ -1565,7 +1565,7 @@ def get_market_context():
     try:
         import yfinance as yf
         lines = []
-        for symbol, name in [("^GSPC", "S&P 500"), ("^IXIC", "나스닥"), ("^DJI", "다우")]:
+        for symbol, name in [("^GSPC", "S&P 500"), ("^IXIC", "나스닥"), ("^DJI", "다우"), ("^RUT", "러셀2000")]:
             try:
                 hist = yf.Ticker(symbol).history(period='5d')
                 if len(hist) >= 2:
