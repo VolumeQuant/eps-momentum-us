@@ -3062,6 +3062,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         return '\n'.join(lines)
 
     # ━━ 섹션 1: 결론 먼저 ━━
+    lines.append('EPS 전망이 오르는 종목을 골라냈어요.')
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     weight = selected[0]['weight'] if selected else 20
@@ -3142,8 +3143,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('<i>순위: 2일전→1일전→오늘</i>')
-    lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
+    lines.append('순위: 2일전→1일전→오늘')
+    lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
 
     return '\n'.join(lines)
 
@@ -3160,7 +3161,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append('  🤖 <b>AI 리스크 필터</b>')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('<i>매수 후보의 위험 요소를 AI가 걸러냈어요.</i>')
+    lines.append('매수 후보의 위험 요소를 AI가 걸러냈어요.')
 
     # ── 📊 시장 환경 (데이터, Signal에서 이동) ──
     lines.append('')
@@ -3285,14 +3286,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         )
         filtered = filtered.sort_values('_weighted').reset_index(drop=True)
 
-    # 주도 업종
-    sector_counts = Counter(row.get('industry', '기타') for _, row in filtered.iterrows())
-    top_sectors = sector_counts.most_common()
-    sector_parts = [f'{name} {cnt}' for name, cnt in top_sectors if cnt >= 2]
-
     lines = []
     lines.append('📋 <b>Top 30 종목 현황</b>')
-    lines.append('<i>이 목록에 있으면 보유, 빠지면 매도 검토.</i>')
+    lines.append('이 목록에 있으면 보유, 빠지면 매도 검토.')
     lines.append('━━━━━━━━━━━━━━━')
 
     # ── 30종목 (4줄 + 구분선) ──
@@ -3365,18 +3361,13 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             rank_str = f'{prev_rank}→{cur_rank}위' if cur_rank else f'{prev_rank}위→밖'
             reason_tags = ' '.join(f'[{r}]' for r in reasons)
             lines.append(f'{t} {rank_str} {reason_tags}')
-        lines.append('<i>보유 중이라면 매도를 검토하세요.</i>')
-
-    # ── 주도 업종 ──
-    if sector_parts:
-        lines.append('')
-        lines.append(f'📊 주도 업종: {" · ".join(sector_parts)}')
+        lines.append('보유 중이라면 매도를 검토하세요.')
 
     # ── 범례 + 면책 ──
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('<i>순위: 2일전→1일전→오늘</i>')
-    lines.append('<i>참고용이며, 투자 판단은 본인 책임이에요.</i>')
+    lines.append('순위: 2일전→1일전→오늘')
+    lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
 
     return '\n'.join(lines)
 
