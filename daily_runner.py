@@ -605,12 +605,14 @@ def fetch_revenue_growth(df, today_str):
     return df, earnings_map
 
 
-def get_part2_candidates(df, top_n=None):
+def get_part2_candidates(df, top_n=None, return_counts=False):
     """Part 2 매수 후보 필터링 (공통 함수)
 
     필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA60,
           rev_growth ≥ 10%, num_analysts ≥ 3, 하향 비율 ≤ 30%
     정렬: composite score (adj_gap 70% + rev_growth 30%) 또는 adj_gap
+
+    return_counts=True: (filtered_df, {'eps_screened': N, 'quality_filtered': N}) 반환
     """
     import numpy as np
     import pandas as pd
@@ -628,6 +630,8 @@ def get_part2_candidates(df, top_n=None):
         (df['price'].notna()) & (df['price'] >= 10) &
         (ma_col.notna()) & (df['price'] > ma_col)
     ].copy()
+
+    eps_screened = len(filtered)  # EPS 상향 + 추세 필터 통과 수
 
     # rev_growth 칼럼이 있고 유효 데이터가 충분하면 composite score 사용
     has_rev = 'rev_growth' in filtered.columns and filtered['rev_growth'].notna().sum() >= 10
@@ -680,6 +684,9 @@ def get_part2_candidates(df, top_n=None):
 
     if top_n:
         filtered = filtered.head(top_n)
+
+    if return_counts:
+        return filtered, {'eps_screened': eps_screened, 'quality_filtered': len(filtered)}
     return filtered
 
 
@@ -3031,7 +3038,7 @@ def compute_factor_ranks(results_df, today_tickers):
 def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_content,
                           portfolio_mode, final_action,
                           weighted_ranks=None, filter_count=None,
-                          status_map=None):
+                          status_map=None, eps_screened=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -3066,7 +3073,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     biz_str = f'{biz_day.year}.{biz_day.month}.{biz_day.day}'
     weekdays = ['월', '화', '수', '목', '금', '토', '일']
     weekday = weekdays[biz_day.weekday()]
-    lines.append(f'📊 <b>AI 종목 브리핑 US</b> · {biz_str}({weekday})')
+    lines.append(f'📡 <b>AI 종목 브리핑 US</b> · {biz_str}({weekday})')
     lines.append('월가 애널리스트의 이익 전망 변화를 추적해')
     lines.append('유망 종목을 매일 선별해 드려요.')
 
@@ -3084,7 +3091,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
     lines.append('')
     lines.append('📋 선정 과정')
-    lines.append(f'916종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else '916종목 중 EPS 상향 스크리닝')
+    if eps_screened and filter_count:
+        lines.append(f'916종목 중 EPS 상향 상위 {eps_screened}종목')
+        lines.append(f'→ 매출·커버리지 필터 → {filter_count}종목')
+    else:
+        lines.append(f'916종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else '916종목 중 EPS 상향 스크리닝')
     lines.append('→ 저평가·성장 채점 → 상위 30')
     lines.append(f'→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목')
 
@@ -3384,7 +3395,8 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
                               concordance, final_action,
                               weighted_ranks=None, rank_change_tags=None,
                               forward_test=None, filter_count=None,
-                              factor_ranks=None, status_map=None):
+                              factor_ranks=None, status_map=None,
+                              eps_screened=None):
     """v2 메시지 1: 오늘의 추천
 
     핵심 원칙:
@@ -3449,7 +3461,11 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
     lines.append('')
     lines.append('📋 선정 과정')
-    lines.append(f'<i>916종목 중 EPS 상향 상위 {filter_count}종목</i>' if filter_count else '<i>916종목 중 EPS 상향 스크리닝</i>')
+    if eps_screened and filter_count:
+        lines.append(f'<i>916종목 중 EPS 상향 상위 {eps_screened}종목</i>')
+        lines.append(f'<i>→ 매출·커버리지 필터 → {filter_count}종목</i>')
+    else:
+        lines.append(f'<i>916종목 중 EPS 상향 상위 {filter_count}종목</i>' if filter_count else '<i>916종목 중 EPS 상향 스크리닝</i>')
     lines.append('<i>→ 저평가·성장 채점 → 상위 30</i>')
     lines.append(f'<i>→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목</i>')
 
@@ -4013,7 +4029,12 @@ def main():
             exit_reasons = classify_exit_reasons(exited_tickers, results_df)
 
             # 필터 통과 종목 수
-            filter_count = len(get_part2_candidates(results_df)) if not results_df.empty else 0
+            if not results_df.empty:
+                _, funnel_counts = get_part2_candidates(results_df, return_counts=True)
+                eps_screened = funnel_counts['eps_screened']
+                filter_count = funnel_counts['quality_filtered']
+            else:
+                eps_screened, filter_count = 0, 0
 
             # AI 2회 호출 (시장 요약 + 종목 내러티브)
             ai_content = run_v2_ai_analysis(config, selected, biz_day, risk_status, market_lines=market_lines)
@@ -4023,7 +4044,7 @@ def main():
                 selected, earnings_map, exit_reasons, biz_day, ai_content,
                 portfolio_mode, final_action,
                 weighted_ranks=weighted_ranks, filter_count=filter_count,
-                status_map=status_map
+                status_map=status_map, eps_screened=eps_screened
             )
             if msg_signal:
                 if send_to_channel:
@@ -4073,7 +4094,12 @@ def main():
             exit_reasons = classify_exit_reasons(exited_tickers, results_df)
 
             # 필터 통과 종목 수 (파이프라인 + 순위 분모용)
-            filter_count = len(get_part2_candidates(results_df)) if not results_df.empty else 0
+            if not results_df.empty:
+                _, funnel_counts = get_part2_candidates(results_df, return_counts=True)
+                eps_screened = funnel_counts['eps_screened']
+                filter_count = funnel_counts['quality_filtered']
+            else:
+                eps_screened, filter_count = 0, 0
 
             # 포워드 테스트 성과
             forward_test = None
@@ -4097,7 +4123,8 @@ def main():
                 concordance, final_action,
                 weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags,
                 forward_test=forward_test, filter_count=filter_count,
-                factor_ranks=factor_ranks, status_map=status_map
+                factor_ranks=factor_ranks, status_map=status_map,
+                eps_screened=eps_screened
             )
             if msg_signal:
                 if send_to_channel:
