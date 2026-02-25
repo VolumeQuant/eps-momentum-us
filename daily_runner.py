@@ -1513,25 +1513,25 @@ def get_market_risk_status():
             if vix_ok:
                 final_action = '적극 매수 구간이에요 (과거 연 +14.3%)'
             else:
-                final_action = '변동성 주의, 분할 매수가 유효해요'
+                final_action = '변동성이 높지만, 분할 매수 유효 구간이에요'
         elif q == 'Q2':
             # 여름(성장기) — 30년 평균: 연+9.4%
             if vix_ok:
                 final_action = '정상 매수 구간이에요 (과거 연 +9.4%)'
             else:
-                final_action = '매수 유지, 신규 비중은 줄이세요'
+                final_action = '매수 유지, 변동성에 유의하세요'
         elif q == 'Q3':
             # 가을(과열기) — 60일 기준 2단계
             if q_days < 60:
                 if vix_ok:
-                    final_action = '매수 축소, 급전환에 대비하세요'
+                    final_action = '매수 유지, 시장 변화에 주의하세요'
                 else:
-                    final_action = '신규 매수는 보류하세요'
+                    final_action = '매수 유지하되, 신중하게 접근하세요'
             else:
                 if vix_ok:
-                    final_action = '신규 매수 중단, 보유 종목 점검하세요'
+                    final_action = '신규 매수는 신중하게, 보유 종목 점검하세요'
                 else:
-                    final_action = '매도 검토, 비중을 축소하세요'
+                    final_action = '신규 매수는 보수적으로 접근하세요'
         else:
             # 겨울(Q4) — 20일/60일 기준 3단계
             if q_days <= 20:
@@ -1555,22 +1555,8 @@ def get_market_risk_status():
         else:
             final_action = ''
 
-    # portfolio_mode: 시장 상황에 따른 [4/4] 포트폴리오 표시 방식
-    # normal: Top 5 정상 | caution: Top 5 + 경고 | reduced: Top 3 | stop: 추천 안 함
-    if hy and q:
-        if q == 'Q1':
-            portfolio_mode = 'normal'
-        elif q == 'Q2':
-            portfolio_mode = 'normal' if vix_ok else 'caution'
-        elif q == 'Q3':
-            portfolio_mode = 'stop' if not vix_ok else 'caution'
-        else:  # Q4
-            if q_days <= 60:
-                portfolio_mode = 'stop'
-            else:
-                portfolio_mode = 'reduced' if vix_ok else 'stop'
-    else:
-        portfolio_mode = 'caution' if vix and vix_dir == 'warn' else 'normal'
+    # portfolio_mode: 항상 normal (TOP 5) — 시장 경고는 AI 리스크 필터에서 별도 안내
+    portfolio_mode = 'normal'
 
     log(f"Concordance: {concordance} (q_days={hy.get('q_days', 'N/A') if hy else 'N/A'}) → {final_action} [portfolio: {portfolio_mode}]")
 
