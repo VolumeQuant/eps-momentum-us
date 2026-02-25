@@ -940,7 +940,7 @@ def is_cold_start():
     return count < 3
 
 
-def get_3day_status(today_tickers):
+def get_3day_status(today_tickers, today_str=None):
     """3일 연속 Part 2 진입 여부 판별 → {ticker: '✅' or '⏳' or '🆕'}
     ✅ = 3일 연속 (포트폴리오 포함)
     ⏳ = 2일 연속 (표시만, 포트폴리오 제외)
@@ -949,10 +949,16 @@ def get_3day_status(today_tickers):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # 최근 3개 distinct date (part2_rank 있는 날짜만)
-    cursor.execute(
-        'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
-    )
+    # 최근 3개 distinct date (part2_rank 있는 날짜만, today_str 이하)
+    if today_str:
+        cursor.execute(
+            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT 3',
+            (today_str,)
+        )
+    else:
+        cursor.execute(
+            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
+        )
     dates = [r[0] for r in cursor.fetchall()]
 
     if len(dates) < 2:
@@ -1000,14 +1006,20 @@ def get_3day_status(today_tickers):
     return status
 
 
-def get_rank_history(today_tickers):
+def get_rank_history(today_tickers, today_str=None):
     """최근 3일간 part2_rank 이력 → {ticker: '3→4→1'} 형태"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute(
-        'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
-    )
+    if today_str:
+        cursor.execute(
+            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT 3',
+            (today_str,)
+        )
+    else:
+        cursor.execute(
+            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
+        )
     dates = sorted([r[0] for r in cursor.fetchall()])
 
     if len(dates) < 2:
@@ -1033,7 +1045,7 @@ def get_rank_history(today_tickers):
     return history
 
 
-def compute_weighted_ranks(today_tickers):
+def compute_weighted_ranks(today_tickers, today_str=None):
     """3일 가중 순위 계산 — composite_rank 기반
     T0_composite × 0.5 + T1_composite × 0.3 + T2_composite × 0.2
     Returns: {ticker: {'weighted': float, 'r0': int, 'r1': int, 'r2': int}}
@@ -1041,9 +1053,15 @@ def compute_weighted_ranks(today_tickers):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute(
-        'SELECT DISTINCT date FROM ntm_screening WHERE composite_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
-    )
+    if today_str:
+        cursor.execute(
+            'SELECT DISTINCT date FROM ntm_screening WHERE composite_rank IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT 3',
+            (today_str,)
+        )
+    else:
+        cursor.execute(
+            'SELECT DISTINCT date FROM ntm_screening WHERE composite_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
+        )
     dates = sorted([r[0] for r in cursor.fetchall()])
 
     if not dates:
@@ -1194,15 +1212,21 @@ def get_rank_change_tags(today_tickers, weighted_ranks):
     return tags
 
 
-def get_daily_changes(today_tickers):
+def get_daily_changes(today_tickers, today_str=None):
     """어제 대비 리스트 변동 — 신규 진입 / 이탈 종목 (단순 set 비교)"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # 어제 날짜 (part2_rank 있는 가장 최근)
-    cursor.execute(
-        'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 2'
-    )
+    # 어제 날짜 (part2_rank 있는 가장 최근, today_str 이하)
+    if today_str:
+        cursor.execute(
+            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT 2',
+            (today_str,)
+        )
+    else:
+        cursor.execute(
+            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 2'
+        )
     dates = [r[0] for r in cursor.fetchall()]
 
     if len(dates) < 2:
@@ -3078,11 +3102,11 @@ def main():
         # 가중순위 기반 Top 30 선정 + DB 저장
         today_tickers = save_part2_ranks(results_df, today_str) or []
 
-        status_map = get_3day_status(today_tickers)
-        rank_history = get_rank_history(today_tickers)
-        weighted_ranks = compute_weighted_ranks(today_tickers)
+        status_map = get_3day_status(today_tickers, today_str)
+        rank_history = get_rank_history(today_tickers, today_str)
+        weighted_ranks = compute_weighted_ranks(today_tickers, today_str)
         rank_change_tags = get_rank_change_tags(today_tickers, weighted_ranks)
-        _, exited_tickers = get_daily_changes(today_tickers)
+        _, exited_tickers = get_daily_changes(today_tickers, today_str)
 
     stats['exited_count'] = len(exited_tickers) if exited_tickers else 0
 
