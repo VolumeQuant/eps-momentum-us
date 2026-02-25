@@ -563,9 +563,8 @@ def fetch_revenue_growth(df, today_str):
                 from zoneinfo import ZoneInfo
                 dt_et = datetime.fromtimestamp(ets, tz=ZoneInfo('America/New_York'))
                 earn_date = dt_et.date()
-                if dt_et.hour >= 16:  # 장후 발표 → 다음 거래일
-                    earn_date += timedelta(days=1)
-                earnings_map[t] = earn_date
+                is_after_hours = dt_et.hour >= 16
+                earnings_map[t] = {'date': earn_date, 'after_hours': is_after_hours}
             except (ValueError, OSError):
                 pass
 
@@ -1495,47 +1494,47 @@ def get_market_risk_status():
         if q == 'Q1':
             # 봄(회복기) — 30년 평균: 연+14.3%
             if vix_ok:
-                final_action = '과거 30년 이 구간 연평균 +14.3%'
+                final_action = '적극 매수 구간이에요 (과거 연 +14.3%)'
             else:
-                final_action = '변동성 높지만 과거 이 조합은 오히려 반등 기회'
+                final_action = '변동성 주의, 분할 매수가 유효해요'
         elif q == 'Q2':
             # 여름(성장기) — 30년 평균: 연+9.4%
             if vix_ok:
-                final_action = '과거 30년 이 구간 연평균 +9.4%'
+                final_action = '정상 매수 구간이에요 (과거 연 +9.4%)'
             else:
-                final_action = '신규 매수는 보수적 접근 구간'
+                final_action = '매수 유지, 신규 비중은 줄이세요'
         elif q == 'Q3':
             # 가을(과열기) — 60일 기준 2단계
             if q_days < 60:
                 if vix_ok:
-                    final_action = '과거 60일 평균 +1.84%로 둔화, 급전환 유의'
+                    final_action = '매수 축소, 급전환에 대비하세요'
                 else:
-                    final_action = '신규 매수 보류 구간'
+                    final_action = '신규 매수는 보류하세요'
             else:
                 if vix_ok:
-                    final_action = '과거 이후 +0.39%로 둔화, 매수 축소 구간'
+                    final_action = '신규 매수 중단, 보유 종목 점검하세요'
                 else:
-                    final_action = '보유 종목 점검 구간'
+                    final_action = '매도 검토, 비중을 축소하세요'
         else:
             # 겨울(Q4) — 20일/60일 기준 3단계
             if q_days <= 20:
                 if vix_ok:
-                    final_action = '과거 초기 반등 빈번, 급매도보다 관망 유리'
+                    final_action = '급매도 불필요, 관망하세요'
                 else:
-                    final_action = '반등 가능성 있으나 관망 유리'
+                    final_action = '매수 중단, 관망하세요'
             elif q_days <= 60:
                 if vix_ok:
-                    final_action = '과거 60일 평균 +0.5~1.5%'
+                    final_action = '신규 매수 대기, 보유는 유지하세요'
                 else:
-                    final_action = '보유 비중 축소 검토 구간'
+                    final_action = '보유 비중 축소를 검토하세요'
             else:
                 if vix_ok:
-                    final_action = '과거 60일 평균 +1.5~3.5%(회복기 수준)'
+                    final_action = '회복 초입, 분할 매수를 검토하세요'
                 else:
-                    final_action = '바닥 가능성 있으나 회복 미확인'
+                    final_action = '바닥권 추정, 소액 분할 매수를 검토하세요'
     else:
         if vix and vix_dir == 'warn':
-            final_action = '신규 매수 보수적 접근'
+            final_action = '신규 매수는 보수적으로 접근하세요'
         else:
             final_action = ''
 
@@ -2128,10 +2127,13 @@ def run_ai_analysis(config, results_df=None, status_map=None, biz_day=None, risk
                 flags.append(f"📉 애널리스트 {num_analysts}명 (저커버리지)")
 
             # 3. 어닝 임박 (earnings_map에서 조회 — .calendar 별도 호출 불필요)
-            ed = earnings_map.get(ticker)
-            if ed and today_date <= ed <= two_weeks_date:
-                flags.append(f"📅 어닝 {ed.month}/{ed.day}")
-                earnings_tickers.append(f"{name} ({ticker}) {ed.month}/{ed.day}")
+            ed_info = earnings_map.get(ticker)
+            if ed_info:
+                ed = ed_info['date']
+                if today_date <= ed <= two_weeks_date:
+                    ah_tag = '장후' if ed_info['after_hours'] else ''
+                    flags.append(f"📅 어닝 {ed.month}/{ed.day}{ah_tag}")
+                    earnings_tickers.append(f"{name} ({ticker}) {ed.month}/{ed.day}")
 
             # 순위 이력 + 태그
             w_info = weighted_ranks.get(ticker)
@@ -2406,9 +2408,12 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, ea
         if num_analysts < 3:
             flags.append("저커버리지")
         earnings_note = ""
-        ed = earnings_map.get(t)
-        if ed and today_date <= ed <= two_weeks:
-            earnings_note = f" 📅어닝 {ed.month}/{ed.day}"
+        ed_info = earnings_map.get(t)
+        if ed_info:
+            ed = ed_info['date']
+            if today_date <= ed <= two_weeks:
+                ah_tag = '(장후)' if ed_info['after_hours'] else ''
+                earnings_note = f" 📅{ed.month}/{ed.day}{ah_tag}"
 
         if flags:
             log(f"  ❌ {t}: {','.join(flags)} (gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')})")
@@ -2714,13 +2719,13 @@ def run_portfolio_recommendation(config, results_df, status_map=None, biz_day=No
         # 어닝 임박 종목
         earnings_stocks = [s for s in selected if s.get('earnings_note')]
         for s in earnings_stocks:
-            ed = s["earnings_note"].replace("📅어닝", "").replace("📅", "").strip()
-            warnings.append(f'{s["name"]}({s["ticker"]}) {ed} 어닝 변동성 주의')
+            ed_str = s["earnings_note"].replace("📅", "").strip()
+            warnings.append(f'{s["name"]}({s["ticker"]}) {ed_str} 어닝 변동성 주의')
 
         # 섹터 집중 경고
         from collections import Counter
         industries = [s['industry'] for s in selected if s.get('industry')]
-        tech_keywords = ['반도체', '전자부품', 'HW', '통신장비', '계측']
+        tech_keywords = ['반도체', '전자부품', '하드웨어', '통신장비', '계측']
         tech_count = sum(1 for ind in industries if any(kw in ind for kw in tech_keywords))
         sector_counts = Counter(industries)
         concentrated = [f'{name} {cnt}' for name, cnt in sector_counts.most_common() if cnt >= 3]
@@ -3096,7 +3101,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'→ 매출·커버리지 필터 → {filter_count}종목')
     else:
         lines.append(f'916종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else '916종목 중 EPS 상향 스크리닝')
-    lines.append('→ 저평가·성장 채점 → 상위 30')
+    lines.append('→ 저평가·성장 채점 → 상위 30(3일 평균)')
     lines.append(f'→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목')
 
     # ━━ 섹션 3: 종목별 근거 ━━
@@ -3109,8 +3114,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         ticker = s['ticker']
         eps_chg = s['eps_chg']
         rev = s.get('rev_growth', 0) or 0
-        earnings = s.get('earnings_note', '')
-        earnings_tag = f' 📅{earnings.replace("📅어닝 ", "").replace("📅", "").strip()}' if earnings else ''
+        earnings_tag = s.get('earnings_note', '')
 
         # L0: 정체 (이름·업종·가격)
         display_name = _clean_company_name(s["name"], ticker)
@@ -3228,10 +3232,6 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
             vix_icon, vix_ctx = '🔴', '위험'
         lines.append(f'{vix_icon} VIX {vix_cur:.1f} — {vix_ctx}')
 
-    if hy_data:
-        q_days = hy_data.get('q_days', 0)
-        lines.append(f'{hy_data["quadrant_icon"]} {hy_data["quadrant_label"]} {q_days}일째')
-
     # ── 종합 해석 (기존 데이터 분석 기반 final_action) ──
     final_action = risk_status.get('final_action', '') if risk_status else ''
     if final_action:
@@ -3252,7 +3252,8 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         for s in selected:
             ticker = s['ticker']
             if ticker in earnings_map:
-                ed = earnings_map[ticker]
+                ed_info = earnings_map[ticker]
+                ed = ed_info['date']
                 # ed를 date로 통일
                 try:
                     ed_date = ed.date() if hasattr(ed, 'hour') else ed
@@ -3261,7 +3262,8 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
                     continue  # 날짜 비교 실패 시 스킵
                 if days_until < 0 or days_until > 14:
                     continue
-                warnings.append(f'{ticker} {ed_date.month}/{ed_date.day} 실적발표 주의')
+                ah_tag = '(장후)' if ed_info['after_hours'] else ''
+                warnings.append(f'{ticker} {ed_date.month}/{ed_date.day}{ah_tag} 실적발표 주의')
 
     if warnings:
         lines.append('')
@@ -3307,6 +3309,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines = []
     lines.append('📋 <b>Top 30 종목 현황</b>')
     lines.append('이 목록에 있으면 보유, 빠지면 매도 검토.')
+    lines.append('✅ 3일 검증 ⏳ 2일 관찰 🆕 신규 진입')
     lines.append('━━━━━━━━━━━━━━━')
 
     # ── 30종목 (4줄 + 구분선) ──
@@ -3385,6 +3388,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('순위: 2일전→1일전→오늘')
+    lines.append('목록 순서: 3일 가중순위')
     lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
 
     return '\n'.join(lines)
@@ -3489,8 +3493,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         rev = s.get('rev_growth', 0) or 0
         rev_pct = f'{rev*100:+.0f}%' if rev else ''
         adj_gap = s.get('adj_gap', 0) or 0
-        earnings = s.get('earnings_note', '')
-        earnings_tag = f' 📅{earnings.replace("📅어닝 ", "").replace("📅", "").strip()}' if earnings else ''
+        earnings_tag = s.get('earnings_note', '')
 
         # L0: 종목명(티커) 업종 · 가격 + 태그이모지
         _sig_tag_emoji = {'주가↑': '📈', '주가↓': '📉', '전망↑': '⬆', '전망↓': '⬇'}
@@ -3618,11 +3621,11 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     warnings = []
     earnings_stocks = [s for s in selected if s.get('earnings_note')]
     for s in earnings_stocks:
-        ed_str = s["earnings_note"].replace("📅어닝 ", "").replace("📅", "").strip()
+        ed_str = s["earnings_note"].replace("📅", "").strip()
         warnings.append(f'{s["ticker"]} 실적발표 {ed_str}')
     from collections import Counter
     industries = [s['industry'] for s in selected if s.get('industry')]
-    tech_keywords = ['반도체', '전자부품', 'HW', '통신장비', '계측']
+    tech_keywords = ['반도체', '전자부품', '하드웨어', '통신장비', '계측']
     tech_count = sum(1 for ind in industries if any(kw in ind for kw in tech_keywords))
     if tech_count >= 3:
         warnings.append(f'테크 {tech_count}/{len(selected)}종목 집중')

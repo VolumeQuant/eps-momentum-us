@@ -137,7 +137,7 @@ INDUSTRY_MAP = {
     'Software - Application': '응용SW',
     'Software - Infrastructure': '인프라SW',
     'Information Technology Services': 'IT서비스',
-    'Computer Hardware': 'HW',
+    'Computer Hardware': '하드웨어',
     'Electronic Components': '전자부품',
     'Scientific & Technical Instruments': '계측기기',
     'Communication Equipment': '통신장비',

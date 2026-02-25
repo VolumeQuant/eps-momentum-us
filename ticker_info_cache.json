@@ -213,7 +213,7 @@
   },
   "ANET": {
     "shortName": "Arista Networks, Inc.",
-    "industry": "HW"
+    "industry": "하드웨어"
   },
   "ANF": {
     "shortName": "Abercrombie & Fitch Company",
@@ -977,7 +977,7 @@
   },
   "DELL": {
     "shortName": "Dell Technologies Inc.",
-    "industry": "HW"
+    "industry": "하드웨어"
   },
   "DG": {
     "shortName": "Dollar General Corporation",
@@ -1661,7 +1661,7 @@
   },
   "HPQ": {
     "shortName": "HP Inc.",
-    "industry": "HW"
+    "industry": "하드웨어"
   },
   "HQY": {
     "shortName": "HealthEquity, Inc.",
@@ -2725,7 +2725,7 @@
   },
   "PSTG": {
     "shortName": "Pure Storage, Inc.",
-    "industry": "HW"
+    "industry": "하드웨어"
   },
   "PSX": {
     "shortName": "Phillips 66",
@@ -2981,7 +2981,7 @@
   },
   "SMCI": {
     "shortName": "Super Micro Computer, Inc.",
-    "industry": "HW"
+    "industry": "하드웨어"
   },
   "SMG": {
     "shortName": "Scotts Miracle-Gro Company (The",
@@ -2993,7 +2993,7 @@
   },
   "SNDK": {
     "shortName": "Sandisk Corporation",
-    "industry": "HW"
+    "industry": "하드웨어"
   },
   "SNPS": {
     "shortName": "Synopsys, Inc.",
@@ -3073,7 +3073,7 @@
   },
   "STX": {
     "shortName": "Seagate Technology Holdings PLC",
-    "industry": "HW"
+    "industry": "하드웨어"
   },
   "STZ": {
     "shortName": "Constellation Brands, Inc.",
@@ -3493,7 +3493,7 @@
   },
   "WDC": {
     "shortName": "Western Digital Corporation",
-    "industry": "HW"
+    "industry": "하드웨어"
   },
   "WEC": {
     "shortName": "WEC Energy Group, Inc.",
