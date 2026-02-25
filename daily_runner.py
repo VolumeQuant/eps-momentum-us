@@ -601,6 +601,13 @@ def fetch_revenue_growth(df, today_str):
     log(f"매출+품질 수집 완료: {saved}/{len(tickers)} (rev_growth {success}개)")
 
     df['rev_growth'] = df['ticker'].map(rev_map)
+
+    # margin 데이터도 dataframe에 추가 (구조적 저마진 필터용)
+    om_map = {t: results[t].get('operatingMargins') for t in results if results[t]}
+    gm_map = {t: results[t].get('grossMargins') for t in results if results[t]}
+    df['operating_margin'] = df['ticker'].map(om_map)
+    df['gross_margin'] = df['ticker'].map(gm_map)
+
     return df, earnings_map
 
 
@@ -664,6 +671,16 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
             details = [f"{r['ticker']}(↑{int(r.get('rev_up30',0))}↓{int(r.get('rev_down30',0))})" for _, r in high_down.iterrows()]
             log(f"하향 과다(>30%) 제외: {', '.join(details)}")
         filtered = filtered[~(down_ratio > 0.3)].copy()
+
+    # 구조적 저마진 필터: OpMargin < 10% AND GrossMargin < 30% → 제외
+    if 'operating_margin' in filtered.columns and 'gross_margin' in filtered.columns:
+        om = filtered['operating_margin']
+        gm = filtered['gross_margin']
+        low_margin = filtered[om.notna() & gm.notna() & (om < 0.10) & (gm < 0.30)]
+        if len(low_margin) > 0:
+            details = [f"{r['ticker']}(OM{r['operating_margin']*100:.0f}%/GM{r['gross_margin']*100:.0f}%)" for _, r in low_margin.iterrows()]
+            log(f"구조적 저마진 제외: {', '.join(details)}")
+        filtered = filtered[~(om.notna() & gm.notna() & (om < 0.10) & (gm < 0.30))].copy()
 
     if has_rev:
         # z-score 정규화

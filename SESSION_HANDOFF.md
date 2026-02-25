@@ -58,6 +58,43 @@
 > **v41.3**: 2026-02-24 집 PC — 선정과정 퍼널 개선: 📡 아이콘 통일, 중간 단계 표시(916→EPS상향→품질필터→상위30→검증→최종), 한국 Watchlist 1줄 포맷(이름(업종) 순위궤적)
 > **v41.4**: 2026-02-24 집 PC — 실전 전환: 채널 전송 활성화(TELEGRAM_CHAT_ID 주석 해제), 채널 공지사항 메시지 작성+고정, 테스트 워크플로우(test-private-only.yml) 분리 유지
 > **v42**: 2026-02-24 집 PC — 메시지 품질 개선 9항목: 어닝 날짜 표기(장후 태그), 업종명 HW→하드웨어, 계절 라벨 제거+final_action 해요체 전면 교체(15개), 퍼널 "(3일 평균)", Watchlist 범례(아이콘+가중순위)
+> **v42.1**: 2026-02-24 집 PC — 구조적 저마진 필터: OpMargin<10% AND GrossMargin<30% → Top 30 제외 (DAR, THO, ARW 등 구조적 저마진 종목 필터링)
+
+---
+
+## v42.1 — 구조적 저마진 필터 (2026-02-24)
+
+### 배경
+- DAR(Darling Ingredients)이 Top 5~6에 진입 — ROE 1.5%, OpMargin 8.1%, 경기순환 턴어라운드
+- Top 5 = "매수 시그널"이므로, 구조적으로 마진이 안 나오는 사업은 고객 리스크
+- 단일 지표(ROE, OpMargin 등)로는 DAR만 걸러내고 SNDK·MCHP를 살리는 게 불가능
+- **AND 조건**: 둘 다 낮아야 제외 → SNDK(OM 35.5%), MCHP(GM 55.4%), LSCC(GM 68.2%) 모두 통과
+
+### 필터 로직
+```python
+# get_part2_candidates() 내, 하향과다 필터 뒤에 추가
+if operating_margin < 0.10 AND gross_margin < 0.30:
+    제외 (구조적 저마진)
+# NULL이면 스킵 (과거 데이터 호환)
+```
+
+### 코드 변경
+1. **`fetch_revenue_growth()`**: margin 데이터를 dataframe에도 추가 (기존엔 DB에만 저장)
+   - `df['operating_margin'] = df['ticker'].map(om_map)`
+   - `df['gross_margin'] = df['ticker'].map(gm_map)`
+2. **`get_part2_candidates()`**: 하향과다 필터 뒤에 저마진 필터 추가
+   - `om < 0.10 AND gm < 0.30` → 제외 + 로그 출력
+
+### 영향 분석 (2/19~2/24 백데이터)
+| 날짜 | 걸림 | Top5 영향 | 종목 |
+|------|:----:|:---------:|------|
+| 2/19 | 3 | - | DAR(#8), THO(#9), ARW(#27) |
+| 2/20 | 3 | - | DAR(#7), THO(#9), ARW(#26) |
+| 2/23 | 2 | DAR(#5) | DAR(#5), THO(#9) |
+| 2/24 | 3 | - | DAR(#6), THO(#10), ARW(#28) |
+
+- 전 기간 걸리는 종목: DAR(식품/재생연료), THO(RV/캠핑카), ARW(전자부품유통) — 3개뿐
+- 반도체 턴어라운드(SNDK, MCHP, LSCC) 전부 안전
 
 ---
 
