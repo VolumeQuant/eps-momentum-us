@@ -2119,7 +2119,7 @@ def classify_exit_reasons(exited_tickers, results_df):
     """이탈 종목 사유 분류 — 사유 태그 통일
 
     Returns: [(ticker, prev_rank, cur_rank, reasons)] — 사유 태그 리스트
-    사유 태그: [주가선반영], [MA120↓], [저마진], [순위하락], [점수↓], [EPS↓]
+    사유 태그: [주가선반영], [MA120↓], [저마진], [원자재], [순위하락], [점수↓], [EPS↓]
     """
     import pandas as pd
     result = []
@@ -2148,11 +2148,16 @@ def classify_exit_reasons(exited_tickers, results_df):
                 reasons.append('MA120↓')
             if (r.get('adj_gap', 0) or 0) > 0:
                 reasons.append('주가선반영')
-            # 구조적 저마진 필터
+            # 저마진 필터: OM<10%&GM<30% 또는 OM<5%
             om = r.get('operating_margin')
             gm = r.get('gross_margin')
-            if om is not None and gm is not None and om < 0.10 and gm < 0.30:
+            if (om is not None and gm is not None and om < 0.10 and gm < 0.30) or \
+               (om is not None and om < 0.05):
                 reasons.append('저마진')
+            # 원자재 업종
+            ind = r.get('industry', '')
+            if ind and ind in COMMODITY_INDUSTRIES:
+                reasons.append('원자재')
             if (r.get('adj_score', 0) or 0) <= 9:
                 reasons.append('점수↓')
             if (r.get('eps_change_90d', 0) or 0) <= 0:
