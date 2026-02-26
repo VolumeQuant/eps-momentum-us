@@ -391,18 +391,39 @@ def run_ntm_collection(config):
         except Exception as e:
             return ticker, {'error': str(e)}
 
-    log(f"NTM EPS 병렬 수집 중 (10스레드, {len(all_tickers)}종목)...")
+    log(f"NTM EPS 병렬 수집 중 (5스레드, {len(all_tickers)}종목)...")
     _t_eps = __import__('time').time()
     _prefetched = {}
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(_prefetch_eps, t): t for t in all_tickers}
-        done_count = 0
-        for future in as_completed(futures):
-            result = future.result()
-            _prefetched[result[0]] = result[1]
-            done_count += 1
-            if done_count % 200 == 0:
-                log(f"  수집: {done_count}/{len(all_tickers)}")
+    BATCH_SIZE = 50
+    for batch_start in range(0, len(all_tickers), BATCH_SIZE):
+        batch = all_tickers[batch_start:batch_start + BATCH_SIZE]
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(_prefetch_eps, t): t for t in batch}
+            for future in as_completed(futures):
+                result = future.result()
+                _prefetched[result[0]] = result[1]
+        done_count = batch_start + len(batch)
+        if done_count % 200 < BATCH_SIZE:
+            log(f"  수집: {done_count}/{len(all_tickers)}")
+        if batch_start + BATCH_SIZE < len(all_tickers):
+            __import__('time').sleep(0.5)
+    # 에러 종목 1회 재시도 (rate limit 해소 후)
+    error_tickers = [t for t, d in _prefetched.items() if 'error' in d]
+    if error_tickers:
+        log(f"EPS 재시도: {len(error_tickers)}종목 (3초 대기 후)")
+        __import__('time').sleep(3)
+        for batch_start in range(0, len(error_tickers), BATCH_SIZE):
+            batch = error_tickers[batch_start:batch_start + BATCH_SIZE]
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(_prefetch_eps, t): t for t in batch}
+                for future in as_completed(futures):
+                    t, data = future.result()
+                    if 'error' not in data:
+                        _prefetched[t] = data
+            if batch_start + BATCH_SIZE < len(error_tickers):
+                __import__('time').sleep(0.5)
+        retry_ok = sum(1 for t in error_tickers if 'error' not in _prefetched[t])
+        log(f"  재시도 복구: {retry_ok}/{len(error_tickers)}")
     log(f"EPS 수집 완료: {len(_prefetched)}종목, {__import__('time').time() - _t_eps:.0f}초")
 
     # Step 3b: DB 적재 + 스코어링 (순차, SQLite 안전)
@@ -684,19 +705,23 @@ def fetch_revenue_growth(df, today_str):
             return ticker, None
 
     tickers = list(df['ticker'].unique())
-    log(f"매출+품질 수집 시작: {len(tickers)}종목 (10스레드)")
+    log(f"매출+품질 수집 시작: {len(tickers)}종목 (5스레드, 배치 50)")
 
-    # 병렬 수집
+    # 배치 병렬 수집 (rate limit 방지)
+    BATCH_SIZE = 50
     results = {}
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(_fetch_one, t): t for t in tickers}
-        done = 0
-        for future in as_completed(futures):
-            ticker, info = future.result()
-            results[ticker] = info
-            done += 1
-            if done % 100 == 0:
-                log(f"  수집 진행: {done}/{len(tickers)}")
+    for batch_start in range(0, len(tickers), BATCH_SIZE):
+        batch = tickers[batch_start:batch_start + BATCH_SIZE]
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(_fetch_one, t): t for t in batch}
+            for future in as_completed(futures):
+                ticker, info = future.result()
+                results[ticker] = info
+        done = batch_start + len(batch)
+        if done % 200 < BATCH_SIZE:
+            log(f"  수집 진행: {done}/{len(tickers)}")
+        if batch_start + BATCH_SIZE < len(tickers):
+            __import__('time').sleep(0.5)
 
     # DB 일괄 저장
     rev_map = {}
