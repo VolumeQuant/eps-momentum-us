@@ -2181,7 +2181,7 @@ def _identify_filter_failure(row, ticker):
     ntm = row.get('ntm_current', 0) or 0
     fwd_pe = price / ntm if ntm > 0 else 0
     if fwd_pe <= 0:
-        return 'PE불량'
+        return '적자'
 
     rev = row.get('rev_growth')
     if rev is not None and pd.notna(rev) and rev < 0.10:
@@ -2200,7 +2200,7 @@ def _identify_filter_failure(row, ticker):
     gm = row.get('gross_margin')
     if om is not None and pd.notna(om):
         if om < 0.05:
-            return 'OP<5%'
+            return '저수익'
         if gm is not None and pd.notna(gm) and om < 0.10 and gm < 0.30:
             return '저마진'
 
