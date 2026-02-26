@@ -2858,15 +2858,12 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         adj_gap = s.get('adj_gap', 0) or 0
         earnings_tag = s.get('earnings_note', '')
 
-        # L0: 종목명(티커) 업종 · 가격 + 태그이모지
-        _sig_tag_emoji = {'주가↑': '📈', '주가↓': '📉', '전망↑': '⬆', '전망↓': '⬇'}
+        # L0: 종목명(티커) 업종 · 가격
         display_name = _clean_company_name(s["name"], ticker)
         price = s.get('price', 0) or 0
         industry = s.get('industry', '')
         price_str = f' · ${price:,.0f}' if price else ''
-        tag = rank_change_tags.get(ticker, '')
-        tag_em = f' {_sig_tag_emoji.get(tag, "")}' if tag and _sig_tag_emoji.get(tag) else ''
-        lines.append(f'<b>{i+1}. {display_name}({ticker}) {industry}{price_str}</b>{earnings_tag}{tag_em}')
+        lines.append(f'<b>{i+1}. {display_name}({ticker}) {industry}{price_str}</b>{earnings_tag}')
 
         # L1: EPS추이
         lights = s.get('lights', '')
@@ -2956,11 +2953,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         else:
             signal_str = '🟡 엇갈림'
 
-        if hy_data:
-            q_days = hy_data.get('q_days', 0)
-            lines.append(f'{signal_str} · {hy_data["quadrant_icon"]} {hy_data["quadrant_label"]} {q_days}일째')
-        else:
-            lines.append(signal_str)
+        lines.append(signal_str)
 
         lines.append(f'<i>→ {final_action}</i>')
 
@@ -3067,9 +3060,6 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
     lines.append('<i>🔥>20% ☀️5~20% 🌤️1~5% ☁️±1% 🌧️&lt;-1%</i>')
     lines.append('━━━━━━━━━━━━━━━')
 
-    # 태그 텍스트 → 이모지 변환
-    _tag_emoji = {'주가↑': '📈', '주가↓': '📉', '전망↑': '⬆', '전망↓': '⬇'}
-
     # ── 30종목 전체 동일 코어 포맷 (4줄 + 구분선) ──
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
@@ -3083,8 +3073,6 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
         rev_down = int(row.get('rev_down30', 0) or 0)
         marker = status_map.get(ticker, '🆕')
         name = _clean_company_name(row.get('short_name', ticker), ticker)
-        tag = rank_change_tags.get(ticker, '') if marker != '🆕' else ''
-        tag_emoji = _tag_emoji.get(tag, '')
 
         # L0: 종목명 + 업종 + 태그이모지 (이름 12자 제한)
         short_name = name
@@ -3096,8 +3084,7 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                     short_name += ' ' + w
                 else:
                     break
-        tag_part = f' {tag_emoji}' if tag_emoji else ''
-        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b> {industry}{tag_part}')
+        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b> {industry}')
 
         # L1: EPS추이 아이콘 + 설명
         if lights and desc:
@@ -3175,8 +3162,6 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
             supp_lines.append('<i>보유 중이라면 매도를 검토하세요.</i>')
             supp_lines.append('━━━━━━━━━━━━━━━')
 
-            _exit_tag_emoji = {'주가↑': '📈', '주가↓': '📉', '전망↑': '⬆', '전망↓': '⬇'}
-
             def _render_exit(elist, target):
                 for idx_e, (t, prev_rank, cur_rank, reasons) in enumerate(elist):
                     row = full_data.get(t, {})
@@ -3188,11 +3173,8 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
                     rv = row.get('rev_growth') if hasattr(row, 'get') else None
                     ru = int(row.get('rev_up30', 0) or 0) if hasattr(row, 'get') else 0
                     rd = int(row.get('rev_down30', 0) or 0) if hasattr(row, 'get') else 0
-                    tg = rank_change_tags.get(t, '')
-                    tg_em = f' {_exit_tag_emoji.get(tg, "")}' if tg and _exit_tag_emoji.get(tg) else ''
-
-                    # L0: 이름 + 업종 + 태그이모지
-                    target.append(f'{nm}({t}) {ind}{tg_em}')
+                    # L0: 이름 + 업종
+                    target.append(f'{nm}({t}) {ind}')
                     # L1: EPS추이
                     if lt and ds:
                         target.append(f'EPS추이 {lt} {ds}')
