@@ -2421,6 +2421,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'→ 매출·커버리지·마진 필터 → {filter_count}종목')
     else:
         lines.append(f'{uni}종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else f'{uni}종목 중 EPS 상향 스크리닝')
+    lines.append('→ 원자재 업종 제외(일시적 가격 수혜)')
     lines.append('→ 저평가·성장 채점 → 상위 30(3일 평균)')
     lines.append(f'→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목')
 
@@ -2791,6 +2792,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         lines.append(f'<i>→ 매출·커버리지·마진 필터 → {filter_count}종목</i>')
     else:
         lines.append(f'<i>{uni}종목 중 EPS 상향 상위 {filter_count}종목</i>' if filter_count else f'<i>{uni}종목 중 EPS 상향 스크리닝</i>')
+    lines.append('<i>→ 원자재 업종 제외(일시적 가격 수혜)</i>')
     lines.append('<i>→ 저평가·성장 채점 → 상위 30</i>')
     lines.append(f'<i>→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목</i>')
 
