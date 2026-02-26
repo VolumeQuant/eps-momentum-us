@@ -3650,5 +3650,1405 @@
   "ZTS": {
     "shortName": "Zoetis Inc.",
     "industry": "특수제약"
+  },
+  "ABCB": {
+    "shortName": "Ameris Bancorp",
+    "industry": "지역은행"
+  },
+  "ABEV": {
+    "shortName": "Ambev S.A.",
+    "industry": "맥주"
+  },
+  "ABVX": {
+    "shortName": "Abivax SA",
+    "industry": "바이오"
+  },
+  "ACA": {
+    "shortName": "Arcosa, Inc.",
+    "industry": "건설"
+  },
+  "ACLX": {
+    "shortName": "Arcellx, Inc.",
+    "industry": "바이오"
+  },
+  "ACT": {
+    "shortName": "Enact Holdings, Inc.",
+    "industry": "특수보험"
+  },
+  "AEM": {
+    "shortName": "Agnico Eagle Mines Limited",
+    "industry": "금"
+  },
+  "AER": {
+    "shortName": "AerCap Holdings N.V.",
+    "industry": "렌탈리스"
+  },
+  "AG": {
+    "shortName": "First Majestic Silver Corp.",
+    "industry": "Silver"
+  },
+  "AGI": {
+    "shortName": "Alamos Gold Inc.",
+    "industry": "금"
+  },
+  "AGNC": {
+    "shortName": "AGNC Investment Corp.",
+    "industry": "리츠모기지"
+  },
+  "AGX": {
+    "shortName": "Argan, Inc.",
+    "industry": "건설"
+  },
+  "AL": {
+    "shortName": "Air Lease Corporation",
+    "industry": "렌탈리스"
+  },
+  "ALC": {
+    "shortName": "Alcon Inc.",
+    "industry": "의료용품"
+  },
+  "ALKS": {
+    "shortName": "Alkermes plc",
+    "industry": "특수제약"
+  },
+  "ALSN": {
+    "shortName": "Allison Transmission Holdings, ",
+    "industry": "자동차부품"
+  },
+  "AMRZ": {
+    "shortName": "Amrize Ltd",
+    "industry": "건자재"
+  },
+  "AMTM": {
+    "shortName": "Amentum Holdings, Inc.",
+    "industry": "비즈니스서비스"
+  },
+  "AMX": {
+    "shortName": "America Movil, S.A.B. de C.V.",
+    "industry": "통신"
+  },
+  "APLD": {
+    "shortName": "Applied Digital Corporation",
+    "industry": "IT서비스"
+  },
+  "AQN": {
+    "shortName": "Algonquin Power & Utilities Cor",
+    "industry": "유틸복합"
+  },
+  "AROC": {
+    "shortName": "Archrock, Inc.",
+    "industry": "석유장비"
+  },
+  "ARWR": {
+    "shortName": "Arrowhead Pharmaceuticals, Inc.",
+    "industry": "바이오"
+  },
+  "AS": {
+    "shortName": "Amer Sports, Inc.",
+    "industry": "레저"
+  },
+  "ASND": {
+    "shortName": "Ascendis Pharma A/S",
+    "industry": "바이오"
+  },
+  "ASR": {
+    "shortName": "Grupo Aeroportuario del Sureste",
+    "industry": "Airports & Air Services"
+  },
+  "ASTS": {
+    "shortName": "AST SpaceMobile, Inc.",
+    "industry": "통신장비"
+  },
+  "ASX": {
+    "shortName": "ASE Technology Holding Co., Ltd",
+    "industry": "반도체"
+  },
+  "ATAT": {
+    "shortName": "Atour Lifestyle Holdings Limite",
+    "industry": "숙박"
+  },
+  "ATMU": {
+    "shortName": "Atmus Filtration Technologies I",
+    "industry": "자동차부품"
+  },
+  "AU": {
+    "shortName": "AngloGold Ashanti PLC",
+    "industry": "금"
+  },
+  "AUB": {
+    "shortName": "Atlantic Union Bankshares Corpo",
+    "industry": "지역은행"
+  },
+  "AUGO": {
+    "shortName": "Aura Minerals Inc.",
+    "industry": "금"
+  },
+  "AUR": {
+    "shortName": "Aurora Innovation, Inc.",
+    "industry": "IT서비스"
+  },
+  "AVAL": {
+    "shortName": "Grupo Aval Acciones y Valores S",
+    "industry": "지역은행"
+  },
+  "AX": {
+    "shortName": "Axos Financial, Inc.",
+    "industry": "지역은행"
+  },
+  "AXIA": {
+    "shortName": "AXIA Energia",
+    "industry": "신재생"
+  },
+  "AXS": {
+    "shortName": "Axis Capital Holdings Limited",
+    "industry": "특수보험"
+  },
+  "AXSM": {
+    "shortName": "Axsome Therapeutics, Inc.",
+    "industry": "바이오"
+  },
+  "AZN": {
+    "shortName": "AstraZeneca PLC",
+    "industry": "대형제약"
+  },
+  "B": {
+    "shortName": "Barrick Mining Corporation",
+    "industry": "금"
+  },
+  "BAP": {
+    "shortName": "Credicorp Ltd.",
+    "industry": "지역은행"
+  },
+  "BBD": {
+    "shortName": "Banco Bradesco Sa",
+    "industry": "지역은행"
+  },
+  "BBIO": {
+    "shortName": "BridgeBio Pharma, Inc.",
+    "industry": "바이오"
+  },
+  "BBU": {
+    "shortName": "Brookfield Business Partners L.",
+    "industry": "복합기업"
+  },
+  "BBVA": {
+    "shortName": "Banco Bilbao Vizcaya Argentaria",
+    "industry": "대형은행"
+  },
+  "BCE": {
+    "shortName": "BCE, Inc.",
+    "industry": "통신"
+  },
+  "BCH": {
+    "shortName": "Banco De Chile",
+    "industry": "지역은행"
+  },
+  "BCPC": {
+    "shortName": "Balchem Corporation",
+    "industry": "특수화학"
+  },
+  "BCS": {
+    "shortName": "Barclays PLC",
+    "industry": "대형은행"
+  },
+  "BE": {
+    "shortName": "Bloom Energy Corporation",
+    "industry": "전기장비"
+  },
+  "BEP": {
+    "shortName": "Brookfield Renewable Partners L",
+    "industry": "신재생"
+  },
+  "BEPC": {
+    "shortName": "Brookfield Renewable Corporatio",
+    "industry": "신재생"
+  },
+  "BHP": {
+    "shortName": "BHP Group Limited",
+    "industry": "산업금속"
+  },
+  "BIDU": {
+    "shortName": "Baidu, Inc.",
+    "industry": "인터넷"
+  },
+  "BILI": {
+    "shortName": "Bilibili Inc.",
+    "industry": "인터넷"
+  },
+  "BIP": {
+    "shortName": "Brookfield Infrastructure Partn",
+    "industry": "유틸복합"
+  },
+  "BIPC": {
+    "shortName": "Brookfield Infrastructure Corpo",
+    "industry": "가스"
+  },
+  "BLCO": {
+    "shortName": "Bausch + Lomb Corporation",
+    "industry": "의료용품"
+  },
+  "BLTE": {
+    "shortName": "Belite Bio, Inc",
+    "industry": "바이오"
+  },
+  "BMA": {
+    "shortName": "Banco Macro S.A.",
+    "industry": "지역은행"
+  },
+  "BMO": {
+    "shortName": "Bank Of Montreal",
+    "industry": "대형은행"
+  },
+  "BNS": {
+    "shortName": "Bank Nova Scotia Halifax Pfd 3",
+    "industry": "대형은행"
+  },
+  "BNTX": {
+    "shortName": "BioNTech SE",
+    "industry": "바이오"
+  },
+  "BOKF": {
+    "shortName": "BOK Financial Corporation",
+    "industry": "지역은행"
+  },
+  "BOOT": {
+    "shortName": "Boot Barn Holdings, Inc.",
+    "industry": "의류소매"
+  },
+  "BP": {
+    "shortName": "BP p.l.c.",
+    "industry": "석유종합"
+  },
+  "BPOP": {
+    "shortName": "Popular, Inc.",
+    "industry": "지역은행"
+  },
+  "BSAC": {
+    "shortName": "Banco Santander - Chile",
+    "industry": "지역은행"
+  },
+  "BSBR": {
+    "shortName": "Banco Santander Brasil SA",
+    "industry": "지역은행"
+  },
+  "BTG": {
+    "shortName": "B2Gold Corp",
+    "industry": "금"
+  },
+  "BTI": {
+    "shortName": "British American Tobacco  Indus",
+    "industry": "담배"
+  },
+  "BTSG": {
+    "shortName": "BrightSpring Health Services, I",
+    "industry": "의료정보"
+  },
+  "BUD": {
+    "shortName": "Anheuser-Busch Inbev SA Sponsor",
+    "industry": "맥주"
+  },
+  "BVN": {
+    "shortName": "Buenaventura Mining Company Inc",
+    "industry": "귀금속"
+  },
+  "CACC": {
+    "shortName": "Credit Acceptance Corporation",
+    "industry": "신용서비스"
+  },
+  "CAE": {
+    "shortName": "CAE Inc.",
+    "industry": "방산"
+  },
+  "CAMT": {
+    "shortName": "Camtek Ltd.",
+    "industry": "반도체장비"
+  },
+  "CBC": {
+    "shortName": "Central Bancompany, Inc.",
+    "industry": "지역은행"
+  },
+  "CCJ": {
+    "shortName": "Cameco Corporation",
+    "industry": "Uranium"
+  },
+  "CDE": {
+    "shortName": "Coeur Mining, Inc.",
+    "industry": "금"
+  },
+  "CE": {
+    "shortName": "Celanese Corporation",
+    "industry": "화학"
+  },
+  "CENX": {
+    "shortName": "Century Aluminum Company",
+    "industry": "알루미늄"
+  },
+  "CFLT": {
+    "shortName": "Confluent, Inc.",
+    "industry": "인프라SW"
+  },
+  "CIB": {
+    "shortName": "Grupo Cibest S.A.",
+    "industry": "지역은행"
+  },
+  "CIFR": {
+    "shortName": "Cipher Mining Inc.",
+    "industry": "IT서비스"
+  },
+  "CIG": {
+    "shortName": "Comp En De Mn Cemig",
+    "industry": "유틸복합"
+  },
+  "CLS": {
+    "shortName": "Celestica, Inc.",
+    "industry": "전자부품"
+  },
+  "CM": {
+    "shortName": "Canadian Imperial Bank of Comme",
+    "industry": "대형은행"
+  },
+  "CNI": {
+    "shortName": "Canadian National Railway Compa",
+    "industry": "철도"
+  },
+  "CNQ": {
+    "shortName": "Canadian Natural Resources Limi",
+    "industry": "석유가스"
+  },
+  "COGT": {
+    "shortName": "Cogent Biosciences, Inc.",
+    "industry": "바이오"
+  },
+  "CORZ": {
+    "shortName": "Core Scientific, Inc.",
+    "industry": "인프라SW"
+  },
+  "CP": {
+    "shortName": "Canadian Pacific Kansas City Li",
+    "industry": "철도"
+  },
+  "CPA": {
+    "shortName": "Copa Holdings, S.A.",
+    "industry": "항공"
+  },
+  "CQP": {
+    "shortName": "Cheniere Energy Partners, LP",
+    "industry": "석유미드스트림"
+  },
+  "CSAN": {
+    "shortName": "Cosan S.A.",
+    "industry": "석유정제"
+  },
+  "CTRE": {
+    "shortName": "CareTrust REIT, Inc.",
+    "industry": "리츠의료"
+  },
+  "CUK": {
+    "shortName": "Carnival Plc",
+    "industry": "여행"
+  },
+  "CVE": {
+    "shortName": "Cenovus Energy Inc",
+    "industry": "석유종합"
+  },
+  "CWAN": {
+    "shortName": "Clearwater Analytics Holdings, ",
+    "industry": "응용SW"
+  },
+  "CWEN": {
+    "shortName": "Clearway Energy, Inc.",
+    "industry": "신재생"
+  },
+  "CX": {
+    "shortName": "Cemex, S.A.B. de C.V. Sponsored",
+    "industry": "건자재"
+  },
+  "DOCN": {
+    "shortName": "DigitalOcean Holdings, Inc.",
+    "industry": "인프라SW"
+  },
+  "DOO": {
+    "shortName": "BRP Inc.",
+    "industry": "레저차량"
+  },
+  "DRS": {
+    "shortName": "Leonardo DRS, Inc.",
+    "industry": "방산"
+  },
+  "E": {
+    "shortName": "ENI S.p.A.",
+    "industry": "석유종합"
+  },
+  "EAT": {
+    "shortName": "Brinker International, Inc.",
+    "industry": "외식"
+  },
+  "EC": {
+    "shortName": "Ecopetrol S.A.",
+    "industry": "석유종합"
+  },
+  "ECG": {
+    "shortName": "Everus Construction Group, Inc.",
+    "industry": "건설"
+  },
+  "EDU": {
+    "shortName": "New Oriental Education & Techno",
+    "industry": "교육"
+  },
+  "ELVR": {
+    "shortName": "Elevra Lithium Limited - Americ",
+    "industry": "산업금속"
+  },
+  "EMA": {
+    "shortName": "Emera Incorporated",
+    "industry": "전력"
+  },
+  "EMBJ": {
+    "shortName": "Embraer S.A.",
+    "industry": "방산"
+  },
+  "EMN": {
+    "shortName": "Eastman Chemical Company",
+    "industry": "특수화학"
+  },
+  "ENB": {
+    "shortName": "Enbridge Inc",
+    "industry": "석유미드스트림"
+  },
+  "ENIC": {
+    "shortName": "Enel Chile S.A.",
+    "industry": "전력"
+  },
+  "ENLT": {
+    "shortName": "Enlight Renewable Energy Ltd.",
+    "industry": "신재생"
+  },
+  "ENPH": {
+    "shortName": "Enphase Energy, Inc.",
+    "industry": "태양광"
+  },
+  "EPD": {
+    "shortName": "Enterprise Products Partners L.",
+    "industry": "석유미드스트림"
+  },
+  "EPRT": {
+    "shortName": "Essential Properties Realty Tru",
+    "industry": "리츠소매"
+  },
+  "EQNR": {
+    "shortName": "Equinor ASA",
+    "industry": "석유종합"
+  },
+  "EQPT": {
+    "shortName": "EquipmentShare.com Inc",
+    "industry": "렌탈리스"
+  },
+  "EQX": {
+    "shortName": "Equinox Gold Corp.",
+    "industry": "금"
+  },
+  "ERIC": {
+    "shortName": "Ericsson",
+    "industry": "통신장비"
+  },
+  "ESE": {
+    "shortName": "ESCO Technologies Inc.",
+    "industry": "계측기기"
+  },
+  "ESI": {
+    "shortName": "Element Solutions Inc.",
+    "industry": "특수화학"
+  },
+  "ESLT": {
+    "shortName": "Elbit Systems Ltd.",
+    "industry": "방산"
+  },
+  "ET": {
+    "shortName": "Energy Transfer LP",
+    "industry": "석유미드스트림"
+  },
+  "EXAS": {
+    "shortName": "Exact Sciences Corporation",
+    "industry": "진단연구"
+  },
+  "FCNCA": {
+    "shortName": "First Citizens BancShares, Inc.",
+    "industry": "지역은행"
+  },
+  "FERG": {
+    "shortName": "Ferguson Enterprises Inc.",
+    "industry": "산업유통"
+  },
+  "FIGR": {
+    "shortName": "Figure Technology Solutions, In",
+    "industry": "자본시장"
+  },
+  "FMX": {
+    "shortName": "Fomento Economico Mexicano S.A.",
+    "industry": "맥주"
+  },
+  "FNV": {
+    "shortName": "Franco-Nevada Corporation",
+    "industry": "금"
+  },
+  "FORM": {
+    "shortName": "FormFactor, Inc.",
+    "industry": "반도체장비"
+  },
+  "FRMI": {
+    "shortName": "Fermi Inc.",
+    "industry": "기타"
+  },
+  "FRO": {
+    "shortName": "Frontline Plc",
+    "industry": "석유미드스트림"
+  },
+  "FSS": {
+    "shortName": "Federal Signal Corporation",
+    "industry": "환경"
+  },
+  "FTAI": {
+    "shortName": "FTAI Aviation Ltd.",
+    "industry": "렌탈리스"
+  },
+  "FTS": {
+    "shortName": "Fortis Inc.",
+    "industry": "전력"
+  },
+  "GDS": {
+    "shortName": "GDS Holdings Limited",
+    "industry": "IT서비스"
+  },
+  "GFI": {
+    "shortName": "Gold Fields Limited",
+    "industry": "금"
+  },
+  "GFS": {
+    "shortName": "GlobalFoundries Inc.",
+    "industry": "반도체"
+  },
+  "GGAL": {
+    "shortName": "Grupo Financiero Galicia S.A.",
+    "industry": "지역은행"
+  },
+  "GGB": {
+    "shortName": "Gerdau S.A.",
+    "industry": "철강"
+  },
+  "GH": {
+    "shortName": "Guardant Health, Inc.",
+    "industry": "진단연구"
+  },
+  "GIL": {
+    "shortName": "Gildan Activewear, Inc.",
+    "industry": "의류제조"
+  },
+  "GKOS": {
+    "shortName": "Glaukos Corporation",
+    "industry": "의료기기"
+  },
+  "GOLF": {
+    "shortName": "Acushnet Holdings Corp.",
+    "industry": "레저"
+  },
+  "GPGI": {
+    "shortName": "GPGI, Inc.",
+    "industry": "금속가공"
+  },
+  "GSAT": {
+    "shortName": "Globalstar, Inc.",
+    "industry": "통신"
+  },
+  "GSK": {
+    "shortName": "GSK plc",
+    "industry": "대형제약"
+  },
+  "GTES": {
+    "shortName": "Gates Industrial Corporation pl",
+    "industry": "산업기계"
+  },
+  "GVA": {
+    "shortName": "Granite Construction Incorporat",
+    "industry": "건설"
+  },
+  "HBM": {
+    "shortName": "Hudbay Minerals Inc.",
+    "industry": "구리"
+  },
+  "HEI": {
+    "shortName": "Heico Corporation",
+    "industry": "방산"
+  },
+  "HLN": {
+    "shortName": "Haleon plc",
+    "industry": "특수제약"
+  },
+  "HMY": {
+    "shortName": "Harmony Gold Mining Company Lim",
+    "industry": "금"
+  },
+  "HSBC": {
+    "shortName": "HSBC Holdings, plc.",
+    "industry": "대형은행"
+  },
+  "HTHT": {
+    "shortName": "H World Group Limited",
+    "industry": "숙박"
+  },
+  "HUT": {
+    "shortName": "Hut 8 Corp.",
+    "industry": "자본시장"
+  },
+  "IAG": {
+    "shortName": "Iamgold Corporation",
+    "industry": "금"
+  },
+  "IBN": {
+    "shortName": "ICICI Bank Limited",
+    "industry": "지역은행"
+  },
+  "IBP": {
+    "shortName": "Installed Building Products, In",
+    "industry": "주택건설"
+  },
+  "IBRX": {
+    "shortName": "ImmunityBio, Inc.",
+    "industry": "바이오"
+  },
+  "IDCC": {
+    "shortName": "InterDigital, Inc.",
+    "industry": "응용SW"
+  },
+  "IESC": {
+    "shortName": "IES Holdings, Inc.",
+    "industry": "건설"
+  },
+  "IFS": {
+    "shortName": "Intercorp Financial Services In",
+    "industry": "지역은행"
+  },
+  "IHG": {
+    "shortName": "Intercontinental Hotels Group",
+    "industry": "숙박"
+  },
+  "IMO": {
+    "shortName": "Imperial Oil Limited",
+    "industry": "석유종합"
+  },
+  "IMVT": {
+    "shortName": "Immunovant, Inc.",
+    "industry": "바이오"
+  },
+  "ING": {
+    "shortName": "ING Group, N.V.",
+    "industry": "대형은행"
+  },
+  "IONS": {
+    "shortName": "Ionis Pharmaceuticals, Inc.",
+    "industry": "바이오"
+  },
+  "ITUB": {
+    "shortName": "Itau Unibanco Banco Holding SA",
+    "industry": "지역은행"
+  },
+  "IX": {
+    "shortName": "ORIX Corporation",
+    "industry": "금융지주"
+  },
+  "JBS": {
+    "shortName": "JBS N.V.",
+    "industry": "식품"
+  },
+  "JBTM": {
+    "shortName": "JBT Marel Corporation",
+    "industry": "산업기계"
+  },
+  "JHX": {
+    "shortName": "James Hardie Industries plc.",
+    "industry": "건자재"
+  },
+  "JXN": {
+    "shortName": "Jackson Financial Inc.",
+    "industry": "생명보험"
+  },
+  "KEP": {
+    "shortName": "Korea Electric Power Corporatio",
+    "industry": "전력"
+  },
+  "KGC": {
+    "shortName": "Kinross Gold Corporation",
+    "industry": "금"
+  },
+  "KLAR": {
+    "shortName": "Klarna Group plc",
+    "industry": "인프라SW"
+  },
+  "KNTK": {
+    "shortName": "Kinetik Holdings Inc.",
+    "industry": "석유미드스트림"
+  },
+  "KOF": {
+    "shortName": "Coca Cola Femsa S.A.B. de C.V.",
+    "industry": "음료"
+  },
+  "KRMN": {
+    "shortName": "Karman Holdings Inc.",
+    "industry": "방산"
+  },
+  "KRYS": {
+    "shortName": "Krystal Biotech, Inc.",
+    "industry": "바이오"
+  },
+  "KT": {
+    "shortName": "KT Corporation",
+    "industry": "통신"
+  },
+  "KYMR": {
+    "shortName": "Kymera Therapeutics, Inc.",
+    "industry": "바이오"
+  },
+  "LAZ": {
+    "shortName": "Lazard, Inc.",
+    "industry": "자본시장"
+  },
+  "LB": {
+    "shortName": "LandBridge Company LLC",
+    "industry": "석유장비"
+  },
+  "LEVI": {
+    "shortName": "Levi Strauss & Co",
+    "industry": "의류제조"
+  },
+  "LGN": {
+    "shortName": "Legence Corp.",
+    "industry": "건설"
+  },
+  "LINE": {
+    "shortName": "Lineage, Inc.",
+    "industry": "리츠산업"
+  },
+  "LKQ": {
+    "shortName": "LKQ Corporation",
+    "industry": "자동차부품"
+  },
+  "LLYVA": {
+    "shortName": "Liberty Live Holdings, Inc. - S",
+    "industry": "엔터"
+  },
+  "LNG": {
+    "shortName": "LNG",
+    "industry": "기타"
+  },
+  "LPL": {
+    "shortName": "LPL",
+    "industry": "기타"
+  },
+  "LTM": {
+    "shortName": "LTM",
+    "industry": "기타"
+  },
+  "MAC": {
+    "shortName": "MAC",
+    "industry": "기타"
+  },
+  "MATX": {
+    "shortName": "MATX",
+    "industry": "기타"
+  },
+  "MDLN": {
+    "shortName": "MDLN",
+    "industry": "기타"
+  },
+  "MFC": {
+    "shortName": "MFC",
+    "industry": "기타"
+  },
+  "MFG": {
+    "shortName": "MFG",
+    "industry": "기타"
+  },
+  "MGA": {
+    "shortName": "MGA",
+    "industry": "기타"
+  },
+  "MGY": {
+    "shortName": "MGY",
+    "industry": "기타"
+  },
+  "MHK": {
+    "shortName": "MHK",
+    "industry": "기타"
+  },
+  "MICC": {
+    "shortName": "MICC",
+    "industry": "기타"
+  },
+  "MIRM": {
+    "shortName": "MIRM",
+    "industry": "기타"
+  },
+  "MKL": {
+    "shortName": "MKL",
+    "industry": "기타"
+  },
+  "MKTX": {
+    "shortName": "MKTX",
+    "industry": "기타"
+  },
+  "MOD": {
+    "shortName": "MOD",
+    "industry": "기타"
+  },
+  "MPLX": {
+    "shortName": "MPLX",
+    "industry": "기타"
+  },
+  "MRCY": {
+    "shortName": "MRCY",
+    "industry": "기타"
+  },
+  "MRP": {
+    "shortName": "MRP",
+    "industry": "기타"
+  },
+  "MSGS": {
+    "shortName": "MSGS",
+    "industry": "기타"
+  },
+  "MT": {
+    "shortName": "MT",
+    "industry": "기타"
+  },
+  "MUFG": {
+    "shortName": "MUFG",
+    "industry": "기타"
+  },
+  "NBIS": {
+    "shortName": "NBIS",
+    "industry": "기타"
+  },
+  "NE": {
+    "shortName": "NE",
+    "industry": "기타"
+  },
+  "NGD": {
+    "shortName": "NGD",
+    "industry": "기타"
+  },
+  "NGG": {
+    "shortName": "NGG",
+    "industry": "기타"
+  },
+  "NMR": {
+    "shortName": "NMR",
+    "industry": "기타"
+  },
+  "NOK": {
+    "shortName": "NOK",
+    "industry": "기타"
+  },
+  "NPO": {
+    "shortName": "NPO",
+    "industry": "기타"
+  },
+  "NTR": {
+    "shortName": "NTR",
+    "industry": "기타"
+  },
+  "NTRA": {
+    "shortName": "NTRA",
+    "industry": "기타"
+  },
+  "NU": {
+    "shortName": "NU",
+    "industry": "기타"
+  },
+  "NUVL": {
+    "shortName": "NUVL",
+    "industry": "기타"
+  },
+  "NVMI": {
+    "shortName": "NVMI",
+    "industry": "기타"
+  },
+  "NVS": {
+    "shortName": "NVS",
+    "industry": "기타"
+  },
+  "OMAB": {
+    "shortName": "OMAB",
+    "industry": "기타"
+  },
+  "ONC": {
+    "shortName": "ONC",
+    "industry": "기타"
+  },
+  "ONON": {
+    "shortName": "ONON",
+    "industry": "기타"
+  },
+  "OR": {
+    "shortName": "OR",
+    "industry": "기타"
+  },
+  "ORLA": {
+    "shortName": "ORLA",
+    "industry": "기타"
+  },
+  "OS": {
+    "shortName": "OS",
+    "industry": "기타"
+  },
+  "PAA": {
+    "shortName": "PAA",
+    "industry": "기타"
+  },
+  "PAAS": {
+    "shortName": "PAAS",
+    "industry": "기타"
+  },
+  "PAC": {
+    "shortName": "PAC",
+    "industry": "기타"
+  },
+  "PACS": {
+    "shortName": "PACS",
+    "industry": "기타"
+  },
+  "PBA": {
+    "shortName": "PBA",
+    "industry": "기타"
+  },
+  "PBR": {
+    "shortName": "PBR",
+    "industry": "기타"
+  },
+  "PCVX": {
+    "shortName": "PCVX",
+    "industry": "기타"
+  },
+  "PHG": {
+    "shortName": "PHG",
+    "industry": "기타"
+  },
+  "PHI": {
+    "shortName": "PHI",
+    "industry": "기타"
+  },
+  "PL": {
+    "shortName": "PL",
+    "industry": "기타"
+  },
+  "PLXS": {
+    "shortName": "PLXS",
+    "industry": "기타"
+  },
+  "POWL": {
+    "shortName": "POWL",
+    "industry": "기타"
+  },
+  "PRAX": {
+    "shortName": "PRAX",
+    "industry": "기타"
+  },
+  "PRIM": {
+    "shortName": "PRIM",
+    "industry": "기타"
+  },
+  "PRMB": {
+    "shortName": "PRMB",
+    "industry": "기타"
+  },
+  "PTGX": {
+    "shortName": "PTGX",
+    "industry": "기타"
+  },
+  "PUK": {
+    "shortName": "PUK",
+    "industry": "기타"
+  },
+  "QGEN": {
+    "shortName": "QGEN",
+    "industry": "기타"
+  },
+  "QSR": {
+    "shortName": "QSR",
+    "industry": "기타"
+  },
+  "QXO": {
+    "shortName": "QXO",
+    "industry": "기타"
+  },
+  "RCI": {
+    "shortName": "RCI",
+    "industry": "기타"
+  },
+  "RDY": {
+    "shortName": "RDY",
+    "industry": "기타"
+  },
+  "REYN": {
+    "shortName": "REYN",
+    "industry": "기타"
+  },
+  "REZI": {
+    "shortName": "REZI",
+    "industry": "기타"
+  },
+  "RHP": {
+    "shortName": "RHP",
+    "industry": "기타"
+  },
+  "RIG": {
+    "shortName": "RIG",
+    "industry": "기타"
+  },
+  "RIO": {
+    "shortName": "RIO",
+    "industry": "기타"
+  },
+  "RIOT": {
+    "shortName": "RIOT",
+    "industry": "기타"
+  },
+  "RKLB": {
+    "shortName": "RKLB",
+    "industry": "기타"
+  },
+  "RNA": {
+    "shortName": "RNA",
+    "industry": "기타"
+  },
+  "ROAD": {
+    "shortName": "ROAD",
+    "industry": "기타"
+  },
+  "RPRX": {
+    "shortName": "RPRX",
+    "industry": "기타"
+  },
+  "RRR": {
+    "shortName": "RRR",
+    "industry": "기타"
+  },
+  "RTO": {
+    "shortName": "RTO",
+    "industry": "기타"
+  },
+  "RUSHA": {
+    "shortName": "RUSHA",
+    "industry": "기타"
+  },
+  "RVMD": {
+    "shortName": "RVMD",
+    "industry": "기타"
+  },
+  "RY": {
+    "shortName": "RY",
+    "industry": "기타"
+  },
+  "RYAAY": {
+    "shortName": "RYAAY",
+    "industry": "기타"
+  },
+  "SAN": {
+    "shortName": "SAN",
+    "industry": "기타"
+  },
+  "SANM": {
+    "shortName": "SANM",
+    "industry": "기타"
+  },
+  "SBS": {
+    "shortName": "SBS",
+    "industry": "기타"
+  },
+  "SBSW": {
+    "shortName": "SBSW",
+    "industry": "기타"
+  },
+  "SCCO": {
+    "shortName": "SCCO",
+    "industry": "기타"
+  },
+  "SEE": {
+    "shortName": "SEE",
+    "industry": "기타"
+  },
+  "SFD": {
+    "shortName": "SFD",
+    "industry": "기타"
+  },
+  "SHEL": {
+    "shortName": "SHEL",
+    "industry": "기타"
+  },
+  "SITE": {
+    "shortName": "SITE",
+    "industry": "기타"
+  },
+  "SITM": {
+    "shortName": "SITM",
+    "industry": "기타"
+  },
+  "SKY": {
+    "shortName": "SKY",
+    "industry": "기타"
+  },
+  "SLF": {
+    "shortName": "SLF",
+    "industry": "기타"
+  },
+  "SMFG": {
+    "shortName": "SMFG",
+    "industry": "기타"
+  },
+  "SMTC": {
+    "shortName": "SMTC",
+    "industry": "기타"
+  },
+  "SN": {
+    "shortName": "SN",
+    "industry": "기타"
+  },
+  "SNEX": {
+    "shortName": "SNEX",
+    "industry": "기타"
+  },
+  "SNN": {
+    "shortName": "SNN",
+    "industry": "기타"
+  },
+  "SOBO": {
+    "shortName": "SOBO",
+    "industry": "기타"
+  },
+  "SOLS": {
+    "shortName": "SOLS",
+    "industry": "기타"
+  },
+  "SQM": {
+    "shortName": "SQM",
+    "industry": "기타"
+  },
+  "SSL": {
+    "shortName": "SSL",
+    "industry": "기타"
+  },
+  "SSRM": {
+    "shortName": "SSRM",
+    "industry": "기타"
+  },
+  "STM": {
+    "shortName": "STM",
+    "industry": "기타"
+  },
+  "SU": {
+    "shortName": "SU",
+    "industry": "기타"
+  },
+  "SUI": {
+    "shortName": "SUI",
+    "industry": "기타"
+  },
+  "SUN": {
+    "shortName": "SUN",
+    "industry": "기타"
+  },
+  "TAK": {
+    "shortName": "TAK",
+    "industry": "기타"
+  },
+  "TD": {
+    "shortName": "TD",
+    "industry": "기타"
+  },
+  "TDS": {
+    "shortName": "TDS",
+    "industry": "기타"
+  },
+  "TECK": {
+    "shortName": "TECK",
+    "industry": "기타"
+  },
+  "TEVA": {
+    "shortName": "TEVA",
+    "industry": "기타"
+  },
+  "TFII": {
+    "shortName": "TFII",
+    "industry": "기타"
+  },
+  "TFPM": {
+    "shortName": "TFPM",
+    "industry": "기타"
+  },
+  "TIGO": {
+    "shortName": "TIGO",
+    "industry": "기타"
+  },
+  "TIMB": {
+    "shortName": "TIMB",
+    "industry": "기타"
+  },
+  "TKC": {
+    "shortName": "TKC",
+    "industry": "기타"
+  },
+  "TLK": {
+    "shortName": "TLK",
+    "industry": "기타"
+  },
+  "TM": {
+    "shortName": "TM",
+    "industry": "기타"
+  },
+  "TRNO": {
+    "shortName": "TRNO",
+    "industry": "기타"
+  },
+  "TRP": {
+    "shortName": "TRP",
+    "industry": "기타"
+  },
+  "TS": {
+    "shortName": "TS",
+    "industry": "기타"
+  },
+  "TSEM": {
+    "shortName": "TSEM",
+    "industry": "기타"
+  },
+  "TSM": {
+    "shortName": "TSM",
+    "industry": "기타"
+  },
+  "TTE": {
+    "shortName": "TTE",
+    "industry": "기타"
+  },
+  "TV": {
+    "shortName": "TV",
+    "industry": "기타"
+  },
+  "TW": {
+    "shortName": "TW",
+    "industry": "기타"
+  },
+  "TX": {
+    "shortName": "TX",
+    "industry": "기타"
+  },
+  "UEC": {
+    "shortName": "UEC",
+    "industry": "기타"
+  },
+  "UGP": {
+    "shortName": "UGP",
+    "industry": "기타"
+  },
+  "UI": {
+    "shortName": "UI",
+    "industry": "기타"
+  },
+  "UL": {
+    "shortName": "UL",
+    "industry": "기타"
+  },
+  "UMC": {
+    "shortName": "UMC",
+    "industry": "기타"
+  },
+  "UUUU": {
+    "shortName": "UUUU",
+    "industry": "기타"
+  },
+  "VCTR": {
+    "shortName": "VCTR",
+    "industry": "기타"
+  },
+  "VIAV": {
+    "shortName": "VIAV",
+    "industry": "기타"
+  },
+  "VICR": {
+    "shortName": "VICR",
+    "industry": "기타"
+  },
+  "VIK": {
+    "shortName": "VIK",
+    "industry": "기타"
+  },
+  "VIRT": {
+    "shortName": "VIRT",
+    "industry": "기타"
+  },
+  "VIST": {
+    "shortName": "VIST",
+    "industry": "기타"
+  },
+  "VIV": {
+    "shortName": "VIV",
+    "industry": "기타"
+  },
+  "VOD": {
+    "shortName": "VOD",
+    "industry": "기타"
+  },
+  "VRT": {
+    "shortName": "VRT",
+    "industry": "기타"
+  },
+  "VSAT": {
+    "shortName": "VSAT",
+    "industry": "기타"
+  },
+  "VSCO": {
+    "shortName": "VSCO",
+    "industry": "기타"
+  },
+  "VSEC": {
+    "shortName": "VSEC",
+    "industry": "기타"
+  },
+  "WES": {
+    "shortName": "WES",
+    "industry": "기타"
+  },
+  "WPM": {
+    "shortName": "WPM",
+    "industry": "기타"
+  },
+  "WULF": {
+    "shortName": "WULF",
+    "industry": "기타"
+  },
+  "XP": {
+    "shortName": "XP",
+    "industry": "기타"
+  },
+  "YOU": {
+    "shortName": "YOU",
+    "industry": "기타"
+  },
+  "YPF": {
+    "shortName": "YPF",
+    "industry": "기타"
+  },
+  "YUMC": {
+    "shortName": "YUMC",
+    "industry": "기타"
+  },
+  "ZTO": {
+    "shortName": "ZTO",
+    "industry": "기타"
+  },
+  "ZWS": {
+    "shortName": "ZWS",
+    "industry": "기타"
+  },
+  "VALE": {
+    "shortName": "VALE",
+    "industry": "기타"
   }
 }
