@@ -2116,56 +2116,29 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, ea
 # ============================================================
 
 def classify_exit_reasons(exited_tickers, results_df):
-    """이탈 종목 사유 분류 — 사유 태그 통일
+    """이탈 종목 사유 분류 — 필터탈락 vs 순위밀림
 
-    Returns: [(ticker, prev_rank, cur_rank, reasons)] — 사유 태그 리스트
-    사유 태그: [주가선반영], [MA120↓], [저마진], [원자재], [순위하락], [점수↓], [EPS↓]
+    Returns: [(ticker, cur_composite_rank or None, reason)]
+    - composite_rank 있으면 → '순위밀림' (필터 통과, 가중순위에서 밀림)
+    - composite_rank 없으면 → '필터탈락' (필터 자체 탈락)
     """
     import pandas as pd
     result = []
     if not exited_tickers or results_df is None or results_df.empty:
         return result
 
-    # 현재 eligible 순위 (이탈 후 순위 확인용)
-    all_eligible = get_part2_candidates(results_df)
-    current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
-
-    # 현재 데이터에서 이탈 종목 정보 조회
-    full_data = {}
+    # 오늘 composite_rank (DB 저장값) 조회
+    composite_map = {}
     for _, row in results_df.iterrows():
         t = row.get('ticker', '')
-        if t in exited_tickers:
-            full_data[t] = row
+        cr = row.get('composite_rank')
+        if t and cr is not None and pd.notna(cr):
+            composite_map[t] = int(cr)
 
-    for t, prev_rank in sorted(exited_tickers.items(), key=lambda x: x[1]):
-        reasons = []
-        cur_rank = current_rank_map.get(t)
-        if t in full_data:
-            r = full_data[t]
-            # MA120↓ (ma120 우선, 없으면 ma60)
-            ma_val = r.get('ma120', 0) or r.get('ma60', 0) or 0
-            if (r.get('price', 0) or 0) < ma_val and ma_val > 0:
-                reasons.append('MA120↓')
-            if (r.get('adj_gap', 0) or 0) > 0:
-                reasons.append('주가선반영')
-            # 저마진 필터: OM<10%&GM<30% 또는 OM<5%
-            om = r.get('operating_margin')
-            gm = r.get('gross_margin')
-            if (om is not None and gm is not None and om < 0.10 and gm < 0.30) or \
-               (om is not None and om < 0.05):
-                reasons.append('저마진')
-            # 원자재 업종
-            ind = r.get('industry', '')
-            if ind and ind in COMMODITY_INDUSTRIES:
-                reasons.append('원자재')
-            if (r.get('adj_score', 0) or 0) <= 9:
-                reasons.append('점수↓')
-            if (r.get('eps_change_90d', 0) or 0) <= 0:
-                reasons.append('EPS↓')
-        if not reasons:
-            reasons.append('순위하락')
-
-        result.append((t, prev_rank, cur_rank, reasons))
+    for t in sorted(exited_tickers, key=lambda x: exited_tickers[x]):
+        cur_rank = composite_map.get(t)
+        reason = '순위밀림' if cur_rank is not None else '필터탈락'
+        result.append((t, cur_rank, reason))
 
     return result
 
@@ -2514,7 +2487,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
 
     # ━━ 이탈 알림 (1줄) ━━
     if exit_reasons:
-        exit_tickers = [t for t, _, _, _ in exit_reasons]
+        exit_tickers = [t for t, _, _ in exit_reasons]
         lines.append('')
         lines.append(f'⚠️ 이탈: {", ".join(exit_tickers)} → Watchlist 참고')
 
@@ -2739,10 +2712,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
         lines.append('📉 <b>이탈 — 매도 검토</b>')
-        for t, prev_rank, cur_rank, reasons in exit_reasons:
-            rank_str = f'{prev_rank}→{cur_rank}위' if cur_rank else f'{prev_rank}위→밖'
-            reason_tags = ' '.join(f'[{r}]' for r in reasons)
-            lines.append(f'{t} {rank_str} {reason_tags}')
+        for t, cur_rank, reason in exit_reasons:
+            if cur_rank is not None:
+                lines.append(f'{t} {cur_rank}위 [{reason}]')
+            else:
+                lines.append(f'{t} [{reason}]')
         lines.append('보유 중이라면 매도를 검토하세요.')
 
     # ── 범례 + 면책 ──
@@ -3128,80 +3102,59 @@ def create_v2_watchlist_message(results_df, status_map, exited_tickers, today_ti
     supp_lines = []
 
     if exited_tickers:
-        all_eligible = get_part2_candidates(results_df)
-        current_rank_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_eligible.iterrows())}
         sorted_exits = sorted(exited_tickers.items(), key=lambda x: x[1])
         full_data = {row['ticker']: row for _, row in results_df.iterrows()}
 
-        achieved = []
-        degraded = []
-        for t, prev_rank in sorted_exits:
-            cur_rank = current_rank_map.get(t)
-            reasons = []
-            if t in full_data:
-                r = full_data[t]
-                if (r.get('price', 0) or 0) < (r.get('ma60', 0) or 0) and (r.get('ma60', 0) or 0) > 0:
-                    reasons.append('MA60↓')
-                if (r.get('adj_gap', 0) or 0) > 0:
-                    reasons.append('주가선반영')
-                if (r.get('adj_score', 0) or 0) <= 9:
-                    reasons.append('점수↓')
-                if (r.get('eps_change_90d', 0) or 0) <= 0:
-                    reasons.append('EPS↓')
-            if not reasons and cur_rank and cur_rank > 30:
-                reasons.append('순위↓')
-            if not reasons:
-                reasons.append('순위↓')
-            if reasons == ['주가선반영']:
-                achieved.append((t, prev_rank, cur_rank, reasons))
-            else:
-                degraded.append((t, prev_rank, cur_rank, reasons))
+        # composite_rank(DB 저장값)으로 필터탈락 vs 순위밀림 판정
+        composite_map = {}
+        for _, row in results_df.iterrows():
+            t = row.get('ticker', '')
+            cr = row.get('composite_rank')
+            if t and cr is not None and pd.notna(cr):
+                composite_map[t] = int(cr)
 
-        if achieved or degraded:
+        exit_items = []
+        for t, _ in sorted_exits:
+            cur_rank = composite_map.get(t)
+            reason = '순위밀림' if cur_rank is not None else '필터탈락'
+            exit_items.append((t, cur_rank, reason))
+
+        if exit_items:
             supp_lines.append('📉 <b>Top 30 이탈 종목</b>')
             supp_lines.append('<i>보유 중이라면 매도를 검토하세요.</i>')
             supp_lines.append('━━━━━━━━━━━━━━━')
 
-            def _render_exit(elist, target):
-                for idx_e, (t, prev_rank, cur_rank, reasons) in enumerate(elist):
-                    row = full_data.get(t, {})
-                    nm = _clean_company_name(row.get('short_name', t), t) if hasattr(row, 'get') else t
-                    ind = row.get('industry', '') if hasattr(row, 'get') else ''
-                    lt = row.get('trend_lights', '') if hasattr(row, 'get') else ''
-                    ds = row.get('trend_desc', '') if hasattr(row, 'get') else ''
-                    ep = row.get('eps_change_90d') if hasattr(row, 'get') else None
-                    rv = row.get('rev_growth') if hasattr(row, 'get') else None
-                    ru = int(row.get('rev_up30', 0) or 0) if hasattr(row, 'get') else 0
-                    rd = int(row.get('rev_down30', 0) or 0) if hasattr(row, 'get') else 0
-                    # L0: 이름 + 업종
-                    target.append(f'{nm}({t}) {ind}')
-                    # L1: EPS추이
-                    if lt and ds:
-                        target.append(f'EPS추이 {lt} {ds}')
-                    # L2: EPS + 매출 + 의견
-                    gp = []
-                    if ep is not None and pd.notna(ep):
-                        gp.append(f'EPS {int(round(ep)):+d}%')
-                    if rv is not None and pd.notna(rv):
-                        gp.append(f'매출 {int(round(rv * 100)):+d}%')
-                    gp.append(f'의견 ↑{ru}↓{rd}')
-                    target.append(' · '.join(gp))
-                    # L3: 순위 + 사유
-                    ri = f'{prev_rank}→{cur_rank}위' if cur_rank else f'{prev_rank}위→탈락'
-                    rt = ' '.join(f'[{r}]' for r in reasons)
-                    target.append(f'순위 {ri} {rt}')
-                    # 점선 구분선 (마지막 제외)
-                    if idx_e < len(elist) - 1:
-                        target.append('- - - - - - - - - - - - -')
-
-            if achieved:
-                supp_lines.append(f'🎯 <b>주가 선반영</b> ({len(achieved)}개) — <i>수익 실현 검토</i>')
-                _render_exit(achieved, supp_lines)
-            if degraded:
-                if achieved:
-                    supp_lines.append('')
-                supp_lines.append(f'⚠️ <b>펀더멘탈 악화</b> ({len(degraded)}개) — <i>매도 검토</i>')
-                _render_exit(degraded, supp_lines)
+            for idx_e, (t, cur_rank, reason) in enumerate(exit_items):
+                row = full_data.get(t, {})
+                nm = _clean_company_name(row.get('short_name', t), t) if hasattr(row, 'get') else t
+                ind = row.get('industry', '') if hasattr(row, 'get') else ''
+                lt = row.get('trend_lights', '') if hasattr(row, 'get') else ''
+                ds = row.get('trend_desc', '') if hasattr(row, 'get') else ''
+                ep = row.get('eps_change_90d') if hasattr(row, 'get') else None
+                rv = row.get('rev_growth') if hasattr(row, 'get') else None
+                ru = int(row.get('rev_up30', 0) or 0) if hasattr(row, 'get') else 0
+                rd = int(row.get('rev_down30', 0) or 0) if hasattr(row, 'get') else 0
+                # L0: 이름 + 업종
+                supp_lines.append(f'{nm}({t}) {ind}')
+                # L1: EPS추이
+                if lt and ds:
+                    supp_lines.append(f'EPS추이 {lt} {ds}')
+                # L2: EPS + 매출 + 의견
+                gp = []
+                if ep is not None and pd.notna(ep):
+                    gp.append(f'EPS {int(round(ep)):+d}%')
+                if rv is not None and pd.notna(rv):
+                    gp.append(f'매출 {int(round(rv * 100)):+d}%')
+                gp.append(f'의견 ↑{ru}↓{rd}')
+                supp_lines.append(' · '.join(gp))
+                # L3: 순위 + 사유
+                if cur_rank is not None:
+                    supp_lines.append(f'{cur_rank}위 [{reason}]')
+                else:
+                    supp_lines.append(f'[{reason}]')
+                # 점선 구분선 (마지막 제외)
+                if idx_e < len(exit_items) - 1:
+                    supp_lines.append('- - - - - - - - - - - - -')
 
     msg_supplement = '\n'.join(supp_lines)
 
