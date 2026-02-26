@@ -5050,5 +5050,61 @@
   "VALE": {
     "shortName": "VALE",
     "industry": "기타"
+  },
+  "BRK-A": {
+    "shortName": "BRK-A",
+    "industry": "기타"
+  },
+  "CELC": {
+    "shortName": "CELC",
+    "industry": "기타"
+  },
+  "CHYM": {
+    "shortName": "CHYM",
+    "industry": "기타"
+  },
+  "COMP": {
+    "shortName": "COMP",
+    "industry": "기타"
+  },
+  "CRSP": {
+    "shortName": "CRSP",
+    "industry": "기타"
+  },
+  "CZR": {
+    "shortName": "CZR",
+    "industry": "기타"
+  },
+  "DB": {
+    "shortName": "DB",
+    "industry": "기타"
+  },
+  "LBRDK": {
+    "shortName": "LBRDK",
+    "industry": "기타"
+  },
+  "LTH": {
+    "shortName": "LTH",
+    "industry": "기타"
+  },
+  "MTH": {
+    "shortName": "MTH",
+    "industry": "기타"
+  },
+  "NG": {
+    "shortName": "NG",
+    "industry": "기타"
+  },
+  "SIRI": {
+    "shortName": "SIRI",
+    "industry": "기타"
+  },
+  "TFX": {
+    "shortName": "TFX",
+    "industry": "기타"
+  },
+  "VG": {
+    "shortName": "VG",
+    "industry": "기타"
   }
 }
