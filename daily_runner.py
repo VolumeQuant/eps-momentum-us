@@ -2712,6 +2712,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('📋 <b>Top 30 종목 현황</b>')
     lines.append('이 목록에 있으면 보유, 빠지면 매도 검토.')
     lines.append('✅ 3일 검증 ⏳ 2일 관찰 🆕 신규 진입')
+    lines.append('EPS추이(90→60→30→7일 변화율)')
+    lines.append('🔥&gt;20% ☀️5~20% 🌤️1~5% ☁️±1% 🌧️&lt;-1%')
     lines.append('━━━━━━━━━━━━━━━')
 
     # ── 30종목 (4줄 + 구분선) ──
