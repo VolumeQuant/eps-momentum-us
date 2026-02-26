@@ -1,5 +1,5 @@
 """
-EPS Momentum Daily Runner v19 - Safety & Trend Fusion
+EPS Momentum Daily Runner v19 - Safety & Trend Fusion (v44: Dynamic Universe + Commodity Exclusion)
 
 기능:
 1. NTM EPS 전 종목 수집 + MA60 계산 & DB 적재
@@ -37,6 +37,18 @@ if sys.platform == 'win32':
 PROJECT_ROOT = Path(__file__).parent
 DB_PATH = PROJECT_ROOT / 'eps_momentum_data.db'
 CONFIG_PATH = PROJECT_ROOT / 'config.json'
+
+# 원자재/광업 제외 대상 — 금값·원자재 가격에 연동되는 업종
+# EPS 모멘텀이 구조적 성장이 아닌 commodity 가격 패스스루이므로 제외
+COMMODITY_INDUSTRIES = {
+    '금', '귀금속', '산업금속', '구리', '철강', '알루미늄',
+    '농업', '석유가스', '석유종합', '석유정제', '목재',
+    # 영문 fallback (INDUSTRY_MAP 미매핑 시)
+    'Gold', 'Other Precious Metals & Mining',
+    'Other Industrial Metals & Mining', 'Copper', 'Steel', 'Aluminum',
+    'Agricultural Inputs', 'Oil & Gas E&P', 'Oil & Gas Integrated',
+    'Oil & Gas Refining & Marketing', 'Lumber & Wood Production',
+}
 
 # 기본 설정
 DEFAULT_CONFIG = {
@@ -188,6 +200,86 @@ def init_ntm_database():
     log("NTM 데이터베이스 초기화 완료")
 
 
+def fetch_dynamic_tickers(min_mcap=5_000_000_000):
+    """NASDAQ API에서 시총 기준 이상 전체 상장 종목 동적 수집 (v44)
+
+    NASDAQ/NYSE/AMEX 전체 조회 → 시총 필터.
+    S&P 지수 미편입 종목(IPO, ADR 등)도 자동 포착.
+
+    Returns:
+        set of ticker symbols
+    """
+    import urllib.request
+
+    base = "https://api.nasdaq.com/api/screener/stocks"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Accept': 'application/json',
+    }
+
+    # 우선주/채권/워런트 등 비보통주 필터
+    _EXCLUDE_LOWER = [
+        'preferred', 'warrant', ' notes due', 'debentures due',
+        'corporate units', 'equity unit',
+        'non-cumulative', 'perpetual sub',
+        'fixed-to-floating', ' zones',
+    ]
+
+    tickers = set()
+    skipped = 0
+    for exchange in ['NASDAQ', 'NYSE', 'AMEX']:
+        offset = 0
+        total = None
+        while True:
+            url = f"{base}?tableType=earnings&limit=500&offset={offset}&exchange={exchange}"
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                resp = urllib.request.urlopen(req, timeout=15)
+                data = json.loads(resp.read().decode('utf-8'))
+            except Exception as e:
+                log(f"  NASDAQ API {exchange} offset={offset} 실패: {e}", "WARN")
+                break
+
+            if total is None:
+                total = int(data.get('data', {}).get('totalrecords', 0))
+
+            rows = data.get('data', {}).get('table', {}).get('rows', [])
+            if not rows:
+                break
+
+            for r in rows:
+                sym = r.get('symbol', '').strip()
+                mc_str = r.get('marketCap', '0').replace(',', '')
+                try:
+                    mc = int(mc_str)
+                except ValueError:
+                    mc = 0
+                if not sym or mc < min_mcap:
+                    continue
+                # 슬래시 포함 티커 변환 (BRK/B → BRK-B)
+                if '/' in sym:
+                    sym = sym.replace('/', '-')
+                # 비보통주 필터 (우선주, 채권, 워런트 등)
+                name = r.get('name', '')
+                name_lower = name.lower()
+                # Depositary Shares 중 ADR이 아닌 것 = 우선주 예탁증서
+                if 'depositary shares' in name_lower and 'american depositary' not in name_lower:
+                    skipped += 1
+                    continue
+                if any(kw in name_lower for kw in _EXCLUDE_LOWER):
+                    skipped += 1
+                    continue
+                tickers.add(sym)
+
+            offset += 500
+            if offset >= total:
+                break
+
+    if skipped:
+        log(f"  비보통주 {skipped}개 제외 (우선주/채권/워런트)")
+    return tickers
+
+
 def run_ntm_collection(config):
     """NTM EPS 전 종목 수집 & DB 적재
 
@@ -220,7 +312,21 @@ def run_ntm_collection(config):
             today_str = today.strftime('%Y-%m-%d')
     log(f"마켓 날짜: {today_str}")
 
-    all_tickers = sorted(set(t for tlist in INDICES.values() for t in tlist))
+    # 유니버스: 하드코딩 지수 + NASDAQ API 동적 수집 ($5B+)
+    base_tickers = set(t for tlist in INDICES.values() for t in tlist)
+    base_original = set(base_tickers)  # MA120 사전 필터용 원본 보존
+    log(f"기본 유니버스 (S&P500+400+NQ100): {len(base_tickers)}개")
+
+    new_dynamic = set()  # 동적 신규 종목 (MA120 사전 필터 대상)
+    try:
+        dynamic = fetch_dynamic_tickers(min_mcap=5_000_000_000)
+        new_dynamic = dynamic - base_original
+        base_tickers |= dynamic
+        log(f"동적 확장 ($5B+): +{len(new_dynamic)}개 → 총 {len(base_tickers)}개")
+    except Exception as e:
+        log(f"동적 수집 실패 (기본 유니버스로 진행): {e}", "WARN")
+
+    all_tickers = sorted(base_tickers)
     log(f"유니버스: {len(all_tickers)}개 종목")
 
     # Step 1: 종목 정보 캐시 로드
@@ -243,7 +349,84 @@ def run_ntm_collection(config):
     except Exception as e:
         log(f"일괄 다운로드 실패: {e}, 개별 다운로드로 전환", "WARN")
 
-    # Step 3: 종목별 EPS 데이터 순차 수집
+    # Step 2.5: 동적 신규 종목 MA120 사전 필터
+    # price < MA120인 동적 종목은 Top 30 진입 불가 → EPS 수집 생략
+    if hist_all is not None and new_dynamic:
+        ma120_skip = set()
+        for t in new_dynamic:
+            try:
+                h = hist_all['Close'][t].dropna()
+                if len(h) >= 120:
+                    price = float(h.iloc[-1])
+                    ma120 = float(h.tail(120).mean())
+                    if price < ma120:
+                        ma120_skip.add(t)
+            except Exception:
+                pass
+        if ma120_skip:
+            all_tickers = [t for t in all_tickers if t not in ma120_skip]
+            log(f"MA120 사전 필터: 동적 종목 {len(ma120_skip)}개 제외 → {len(all_tickers)}개 수집")
+
+    # Step 3: EPS 데이터 병렬 수집 (10스레드)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _prefetch_eps(ticker):
+        """워커: NTM EPS + 애널리스트 수집 (HTTP 1회 — eps_trend만)
+        .info는 fetch_revenue_growth()에서 별도 수집하므로 여기서 생략.
+        """
+        try:
+            stock = yf.Ticker(ticker)
+            ntm = calculate_ntm_eps(stock, today)
+            if ntm is None:
+                return ticker, {'ntm': None}
+
+            # _earnings_trend (calculate_ntm_eps 내부에서 이미 로드 → 캐시 히트)
+            raw_trend = None
+            try:
+                raw_trend = stock._analysis._earnings_trend
+            except Exception:
+                pass
+
+            return ticker, {'ntm': ntm, 'raw_trend': raw_trend}
+        except Exception as e:
+            return ticker, {'error': str(e)}
+
+    log(f"NTM EPS 병렬 수집 중 (5스레드, {len(all_tickers)}종목)...")
+    _t_eps = __import__('time').time()
+    _prefetched = {}
+    BATCH_SIZE = 50
+    for batch_start in range(0, len(all_tickers), BATCH_SIZE):
+        batch = all_tickers[batch_start:batch_start + BATCH_SIZE]
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(_prefetch_eps, t): t for t in batch}
+            for future in as_completed(futures):
+                result = future.result()
+                _prefetched[result[0]] = result[1]
+        done_count = batch_start + len(batch)
+        if done_count % 200 < BATCH_SIZE:
+            log(f"  수집: {done_count}/{len(all_tickers)}")
+        if batch_start + BATCH_SIZE < len(all_tickers):
+            __import__('time').sleep(0.5)
+    # 에러 종목 1회 재시도 (rate limit 해소 후)
+    error_tickers = [t for t, d in _prefetched.items() if 'error' in d]
+    if error_tickers:
+        log(f"EPS 재시도: {len(error_tickers)}종목 (3초 대기 후)")
+        __import__('time').sleep(3)
+        for batch_start in range(0, len(error_tickers), BATCH_SIZE):
+            batch = error_tickers[batch_start:batch_start + BATCH_SIZE]
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(_prefetch_eps, t): t for t in batch}
+                for future in as_completed(futures):
+                    t, data = future.result()
+                    if 'error' not in data:
+                        _prefetched[t] = data
+            if batch_start + BATCH_SIZE < len(error_tickers):
+                __import__('time').sleep(0.5)
+        retry_ok = sum(1 for t in error_tickers if 'error' not in _prefetched[t])
+        log(f"  재시도 복구: {retry_ok}/{len(error_tickers)}")
+    log(f"EPS 수집 완료: {len(_prefetched)}종목, {__import__('time').time() - _t_eps:.0f}초")
+
+    # Step 3b: DB 적재 + 스코어링 (순차, SQLite 안전)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
@@ -254,19 +437,22 @@ def run_ntm_collection(config):
     cache_updated = False
 
     for i, ticker in enumerate(all_tickers):
-        if (i + 1) % 100 == 0:
-            log(f"  수집 진행: {i+1}/{len(all_tickers)} (메인: {len(results)}, 턴어라운드: {len(turnaround)})")
+        if (i + 1) % 200 == 0:
+            log(f"  처리: {i+1}/{len(all_tickers)} (메인: {len(results)}, 턴어라운드: {len(turnaround)})")
             conn.commit()
 
+        data = _prefetched.get(ticker, {})
+
+        if 'error' in data:
+            errors.append((ticker, data['error']))
+            continue
+
+        ntm = data.get('ntm')
+        if ntm is None:
+            no_data.append(ticker)
+            continue
+
         try:
-            stock = yf.Ticker(ticker)
-
-            # NTM EPS 계산
-            ntm = calculate_ntm_eps(stock, today)
-            if ntm is None:
-                no_data.append(ticker)
-                continue
-
             # Score 계산
             score, seg1, seg2, seg3, seg4, is_turnaround, adj_score, direction = calculate_ntm_score(ntm)
             eps_change_90d = calculate_eps_change_90d(ntm)
@@ -276,24 +462,21 @@ def run_ntm_collection(config):
             rev_up30 = 0
             rev_down30 = 0
             num_analysts = 0
-            try:
-                raw_trend = stock._analysis._earnings_trend
-                if raw_trend:
-                    for item in raw_trend:
-                        if item.get('period') in ('0y', '+1y'):
-                            eps_rev = item.get('epsRevisions', {})
-                            up_data = eps_rev.get('upLast30days', {})
-                            down_data = eps_rev.get('downLast30days', {})
-                            up_val = up_data.get('raw', 0) if isinstance(up_data, dict) else 0
-                            down_val = down_data.get('raw', 0) if isinstance(down_data, dict) else 0
-                            ea = item.get('earningsEstimate', {})
-                            na_data = ea.get('numberOfAnalysts', {})
-                            na_val = na_data.get('raw', 0) if isinstance(na_data, dict) else 0
-                            rev_up30 = max(rev_up30, up_val)
-                            rev_down30 = max(rev_down30, down_val)
-                            num_analysts = max(num_analysts, na_val)
-            except Exception:
-                pass
+            raw_trend = data.get('raw_trend')
+            if raw_trend:
+                for item in raw_trend:
+                    if item.get('period') in ('0y', '+1y'):
+                        eps_rev = item.get('epsRevisions', {})
+                        up_data = eps_rev.get('upLast30days', {})
+                        down_data = eps_rev.get('downLast30days', {})
+                        up_val = up_data.get('raw', 0) if isinstance(up_data, dict) else 0
+                        down_val = down_data.get('raw', 0) if isinstance(down_data, dict) else 0
+                        ea = item.get('earningsEstimate', {})
+                        na_data = ea.get('numberOfAnalysts', {})
+                        na_val = na_data.get('raw', 0) if isinstance(na_data, dict) else 0
+                        rev_up30 = max(rev_up30, up_val)
+                        rev_down30 = max(rev_down30, down_val)
+                        num_analysts = max(num_analysts, na_val)
 
             # DB 적재 (기본 데이터 — price/ma60/adj_gap은 후속 UPDATE로 추가)
             # INSERT ON CONFLICT: 기존 part2_rank 보존
@@ -310,15 +493,13 @@ def run_ntm_collection(config):
                   ntm['current'], ntm['7d'], ntm['30d'], ntm['60d'], ntm['90d'],
                   1 if is_turnaround else 0))
 
-            # 종목 정보 (캐시 우선, 없으면 API 호출)
+            # 종목 정보 (캐시 우선, 미스면 플레이스홀더 — fetch_revenue_growth에서 갱신)
             if ticker in ticker_cache:
                 short_name = ticker_cache[ticker]['shortName']
                 industry_kr = ticker_cache[ticker]['industry']
             else:
-                info = stock.info
-                short_name = info.get('shortName', ticker)
-                industry_en = info.get('industry', 'N/A')
-                industry_kr = INDUSTRY_MAP.get(industry_en, industry_en)
+                short_name = ticker
+                industry_kr = '기타'
                 ticker_cache[ticker] = {'shortName': short_name, 'industry': industry_kr}
                 cache_updated = True
 
@@ -336,8 +517,7 @@ def run_ntm_collection(config):
                 if hist_all is not None:
                     hist = hist_all['Close'][ticker].dropna()
                 else:
-                    h = stock.history(period='1y')
-                    hist = h['Close']
+                    hist = pd.Series(dtype=float)
 
                 if len(hist) >= 60:
                     p_now = hist.iloc[-1]
@@ -506,7 +686,7 @@ def run_ntm_collection(config):
 # ============================================================
 
 def fetch_revenue_growth(df, today_str):
-    """전체 916종목 매출 성장률 + 재무 품질 수집 (v33)
+    """전체 종목 매출 성장률 + 재무 품질 수집 (v33)
 
     1) 전체 종목 yfinance .info → rev_growth + 12개 재무 지표 DB 저장
     2) composite score용 rev_growth를 dataframe에 매핑
@@ -525,19 +705,23 @@ def fetch_revenue_growth(df, today_str):
             return ticker, None
 
     tickers = list(df['ticker'].unique())
-    log(f"매출+품질 수집 시작: {len(tickers)}종목 (10스레드)")
+    log(f"매출+품질 수집 시작: {len(tickers)}종목 (5스레드, 배치 50)")
 
-    # 병렬 수집
+    # 배치 병렬 수집 (rate limit 방지)
+    BATCH_SIZE = 50
     results = {}
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(_fetch_one, t): t for t in tickers}
-        done = 0
-        for future in as_completed(futures):
-            ticker, info = future.result()
-            results[ticker] = info
-            done += 1
-            if done % 100 == 0:
-                log(f"  수집 진행: {done}/{len(tickers)}")
+    for batch_start in range(0, len(tickers), BATCH_SIZE):
+        batch = tickers[batch_start:batch_start + BATCH_SIZE]
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(_fetch_one, t): t for t in batch}
+            for future in as_completed(futures):
+                ticker, info = future.result()
+                results[ticker] = info
+        done = batch_start + len(batch)
+        if done % 200 < BATCH_SIZE:
+            log(f"  수집 진행: {done}/{len(tickers)}")
+        if batch_start + BATCH_SIZE < len(tickers):
+            __import__('time').sleep(0.5)
 
     # DB 일괄 저장
     rev_map = {}
@@ -608,14 +792,32 @@ def fetch_revenue_growth(df, today_str):
     df['operating_margin'] = df['ticker'].map(om_map)
     df['gross_margin'] = df['ticker'].map(gm_map)
 
+    # industry 보정: '기타'인 동적 유니버스 종목 → .info에서 실제 industry 업데이트 (v44)
+    from eps_momentum_system import INDUSTRY_MAP
+    ind_map = {}
+    updated_ind = 0
+    for t in tickers:
+        info = results.get(t)
+        if info and info.get('industry'):
+            kr_ind = INDUSTRY_MAP.get(info['industry'], info['industry'])
+            ind_map[t] = kr_ind
+    # '기타'인 종목만 업데이트
+    for idx, row in df.iterrows():
+        if row.get('industry') == '기타' and row['ticker'] in ind_map:
+            df.at[idx, 'industry'] = ind_map[row['ticker']]
+            updated_ind += 1
+    if updated_ind:
+        log(f"Industry 보정: {updated_ind}종목 ('기타' → 실제 업종)")
+
     return df, earnings_map
 
 
 def get_part2_candidates(df, top_n=None, return_counts=False):
     """Part 2 매수 후보 필터링 (공통 함수)
 
-    필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA60,
-          rev_growth ≥ 10%, num_analysts ≥ 3, 하향 비율 ≤ 30%
+    필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA120,
+          rev_growth ≥ 10%, num_analysts ≥ 3, 하향 비율 ≤ 30%,
+          구조적 저마진(OM<10%&GM<30%), OP<5%, 원자재 업종 제외
     정렬: composite score (adj_gap 70% + rev_growth 30%) 또는 adj_gap
 
     return_counts=True: (filtered_df, {'eps_screened': N, 'quality_filtered': N}) 반환
@@ -681,6 +883,22 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
             details = [f"{r['ticker']}(OM{r['operating_margin']*100:.0f}%/GM{r['gross_margin']*100:.0f}%)" for _, r in low_margin.iterrows()]
             log(f"구조적 저마진 제외: {', '.join(details)}")
         filtered = filtered[~(om.notna() & gm.notna() & (om < 0.10) & (gm < 0.30))].copy()
+
+    # 영업이익률 극저 제외 (v44): OP < 5% — 턴어라운드 초기 종목 과대평가 방지
+    if 'operating_margin' in filtered.columns:
+        om = filtered['operating_margin']
+        ultra_low_op = filtered[om.notna() & (om < 0.05)]
+        if len(ultra_low_op) > 0:
+            details = [f"{r['ticker']}(OM{r['operating_margin']*100:.0f}%)" for _, r in ultra_low_op.iterrows()]
+            log(f"영업이익률 부족(<5%) 제외: {', '.join(details)}")
+        filtered = filtered[~(om.notna() & (om < 0.05))].copy()
+
+    # 원자재/광업 제외 (v44): 금, 귀금속, 구리 등 commodity 가격 패스스루 업종
+    if 'industry' in filtered.columns:
+        commodity = filtered[filtered['industry'].isin(COMMODITY_INDUSTRIES)]
+        if len(commodity) > 0:
+            log(f"원자재 제외: {', '.join(commodity['ticker'].tolist())}")
+        filtered = filtered[~filtered['industry'].isin(COMMODITY_INDUSTRIES)].copy()
 
     if has_rev:
         # z-score 정규화
@@ -1901,7 +2119,7 @@ def classify_exit_reasons(exited_tickers, results_df):
     """이탈 종목 사유 분류 — 사유 태그 통일
 
     Returns: [(ticker, prev_rank, cur_rank, reasons)] — 사유 태그 리스트
-    사유 태그: [주가선반영], [MA120↓], [저마진], [순위하락], [점수↓], [EPS↓]
+    사유 태그: [주가선반영], [MA120↓], [저마진], [원자재], [순위하락], [점수↓], [EPS↓]
     """
     import pandas as pd
     result = []
@@ -1930,11 +2148,16 @@ def classify_exit_reasons(exited_tickers, results_df):
                 reasons.append('MA120↓')
             if (r.get('adj_gap', 0) or 0) > 0:
                 reasons.append('주가선반영')
-            # 구조적 저마진 필터
+            # 저마진 필터: OM<10%&GM<30% 또는 OM<5%
             om = r.get('operating_margin')
             gm = r.get('gross_margin')
-            if om is not None and gm is not None and om < 0.10 and gm < 0.30:
+            if (om is not None and gm is not None and om < 0.10 and gm < 0.30) or \
+               (om is not None and om < 0.05):
                 reasons.append('저마진')
+            # 원자재 업종
+            ind = r.get('industry', '')
+            if ind and ind in COMMODITY_INDUSTRIES:
+                reasons.append('원자재')
             if (r.get('adj_score', 0) or 0) <= 9:
                 reasons.append('점수↓')
             if (r.get('eps_change_90d', 0) or 0) <= 0:
@@ -2179,7 +2402,7 @@ def compute_factor_ranks(results_df, today_tickers):
 def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_content,
                           portfolio_mode, final_action,
                           weighted_ranks=None, filter_count=None,
-                          status_map=None, eps_screened=None):
+                          status_map=None, eps_screened=None, universe_size=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -2232,11 +2455,13 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
     lines.append('')
     lines.append('📋 선정 과정')
+    uni = universe_size or 959
     if eps_screened and filter_count:
-        lines.append(f'916종목 중 EPS 상향 상위 {eps_screened}종목')
+        lines.append(f'{uni}종목 중 EPS 상향 상위 {eps_screened}종목')
         lines.append(f'→ 매출·커버리지·마진 필터 → {filter_count}종목')
     else:
-        lines.append(f'916종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else '916종목 중 EPS 상향 스크리닝')
+        lines.append(f'{uni}종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else f'{uni}종목 중 EPS 상향 스크리닝')
+    lines.append('→ 원자재·저마진 업종 제외')
     lines.append('→ 저평가·성장 채점 → 상위 30(3일 평균)')
     lines.append(f'→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목')
 
@@ -2536,7 +2761,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
                               weighted_ranks=None, rank_change_tags=None,
                               forward_test=None, filter_count=None,
                               factor_ranks=None, status_map=None,
-                              eps_screened=None):
+                              eps_screened=None, universe_size=None):
     """v2 메시지 1: 오늘의 추천
 
     핵심 원칙:
@@ -2601,11 +2826,13 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
     lines.append('')
     lines.append('📋 선정 과정')
+    uni = universe_size or 959
     if eps_screened and filter_count:
-        lines.append(f'<i>916종목 중 EPS 상향 상위 {eps_screened}종목</i>')
+        lines.append(f'<i>{uni}종목 중 EPS 상향 상위 {eps_screened}종목</i>')
         lines.append(f'<i>→ 매출·커버리지·마진 필터 → {filter_count}종목</i>')
     else:
-        lines.append(f'<i>916종목 중 EPS 상향 상위 {filter_count}종목</i>' if filter_count else '<i>916종목 중 EPS 상향 스크리닝</i>')
+        lines.append(f'<i>{uni}종목 중 EPS 상향 상위 {filter_count}종목</i>' if filter_count else f'<i>{uni}종목 중 EPS 상향 스크리닝</i>')
+    lines.append('<i>→ 원자재·저마진 업종 제외</i>')
     lines.append('<i>→ 저평가·성장 채점 → 상위 30</i>')
     lines.append(f'<i>→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목</i>')
 
@@ -3180,7 +3407,8 @@ def main():
                 selected, earnings_map, exit_reasons, biz_day, ai_content,
                 portfolio_mode, final_action,
                 weighted_ranks=weighted_ranks, filter_count=filter_count,
-                status_map=status_map, eps_screened=eps_screened
+                status_map=status_map, eps_screened=eps_screened,
+                universe_size=stats.get('universe')
             )
             if msg_signal:
                 if send_to_channel:
@@ -3260,7 +3488,7 @@ def main():
                 weighted_ranks=weighted_ranks, rank_change_tags=rank_change_tags,
                 forward_test=forward_test, filter_count=filter_count,
                 factor_ranks=factor_ranks, status_map=status_map,
-                eps_screened=eps_screened
+                eps_screened=eps_screened, universe_size=stats.get('universe')
             )
             if msg_signal:
                 if send_to_channel:

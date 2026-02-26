@@ -126,7 +126,7 @@ INDICES = {
         'VC','VFC','VLY','VMI','VNO','VNOM','VNT','VOYA','VVV','WAL',
         'WBS','WCC','WEX','WFRD','WH','WHR','WING','WLK','WMG','WMS',
         'WPC','WSO','WTFC','WTRG','WTS','WWD','XPO','XRAY','YETI','ZION'
-    ]
+    ],
 }
 
 # 업종 한글 매핑 (yfinance industry → 한글 축약)
