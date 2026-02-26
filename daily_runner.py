@@ -2116,31 +2116,99 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, ea
 # ============================================================
 
 def classify_exit_reasons(exited_tickers, results_df):
-    """이탈 종목 사유 분류 — 필터탈락 vs 순위밀림
+    """이탈 종목 사유 분류 — 필터탈락(구체 사유) vs 순위밀림
 
     Returns: [(ticker, cur_composite_rank or None, reason)]
-    - composite_rank 있으면 → '순위밀림' (필터 통과, 가중순위에서 밀림)
-    - composite_rank 없으면 → '필터탈락' (필터 자체 탈락)
+    - composite_rank 있으면 → '순위밀림'
+    - composite_rank 없으면 → '필터탈락: 구체사유'
     """
     import pandas as pd
+    import numpy as np
     result = []
     if not exited_tickers or results_df is None or results_df.empty:
         return result
 
     # 오늘 composite_rank (DB 저장값) 조회
     composite_map = {}
+    full_data = {}
     for _, row in results_df.iterrows():
         t = row.get('ticker', '')
+        if not t:
+            continue
         cr = row.get('composite_rank')
-        if t and cr is not None and pd.notna(cr):
+        if cr is not None and pd.notna(cr):
             composite_map[t] = int(cr)
+        if t in exited_tickers:
+            full_data[t] = row
 
     for t in sorted(exited_tickers, key=lambda x: exited_tickers[x]):
         cur_rank = composite_map.get(t)
-        reason = '순위밀림' if cur_rank is not None else '필터탈락'
+        if cur_rank is not None:
+            reason = '순위밀림'
+        else:
+            # 어떤 필터에 걸렸는지 특정
+            reason = _identify_filter_failure(full_data.get(t), t)
         result.append((t, cur_rank, reason))
 
     return result
+
+
+def _identify_filter_failure(row, ticker):
+    """필터탈락 종목의 구체적 탈락 사유 특정"""
+    import pandas as pd
+    if row is None:
+        return '필터탈락'
+
+    score = row.get('adj_score', 0) or 0
+    if score <= 9:
+        return '점수↓'
+
+    eps_90d = row.get('eps_change_90d', 0) or 0
+    if eps_90d <= 0:
+        return 'EPS↓'
+
+    price = row.get('price', 0) or 0
+    if price < 10:
+        return '저가'
+
+    # MA120 우선, 없으면 MA60
+    ma120 = row.get('ma120')
+    ma60 = row.get('ma60')
+    ma_val = (ma120 if ma120 is not None and pd.notna(ma120) else ma60) or 0
+    if ma_val > 0 and price < ma_val:
+        return 'MA↓'
+
+    ntm = row.get('ntm_current', 0) or 0
+    fwd_pe = price / ntm if ntm > 0 else 0
+    if fwd_pe <= 0:
+        return 'PE불량'
+
+    rev = row.get('rev_growth')
+    if rev is not None and pd.notna(rev) and rev < 0.10:
+        return '매출↓'
+
+    analysts = row.get('num_analysts', 0) or 0
+    if analysts < 3:
+        return '저커버리지'
+
+    up = row.get('rev_up30', 0) or 0
+    dn = row.get('rev_down30', 0) or 0
+    if (up + dn) > 0 and dn / (up + dn) > 0.3:
+        return '하향과다'
+
+    om = row.get('operating_margin')
+    gm = row.get('gross_margin')
+    if om is not None and pd.notna(om):
+        if om < 0.05:
+            return 'OP<5%'
+        if gm is not None and pd.notna(gm) and om < 0.10 and gm < 0.30:
+            return '저마진'
+
+    ind = row.get('industry', '')
+    if ind and ind in COMMODITY_INDUSTRIES:
+        return '원자재'
+
+    return '필터탈락'
 
 
 def run_v2_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=None):
