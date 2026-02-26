@@ -2161,7 +2161,7 @@ def _identify_filter_failure(row, ticker):
 
     score = row.get('adj_score', 0) or 0
     if score <= 9:
-        return '점수↓'
+        return 'EPS↓'
 
     eps_90d = row.get('eps_change_90d', 0) or 0
     if eps_90d <= 0:
