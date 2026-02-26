@@ -60,7 +60,7 @@
 > **v42**: 2026-02-24 집 PC — 메시지 품질 개선 9항목: 어닝 날짜 표기(장후 태그), 업종명 HW→하드웨어, 계절 라벨 제거+final_action 해요체 전면 교체(15개), 퍼널 "(3일 평균)", Watchlist 범례(아이콘+가중순위)
 > **v42.1**: 2026-02-24 집 PC — 구조적 저마진 필터: OpMargin<10% AND GrossMargin<30% → Top 30 제외 (DAR, THO, ARW 등 구조적 저마진 종목 필터링)
 > **v43**: 2026-02-24 집 PC — US vs 한국 전략 분화 분석: adj_gap 이식 불가(NTM EPS 시계열 없음), 저마진 필터 보류(TTM 아닌 단일분기), 한국 포트폴리오 구조 변경안 도출(7종목/월간리밸/Top20)
-> **v44**: 2026-02-26 집 PC — 동적 유니버스(NASDAQ API $5B+) + 원자재 제외: 916→~1,260종목 확장, commodity 업종 22개 하드필터 제외(금속+석유+농업+목재), MA120 사전필터+10스레드 병렬 EPS 수집(~2.8분)
+> **v44**: 2026-02-26 집 PC — 동적 유니버스(NASDAQ API $5B+) + 원자재 제외 + OP<5% 필터: 916→~1,260종목 확장, commodity 업종 22개 하드필터 제외(금속+석유+농업+목재), 영업이익률<5% 턴어라운드 초기 종목 제외, MA120 사전필터+병렬 EPS 수집
 
 ---
 
@@ -94,7 +94,17 @@
   - **에너지**: 석유가스(E&P), 석유종합(Integrated), 석유정제(Refining)
   - **농업/임업**: 농업(Agricultural Inputs), 목재(Lumber & Wood)
 - `fetch_revenue_growth()` 에서 '기타' 종목의 industry 보정 (yfinance .info → INDUSTRY_MAP)
-- 퍼널 필터 순서: EPS 상향 → 매출/커버리지/마진 → **원자재 제외** → composite score
+- 퍼널 필터 순서: EPS 상향 → 매출/커버리지/마진 → **OP<5% 제외** → **원자재 제외** → composite score
+
+### 변경 5: 영업이익률 극저 필터 (OP < 5%)
+- `operating_margin < 5%`이면 제외 (NULL이면 스킵)
+- **근거**: SITM(SiTime, OP 3%) 같은 턴어라운드 초기 종목이 composite rank 2위 진입
+  - trailing EPS -$1.71 → forward EPS $6.60 (adj_gap = -9.1%)
+  - 시장이 '합리적으로 회의적'인 상태를 '저평가'로 오인
+  - OP 3%인 기업이 Top 5 매수 후보가 되면 고객 리스크
+- **영향**: SITM(3%), FIVE(4%), LSCC(2%), IPGP(2%) 제외
+  - FIVE/LSCC는 이미 Top 30 경계 수준
+- **기존 저마진 필터와 분리**: OM<10% & GM<30% (구조적 저마진) vs OM<5% (영업이익률 극저) 는 별도 기준
 
 ### 근거: 왜 원자재를 제외하는가?
 | 항목 | 금광주 | CF Industries (비료) | 구조적 성장주 (NVDA 등) |

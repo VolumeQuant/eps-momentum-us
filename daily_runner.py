@@ -815,8 +815,9 @@ def fetch_revenue_growth(df, today_str):
 def get_part2_candidates(df, top_n=None, return_counts=False):
     """Part 2 매수 후보 필터링 (공통 함수)
 
-    필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA60,
-          rev_growth ≥ 10%, num_analysts ≥ 3, 하향 비율 ≤ 30%
+    필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA120,
+          rev_growth ≥ 10%, num_analysts ≥ 3, 하향 비율 ≤ 30%,
+          구조적 저마진(OM<10%&GM<30%), OP<5%, 원자재 업종 제외
     정렬: composite score (adj_gap 70% + rev_growth 30%) 또는 adj_gap
 
     return_counts=True: (filtered_df, {'eps_screened': N, 'quality_filtered': N}) 반환
@@ -882,6 +883,15 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
             details = [f"{r['ticker']}(OM{r['operating_margin']*100:.0f}%/GM{r['gross_margin']*100:.0f}%)" for _, r in low_margin.iterrows()]
             log(f"구조적 저마진 제외: {', '.join(details)}")
         filtered = filtered[~(om.notna() & gm.notna() & (om < 0.10) & (gm < 0.30))].copy()
+
+    # 영업이익률 극저 제외 (v44): OP < 5% — 턴어라운드 초기 종목 과대평가 방지
+    if 'operating_margin' in filtered.columns:
+        om = filtered['operating_margin']
+        ultra_low_op = filtered[om.notna() & (om < 0.05)]
+        if len(ultra_low_op) > 0:
+            details = [f"{r['ticker']}(OM{r['operating_margin']*100:.0f}%)" for _, r in ultra_low_op.iterrows()]
+            log(f"영업이익률 부족(<5%) 제외: {', '.join(details)}")
+        filtered = filtered[~(om.notna() & (om < 0.05))].copy()
 
     # 원자재/광업 제외 (v44): 금, 귀금속, 구리 등 commodity 가격 패스스루 업종
     if 'industry' in filtered.columns:
@@ -2446,7 +2456,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'→ 매출·커버리지·마진 필터 → {filter_count}종목')
     else:
         lines.append(f'{uni}종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else f'{uni}종목 중 EPS 상향 스크리닝')
-    lines.append('→ 원자재 업종 제외(일시적 가격 수혜)')
+    lines.append('→ 원자재·저마진 업종 제외')
     lines.append('→ 저평가·성장 채점 → 상위 30(3일 평균)')
     lines.append(f'→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목')
 
@@ -2817,7 +2827,7 @@ def create_v2_signal_message(selected, risk_status, market_lines, earnings_map,
         lines.append(f'<i>→ 매출·커버리지·마진 필터 → {filter_count}종목</i>')
     else:
         lines.append(f'<i>{uni}종목 중 EPS 상향 상위 {filter_count}종목</i>' if filter_count else f'<i>{uni}종목 중 EPS 상향 스크리닝</i>')
-    lines.append('<i>→ 원자재 업종 제외(일시적 가격 수혜)</i>')
+    lines.append('<i>→ 원자재·저마진 업종 제외</i>')
     lines.append('<i>→ 저평가·성장 채점 → 상위 30</i>')
     lines.append(f'<i>→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목</i>')
 
