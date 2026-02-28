@@ -8,7 +8,7 @@ on:
         required: false
         default: ''
       message_version:
-        description: 'Message format: v2 or v3 (current)'
+        description: 'Message format (v3 only)'
         required: false
         default: 'v3'
 

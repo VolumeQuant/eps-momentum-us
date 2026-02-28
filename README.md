@@ -1,4 +1,4 @@
-# EPS Momentum System v22 - Revenue Required (US Stocks)
+# EPS Momentum System v45 (US Stocks)
 
 Forward 12개월 EPS(NTM EPS) 기반 모멘텀 시스템. "파괴적 혁신 기업을 싸게 살래" 철학으로, EPS 괴리율(70%)과 매출 성장률(30%)을 복합 점수화하여 종목을 선별. MA60 + 3일 연속 검증으로 신뢰도를 높이고, AI(Gemini)가 위험 신호를 점검한 뒤 최종 포트폴리오를 추천.
 
@@ -12,16 +12,19 @@ yfinance의 0y/+1y EPS를 **endDate 기반 시간 가중치**로 블렌딩하여
 
 **철학**: adj_gap(저평가) 70% + 매출 성장률 30%의 복합 점수로 정렬. 혁신 없는 종목은 저평가여도 제외.
 
-**필터 (7개)**:
+**필터 (10개)**:
 | 필터 | 조건 | 근거 |
 |------|------|------|
 | EPS 모멘텀 | adj_score > 9 | 방향 보정 점수 최소 기준 |
 | EPS 개선 | eps_change_90d > 0 | EPS가 실제로 올라야 함 |
 | Fwd PE 유효 | fwd_pe > 0 | 데이터 유효성 |
-| **MA60** | price > 60일 이동평균 | 하락 추세 종목 제외 (기술적 안전장치) |
+| **MA120** | price > 120일 이동평균 (fallback MA60) | 하락 추세 종목 제외 |
 | **$10** | price ≥ $10 | 페니스톡 제외 |
-| **매출 성장** | rev_growth ≥ 10% | 혁신 부족 기업 제외 (HSY, LUV, F 등 탈락) |
-| **턴어라운드** | \|NTM\| ≥ $1.00 | 저 베이스 EPS 왜곡 방지 |
+| **매출 성장** | rev_growth ≥ 10% | 혁신 부족 기업 제외 |
+| **커버리지** | num_analysts ≥ 3 | 소수 의견 데이터 불안정 |
+| **하향 제한** | 하향 비율 ≤ 30% | 다수 애널리스트 동시 하향 제외 |
+| **저마진 제외** | OM < 10% & GM < 30% 또는 OP < 5% | 구조적 저마진/저수익 기업 제외 |
+| **원자재 제외** | 22개 원자재 업종 제외 | 구조적 성장 필터링 |
 
 **Composite Score 정렬**:
 ```
@@ -125,47 +128,31 @@ yfinance `epsRevisions.upLast30days/downLast30days` — **max(0y, +1y)** 데이�
 
 NASDAQ 100 + S&P 500 + S&P 400 MidCap = **916개 종목** (중복 제거)
 
-## 텔레그램 메시지
+## 텔레그램 메시지 (v3)
 
-현재 **개인봇만 발송** (채널 전송 중단).
+3개 메시지 + 시스템 로그 (개인봇). 채널은 Cold Start(3일 미만) 후 자동 활성화.
 
 | 메시지 | 내용 |
 |--------|------|
-| 📖 투자 가이드 | 시스템 개요 (월가, 이익, 5단계 퍼널), 최소 2주 보유, 매도 기준 |
-| [1/4] 📊 시장 현황 | 시장지수 + 신용시장(HY Spread) + 주도 업종 |
-| [2/4] 📋 매수 후보 | Top 30(✅/⏳/🆕) + 📉 이탈 |
-| [3/4] 🛡️ AI 리스크 필터 | 📰시장동향 + ⚠️주의종목 + 📅어닝 |
-| [4/4] 🎯 최종 추천 | 퍼널 요약 + 동일 비중 포트폴리오 |
-| 시스템 로그 | DB 적재 결과, 분포 통계 (개인봇) |
+| **Signal** | Top 5 매수 후보 + 선정 과정 + 종목별 근거(EPS/매출+순위+AI 2~3문장) + 이탈 1줄 알림 |
+| **AI Risk** | 시장환경(지수+HY+VIX+concordance+final_action) + AI 시장동향 + 포트폴리오 경고 |
+| **Watchlist** | Top 30종목(이름+업종 / EPS추이 / EPS+매출 / 의견+순위) + 이탈 매도검토 섹션 |
+| 시스템 로그 | DB 적재 결과, 분포 통계 (개인봇만) |
 
-발송 순서: 📖 투자 가이드 → [1/4] 시장 → [2/4] 매수 후보 → [3/4] AI 필터 → [4/4] 최종 추천 → 시스템 로그
+핵심 원칙: **목록에 있으면 보유, 없으면 매도 검토.**
 
-스토리 라인: 📖이해 → 📊시장 → 📋탐색 → 🛡️필터링 → 🎯실행.
-핵심 원칙: **목록에 있으면 보유, 없으면 매도 검토.** 빅맥처럼 단순 명료하게.
-
-### 메시지 포맷 (4줄 레이아웃)
+### 종목 포맷 (Watchlist 4줄)
 ```
-✅ 1. 종목명(티커)
-업종 · 날씨아이콘 추세설명
-EPS +N% · 매출 +N%
-의견 ↑N↓N · 순위 3→4→1
+✅ 1. 종목명(티커) 업종
+EPS추이 ☀️🔥🔥🌤️ 중반 급등
+EPS +N% · 매출 +N% · 의견 ↑N↓N
+순위 3→4→1위
 ```
-- 순위 이력: `get_rank_history()` → 최근 3일 DB 조회 → `3→4→1`
-- 이력 없으면 `-→-→N` 형태
-- 이탈 종목: `종목명(티커) · 어제 N위 → M위/조건 미달`
-
-### 업종 분포 통계
-[1/3] 메시지에 Top 30의 업종 분포를 표시: `📊 주도 업종: 반도체 8 · 통신장비 3`
-2종목 이상 업종만 표시. 주도 섹터 파악, 시장 폭(Market Breadth) 판단, 섹터 로테이션 감지 용도.
 
 ### 포트폴리오 추천
-매수 후보 중 ✅ (3일 검증) + 리스크 필터 통과 종목 → composite 순서 그대로 상위 5개 선정 (섹터 분산 없음).
-**동일 비중**: 5종목 각 20% (3종목이면 34/33/33). Gemini가 종목별 선정 이유 생성.
+✅ (3일 검증) + 리스크 필터 통과 종목 → 가중순위 상위 5개 선정.
+**동일 비중**: 5종목 각 20%. Gemini가 종목별 선정 이유 생성.
 ✅ 종목 부족 시 있는 만큼만 추천. 0개면 "관망 권장" 메시지.
-
-### 시장 컨텍스트
-[1/3] 메시지 상단에 S&P 500 / 나스닥 전일 종가 및 등락률 표시.
-yfinance `^GSPC`, `^IXIC` 5일 히스토리에서 계산.
 
 ### 신용시장 모니터링 (HY Spread)
 FRED BAMLH0A0HYM2 (US High Yield Spread) 기반 Verdad 4분면 모델.
@@ -343,21 +330,23 @@ python daily_runner.py
 
 ```
 eps_momentum_system.py    # INDICES, INDUSTRY_MAP, NTM 계산 함수, get_trend_lights()
-daily_runner.py           # 데이터 수집, MA60, 3일 검증, AI 분석, 텔레그램, main()
-config.json               # 텔레그램 토큰, Gemini API 키, Git 설정 (.gitignore)
+daily_runner.py           # 데이터 수집, MA120, 3일 검증, AI 분석(Gemini), 텔레그램 v3, main()
+config.json               # 텔레그램 토큰, Gemini API 키, Git 설정
 run_daily.bat             # Windows 로컬 실행 스크립트
 requirements.txt          # Python 패키지 의존성
+quick_test_v3.py          # DB+cache+mock 기반 빠른 v3 메시지 테스트
 ticker_info_cache.json    # 종목 이름/업종 캐시 (자동 생성)
 eps_momentum_data.db      # SQLite DB (자동 생성)
 backtest.py               # 백테스트 프레임워크 (검증일수 × 보유기간 매트릭스)
-SESSION_HANDOFF.md        # 설계 결정 히스토리 (v1~v21)
+SESSION_HANDOFF.md        # 설계 결정 히스토리 (v1~v45)
 ```
 
 ## 버전 히스토리
 
 | 버전 | 날짜 | 변경 |
 |------|------|------|
-| **v22** | **2026-02-12** | **Revenue Required**: 섹터 분산 제거(composite 순서 그대로), rev_growth 필수화(매출 데이터 없으면 Top 30 제외), 매출 수집 전체 확대(50→eligible 전체), 업종 분포 통계 추가 |
+| **v45** | **2026-02-28** | **v2 메시지 제거**: v3(Signal+AI Risk+Watchlist) 전용, create_v2_signal/watchlist 삭제(-471줄), run_v2_ai_analysis→run_ai_analysis 리네임, quick_test_v2.py 삭제, config.json v3 고정 |
+| v22 | 2026-02-12 | Revenue Required: 섹터 분산 제거, rev_growth 필수화, 매출 수집 전체 확대, 업종 분포 통계 추가 |
 | v21 | 2026-02-12 | Composite Score: adj_gap 70%+매출성장률 30% 복합 순위, 매출 10% 하드 필터, 동일 비중(각 20%), AI 프롬프트 구조화(3섹션+검증), 채널 전송 중단, 메시지 4줄 포맷, 순위 이력 3일 표시 |
 | v20 | 2026-02-11 | Simple & Clear: Death List 제거→set 비교, Top 30 통일, ⏳ 표시 전용, 투자 가이드 재작성, 메시지 3개 분리, adj_gap≤0 필터 제거, 마켓 날짜 자동 감지, ON CONFLICT 보존, 섹터 분산, 리스크 필터 철학 확립(하향 비율 30%, 고평가 제거, 어닝 소프트) |
 | v19.2 | 2026-02-10 | UI 개선: [1/2][2/2] 구조, 시장 컨텍스트, MAX_WEIGHT 30%, 날짜 biz_day 통일 |

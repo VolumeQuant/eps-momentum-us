@@ -48,7 +48,7 @@ jobs:
         python daily_runner.py
       env:
         TZ: 'America/New_York'
-        MESSAGE_VERSION: 'v3'
+        MESSAGE_VERSION: 'v3'  # v3 고정 (v2 제거됨)
 
     - name: Commit and push results
       run: |
