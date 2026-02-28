@@ -5106,5 +5106,33 @@
   "VG": {
     "shortName": "VG",
     "industry": "기타"
+  },
+  "AAOI": {
+    "shortName": "AAOI",
+    "industry": "기타"
+  },
+  "HESM": {
+    "shortName": "HESM",
+    "industry": "기타"
+  },
+  "MCY": {
+    "shortName": "MCY",
+    "industry": "기타"
+  },
+  "SNY": {
+    "shortName": "SNY",
+    "industry": "기타"
+  },
+  "TEO": {
+    "shortName": "TEO",
+    "industry": "기타"
+  },
+  "WCN": {
+    "shortName": "WCN",
+    "industry": "기타"
+  },
+  "WFG": {
+    "shortName": "WFG",
+    "industry": "기타"
   }
 }
