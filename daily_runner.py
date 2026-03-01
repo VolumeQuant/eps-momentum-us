@@ -2442,7 +2442,8 @@ def compute_factor_ranks(results_df, today_tickers):
 def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_content,
                           portfolio_mode, final_action,
                           weighted_ranks=None, filter_count=None,
-                          status_map=None, eps_screened=None, universe_size=None):
+                          status_map=None, eps_screened=None, universe_size=None,
+                          exited_tickers=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -2557,10 +2558,13 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         exit_tickers = [t for t, _, _ in exit_reasons]
         lines.append('')
         lines.append(f'⚠️ 이탈: {", ".join(exit_tickers)} → Watchlist 참고')
-        # MA120 이탈 + EPS 상위권 종목 → 반등 관심 대상
-        for t, cur_rank, reason in exit_reasons:
-            if reason == 'MA120↓' and cur_rank is not None and cur_rank <= 10:
-                lines.append(f'💡 {t} — MA120 이탈이지만 EPS {cur_rank}위, 반등 시 재진입 대상')
+        # MA120 이탈 + 어제 상위권 종목 → 반등 관심 대상
+        if exited_tickers:
+            for t, _, reason in exit_reasons:
+                if reason == 'MA120↓':
+                    prev_rank = exited_tickers.get(t)
+                    if prev_rank is not None and prev_rank <= 10:
+                        lines.append(f'💡 {t} — MA120 이탈이지만 어제 {prev_rank}위, 반등 시 재진입 대상')
 
     # ━━ 범례 + 면책 ━━
     lines.append('')
@@ -2983,7 +2987,8 @@ def main():
             portfolio_mode, final_action,
             weighted_ranks=weighted_ranks, filter_count=filter_count,
             status_map=status_map, eps_screened=eps_screened,
-            universe_size=stats.get('universe')
+            universe_size=stats.get('universe'),
+            exited_tickers=exited_tickers
         )
         if msg_signal:
             if send_to_channel:
