@@ -2175,7 +2175,7 @@ def _identify_filter_failure(row, ticker):
     ma60 = row.get('ma60')
     ma_val = (ma120 if ma120 is not None and pd.notna(ma120) else ma60) or 0
     if ma_val > 0 and price < ma_val:
-        return 'MA↓'
+        return 'MA120↓'
 
     ntm = row.get('ntm_current', 0) or 0
     fwd_pe = price / ntm if ntm > 0 else 0
@@ -2557,6 +2557,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         exit_tickers = [t for t, _, _ in exit_reasons]
         lines.append('')
         lines.append(f'⚠️ 이탈: {", ".join(exit_tickers)} → Watchlist 참고')
+        # MA120 이탈 + EPS 상위권 종목 → 반등 관심 대상
+        for t, cur_rank, reason in exit_reasons:
+            if reason == 'MA120↓' and cur_rank is not None and cur_rank <= 10:
+                lines.append(f'💡 {t} — MA120 이탈이지만 EPS {cur_rank}위, 반등 시 재진입 대상')
 
     # ━━ 범례 + 면책 ━━
     lines.append('')
