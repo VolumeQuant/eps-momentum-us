@@ -2156,7 +2156,23 @@ def _identify_filter_failure(row, ticker):
     """필터탈락 종목의 구체적 탈락 사유 특정"""
     import pandas as pd
     if row is None:
-        return '필터탈락'
+        # 오늘 수집 안 된 종목 → DB에서 최근 데이터로 사유 추정
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM ntm_screening WHERE ticker=? ORDER BY date DESC LIMIT 1',
+                (ticker,)
+            )
+            r = cursor.fetchone()
+            if r:
+                cols = [d[0] for d in cursor.description]
+                row = dict(zip(cols, r))
+            conn.close()
+        except Exception:
+            pass
+        if row is None:
+            return '필터탈락'
 
     score = row.get('adj_score', 0) or 0
     if score <= 9:
