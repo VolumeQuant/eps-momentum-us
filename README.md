@@ -345,7 +345,8 @@ SESSION_HANDOFF.md        # 설계 결정 히스토리 (v1~v45)
 
 | 버전 | 날짜 | 변경 |
 |------|------|------|
-| **v45** | **2026-02-28** | **v2 메시지 제거**: v3(Signal+AI Risk+Watchlist) 전용, create_v2_signal/watchlist 삭제(-471줄), run_v2_ai_analysis→run_ai_analysis 리네임, quick_test_v2.py 삭제, config.json v3 고정 |
+| **v45.1** | **2026-03-01** | **MA120↓ 표기 + 반등 관심**: 이탈 사유 MA↓→MA120↓ 명확화, MA120 이탈+어제 Top10 종목에 💡반등 관심 표시(Signal), 수집 안 된 종목도 DB 최근 데이터로 구체적 이탈 사유 추정 |
+| v45 | 2026-02-28 | v2 메시지 제거: v3 전용, create_v2_signal/watchlist 삭제(-471줄), run_ai_analysis 리네임, quick_test_v2.py 삭제 |
 | v22 | 2026-02-12 | Revenue Required: 섹터 분산 제거, rev_growth 필수화, 매출 수집 전체 확대, 업종 분포 통계 추가 |
 | v21 | 2026-02-12 | Composite Score: adj_gap 70%+매출성장률 30% 복합 순위, 매출 10% 하드 필터, 동일 비중(각 20%), AI 프롬프트 구조화(3섹션+검증), 채널 전송 중단, 메시지 4줄 포맷, 순위 이력 3일 표시 |
 | v20 | 2026-02-11 | Simple & Clear: Death List 제거→set 비교, Top 30 통일, ⏳ 표시 전용, 투자 가이드 재작성, 메시지 3개 분리, adj_gap≤0 필터 제거, 마켓 날짜 자동 감지, ON CONFLICT 보존, 섹터 분산, 리스크 필터 철학 확립(하향 비율 30%, 고평가 제거, 어닝 소프트) |
