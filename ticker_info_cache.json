@@ -5134,5 +5134,45 @@
   "WFG": {
     "shortName": "WFG",
     "industry": "기타"
+  },
+  "BIRK": {
+    "shortName": "BIRK",
+    "industry": "기타"
+  },
+  "CRC": {
+    "shortName": "CRC",
+    "industry": "기타"
+  },
+  "FPS": {
+    "shortName": "FPS",
+    "industry": "기타"
+  },
+  "GFL": {
+    "shortName": "GFL",
+    "industry": "기타"
+  },
+  "KSPI": {
+    "shortName": "KSPI",
+    "industry": "기타"
+  },
+  "OUT": {
+    "shortName": "OUT",
+    "industry": "기타"
+  },
+  "PECO": {
+    "shortName": "PECO",
+    "industry": "기타"
+  },
+  "RDNT": {
+    "shortName": "RDNT",
+    "industry": "기타"
+  },
+  "SM": {
+    "shortName": "SM",
+    "industry": "기타"
+  },
+  "TMDX": {
+    "shortName": "TMDX",
+    "industry": "기타"
   }
 }
