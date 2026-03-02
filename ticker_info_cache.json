@@ -5134,5 +5134,13 @@
   "WFG": {
     "shortName": "WFG",
     "industry": "기타"
+  },
+  "OUT": {
+    "shortName": "OUT",
+    "industry": "기타"
+  },
+  "SM": {
+    "shortName": "SM",
+    "industry": "기타"
   }
 }

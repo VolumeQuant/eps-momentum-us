@@ -1,0 +1,148 @@
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: EAI"}}}
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: EMP"}}}
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: GJS"}}}
+HTTP Error 401: {"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}
+HTTP Error 401: {"finance":{"result":null,"error":{"code":"Unauthorized","description":"User is unable to access this feature - https://bit.ly/yahoo-finance-api-feedback"}}}
+HTTP Error 401: {"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}
+[2026-02-28 13:14:37] [INFO] ============================================================
+[2026-02-28 13:14:37] [INFO] EPS Momentum Daily Runner v31 - Balanced Review
+[2026-02-28 13:14:37] [INFO] ============================================================
+[2026-02-28 13:14:37] [INFO] 설정 로드 완료: C:\dev\claude-code\eps-momentum-us\config.json
+[2026-02-28 13:14:37] [INFO] ============================================================
+[2026-02-28 13:14:37] [INFO] NTM EPS 데이터 수집 시작
+[2026-02-28 13:14:37] [INFO] ============================================================
+[2026-02-28 13:14:40] [INFO] NTM 데이터베이스 초기화 완료
+[2026-02-28 13:14:42] [INFO] 마켓 날짜: 2026-02-27
+[2026-02-28 13:14:42] [INFO] 기본 유니버스 (S&P500+400+NQ100): 916개
+[2026-02-28 13:14:49] [INFO]   비보통주 63개 제외 (우선주/채권/워런트)
+[2026-02-28 13:14:49] [INFO] 동적 확장 ($5B+): +533개 → 총 1449개
+[2026-02-28 13:14:49] [INFO] 유니버스: 1449개 종목
+[2026-02-28 13:14:49] [INFO] 종목 정보 캐시 로드: 1277개
+[2026-02-28 13:14:49] [INFO] 가격 데이터 일괄 다운로드 중...
+[2026-02-28 13:15:27] [INFO] 가격 다운로드 완료
+[2026-02-28 13:15:36] [INFO] MA120 사전 필터: 동적 종목 172개 제외 → 1277개 수집
+[2026-02-28 13:15:36] [INFO] NTM EPS 병렬 수집 중 (5스레드, 1277종목)...
+[2026-02-28 13:15:54] [INFO]   수집: 200/1277
+[2026-02-28 13:16:13] [INFO]   수집: 400/1277
+[2026-02-28 13:16:31] [INFO]   수집: 600/1277
+[2026-02-28 13:16:49] [INFO]   수집: 800/1277
+[2026-02-28 13:17:06] [INFO]   수집: 1000/1277
+[2026-02-28 13:17:24] [INFO]   수집: 1200/1277
+[2026-02-28 13:17:31] [INFO] EPS 재시도: 4종목 (3초 대기 후)
+[2026-02-28 13:17:35] [INFO]   재시도 복구: 0/4
+[2026-02-28 13:17:35] [INFO] EPS 수집 완료: 1277종목, 119초
+[2026-02-28 13:17:39] [INFO]   처리: 200/1277 (메인: 174, 턴어라운드: 24)
+[2026-02-28 13:17:43] [INFO]   처리: 400/1277 (메인: 352, 턴어라운드: 40)
+[2026-02-28 13:17:46] [INFO]   처리: 600/1277 (메인: 528, 턴어라운드: 61)
+[2026-02-28 13:17:50] [INFO]   처리: 800/1277 (메인: 701, 턴어라운드: 80)
+[2026-02-28 13:17:54] [INFO]   처리: 1000/1277 (메인: 880, 턴어라운드: 95)
+[2026-02-28 13:17:58] [INFO]   처리: 1200/1277 (메인: 1062, 턴어라운드: 110)
+[2026-02-28 13:17:59] [INFO] 종목 정보 캐시 저장: 1284개
+[2026-02-28 13:18:00] [INFO] 수집 완료: 메인 1129, 턴어라운드 118, 데이터없음 26, 에러 4
+[2026-02-28 13:18:00] [INFO] 시장 지수: 4개
+[2026-02-28 13:18:00] [INFO] 매출+품질 수집 시작: 1129종목 (5스레드, 배치 50)
+[2026-02-28 13:18:20] [INFO]   수집 진행: 200/1129
+[2026-02-28 13:18:41] [INFO]   수집 진행: 400/1129
+[2026-02-28 13:19:02] [INFO]   수집 진행: 600/1129
+[2026-02-28 13:19:18] [INFO]   수집 진행: 800/1129
+[2026-02-28 13:19:32] [INFO]   수집 진행: 1000/1129
+[2026-02-28 13:19:41] [INFO] 매출+품질 수집 완료: 655/1129 (rev_growth 648개)
+[2026-02-28 13:19:41] [INFO] Industry 보정: 65종목 ('기타' → 실제 업종)
+[2026-02-28 13:19:41] [INFO] 매출 데이터 없음 제외: LBRDK, WDC, EQX, DD
+[2026-02-28 13:19:41] [INFO] 매출 성장 부족(<10%) 제외: BIPC, LUV, WLK, TECK, OMAB, FCX, HSY, AA, FRO, AMAT, VSCO, MATX, GEV, FLR, CUK, POWL, SQM, COLM, ASML, CACC, TIMB, VAL, HGV, Q, CRUS, MGA, RGLD, AGX, AMG, DVA, CROX, TM, CGNX, ESE, EQIX, KOF, NE, ONTO, GM, KLAC, RYAAY, EL, ENTG, CBOE, ATI, MT, GOLF, FTI, WFRD, IVZ, DECK, ULS, CRS, CAMT
+[2026-02-28 13:19:41] [INFO] 저커버리지(<3명) 제외: SBSW, UI, PAC, HSBC, AUGO, BCS, SNEX, MUFG, WELL, IESC
+[2026-02-28 13:19:41] [INFO] 하향 과다(>30%) 제외: ASND(↑7↓4), BE(↑15↓7), VICR(↑2↓1), FTAI(↑1↓1), HBM(↑6↓3), PAAS(↑3↓2), CNX(↑5↓3), IAG(↑6↓4), LB(↑0↓1), DLR(↑1↓1), SUN(↑1↓1), ALSN(↑1↓1), JHX(↑2↓1), AR(↑4↓9), EXAS(↑3↓3), DELL(↑3↓3), BWXT(↑1↓1), EQT(↑11↓7), LTM(↑1↓2), SLAB(↑4↓3)
+[2026-02-28 13:19:41] [INFO] 구조적 저마진 제외: SANM(OM4%/GM8%), DAR(OM8%/GM24%), BTSG(OM3%/GM13%), ARW(OM4%/GM11%), DE(OM9%/GM26%), AVT(OM3%/GM11%), ROAD(OM8%/GM16%)
+[2026-02-28 13:19:41] [INFO] 영업이익률 부족(<5%) 제외: SITM(OM3%), IPGP(OM2%), FIVE(OM4%), LSCC(OM2%)
+[2026-02-28 13:19:41] [INFO] 원자재 제외: ORLA, WPM, CDE, AEM, OR, GFI, SCCO, KGC, RIO, TFPM, AU, NEM, BHP, B, FNV, CF, CMC, NGD, BVN, SSRM
+[2026-02-28 13:19:41] [INFO] Part 2 rank 저장: 30개 종목 (가중순위 Top 30, eligible 41개)
+[2026-02-28 13:19:41] [INFO] 3일 교집합: ✅ 22개, ⏳ 4개, 🆕 4개
+[2026-02-28 13:19:41] [INFO] 가중 순위: 30개 종목 계산 (날짜 3일)
+[2026-02-28 13:19:41] [INFO] 순위 변동 태그: 14개 종목 (1.0σ 기준: price±2.83%, score±1.48)
+[2026-02-28 13:19:41] [INFO] 어제 대비: +4 신규, -4 이탈
+[2026-02-28 13:20:02] [WARN] VIX 수집 재시도 (1/3): HTTP Error 504: Gateway Time-out
+[2026-02-28 13:20:17] [WARN] VIX 수집 재시도 (2/3): HTTP Error 504: Gateway Time-out
+[2026-02-28 13:20:35] [INFO] VIX: 18.6 (252일 65th) → normal (안정), 가감 +0%
+[2026-02-28 13:20:35] [INFO] Concordance: hy_only (q_days=1) → 매수 유지, 시장 변화에 주의하세요 [portfolio: normal]
+[2026-02-28 13:20:35] [INFO] HY Spread: 2.98% | 분면: Q3 가을(과열국면) (1일째)
+[2026-02-28 13:20:35] [INFO]   과열 구간 — 수익률 둔화 경향
+[2026-02-28 13:20:35] [INFO] VIX: 18.6 (252일 65th) | slope -0.5 (flat) | 안정
+[2026-02-28 13:20:35] [INFO] 일치도: hy_only | 매수 유지, 시장 변화에 주의하세요
+[2026-02-28 13:20:35] [INFO] 메시지 버전: v2 (압축 포맷)
+[2026-02-28 13:20:35] [INFO] 매출 데이터 없음 제외: LBRDK, WDC, EQX, DD
+[2026-02-28 13:20:35] [INFO] 매출 성장 부족(<10%) 제외: BIPC, LUV, WLK, TECK, OMAB, FCX, HSY, AA, FRO, AMAT, VSCO, MATX, GEV, FLR, CUK, POWL, SQM, COLM, ASML, CACC, TIMB, VAL, HGV, Q, CRUS, MGA, RGLD, AGX, AMG, DVA, CROX, TM, CGNX, ESE, EQIX, KOF, NE, ONTO, GM, KLAC, RYAAY, EL, ENTG, CBOE, ATI, MT, GOLF, FTI, WFRD, IVZ, DECK, ULS, CRS, CAMT
+[2026-02-28 13:20:35] [INFO] 저커버리지(<3명) 제외: SBSW, UI, PAC, HSBC, AUGO, BCS, SNEX, MUFG, WELL, IESC
+[2026-02-28 13:20:35] [INFO] 하향 과다(>30%) 제외: ASND(↑7↓4), BE(↑15↓7), VICR(↑2↓1), FTAI(↑1↓1), HBM(↑6↓3), PAAS(↑3↓2), CNX(↑5↓3), IAG(↑6↓4), LB(↑0↓1), DLR(↑1↓1), SUN(↑1↓1), ALSN(↑1↓1), JHX(↑2↓1), AR(↑4↓9), EXAS(↑3↓3), DELL(↑3↓3), BWXT(↑1↓1), EQT(↑11↓7), LTM(↑1↓2), SLAB(↑4↓3)
+[2026-02-28 13:20:35] [INFO] 구조적 저마진 제외: SANM(OM4%/GM8%), DAR(OM8%/GM24%), BTSG(OM3%/GM13%), ARW(OM4%/GM11%), DE(OM9%/GM26%), AVT(OM3%/GM11%), ROAD(OM8%/GM16%)
+[2026-02-28 13:20:35] [INFO] 영업이익률 부족(<5%) 제외: SITM(OM3%), IPGP(OM2%), FIVE(OM4%), LSCC(OM2%)
+[2026-02-28 13:20:35] [INFO] 원자재 제외: ORLA, WPM, CDE, AEM, OR, GFI, SCCO, KGC, RIO, TFPM, AU, NEM, BHP, B, FNV, CF, CMC, NGD, BVN, SSRM
+[2026-02-28 13:20:35] [INFO] 포트폴리오: ✅ 종목 리스크 필터 적용 중...
+[2026-02-28 13:20:35] [INFO]   ✅ SNDK: gap=-40.3 desc=중반 급등 up=8 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ MU: gap=-0.9 desc=급등 후 둔화 up=8 dn=1
+[2026-02-28 13:20:35] [INFO]   ✅ LLY: gap=-4.4 desc=중반 강세 up=19 dn=6
+[2026-02-28 13:20:35] [INFO]   ✅ APH: gap=-1.9 desc=상향 둔화 up=12 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ FIX: gap=+1.9 desc=최근 급상향 up=4 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ TSEM: gap=-7.6 desc=상향 둔화 up=3 dn=1
+[2026-02-28 13:20:35] [INFO]   ✅ STX: gap=-4.1 desc=중반 급등 up=20 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ FHN: gap=-3.5 desc=상향 둔화 up=15 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ OMC: gap=+2.0 desc=급등락 up=3 dn=1
+[2026-02-28 13:20:35] [INFO]   ✅ GMED: gap=-2.2 desc=최근 급상향 up=7 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ LITE: gap=+12.7 desc=중반 급등 up=20 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ ADI: gap=+3.2 desc=중반 강세 up=25 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ LRCX: gap=-1.0 desc=중반 강세 up=31 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ MCHP: gap=-1.4 desc=상향 둔화 up=17 dn=6
+[2026-02-28 13:20:35] [INFO]   ✅ RL: gap=-3.7 desc=중반 강세 up=15 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ WWD: gap=+4.6 desc=상향 가속 up=9 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ HAS: gap=+5.9 desc=중반 강세 up=11 dn=1
+[2026-02-28 13:20:35] [INFO]   ✅ TTMI: gap=+2.0 desc=상향 가속 up=4 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ MKSI: gap=+2.7 desc=최근 급상향 up=12 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ MTSI: gap=+8.4 desc=최근 급상향 up=16 dn=0
+[2026-02-28 13:20:35] [INFO]   ✅ TPR: gap=+4.8 desc=중반 강세 up=18 dn=0
+[2026-02-28 13:20:35] [INFO] 포트폴리오: 가중 순위 (T0×0.5 + T1×0.3 + T2×0.2):
+[2026-02-28 13:20:35] [INFO]     1. SNDK: 가중=1.0 gap=-40.3 adj=166.6 중반 급등 [하드웨어]
+[2026-02-28 13:20:35] [INFO]     2. MU: 가중=2.7 gap=-0.9 adj=78.1 급등 후 둔화 [반도체]
+[2026-02-28 13:20:35] [INFO]     3. LLY: 가중=3.3 gap=-4.4 adj=10.1 중반 강세 [대형제약]
+[2026-02-28 13:20:35] [INFO]     4. APH: 가중=4.7 gap=-1.9 adj=10.7 상향 둔화 [전자부품]
+[2026-02-28 13:20:35] [INFO]     5. FIX: 가중=6.9 gap=+1.9 adj=29.5 최근 급상향 [건설]
+[2026-02-28 13:20:35] [INFO]     6. TSEM: 가중=7.3 gap=-7.6 adj=12.0 상향 둔화 [반도체]
+[2026-02-28 13:20:35] [INFO]     7. STX: 가중=8.6 gap=-4.1 adj=45.2 중반 급등 [하드웨어]
+[2026-02-28 13:20:35] [INFO]     8. FHN: 가중=10.4 gap=-3.5 adj=9.1 상향 둔화 [지역은행]
+[2026-02-28 13:20:35] [INFO]     9. OMC: 가중=10.8 gap=+2.0 adj=16.9 급등락 [광고]
+[2026-02-28 13:20:35] [INFO]     10. GMED: 가중=11.7 gap=-2.2 adj=10.6 최근 급상향 [의료기기]
+[2026-02-28 13:20:35] [INFO]     11. LITE: 가중=13.7 gap=+12.7 adj=91.3 중반 급등 [통신장비]
+[2026-02-28 13:20:35] [INFO]     12. ADI: 가중=15.1 gap=+3.2 adj=22.0 중반 강세 [반도체]
+[2026-02-28 13:20:35] [INFO]     13. LRCX: 가중=17.2 gap=-1.0 adj=25.9 중반 강세 [반도체장비]
+[2026-02-28 13:20:35] [INFO]     14. MCHP: 가중=17.3 gap=-1.4 adj=17.9 상향 둔화 [반도체]
+[2026-02-28 13:20:35] [INFO]     15. RL: 가중=17.9 gap=-3.7 adj=9.6 중반 강세 [의류제조]
+[2026-02-28 13:20:35] [INFO]     16. WWD: 가중=20.2 gap=+4.6 adj=17.1 상향 가속 [방산]
+[2026-02-28 13:20:35] [INFO]     17. HAS: 가중=20.9 gap=+5.9 adj=10.4 중반 강세 [레저]
+[2026-02-28 13:20:35] [INFO]     18. TTMI: 가중=24.8 gap=+2.0 adj=23.5 상향 가속 [전자부품]
+[2026-02-28 13:20:35] [INFO]     19. MKSI: 가중=27.7 gap=+2.7 adj=19.5 최근 급상향 [계측기기]
+[2026-02-28 13:20:35] [INFO]     20. MTSI: 가중=29.2 gap=+8.4 adj=13.5 최근 급상향 [반도체]
+[2026-02-28 13:20:35] [INFO]     21. TPR: 가중=29.6 gap=+4.8 adj=22.2 중반 강세 [명품]
+[2026-02-28 13:20:35] [INFO] 포트폴리오: 5종목 선정 — SNDK(20%), MU(20%), LLY(20%), APH(20%), FIX(20%)
+[2026-02-28 13:20:35] [INFO] 📊 Forward Test: EXIT NVDA (진입 2026-02-17 $184.97 → $177.19, -4.2%)
+[2026-02-28 13:20:35] [INFO] 📊 Forward Test: ENTER FIX @ $1429.37 (20%)
+[2026-02-28 13:20:35] [INFO] 매출 데이터 없음 제외: LBRDK, WDC, EQX, DD
+[2026-02-28 13:20:35] [INFO] 매출 성장 부족(<10%) 제외: BIPC, LUV, WLK, TECK, OMAB, FCX, HSY, AA, FRO, AMAT, VSCO, MATX, GEV, FLR, CUK, POWL, SQM, COLM, ASML, CACC, TIMB, VAL, HGV, Q, CRUS, MGA, RGLD, AGX, AMG, DVA, CROX, TM, CGNX, ESE, EQIX, KOF, NE, ONTO, GM, KLAC, RYAAY, EL, ENTG, CBOE, ATI, MT, GOLF, FTI, WFRD, IVZ, DECK, ULS, CRS, CAMT
+[2026-02-28 13:20:35] [INFO] 저커버리지(<3명) 제외: SBSW, UI, PAC, HSBC, AUGO, BCS, SNEX, MUFG, WELL, IESC
+[2026-02-28 13:20:35] [INFO] 하향 과다(>30%) 제외: ASND(↑7↓4), BE(↑15↓7), VICR(↑2↓1), FTAI(↑1↓1), HBM(↑6↓3), PAAS(↑3↓2), CNX(↑5↓3), IAG(↑6↓4), LB(↑0↓1), DLR(↑1↓1), SUN(↑1↓1), ALSN(↑1↓1), JHX(↑2↓1), AR(↑4↓9), EXAS(↑3↓3), DELL(↑3↓3), BWXT(↑1↓1), EQT(↑11↓7), LTM(↑1↓2), SLAB(↑4↓3)
+[2026-02-28 13:20:35] [INFO] 구조적 저마진 제외: SANM(OM4%/GM8%), DAR(OM8%/GM24%), BTSG(OM3%/GM13%), ARW(OM4%/GM11%), DE(OM9%/GM26%), AVT(OM3%/GM11%), ROAD(OM8%/GM16%)
+[2026-02-28 13:20:35] [INFO] 영업이익률 부족(<5%) 제외: SITM(OM3%), IPGP(OM2%), FIVE(OM4%), LSCC(OM2%)
+[2026-02-28 13:20:35] [INFO] 원자재 제외: ORLA, WPM, CDE, AEM, OR, GFI, SCCO, KGC, RIO, TFPM, AU, NEM, BHP, B, FNV, CF, CMC, NGD, BVN, SSRM
+[2026-02-28 13:20:36] [INFO] 포워드테스트: 9일째 수익률 +3.0%
+[2026-02-28 13:20:59] [INFO] v2 AI: 시장요약 364자
+[2026-02-28 13:21:19] [INFO] v2 AI: 내러티브 5종목
+[2026-02-28 13:21:20] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-02-28 13:21:20] [INFO] v2 시그널 메시지 전송 완료 → 개인봇
+[2026-02-28 13:21:21] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-02-28 13:21:21] [INFO] v2 워치리스트 전송 완료 → 개인봇
+[2026-02-28 13:21:22] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-02-28 13:21:22] [INFO] v2 부록(이탈+범례) 전송 완료 → 개인봇
+[2026-02-28 13:21:23] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-02-28 13:21:23] [INFO] 시스템 로그 전송 완료 → 개인봇
+[2026-02-28 13:21:23] [INFO] Git commit/push 시작
+[2026-02-28 13:21:27] [INFO] Git push 완료
+[2026-02-28 13:21:27] [INFO] ============================================================
+[2026-02-28 13:21:27] [INFO] 전체 완료: 409.4초 소요
+[2026-02-28 13:21:27] [INFO] ============================================================
