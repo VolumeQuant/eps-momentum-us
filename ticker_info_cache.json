@@ -5174,5 +5174,29 @@
   "TMDX": {
     "shortName": "TMDX",
     "industry": "기타"
+  },
+  "CGON": {
+    "shortName": "CGON",
+    "industry": "기타"
+  },
+  "CRCL": {
+    "shortName": "CRCL",
+    "industry": "기타"
+  },
+  "INGM": {
+    "shortName": "INGM",
+    "industry": "기타"
+  },
+  "LLYVK": {
+    "shortName": "LLYVK",
+    "industry": "기타"
+  },
+  "LOAR": {
+    "shortName": "LOAR",
+    "industry": "기타"
+  },
+  "NICE": {
+    "shortName": "NICE",
+    "industry": "기타"
   }
 }
