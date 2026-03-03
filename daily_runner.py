@@ -2501,7 +2501,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 섹션 1: 결론 먼저 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append(f'📡 <b>EPS 모멘텀 상위 {len(selected)}</b>')
+    lines.append(f'🛒 <b>EPS 모멘텀 상위 {len(selected)}</b>')
     lines.append('━━━━━━━━━━━━━━━')
     for idx, s in enumerate(selected):
         name = _clean_company_name(s['name'], s['ticker'])
@@ -2525,9 +2525,30 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                         if c >= 0.65:
                             high_corr_pairs.append((t1, t2, c))
             if high_corr_pairs:
-                high_corr_pairs.sort(key=lambda x: -x[2])
-                pair_strs = [f'{t1}·{t2}' for t1, t2, _ in high_corr_pairs]
-                lines.append(f'ℹ️ {", ".join(pair_strs)} 주가 상관관계 높음')
+                # 페어를 그룹으로 묶기 (SNDK·MU, SNDK·STX → SNDK·MU·STX)
+                from collections import defaultdict
+                adj = defaultdict(set)
+                for t1, t2, _ in high_corr_pairs:
+                    adj[t1].add(t2)
+                    adj[t2].add(t1)
+                visited = set()
+                groups = []
+                for t in tickers_list:
+                    if t not in visited and t in adj:
+                        group = []
+                        stack = [t]
+                        while stack:
+                            node = stack.pop()
+                            if node not in visited:
+                                visited.add(node)
+                                group.append(node)
+                                stack.extend(adj[node] - visited)
+                        # 원래 순위 순서 유지
+                        group.sort(key=lambda x: tickers_list.index(x))
+                        groups.append(group)
+                if groups:
+                    group_strs = ['·'.join(g) for g in groups]
+                    lines.append(f'ℹ️ {", ".join(group_strs)} 주가 상관관계 높음')
     except Exception as e:
         log(f"상관관계 계산 실패: {e}", level="WARN")
 
