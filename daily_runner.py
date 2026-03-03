@@ -2507,18 +2507,29 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         name = _clean_company_name(s['name'], s['ticker'])
         lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
 
-    # 섹터 집중도 표시 (동일 업종 2개 이상)
-    from collections import Counter
-    sector_counts = Counter(s.get('industry', '') for s in selected if s.get('industry'))
-    concentrated = [(sec, cnt) for sec, cnt in sector_counts.items() if cnt >= 2]
-    if concentrated:
-        concentrated.sort(key=lambda x: -x[1])
-        sec, cnt = concentrated[0]
-        tickers_in_sec = [s['ticker'] for s in selected if s.get('industry') == sec]
-        if cnt >= 3:
-            lines.append(f'ℹ️ {sec} {cnt}종목 포함 — 동일 섹터 집중')
-        else:
-            lines.append(f'ℹ️ {sec} {cnt}종목 포함 ({", ".join(tickers_in_sec)})')
+    # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
+    try:
+        import yfinance as yf
+        tickers_list = [s['ticker'] for s in selected]
+        hist = yf.download(tickers_list, period='120d', threads=True, progress=False)
+        if 'Close' in hist.columns.get_level_values(0):
+            close = hist['Close'].dropna(how='all')
+            returns = close.pct_change().tail(90)
+            corr_mat = returns.corr()
+            high_corr_pairs = []
+            for i in range(len(tickers_list)):
+                for j in range(i+1, len(tickers_list)):
+                    t1, t2 = tickers_list[i], tickers_list[j]
+                    if t1 in corr_mat.columns and t2 in corr_mat.columns:
+                        c = corr_mat.loc[t1, t2]
+                        if c >= 0.65:
+                            high_corr_pairs.append((t1, t2, c))
+            if high_corr_pairs:
+                high_corr_pairs.sort(key=lambda x: -x[2])
+                pair_strs = [f'{t1}·{t2}' for t1, t2, _ in high_corr_pairs]
+                lines.append(f'ℹ️ {", ".join(pair_strs)} 주가 상관관계 높음')
+    except Exception as e:
+        log(f"상관관계 계산 실패: {e}", level="WARN")
 
     # ━━ 섹션 2: 선정 과정 ━━
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
