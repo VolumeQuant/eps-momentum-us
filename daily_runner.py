@@ -2837,7 +2837,6 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                 lines.append(f'{t} {cur_rank}위 [{reason}]')
             else:
                 lines.append(f'{t} [{reason}]')
-        lines.append('')
 
     # ── 범례 + 면책 ──
     lines.append('')
