@@ -25,6 +25,7 @@ try:
     HAS_PYTZ = True
 except ImportError:
     HAS_PYTZ = False
+import math
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -2052,7 +2053,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, ea
                 'desc': row.get('trend_desc', ''),
                 'v_status': v_status,
                 'price': row.get('price', 0) or 0,
-                'rev_growth': 0 if pd.isna(row.get('rev_growth')) else (row.get('rev_growth', 0) or 0),
+                'rev_growth': _safe_float(row.get('rev_growth')),
                 'earnings_note': earnings_note,
             })
             log(f"  {v_status} {t}: gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}{earnings_note}")
@@ -2333,9 +2334,7 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
         try:
             stock_lines = []
             for i, s in enumerate(selected):
-                rev = s.get('rev_growth', 0)
-                if pd.isna(rev):
-                    rev = 0
+                rev = _safe_float(s.get('rev_growth'))
                 stock_lines.append(
                     f"{i+1}. {s['name']}({s['ticker']}) · {s['industry']}\n"
                     f"   EPS {s['eps_chg']:+.1f}% · 매출 {rev:+.0%}"
@@ -2406,6 +2405,18 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
     return result
 
 
+def _safe_float(val, default=0):
+    """NaN/None/비숫자를 default로 변환 — float NaN은 truthy라 `or 0` 무효"""
+    if val is None:
+        return default
+    try:
+        if math.isnan(val):
+            return default
+    except TypeError:
+        return default
+    return val
+
+
 def _clean_company_name(name, ticker):
     """회사명에서 법인 접미사 제거 — 'Sandisk Corporation' → 'Sandisk'
     캐시에 잘린 이름('Incorporat', 'Hold')도 처리.
@@ -2445,7 +2456,7 @@ def compute_factor_ranks(results_df, today_tickers):
 
     # 매출 등수: rev_growth 내림차순 (가장 높은 성장 = 1등)
     top30 = top30.sort_values('rev_growth', ascending=False, na_position='last').reset_index(drop=True)
-    rev_ranks = {row['ticker']: (i + 1, 0 if pd.isna(row.get('rev_growth')) else (row.get('rev_growth', 0) or 0)) for i, (_, row) in enumerate(top30.iterrows())}
+    rev_ranks = {row['ticker']: (i + 1, _safe_float(row.get('rev_growth'))) for i, (_, row) in enumerate(top30.iterrows())}
 
     result = {}
     for t in today_tickers:
@@ -2577,9 +2588,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     for i, s in enumerate(selected):
         ticker = s['ticker']
         eps_chg = s['eps_chg']
-        rev = s.get('rev_growth', 0)
-        if pd.isna(rev):
-            rev = 0
+        rev = _safe_float(s.get('rev_growth'))
         earnings_tag = s.get('earnings_note', '')
 
         # L0: 정체 (이름·업종·가격)
