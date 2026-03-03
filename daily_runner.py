@@ -2418,6 +2418,8 @@ def _clean_company_name(name, ticker):
     cleaned = re.sub(suffixes, '', cleaned, flags=re.IGNORECASE).strip()
     # 마지막 쉼표/마침표 제거
     cleaned = cleaned.rstrip(',.').strip()
+    # 접미사 제거 후 남은 꼬리 접속사 제거 ("Eli Lilly and" → "Eli Lilly")
+    cleaned = re.sub(r'\s+(?:and|&)\s*$', '', cleaned, flags=re.IGNORECASE).strip()
     return cleaned if cleaned else ticker
 
 
@@ -2501,12 +2503,24 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 섹션 1: 결론 먼저 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    weight = selected[0]['weight'] if selected else 20
-    lines.append(f'🛒 <b>매수 후보 TOP {len(selected)}</b> (각 {weight}%)')
+    lines.append(f'📡 <b>EPS 모멘텀 상위 {len(selected)}</b>')
     lines.append('━━━━━━━━━━━━━━━')
     for idx, s in enumerate(selected):
         name = _clean_company_name(s['name'], s['ticker'])
         lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
+
+    # 섹터 집중도 표시 (동일 업종 2개 이상)
+    from collections import Counter
+    sector_counts = Counter(s.get('industry', '') for s in selected if s.get('industry'))
+    concentrated = [(sec, cnt) for sec, cnt in sector_counts.items() if cnt >= 2]
+    if concentrated:
+        concentrated.sort(key=lambda x: -x[1])
+        sec, cnt = concentrated[0]
+        tickers_in_sec = [s['ticker'] for s in selected if s.get('industry') == sec]
+        if cnt >= 3:
+            lines.append(f'ℹ️ {sec} {cnt}종목 포함 — 동일 섹터 집중')
+        else:
+            lines.append(f'ℹ️ {sec} {cnt}종목 포함 ({", ".join(tickers_in_sec)})')
 
     # ━━ 섹션 2: 선정 과정 ━━
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
@@ -2520,7 +2534,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'{uni}종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else f'{uni}종목 중 EPS 상향 스크리닝')
     lines.append('→ 원자재·저마진 업종 제외')
     lines.append('→ 저평가·성장 채점 → 상위 30(3일 평균)')
-    lines.append(f'→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목')
+    lines.append(f'→ 3일 검증({verified_count}종목) → 상위 {len(selected)}종목')
 
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
