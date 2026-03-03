@@ -3459,3 +3459,29 @@ Q4→Q1 전환(250일 +8~12%)을 잡으려면 Q1 전환 전에 포지션 필요.
 
 ### 보류
 - **"괴리" 용어 변경**: 부정적 뉘앙스 → 가격매력/가치/EPS매력 등 후보 검토 중, 일단 괴리 유지
+
+---
+
+## v45.2 — 2026-03-03 집 PC — NaN 방어 + 상관관계 표시
+
+### 배경
+- 테스트 워크플로우에서 `rev_growth`가 NaN인 종목이 포트폴리오에 진입하면서 `int(round(NaN * 100))` → ValueError 발생
+- Python에서 `float('nan')`은 truthy이므로 `val or 0` 패턴이 NaN을 방어하지 못함
+
+### 변경 사항
+
+#### 1. `_safe_float()` 헬퍼 함수 추가
+- `math.isnan` 기반으로 NaN/None/비숫자를 안전하게 default(0)으로 변환
+- `pd` import가 없는 함수(`select_portfolio_stocks` 등)에서도 사용 가능
+- 적용 위치: `select_portfolio_stocks`, `create_signal_message`, `call_gemini_ai`, `compute_factor_ranks` 내 rev_growth 처리 (4곳)
+
+#### 2. `import math` 추가
+- top-level import에 `math` 추가 (기존에는 없었음)
+
+#### 3. 상관관계 표시 (remote에서 pull)
+- Signal 메시지에 섹터 라벨 대신 실제 주가 상관관계 표시
+- 상관관계 페어 → 그룹 묶기
+- 🛒 아이콘 복원
+
+### 파일 변경
+- `daily_runner.py`: `import math`, `_safe_float()` 헬퍼, rev_growth NaN 방어 4곳
