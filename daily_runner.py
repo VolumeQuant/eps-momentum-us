@@ -2642,13 +2642,13 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         elif idx_parts:
             lines.append(' · '.join(idx_parts))
 
-    # ── 📈 신용·변동성 ──
+    # ── 📉 신용·변동성 ──
     hy_data = risk_status.get('hy') if risk_status else None
     vix_data = risk_status.get('vix') if risk_status else None
 
     if hy_data or vix_data:
         lines.append('')
-        lines.append('📈 <b>신용·변동성</b>')
+        lines.append('📉 <b>신용·변동성</b>')
 
     if hy_data:
         hy_spread = hy_data.get('hy_spread', 0)
@@ -2663,6 +2663,8 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
     if vix_data:
         vix_cur = vix_data.get('vix_current', 0)
         vix_pct = vix_data.get('vix_percentile', 0)
+        vix_slope_dir = vix_data.get('vix_slope_dir', 'flat')
+        vix_arrow = '↑' if vix_slope_dir == 'rising' else ('↓' if vix_slope_dir == 'falling' else '')
         if vix_pct < 67:
             vix_icon, vix_ctx = '🟢', '안정'
         elif vix_pct < 80:
@@ -2671,12 +2673,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
             vix_icon, vix_ctx = '🟡', '주의'
         else:
             vix_icon, vix_ctx = '🔴', '경고'
-        lines.append(f'{vix_icon} 변동성지수(VIX) {vix_cur:.1f} — {vix_ctx}')
-
-    # ── 종합 해석 (기존 데이터 분석 기반 final_action) ──
-    final_action = risk_status.get('final_action', '') if risk_status else ''
-    if final_action:
-        lines.append(f'→ {final_action}')
+        lines.append(f'{vix_icon} 변동성지수(VIX) {vix_cur:.1f}{vix_arrow} — {vix_ctx}')
 
     # ── 📰 시장 동향 (AI 해석) ──
     market_summary = ai_content.get('market_summary', '') if ai_content else ''
