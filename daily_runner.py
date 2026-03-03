@@ -2479,17 +2479,15 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ── stop 모드 ──
     if portfolio_mode == 'stop':
         lines.append('')
-        lines.append('🚫 <b>신규 매수 중단</b>')
+        lines.append('🚫 <b>시장 경고 — 스크리닝 일시 중단</b>')
         lines.append(final_action)
-        lines.append('')
-        lines.append('📌 Top 30 유지=보유 · 이탈=매도 검토')
         return '\n'.join(lines)
 
     # ── 추천 종목 없음 ──
     if not selected:
         lines.append('')
         lines.append('검증 종목 중 리스크 필터 통과 종목 없음.')
-        lines.append('이번 회차는 <b>관망</b> 구간.')
+        lines.append('3일 연속 상위권 유지 종목이 없습니다.')
         return '\n'.join(lines)
 
     # ━━ 헤더 ━━
@@ -2617,7 +2615,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append('  🤖 <b>AI 리스크 필터</b>')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('매수 후보의 위험 요소를 AI가 걸러냈어요.')
+    lines.append('상위 종목의 리스크 요소를 AI가 분석했어요.')
 
     # ── 📊 시장 환경 (데이터, Signal에서 이동) ──
     lines.append('')
@@ -2747,7 +2745,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
 
     lines = []
     lines.append('📋 <b>Top 30 종목 현황</b>')
-    lines.append('이 목록에 있으면 보유, 빠지면 매도 검토.')
+    lines.append('상위 30종목과 순위 변동 현황이에요.')
     lines.append('✅ 3일 검증 ⏳ 2일 관찰 🆕 신규 진입')
     lines.append('EPS추이(90→60→30→7일 변화율)')
     lines.append('🔥&gt;20% ☀️5~20% 🌤️1~5% ☁️±1% 🌧️&lt;-1%')
@@ -2818,13 +2816,13 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     if exit_reasons:
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
-        lines.append('📉 <b>이탈 — 매도 검토</b>')
+        lines.append('📉 <b>순위 이탈</b>')
         for t, cur_rank, reason in exit_reasons:
             if cur_rank is not None:
                 lines.append(f'{t} {cur_rank}위 [{reason}]')
             else:
                 lines.append(f'{t} [{reason}]')
-        lines.append('보유 중이라면 매도를 검토하세요.')
+        lines.append('')
 
     # ── 범례 + 면책 ──
     lines.append('')
