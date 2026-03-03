@@ -1535,11 +1535,11 @@ def fetch_hy_quadrant():
 
         # 1) HY 4~5%에서 -20bp 급축소
         if 4 <= hy_spread <= 5 and daily_change_bp <= -20:
-            signals.append(f'💎 HY {hy_spread:.2f}%, 전일 대비 {daily_change_bp:+.0f}bp 급락 — 반등 매수 기회에요!')
+            signals.append(f'💎 회사채 금리차 {hy_spread:.2f}%, 전일 대비 {daily_change_bp:+.0f}bp 급축소')
 
         # 2) 5% 하향 돌파
         if hy_prev >= 5 and hy_spread < 5:
-            signals.append(f'💎 HY {hy_spread:.2f}%로 5% 밑으로 내려왔어요 — 적극 매수 구간이에요!')
+            signals.append(f'💎 회사채 금리차 {hy_spread:.2f}%로 5% 하회 — 신용 여건 개선 신호')
 
         # 3) 60일 고점 대비 -300bp 이상 하락
         peak_60d = df['hy_spread'].rolling(60).max().iloc[-1]
@@ -1554,7 +1554,7 @@ def fetch_hy_quadrant():
         prev_was_q4 = prev_wide and prev_rising
         now_is_q1 = is_wide and not is_rising
         if prev_was_q4 and now_is_q1:
-            signals.append('💎 겨울→봄 전환 — 가장 좋은 매수 타이밍이에요!')
+            signals.append('💎 겨울→봄 전환 — 과거 30년 평균 연 +14.3% 구간')
 
         # 현재 분면 지속 일수 (최대 252영업일=1년까지 역추적)
         df['hy_3m'] = df['hy_spread'].shift(63)
@@ -1752,47 +1752,47 @@ def get_market_risk_status():
         if q == 'Q1':
             # 봄(회복기) — 30년 평균: 연+14.3%
             if vix_ok:
-                final_action = '적극 매수 구간이에요 (과거 연 +14.3%)'
+                final_action = '회복 구간 (과거 30년 연 +14.3%)'
             else:
-                final_action = '변동성이 높지만, 분할 매수 유효 구간이에요'
+                final_action = '회복 구간, 변동성 높음'
         elif q == 'Q2':
             # 여름(성장기) — 30년 평균: 연+9.4%
             if vix_ok:
-                final_action = '정상 매수 구간이에요 (과거 연 +9.4%)'
+                final_action = '성장 구간 (과거 30년 연 +9.4%)'
             else:
-                final_action = '매수 유지, 변동성에 유의하세요'
+                final_action = '성장 구간, 변동성 높음'
         elif q == 'Q3':
             # 가을(과열기) — 60일 기준 2단계
             if q_days < 60:
                 if vix_ok:
-                    final_action = '매수 유지, 시장 변화에 주의하세요'
+                    final_action = f'과열 초기 ({q_days}일째)'
                 else:
-                    final_action = '매수 유지하되, 신중하게 접근하세요'
+                    final_action = f'과열 초기 ({q_days}일째), 변동성 높음'
             else:
                 if vix_ok:
-                    final_action = '신규 매수는 신중하게, 보유 종목 점검하세요'
+                    final_action = f'과열 지속 ({q_days}일째)'
                 else:
-                    final_action = '신규 매수는 보수적으로 접근하세요'
+                    final_action = f'과열 지속 ({q_days}일째), 변동성 높음'
         else:
             # 겨울(Q4) — 20일/60일 기준 3단계
             if q_days <= 20:
                 if vix_ok:
-                    final_action = '급매도 불필요, 관망하세요'
+                    final_action = f'침체 초기 ({q_days}일째)'
                 else:
-                    final_action = '매수 중단, 관망하세요'
+                    final_action = f'⚠️ 침체 초기 ({q_days}일째), 변동성 높음'
             elif q_days <= 60:
                 if vix_ok:
-                    final_action = '신규 매수 대기, 보유는 유지하세요'
+                    final_action = f'침체 지속 ({q_days}일째)'
                 else:
-                    final_action = '보유 비중 축소를 검토하세요'
+                    final_action = f'⚠️ 침체 지속 ({q_days}일째), 변동성 높음'
             else:
                 if vix_ok:
-                    final_action = '회복 초입, 분할 매수를 검토하세요'
+                    final_action = f'침체 후기 ({q_days}일째) — 회복 가능성'
                 else:
-                    final_action = '바닥권 추정, 소액 분할 매수를 검토하세요'
+                    final_action = f'침체 후기 ({q_days}일째), 변동성 높음'
     else:
         if vix and vix_dir == 'warn':
-            final_action = '신규 매수는 보수적으로 접근하세요'
+            final_action = '변동성 높음'
         else:
             final_action = ''
 
@@ -2418,6 +2418,8 @@ def _clean_company_name(name, ticker):
     cleaned = re.sub(suffixes, '', cleaned, flags=re.IGNORECASE).strip()
     # 마지막 쉼표/마침표 제거
     cleaned = cleaned.rstrip(',.').strip()
+    # 접미사 제거 후 남은 꼬리 접속사 제거 ("Eli Lilly and" → "Eli Lilly")
+    cleaned = re.sub(r'\s+(?:and|&)\s*$', '', cleaned, flags=re.IGNORECASE).strip()
     return cleaned if cleaned else ticker
 
 
@@ -2477,17 +2479,15 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ── stop 모드 ──
     if portfolio_mode == 'stop':
         lines.append('')
-        lines.append('🚫 <b>신규 매수 중단</b>')
+        lines.append('🚫 <b>시장 경고 — 스크리닝 일시 중단</b>')
         lines.append(final_action)
-        lines.append('')
-        lines.append('📌 Top 30 유지=보유 · 이탈=매도 검토')
         return '\n'.join(lines)
 
-    # ── 추천 종목 없음 ──
+    # ── 상위권 유지 종목 없음 ──
     if not selected:
         lines.append('')
         lines.append('검증 종목 중 리스크 필터 통과 종목 없음.')
-        lines.append('이번 회차는 <b>관망</b> 구간.')
+        lines.append('3일 연속 상위권 유지 종목이 없습니다.')
         return '\n'.join(lines)
 
     # ━━ 헤더 ━━
@@ -2501,12 +2501,56 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 섹션 1: 결론 먼저 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    weight = selected[0]['weight'] if selected else 20
-    lines.append(f'🛒 <b>매수 후보 TOP {len(selected)}</b> (각 {weight}%)')
+    lines.append(f'🛒 <b>EPS 모멘텀 상위 {len(selected)}</b>')
     lines.append('━━━━━━━━━━━━━━━')
     for idx, s in enumerate(selected):
         name = _clean_company_name(s['name'], s['ticker'])
         lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
+
+    # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
+    try:
+        import yfinance as yf
+        tickers_list = [s['ticker'] for s in selected]
+        hist = yf.download(tickers_list, period='120d', threads=True, progress=False)
+        if 'Close' in hist.columns.get_level_values(0):
+            close = hist['Close'].dropna(how='all')
+            returns = close.pct_change().tail(90)
+            corr_mat = returns.corr()
+            high_corr_pairs = []
+            for i in range(len(tickers_list)):
+                for j in range(i+1, len(tickers_list)):
+                    t1, t2 = tickers_list[i], tickers_list[j]
+                    if t1 in corr_mat.columns and t2 in corr_mat.columns:
+                        c = corr_mat.loc[t1, t2]
+                        if c >= 0.65:
+                            high_corr_pairs.append((t1, t2, c))
+            if high_corr_pairs:
+                # 페어를 그룹으로 묶기 (SNDK·MU, SNDK·STX → SNDK·MU·STX)
+                from collections import defaultdict
+                adj = defaultdict(set)
+                for t1, t2, _ in high_corr_pairs:
+                    adj[t1].add(t2)
+                    adj[t2].add(t1)
+                visited = set()
+                groups = []
+                for t in tickers_list:
+                    if t not in visited and t in adj:
+                        group = []
+                        stack = [t]
+                        while stack:
+                            node = stack.pop()
+                            if node not in visited:
+                                visited.add(node)
+                                group.append(node)
+                                stack.extend(adj[node] - visited)
+                        # 원래 순위 순서 유지
+                        group.sort(key=lambda x: tickers_list.index(x))
+                        groups.append(group)
+                if groups:
+                    group_strs = ['·'.join(g) for g in groups]
+                    lines.append(f'ℹ️ {", ".join(group_strs)} 주가 상관관계 높음')
+    except Exception as e:
+        log(f"상관관계 계산 실패: {e}", level="WARN")
 
     # ━━ 섹션 2: 선정 과정 ━━
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
@@ -2520,7 +2564,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'{uni}종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else f'{uni}종목 중 EPS 상향 스크리닝')
     lines.append('→ 원자재·저마진 업종 제외')
     lines.append('→ 저평가·성장 채점 → 상위 30(3일 평균)')
-    lines.append(f'→ 3일 검증({verified_count}종목) → 최종 {len(selected)}종목')
+    lines.append(f'→ 3일 검증({verified_count}종목) → 상위 {len(selected)}종목')
 
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
@@ -2586,7 +2630,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('순위: 2일전→1일전→오늘')
-    lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
+    lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
+    lines.append('포트폴리오 비중은 투자자의 판단입니다.')
 
     return '\n'.join(lines)
 
@@ -2603,13 +2648,12 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append('  🤖 <b>AI 리스크 필터</b>')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('매수 후보의 위험 요소를 AI가 걸러냈어요.')
+    lines.append('상위 종목의 리스크 요소를 AI가 분석했어요.')
 
-    # ── 📊 시장 환경 (데이터, Signal에서 이동) ──
+    # ── 📊 시장 지수 ──
     lines.append('')
-    lines.append('📊 <b>시장 환경</b>')
+    lines.append('📊 <b>시장 지수</b>')
 
-    # 지수 (줄바꿈 방지: 3개 이상이면 2줄로 분리)
     if market_lines:
         idx_parts = []
         for ml in market_lines:
@@ -2630,37 +2674,38 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         elif idx_parts:
             lines.append(' · '.join(idx_parts))
 
-    # HY / VIX / 사계절 (각 한 줄)
+    # ── 📉 신용·변동성 ──
     hy_data = risk_status.get('hy') if risk_status else None
     vix_data = risk_status.get('vix') if risk_status else None
+
+    if hy_data or vix_data:
+        lines.append('')
+        lines.append('📉 <b>신용·변동성</b>')
 
     if hy_data:
         hy_spread = hy_data.get('hy_spread', 0)
         if hy_spread < 3.0:
             hy_icon, hy_ctx = '🟢', '안정'
         elif hy_spread < 4.5:
-            hy_icon, hy_ctx = '🟡', '보통'
+            hy_icon, hy_ctx = '🟡', '주의'
         else:
-            hy_icon, hy_ctx = '🔴', '주의'
-        lines.append(f'{hy_icon} HY {hy_spread:.2f}% — {hy_ctx}')
+            hy_icon, hy_ctx = '🔴', '경고'
+        lines.append(f'{hy_icon} 회사채 금리차 {hy_spread:.2f}% — {hy_ctx}')
 
     if vix_data:
         vix_cur = vix_data.get('vix_current', 0)
         vix_pct = vix_data.get('vix_percentile', 0)
+        vix_slope_dir = vix_data.get('vix_slope_dir', 'flat')
+        vix_arrow = '↑' if vix_slope_dir == 'rising' else ('↓' if vix_slope_dir == 'falling' else '')
         if vix_pct < 67:
             vix_icon, vix_ctx = '🟢', '안정'
         elif vix_pct < 80:
-            vix_icon, vix_ctx = '🟡', '다소 높음'
+            vix_icon, vix_ctx = '🟡', '주의'
         elif vix_pct < 90:
             vix_icon, vix_ctx = '🟡', '주의'
         else:
-            vix_icon, vix_ctx = '🔴', '위험'
-        lines.append(f'{vix_icon} VIX {vix_cur:.1f} — {vix_ctx}')
-
-    # ── 종합 해석 (기존 데이터 분석 기반 final_action) ──
-    final_action = risk_status.get('final_action', '') if risk_status else ''
-    if final_action:
-        lines.append(f'→ {final_action}')
+            vix_icon, vix_ctx = '🔴', '경고'
+        lines.append(f'{vix_icon} 변동성지수(VIX) {vix_cur:.1f}{vix_arrow} — {vix_ctx}')
 
     # ── 📰 시장 동향 (AI 해석) ──
     market_summary = ai_content.get('market_summary', '') if ai_content else ''
@@ -2704,7 +2749,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     """v3 Message 3: Watchlist — 상세 모니터링/검증
 
     종목당 4줄: 이름·업종 / EPS추이(아이콘+설명) / EPS·매출 / 의견+순위
-    순위 변동 태그 제거. 이탈+매도 검토 포함.
+    순위 변동 태그 제거. 이탈 사유 포함.
     """
     import pandas as pd
     from collections import Counter
@@ -2733,7 +2778,18 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
 
     lines = []
     lines.append('📋 <b>Top 30 종목 현황</b>')
-    lines.append('이 목록에 있으면 보유, 빠지면 매도 검토.')
+    lines.append('상위 30종목과 순위 변동 현황이에요.')
+
+    # 섹터 분포 표시
+    sector_counts = Counter(row.get('industry', '?') for _, row in filtered.iterrows() if row.get('industry'))
+    if sector_counts:
+        top_sectors = sector_counts.most_common(5)
+        etc_count = sum(c for _, c in sector_counts.most_common()[5:])
+        sec_parts = [f'{s} {c}' for s, c in top_sectors]
+        if etc_count > 0:
+            sec_parts.append(f'기타 {etc_count}')
+        lines.append(' | '.join(sec_parts))
+
     lines.append('✅ 3일 검증 ⏳ 2일 관찰 🆕 신규 진입')
     lines.append('EPS추이(90→60→30→7일 변화율)')
     lines.append('🔥&gt;20% ☀️5~20% 🌤️1~5% ☁️±1% 🌧️&lt;-1%')
@@ -2800,24 +2856,24 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         if rank < 30:
             lines.append('- - - - - - - - - - - - -')
 
-    # ── 이탈 + 매도 검토 ──
+    # ── 순위 이탈 ──
     if exit_reasons:
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
-        lines.append('📉 <b>이탈 — 매도 검토</b>')
+        lines.append('📉 <b>순위 이탈</b>')
         for t, cur_rank, reason in exit_reasons:
             if cur_rank is not None:
                 lines.append(f'{t} {cur_rank}위 [{reason}]')
             else:
                 lines.append(f'{t} [{reason}]')
-        lines.append('보유 중이라면 매도를 검토하세요.')
 
     # ── 범례 + 면책 ──
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('순위: 2일전→1일전→오늘')
     lines.append('목록 순서: 3일 가중순위')
-    lines.append('참고용이며, 투자 판단은 본인 책임이에요.')
+    lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
+    lines.append('포트폴리오 비중은 투자자의 판단입니다.')
 
     return '\n'.join(lines)
 
