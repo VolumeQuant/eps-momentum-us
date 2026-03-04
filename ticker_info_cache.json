@@ -5198,5 +5198,21 @@
   "NICE": {
     "shortName": "NICE",
     "industry": "기타"
+  },
+  "APGE": {
+    "shortName": "APGE",
+    "industry": "기타"
+  },
+  "DDS": {
+    "shortName": "DDS",
+    "industry": "기타"
+  },
+  "SGHC": {
+    "shortName": "SGHC",
+    "industry": "기타"
+  },
+  "VSNT": {
+    "shortName": "VSNT",
+    "industry": "기타"
   }
 }
