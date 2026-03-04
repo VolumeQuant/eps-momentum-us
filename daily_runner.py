@@ -50,6 +50,8 @@ COMMODITY_INDUSTRIES = {
     'Agricultural Inputs', 'Oil & Gas E&P', 'Oil & Gas Integrated',
     'Oil & Gas Refining & Marketing', 'Lumber & Wood Production',
 }
+# 업종 분류는 특수화학이지만 실제 원자재(리튬 광산) — 가격 패스스루
+COMMODITY_TICKERS = {'SQM', 'ALB'}
 
 # 기본 설정
 DEFAULT_CONFIG = {
@@ -897,8 +899,13 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
     if 'industry' in filtered.columns:
         commodity = filtered[filtered['industry'].isin(COMMODITY_INDUSTRIES)]
         if len(commodity) > 0:
-            log(f"원자재 제외: {', '.join(commodity['ticker'].tolist())}")
+            log(f"원자재 제외(업종): {', '.join(commodity['ticker'].tolist())}")
         filtered = filtered[~filtered['industry'].isin(COMMODITY_INDUSTRIES)].copy()
+    # 개별 원자재 티커 제외 (업종 분류 우회 종목: SQM 리튬 등)
+    commodity_tk = filtered[filtered['ticker'].isin(COMMODITY_TICKERS)]
+    if len(commodity_tk) > 0:
+        log(f"원자재 제외(티커): {', '.join(commodity_tk['ticker'].tolist())}")
+        filtered = filtered[~filtered['ticker'].isin(COMMODITY_TICKERS)].copy()
 
     if has_rev:
         # z-score 정규화
