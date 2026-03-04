@@ -2277,12 +2277,6 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 
     # ── 호출 1: 시장 요약 ──
     try:
-        market_ctx = ""
-        if risk_status:
-            f_action = risk_status.get('final_action', '')
-            if f_action:
-                market_ctx = f"현재 시장 판단: {f_action}"
-
         # 실제 지수 데이터를 프롬프트에 포함 (AI가 상승/하락 반대로 말하는 것 방지)
         idx_ctx = ""
         if market_lines:
@@ -2298,7 +2292,6 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
         market_prompt = f"""{biz_str} 미국 주식시장 마감 결과를 Google 검색해서 요약해줘.
 
 {idx_ctx}
-{market_ctx}
 
 [구조] 4~6문장, 총 250~350자로 작성:
 1. 당일 시장 흐름 — 상승/하락 원인 (1~2문장)
