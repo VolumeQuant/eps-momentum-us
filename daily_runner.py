@@ -2231,6 +2231,9 @@ def _identify_filter_failure(row, ticker):
     if ind and ind in COMMODITY_INDUSTRIES:
         return '원자재'
 
+    if ticker in COMMODITY_TICKERS:
+        return '원자재'
+
     return '필터탈락'
 
 
@@ -2822,13 +2825,13 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         marker = status_map.get(ticker, '🆕')
         name = _clean_company_name(row.get('short_name', ticker), ticker)
 
-        # L0: 이름·업종 (12자 제한)
+        # L0: 이름·업종 (20자 제한)
         short_name = name
-        if len(name) > 12:
+        if len(name) > 20:
             words = name.split()
             short_name = words[0]
             for w in words[1:]:
-                if len(short_name) + 1 + len(w) <= 12:
+                if len(short_name) + 1 + len(w) <= 20:
                     short_name += ' ' + w
                 else:
                     break
