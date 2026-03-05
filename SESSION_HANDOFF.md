@@ -3527,4 +3527,9 @@ Q4→Q1 전환(250일 +8~12%)을 잡으려면 Q1 전환 전에 포지션 필요.
 - **가중순위 조정**: Top 30 회전율 10%/일 안정, T0×0.5 유지
 
 ### 파일 변경
-- `daily_runner.py`: COMMODITY_TICKERS 정의/필터, 🛒 복원, 상관그룹 Union-Find, Gemini market_ctx 제거, [cite:] strip, 이름 20자, 이탈 라벨 3개
+- `daily_runner.py`: COMMODITY_TICKERS 정의/필터, 🛒 복원, 상관그룹 Union-Find, Gemini market_ctx 제거, [cite:] strip, 이탈 라벨 3개
+
+#### 추가 수정 (v45.3b)
+- **Watchlist 종목명 20→14자**: 30종목 × 긴 이름 → 텔레그램 4096자 초과 → 14자로 축소
+- **Watchlist 구분선 축소**: `- - - - - - - - - - - - -` → `- - - - -` (29개×16자=464자 절감)
+- **Gemini 내러티브 regex 보강**: `Company(TICKER): 설명` 패턴 추가 (STX 내러티브 누락 방지)
