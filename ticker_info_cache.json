@@ -5214,5 +5214,21 @@
   "VSNT": {
     "shortName": "VSNT",
     "industry": "기타"
+  },
+  "CMCM": {
+    "shortName": "CMCM",
+    "industry": "기타"
+  },
+  "CWST": {
+    "shortName": "CWST",
+    "industry": "기타"
+  },
+  "OTF": {
+    "shortName": "OTF",
+    "industry": "기타"
+  },
+  "SRRK": {
+    "shortName": "SRRK",
+    "industry": "기타"
   }
 }
