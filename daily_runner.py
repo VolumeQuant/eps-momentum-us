@@ -2184,7 +2184,7 @@ def _identify_filter_failure(row, ticker):
 
     # 원자재 티커 최우선 체크 (다른 필터에 먼저 걸리는 것 방지)
     if ticker in COMMODITY_TICKERS:
-        return '원자재'
+        return '업종제외'
 
     score = row.get('adj_score', 0) or 0
     if score <= 9:
@@ -2216,12 +2216,12 @@ def _identify_filter_failure(row, ticker):
 
     analysts = row.get('num_analysts', 0) or 0
     if analysts < 3:
-        return '저커버리지'
+        return '의견부족'
 
     up = row.get('rev_up30', 0) or 0
     dn = row.get('rev_down30', 0) or 0
     if (up + dn) > 0 and dn / (up + dn) > 0.3:
-        return '하향과다'
+        return 'EPS하향'
 
     om = row.get('operating_margin')
     gm = row.get('gross_margin')
@@ -2233,7 +2233,7 @@ def _identify_filter_failure(row, ticker):
 
     ind = row.get('industry', '')
     if ind and ind in COMMODITY_INDUSTRIES:
-        return '원자재'
+        return '업종제외'
 
     return '필터탈락'
 
