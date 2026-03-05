@@ -2392,8 +2392,13 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
                     line = line.strip()
                     if not line:
                         continue
-                    # "TICKER: 설명" / "N. TICKER: 설명" / "- TICKER: 설명"
+                    # "TICKER: 설명" / "N. TICKER: 설명" / "- TICKER: 설명" / "Company(TICKER): 설명"
                     m = re.match(r'(?:\d+\.\s*)?(?:-\s*)?([A-Z]{1,5})[\s:：]+(.{10,})', line)
+                    if not m:
+                        # "Company Name(TICKER): 설명" 형태 대응
+                        m2 = re.match(r'.*?\(([A-Z]{1,5})\)[\s:：]+(.{10,})', line)
+                        if m2:
+                            m = m2
                     if m:
                         ticker = m.group(1)
                         narrative = m.group(2).strip()
@@ -2828,13 +2833,13 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         marker = status_map.get(ticker, '🆕')
         name = _clean_company_name(row.get('short_name', ticker), ticker)
 
-        # L0: 이름·업종 (20자 제한)
+        # L0: 이름·업종 (14자 제한 — 30종목이라 compact)
         short_name = name
-        if len(name) > 20:
+        if len(name) > 14:
             words = name.split()
             short_name = words[0]
             for w in words[1:]:
-                if len(short_name) + 1 + len(w) <= 20:
+                if len(short_name) + 1 + len(w) <= 14:
                     short_name += ' ' + w
                 else:
                     break
@@ -2873,7 +2878,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
 
         # 점선 구분선
         if rank < 30:
-            lines.append('- - - - - - - - - - - - -')
+            lines.append('- - - - -')
 
     # ── 순위 이탈 ──
     if exit_reasons:
