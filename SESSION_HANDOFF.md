@@ -3485,3 +3485,46 @@ Q4→Q1 전환(250일 +8~12%)을 잡으려면 Q1 전환 전에 포지션 필요.
 
 ### 파일 변경
 - `daily_runner.py`: `import math`, `_safe_float()` 헬퍼, rev_growth NaN 방어 4곳
+
+---
+
+## v45.3 — 2026-03-05 집 PC — 원자재 티커 블랙리스트 + Gemini 수정 + 이탈 라벨
+
+### 배경
+- SQM(리튬 광산)이 yfinance에서 "Specialty Chemicals"으로 분류 → COMMODITY_INDUSTRIES 필터 우회
+- adj_gap +3.4% → -1920.6% (8일) — 리튬 가격 +32.5% QoQ 패스스루
+- Gemini 출력에 `[cite: user provided data]` 태그 누출 + final_action("과열 초기 5일째") 시장 뉴스에 오염
+- 이탈 사유 라벨이 고객에게 불친절 (저커버리지, 하향과다, 원자재)
+
+### 변경 사항 (6커밋)
+
+#### 1. COMMODITY_TICKERS 블랙리스트 (f021ae4)
+- `COMMODITY_TICKERS = {'SQM', 'ALB'}` — 업종 분류 우회 원자재 종목
+- `get_part2_candidates()`에서 COMMODITY_INDUSTRIES와 별도로 필터
+- `_identify_filter_failure()`에서 최우선 체크 (다른 필터 선행 방지)
+
+#### 2. 🛒 아이콘 복원 + 상관관계 그룹 표시 (7406213)
+- Signal 메시지 `📡` → `🛒` 복원 (무단 변경 수정)
+- 상관관계: 페어 나열 → Union-Find 그룹 묶기 (SNDK·MU, SNDK·STX → SNDK·MU·STX)
+
+#### 3. Gemini 프롬프트 수정 (2548d76, 2442543)
+- final_action(`market_ctx`)을 Gemini 프롬프트에서 제거 — AI 뉴스에 "과열 초기" 노출 방지
+- `re.sub(r'\[cite:.*?\]', '', text)` — grounding citation 태그 제거
+
+#### 4. SQM 이탈사유 + Watchlist 이름 확장 (397fda0)
+- SQM 이탈사유: [적자] → [업종제외] (COMMODITY_TICKERS 최우선 체크)
+- Watchlist 종목명: 12자 → 20자 제한 (Bank Of(BMO) 잘림 방지)
+
+#### 5. 이탈 사유 고객 친화 라벨 (df715be)
+- `저커버리지` → `의견부족`
+- `하향과다` → `EPS하향`
+- `원자재` → `업종제외`
+
+### 검토 후 미도입 결정
+- **부채 필터 (ND/EBITDA)**: CoreWeave는 EPS 마이너스로 진입 불가, LITE는 8.1x이지만 26% 수익 → 불필요
+- **은행 필터**: 금리 동결 기조에서 지역은행 EPS 개선은 진성 → 불필요
+- **VIX 임계값 변경**: 90+ → 🔴 경고 유지 (한국 프로젝트가 US에 맞추기로)
+- **가중순위 조정**: Top 30 회전율 10%/일 안정, T0×0.5 유지
+
+### 파일 변경
+- `daily_runner.py`: COMMODITY_TICKERS 정의/필터, 🛒 복원, 상관그룹 Union-Find, Gemini market_ctx 제거, [cite:] strip, 이름 20자, 이탈 라벨 3개
