@@ -2182,6 +2182,10 @@ def _identify_filter_failure(row, ticker):
         if row is None:
             return '필터탈락'
 
+    # 원자재 티커 최우선 체크 (다른 필터에 먼저 걸리는 것 방지)
+    if ticker in COMMODITY_TICKERS:
+        return '원자재'
+
     score = row.get('adj_score', 0) or 0
     if score <= 9:
         return 'EPS↓'
@@ -2229,9 +2233,6 @@ def _identify_filter_failure(row, ticker):
 
     ind = row.get('industry', '')
     if ind and ind in COMMODITY_INDUSTRIES:
-        return '원자재'
-
-    if ticker in COMMODITY_TICKERS:
         return '원자재'
 
     return '필터탈락'
@@ -2325,6 +2326,8 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
             # 마크다운 제거
             text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
             text = re.sub(r'#{1,3}\s*', '', text)
+            # Gemini 그라운딩 인용 태그 제거
+            text = re.sub(r'\[cite:.*?\]', '', text)
             result['market_summary'] = text.strip()
             log(f"AI: 시장요약 {len(result['market_summary'])}자")
         else:
