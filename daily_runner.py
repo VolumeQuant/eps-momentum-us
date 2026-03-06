@@ -1957,8 +1957,8 @@ def create_system_log_message(stats, elapsed, config):
 def _select_with_corr_cap(safe, top_n, corr_threshold=0.65, max_per_group=2):
     """상관관계 기반 분산 선정 — 같은 상관그룹에서 최대 max_per_group종목만 선정
 
-    가중순위 순서대로 순회하면서, 이미 선정된 종목과 상관 ≥ threshold인
-    종목이 max_per_group개 이상이면 스킵.
+    Union-Find로 상관 ≥ threshold인 종목들을 그룹화한 뒤,
+    가중순위 순서대로 순회하면서 그룹당 max_per_group개까지만 선정.
     상관행렬 계산 실패 시 단순 Top N 폴백.
     """
     if len(safe) <= top_n:
@@ -1980,6 +1980,30 @@ def _select_with_corr_cap(safe, top_n, corr_threshold=0.65, max_per_group=2):
     if corr_mat is None:
         return safe[:top_n]
 
+    # Union-Find로 상관그룹 구성
+    parent = {}
+    def find(x):
+        while parent.get(x, x) != x:
+            parent[x] = parent.get(parent[x], parent[x])
+            x = parent[x]
+        return x
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    avail = [t for t in tickers if t in corr_mat.columns]
+    for i in range(len(avail)):
+        for j in range(i + 1, len(avail)):
+            t1, t2 = avail[i], avail[j]
+            if corr_mat.loc[t1, t2] >= corr_threshold:
+                union(t1, t2)
+                log(f"  상관관계 분산: {t1}-{t2} = {corr_mat.loc[t1, t2]:.3f} → 같은 그룹")
+
+    # 그룹별 선정 카운트 추적
+    from collections import Counter
+    group_count = Counter()
+
     selected = []
     for s in safe:
         if len(selected) >= top_n:
@@ -1988,17 +2012,11 @@ def _select_with_corr_cap(safe, top_n, corr_threshold=0.65, max_per_group=2):
         if t not in corr_mat.columns:
             selected.append(s)
             continue
-        # 이미 선정된 종목 중 상관 ≥ threshold인 종목 수 카운트
-        high_corr_count = 0
-        for sel in selected:
-            st = sel['ticker']
-            if st in corr_mat.columns:
-                c = corr_mat.loc[t, st]
-                if c >= corr_threshold:
-                    high_corr_count += 1
-        if high_corr_count >= max_per_group:
-            log(f"  상관관계 분산: {t} 스킵 (상관 ≥{corr_threshold} 종목 {high_corr_count}개 이미 선정)")
+        grp = find(t)
+        if group_count[grp] >= max_per_group:
+            log(f"  상관관계 분산: {t} 스킵 (그룹 {grp} 이미 {max_per_group}종목)")
             continue
+        group_count[grp] += 1
         selected.append(s)
 
     if len(selected) < top_n:
