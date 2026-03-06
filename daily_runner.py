@@ -2582,7 +2582,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     uni = universe_size or 959
     if eps_screened and filter_count:
         lines.append(f'{uni}종목 중 EPS 상향 상위 {eps_screened}종목')
-        lines.append(f'→ 매출·커버리지·마진 필터 → {filter_count}종목')
+        lines.append(f'→ 매출·애널리스트·마진 필터 → {filter_count}종목')
     else:
         lines.append(f'{uni}종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else f'{uni}종목 중 EPS 상향 스크리닝')
     lines.append('→ 원자재·저마진 업종 제외')
