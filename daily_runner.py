@@ -1165,6 +1165,21 @@ def is_cold_start():
     return count < 3
 
 
+def _get_recent_dates(cursor, rank_col='part2_rank', today_str=None, limit=3):
+    """공통 헬퍼: 최근 N개 distinct date 조회 (rank_col이 NOT NULL인 날짜만)"""
+    if today_str:
+        cursor.execute(
+            f'SELECT DISTINCT date FROM ntm_screening WHERE {rank_col} IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT ?',
+            (today_str, limit)
+        )
+    else:
+        cursor.execute(
+            f'SELECT DISTINCT date FROM ntm_screening WHERE {rank_col} IS NOT NULL ORDER BY date DESC LIMIT ?',
+            (limit,)
+        )
+    return [r[0] for r in cursor.fetchall()]
+
+
 def get_3day_status(today_tickers, today_str=None):
     """3일 연속 Part 2 진입 여부 판별 → {ticker: '✅' or '⏳' or '🆕'}
     ✅ = 3일 연속 (포트폴리오 포함)
@@ -1174,17 +1189,7 @@ def get_3day_status(today_tickers, today_str=None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # 최근 3개 distinct date (part2_rank 있는 날짜만, today_str 이하)
-    if today_str:
-        cursor.execute(
-            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT 3',
-            (today_str,)
-        )
-    else:
-        cursor.execute(
-            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
-        )
-    dates = [r[0] for r in cursor.fetchall()]
+    dates = _get_recent_dates(cursor, 'part2_rank', today_str, 3)
 
     if len(dates) < 2:
         conn.close()
@@ -1236,16 +1241,7 @@ def get_rank_history(today_tickers, today_str=None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    if today_str:
-        cursor.execute(
-            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT 3',
-            (today_str,)
-        )
-    else:
-        cursor.execute(
-            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
-        )
-    dates = sorted([r[0] for r in cursor.fetchall()])
+    dates = sorted(_get_recent_dates(cursor, 'part2_rank', today_str, 3))
 
     if len(dates) < 2:
         conn.close()
@@ -1278,16 +1274,7 @@ def compute_weighted_ranks(today_tickers, today_str=None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    if today_str:
-        cursor.execute(
-            'SELECT DISTINCT date FROM ntm_screening WHERE composite_rank IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT 3',
-            (today_str,)
-        )
-    else:
-        cursor.execute(
-            'SELECT DISTINCT date FROM ntm_screening WHERE composite_rank IS NOT NULL ORDER BY date DESC LIMIT 3'
-        )
-    dates = sorted([r[0] for r in cursor.fetchall()])
+    dates = sorted(_get_recent_dates(cursor, 'composite_rank', today_str, 3))
 
     if not dates:
         conn.close()
