@@ -2567,6 +2567,14 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     except Exception as e:
         log(f"상관관계 계산 실패: {e}", level="WARN")
 
+    # 섹터 집중 경고
+    from collections import Counter
+    ind_counter = Counter(s.get('industry', '') for s in selected if s.get('industry'))
+    for ind, cnt in ind_counter.most_common(1):
+        if cnt >= 3 and ind:
+            pct = int(cnt / len(selected) * 100)
+            lines.append(f'⚠️ {ind} {cnt}종목 집중 ({pct}%)')
+
     # ━━ 섹션 2: 선정 과정 ━━
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
     lines.append('')
@@ -2600,12 +2608,16 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         price_str = f' · ${price:,.0f}' if price else ''
         lines.append(f'<b>{i+1}. {display_name}({ticker}) {industry}{price_str}</b>{earnings_tag}')
 
-        # L1: 증거 (EPS · 매출)
+        # L1: 증거 (EPS · 매출 · 의견)
         growth_parts = []
         if eps_chg:
             growth_parts.append(f'EPS {int(round(eps_chg)):+d}%')
         if rev:
             growth_parts.append(f'매출 {int(round(rev * 100)):+d}%')
+        rev_up = int(s.get('rev_up', 0) or 0)
+        rev_down = int(s.get('rev_down', 0) or 0)
+        if rev_up or rev_down:
+            growth_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
         lines.append(' · '.join(growth_parts))
 
         # L2: 안정성 (순위 궤적)
@@ -2647,6 +2659,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('순위: 2일전→1일전→오늘')
     lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
     lines.append('포트폴리오 비중은 투자자의 판단입니다.')
+    lines.append('')
+    lines.append('💡 분할매수 권장: 한 번에 전량 매수보다')
+    lines.append('2~3회 나눠서 조정 시 진입이 유리합니다.')
 
     return '\n'.join(lines)
 
@@ -2889,6 +2904,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('목록 순서: 3일 가중순위')
     lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
     lines.append('포트폴리오 비중은 투자자의 판단입니다.')
+    lines.append('')
+    lines.append('💡 분할매수 권장: 한 번에 전량 매수보다')
+    lines.append('2~3회 나눠서 조정 시 진입이 유리합니다.')
 
     return '\n'.join(lines)
 
