@@ -2122,17 +2122,21 @@ def classify_exit_reasons(exited_tickers, results_df):
     if not exited_tickers or results_df is None or results_df.empty:
         return result
 
-    # 오늘 composite_rank (DB 저장값) 조회
+    # 오늘 composite_rank (DB에서 조회 — save_part2_ranks가 DB에만 저장)
     composite_map = {}
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT ticker, composite_rank FROM ntm_screening WHERE date=(SELECT MAX(date) FROM ntm_screening WHERE composite_rank IS NOT NULL) AND composite_rank IS NOT NULL'
+    )
+    for t, cr in cursor.fetchall():
+        composite_map[t] = int(cr)
+    conn.close()
+
     full_data = {}
     for _, row in results_df.iterrows():
         t = row.get('ticker', '')
-        if not t:
-            continue
-        cr = row.get('composite_rank')
-        if cr is not None and pd.notna(cr):
-            composite_map[t] = int(cr)
-        if t in exited_tickers:
+        if t and t in exited_tickers:
             full_data[t] = row
 
     for t in sorted(exited_tickers, key=lambda x: exited_tickers[x]):
@@ -2192,7 +2196,7 @@ def _identify_filter_failure(row, ticker):
     if ma_val > 0 and price < ma_val:
         return 'MA120↓'
 
-    ntm = row.get('ntm_current', 0) or 0
+    ntm = row.get('ntm_cur') or row.get('ntm_current') or 0
     fwd_pe = price / ntm if ntm > 0 else 0
     if fwd_pe <= 0:
         return '적자'
