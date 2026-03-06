@@ -1954,77 +1954,6 @@ def create_system_log_message(stats, elapsed, config):
 
     return '\n'.join(lines)
 
-def _select_with_corr_cap(safe, top_n, corr_threshold=0.65, max_per_group=2):
-    """상관관계 기반 분산 선정 — 같은 상관그룹에서 최대 max_per_group종목만 선정
-
-    Union-Find로 상관 ≥ threshold인 종목들을 그룹화한 뒤,
-    가중순위 순서대로 순회하면서 그룹당 max_per_group개까지만 선정.
-    상관행렬 계산 실패 시 단순 Top N 폴백.
-    """
-    if len(safe) <= top_n:
-        return safe
-
-    tickers = [s['ticker'] for s in safe]
-    corr_mat = None
-    try:
-        import yfinance as yf
-        hist = yf.download(tickers, period='120d', threads=True, progress=False)
-        if 'Close' in hist.columns.get_level_values(0):
-            close = hist['Close'].dropna(how='all')
-            returns = close.pct_change().tail(90)
-            corr_mat = returns.corr()
-            log(f"상관관계 분산: {len(tickers)}종목 상관행렬 계산 완료")
-    except Exception as e:
-        log(f"상관관계 분산: 상관행렬 실패 → Top {top_n} 폴백 ({e})", level="WARN")
-
-    if corr_mat is None:
-        return safe[:top_n]
-
-    # Union-Find로 상관그룹 구성
-    parent = {}
-    def find(x):
-        while parent.get(x, x) != x:
-            parent[x] = parent.get(parent[x], parent[x])
-            x = parent[x]
-        return x
-    def union(a, b):
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
-
-    avail = [t for t in tickers if t in corr_mat.columns]
-    for i in range(len(avail)):
-        for j in range(i + 1, len(avail)):
-            t1, t2 = avail[i], avail[j]
-            if corr_mat.loc[t1, t2] >= corr_threshold:
-                union(t1, t2)
-                log(f"  상관관계 분산: {t1}-{t2} = {corr_mat.loc[t1, t2]:.3f} → 같은 그룹")
-
-    # 그룹별 선정 카운트 추적
-    from collections import Counter
-    group_count = Counter()
-
-    selected = []
-    for s in safe:
-        if len(selected) >= top_n:
-            break
-        t = s['ticker']
-        if t not in corr_mat.columns:
-            selected.append(s)
-            continue
-        grp = find(t)
-        if group_count[grp] >= max_per_group:
-            log(f"  상관관계 분산: {t} 스킵 (그룹 {grp} 이미 {max_per_group}종목)")
-            continue
-        group_count[grp] += 1
-        selected.append(s)
-
-    if len(selected) < top_n:
-        log(f"상관관계 분산: {len(selected)}/{top_n}종목만 선정됨", level="WARN")
-
-    return selected
-
-
 def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, earnings_map=None, risk_status=None):
     """포트폴리오 종목 선정 — ✅ 필터 → 리스크 필터 → 가중순위 정렬 → Top N
 
@@ -2151,9 +2080,11 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, ea
         log(f"포트폴리오: portfolio_mode=stop → 추천 중단 ({final_action})")
         return [], portfolio_mode, concordance, final_action
 
-    # 상관관계 기반 분산 선정 (그룹당 최대 2종목)
-    top_n = 3 if portfolio_mode == 'reduced' else 5
-    selected = _select_with_corr_cap(safe, top_n)
+    # reduced 모드: Top 3만
+    if portfolio_mode == 'reduced':
+        selected = safe[:3]
+    else:
+        selected = safe[:5]
 
     if len(selected) < 3:
         log("포트폴리오: 선정 종목 부족", "WARN")
