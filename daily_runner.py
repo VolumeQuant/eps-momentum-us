@@ -1954,6 +1954,59 @@ def create_system_log_message(stats, elapsed, config):
 
     return '\n'.join(lines)
 
+def _select_with_corr_cap(safe, top_n, corr_threshold=0.65, max_per_group=2):
+    """상관관계 기반 분산 선정 — 같은 상관그룹에서 최대 max_per_group종목만 선정
+
+    가중순위 순서대로 순회하면서, 이미 선정된 종목과 상관 ≥ threshold인
+    종목이 max_per_group개 이상이면 스킵.
+    상관행렬 계산 실패 시 단순 Top N 폴백.
+    """
+    if len(safe) <= top_n:
+        return safe
+
+    tickers = [s['ticker'] for s in safe]
+    corr_mat = None
+    try:
+        import yfinance as yf
+        hist = yf.download(tickers, period='120d', threads=True, progress=False)
+        if 'Close' in hist.columns.get_level_values(0):
+            close = hist['Close'].dropna(how='all')
+            returns = close.pct_change().tail(90)
+            corr_mat = returns.corr()
+            log(f"상관관계 분산: {len(tickers)}종목 상관행렬 계산 완료")
+    except Exception as e:
+        log(f"상관관계 분산: 상관행렬 실패 → Top {top_n} 폴백 ({e})", level="WARN")
+
+    if corr_mat is None:
+        return safe[:top_n]
+
+    selected = []
+    for s in safe:
+        if len(selected) >= top_n:
+            break
+        t = s['ticker']
+        if t not in corr_mat.columns:
+            selected.append(s)
+            continue
+        # 이미 선정된 종목 중 상관 ≥ threshold인 종목 수 카운트
+        high_corr_count = 0
+        for sel in selected:
+            st = sel['ticker']
+            if st in corr_mat.columns:
+                c = corr_mat.loc[t, st]
+                if c >= corr_threshold:
+                    high_corr_count += 1
+        if high_corr_count >= max_per_group:
+            log(f"  상관관계 분산: {t} 스킵 (상관 ≥{corr_threshold} 종목 {high_corr_count}개 이미 선정)")
+            continue
+        selected.append(s)
+
+    if len(selected) < top_n:
+        log(f"상관관계 분산: {len(selected)}/{top_n}종목만 선정됨", level="WARN")
+
+    return selected
+
+
 def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, earnings_map=None, risk_status=None):
     """포트폴리오 종목 선정 — ✅ 필터 → 리스크 필터 → 가중순위 정렬 → Top N
 
@@ -2080,11 +2133,9 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, ea
         log(f"포트폴리오: portfolio_mode=stop → 추천 중단 ({final_action})")
         return [], portfolio_mode, concordance, final_action
 
-    # reduced 모드: Top 3만
-    if portfolio_mode == 'reduced':
-        selected = safe[:3]
-    else:
-        selected = safe[:5]
+    # 상관관계 기반 분산 선정 (그룹당 최대 2종목)
+    top_n = 3 if portfolio_mode == 'reduced' else 5
+    selected = _select_with_corr_cap(safe, top_n)
 
     if len(selected) < 3:
         log("포트폴리오: 선정 종목 부족", "WARN")
