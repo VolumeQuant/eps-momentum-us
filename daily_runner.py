@@ -2737,6 +2737,13 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
             vix_icon, vix_ctx = '🔴', '경고'
         lines.append(f'{vix_icon} 변동성지수(VIX) {vix_cur:.1f}{vix_arrow} — {vix_ctx}')
 
+    # ── 과거 수익률 (팩트) ──
+    if hy_data:
+        q = hy_data.get('quadrant', '')
+        Q_ANNUAL = {'Q1': '+14.3', 'Q2': '+9.4', 'Q3': '+5.1', 'Q4': '+9.9'}
+        if q in Q_ANNUAL:
+            lines.append(f'과거 이 구간 S&P 연평균 {Q_ANNUAL[q]}%')
+
     # ── 📰 시장 동향 (AI 해석) ──
     market_summary = ai_content.get('market_summary', '') if ai_content else ''
     if market_summary:
