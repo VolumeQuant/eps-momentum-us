@@ -1954,14 +1954,74 @@ def create_system_log_message(stats, elapsed, config):
 
     return '\n'.join(lines)
 
-def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, earnings_map=None, risk_status=None):
-    """포트폴리오 종목 선정 — ✅ 필터 → 리스크 필터 → 가중순위 정렬 → Top N
+def _get_prev_portfolio(today_str=None):
+    """어제 포트폴리오 보유 종목 조회"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        if today_str:
+            c.execute('''
+                SELECT ticker FROM portfolio_log
+                WHERE date = (SELECT MAX(date) FROM portfolio_log WHERE date < ?)
+                AND action IN ('enter', 'hold')
+            ''', (today_str,))
+        else:
+            c.execute('''
+                SELECT ticker FROM portfolio_log
+                WHERE date = (SELECT MAX(date) FROM portfolio_log)
+                AND action IN ('enter', 'hold')
+            ''')
+        tickers = [r[0] for r in c.fetchall()]
+        conn.close()
+        return tickers
+    except Exception:
+        return []
+
+
+def _build_portfolio_entry(row, status_map, earnings_map):
+    """포트폴리오 종목 entry dict 생성"""
+    t = row.get('ticker', '')
+    today_date = datetime.now().date()
+    two_weeks = (datetime.now() + timedelta(days=14)).date()
+    earnings_note = ""
+    if earnings_map:
+        ed_info = earnings_map.get(t)
+        if ed_info:
+            ed = ed_info['date']
+            if today_date <= ed <= two_weeks:
+                ah_tag = '(장후)' if ed_info['after_hours'] else ''
+                earnings_note = f" 📅{ed.month}/{ed.day}{ah_tag}"
+    return {
+        'ticker': t,
+        'name': row.get('short_name', t),
+        'industry': row.get('industry', ''),
+        'eps_chg': _safe_float(row.get('eps_change_90d')),
+        'price_chg': _safe_float(row.get('price_chg')),
+        'fwd_pe': _safe_float(row.get('fwd_pe')),
+        'adj_gap': _safe_float(row.get('adj_gap')),
+        'rev_up': int(row.get('rev_up30', 0) or 0),
+        'rev_down': int(row.get('rev_down30', 0) or 0),
+        'num_analysts': int(row.get('num_analysts', 0) or 0),
+        'adj_score': _safe_float(row.get('adj_score')),
+        'lights': row.get('trend_lights', ''),
+        'desc': row.get('trend_desc', ''),
+        'v_status': (status_map or {}).get(t, '✅'),
+        'price': _safe_float(row.get('price')),
+        'rev_growth': _safe_float(row.get('rev_growth')),
+        'earnings_note': earnings_note,
+    }
+
+
+def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
+                            earnings_map=None, risk_status=None, today_str=None):
+    """포트폴리오 종목 선정 — Top 5 진입, Top 30 이탈 매도
+
+    전략:
+    - 보유 종목: Top 30 내 유지 시 계속 보유 (리스크 필터 미적용)
+    - 신규 진입: ✅ 검증 + 리스크 필터 통과 + 가중순위 상위
+    - 최대 5종목, 동일 비중
 
     Returns: (selected, portfolio_mode, concordance, final_action)
-        selected: 선정된 종목 리스트 (dict, weight 포함) 또는 빈 리스트
-        portfolio_mode: 'normal'|'caution'|'reduced'|'stop'
-        concordance: 'both_stable'|'both_warn'|...
-        final_action: 행동 권장 메시지
     """
     if earnings_map is None:
         earnings_map = {}
@@ -1977,118 +2037,109 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, ea
     if results_df is None or results_df.empty:
         return [], portfolio_mode, concordance, final_action
 
-    filtered = get_part2_candidates(results_df, top_n=30)
-    if filtered.empty:
-        return [], portfolio_mode, concordance, final_action
-
-    # ✅ (3일 검증) 종목만 대상
-    verified_tickers = {t for t, s in status_map.items() if s == '✅'}
-    if status_map:
-        filtered = filtered[filtered['ticker'].isin(verified_tickers)]
-
-    # 가중 순위로 정렬
-    if weighted_ranks:
-        filtered = filtered.copy()
-        filtered['_weighted'] = filtered['ticker'].map(
-            lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
-        )
-        filtered = filtered.sort_values('_weighted').reset_index(drop=True)
-
-    if filtered.empty:
-        log("포트폴리오: ✅ 검증 종목 없음", "WARN")
-        return [], portfolio_mode, concordance, final_action
-
-    today_date = datetime.now().date()
-    two_weeks = (datetime.now() + timedelta(days=14)).date()
-
-    # 리스크 플래그 → 안전 종목만 선별
-    log("포트폴리오: ✅ 종목 리스크 필터 적용 중...")
-    safe = []
-    for _, row in filtered.iterrows():
-        t = row['ticker']
-        eps_chg = row.get('eps_change_90d', 0) or 0
-        price_chg = row.get('price_chg', 0) or 0
-        fwd_pe = row.get('fwd_pe', 0) or 0
-        rev_up = int(row.get('rev_up30', 0) or 0)
-        rev_down = int(row.get('rev_down30', 0) or 0)
-        num_analysts = int(row.get('num_analysts', 0) or 0)
-
-        flags = []
-        total_rev = rev_up + rev_down
-        if total_rev > 0 and rev_down / total_rev > 0.3:
-            flags.append("하향과반")
-        elif rev_down >= rev_up and rev_down >= 2:
-            flags.append("하향우세")
-        if num_analysts < 3:
-            flags.append("저커버리지")
-        earnings_note = ""
-        ed_info = earnings_map.get(t)
-        if ed_info:
-            ed = ed_info['date']
-            if today_date <= ed <= two_weeks:
-                ah_tag = '(장후)' if ed_info['after_hours'] else ''
-                earnings_note = f" 📅{ed.month}/{ed.day}{ah_tag}"
-
-        if flags:
-            log(f"  ❌ {t}: {','.join(flags)} (gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')})")
-        else:
-            v_status = status_map.get(t, '✅') if status_map else '✅'
-            safe.append({
-                'ticker': t,
-                'name': row.get('short_name', t),
-                'industry': row.get('industry', ''),
-                'eps_chg': eps_chg, 'price_chg': price_chg,
-                'fwd_pe': fwd_pe,
-                'adj_gap': row.get('adj_gap', 0) or 0,
-                'rev_up': rev_up, 'rev_down': rev_down,
-                'num_analysts': num_analysts,
-                'adj_score': row.get('adj_score', 0) or 0,
-                'lights': row.get('trend_lights', ''),
-                'desc': row.get('trend_desc', ''),
-                'v_status': v_status,
-                'price': row.get('price', 0) or 0,
-                'rev_growth': _safe_float(row.get('rev_growth')),
-                'earnings_note': earnings_note,
-            })
-            log(f"  {v_status} {t}: gap={row.get('adj_gap',0):+.1f} desc={row.get('trend_desc','')} up={rev_up} dn={rev_down}{earnings_note}")
-
-    if not safe:
-        log("포트폴리오: ✅ 종목 없음", "WARN")
-        return [], portfolio_mode, concordance, final_action
-
-    # 가중 순위 정렬
-    if weighted_ranks:
-        for s in safe:
-            s['_weighted'] = weighted_ranks.get(s['ticker'], {}).get('weighted', 50.0)
-        safe.sort(key=lambda x: x['_weighted'])
-
-    log("포트폴리오: 가중 순위 (T0×0.5 + T1×0.3 + T2×0.2):")
-    for i, s in enumerate(safe):
-        w = s.get('_weighted', '-')
-        log(f"    {i+1}. {s['ticker']}: 가중={w} gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
-
-    # L3: both_warn 시 신규 진입 종목 포트폴리오 제외
-    if concordance == 'both_warn':
-        before = len(safe)
-        safe = [s for s in safe if s['v_status'] == '✅']
-        excluded = before - len(safe)
-        if excluded > 0:
-            log(f"L3 시장 동결: both_warn — 신규 진입 {excluded}개 제외 (기존 ✅만 유지)")
-
     # stop 모드: 빈 리스트 반환
     if portfolio_mode == 'stop':
         log(f"포트폴리오: portfolio_mode=stop → 추천 중단 ({final_action})")
         return [], portfolio_mode, concordance, final_action
 
-    # reduced 모드: Top 3만
-    if portfolio_mode == 'reduced':
-        selected = safe[:3]
-    else:
-        selected = safe[:5]
+    # Top 30 (하드 필터 적용, ✅ 필터 전)
+    top30 = get_part2_candidates(results_df, top_n=30)
+    if top30.empty:
+        return [], portfolio_mode, concordance, final_action
+
+    top30_tickers = set(top30['ticker'].tolist())
+
+    # ── 어제 보유 → Top 30 유지 시 홀드 ──
+    prev_holdings = _get_prev_portfolio(today_str)
+    holds_in_top30 = [t for t in prev_holdings if t in top30_tickers]
+
+    hold_entries = []
+    for t in holds_in_top30:
+        row = top30[top30['ticker'] == t]
+        if row.empty:
+            continue
+        row = row.iloc[0]
+        entry = _build_portfolio_entry(row, status_map, earnings_map)
+        hold_entries.append(entry)
+        log(f"  🔄 {t}: HOLD (Top30 유지) gap={_safe_float(row.get('adj_gap')):+.1f} desc={row.get('trend_desc', '')}")
+
+    exited = [t for t in prev_holdings if t not in top30_tickers]
+    if exited:
+        log(f"  📤 Top30 이탈: {', '.join(exited)}")
+
+    # ── 신규 진입 후보 (✅ + 리스크 필터) ──
+    verified_tickers = {t for t, s in status_map.items() if s == '✅'} if status_map else set()
+
+    max_stocks = 3 if portfolio_mode == 'reduced' else 5
+    vacancies = max(0, max_stocks - len(hold_entries))
+
+    new_entries = []
+    if vacancies > 0:
+        held_tickers = {h['ticker'] for h in hold_entries}
+        candidates = top30[
+            top30['ticker'].isin(verified_tickers) &
+            ~top30['ticker'].isin(held_tickers)
+        ].copy()
+
+        # 가중 순위 정렬
+        if weighted_ranks:
+            candidates['_weighted'] = candidates['ticker'].map(
+                lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
+            )
+            candidates = candidates.sort_values('_weighted').reset_index(drop=True)
+
+        log(f"포트폴리오: 빈 자리 {vacancies}개, 신규 후보 {len(candidates)}개 검토 중...")
+
+        for _, row in candidates.iterrows():
+            if len(new_entries) >= vacancies:
+                break
+            t = row['ticker']
+            # 리스크 필터 (신규만 적용)
+            rev_up = int(row.get('rev_up30', 0) or 0)
+            rev_down = int(row.get('rev_down30', 0) or 0)
+            num_analysts = int(row.get('num_analysts', 0) or 0)
+            flags = []
+            total_rev = rev_up + rev_down
+            if total_rev > 0 and rev_down / total_rev > 0.3:
+                flags.append("하향과반")
+            elif rev_down >= rev_up and rev_down >= 2:
+                flags.append("하향우세")
+            if num_analysts < 3:
+                flags.append("저커버리지")
+
+            if flags:
+                log(f"  ❌ {t}: {','.join(flags)} (gap={_safe_float(row.get('adj_gap')):+.1f} desc={row.get('trend_desc', '')})")
+            else:
+                entry = _build_portfolio_entry(row, status_map, earnings_map)
+                new_entries.append(entry)
+                log(f"  🆕 {t}: NEW gap={_safe_float(row.get('adj_gap')):+.1f} desc={row.get('trend_desc', '')}")
+
+    # L3: both_warn 시 신규 진입만 제외 (보유는 유지)
+    if concordance == 'both_warn' and new_entries:
+        log(f"L3 시장 동결: both_warn — 신규 진입 {len(new_entries)}개 제외 (보유 {len(hold_entries)}개 유지)")
+        new_entries = []
+
+    selected = hold_entries + new_entries
+
+    if not selected:
+        log("포트폴리오: 보유+신규 종목 없음", "WARN")
+        return [], portfolio_mode, concordance, final_action
 
     if len(selected) < 3:
-        log("포트폴리오: 선정 종목 부족", "WARN")
+        log(f"포트폴리오: 선정 종목 부족 ({len(selected)}개)", "WARN")
         return [], portfolio_mode, concordance, final_action
+
+    # 가중 순위로 정렬 (표시 순서)
+    if weighted_ranks:
+        for s in selected:
+            s['_weighted'] = weighted_ranks.get(s['ticker'], {}).get('weighted', 50.0)
+        selected.sort(key=lambda x: x['_weighted'])
+
+    log("포트폴리오: 가중 순위 (T0×0.5 + T1×0.3 + T2×0.2):")
+    for i, s in enumerate(selected):
+        w = s.get('_weighted', '-')
+        tag = '🔄' if s['ticker'] in holds_in_top30 else '🆕'
+        log(f"    {i+1}. {tag} {s['ticker']}: 가중={w} gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
 
     # 동일 비중
     n = len(selected)
@@ -2100,7 +2151,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None, ea
     for i, s in enumerate(selected):
         s['weight'] = weights[i]
 
-    log(f"포트폴리오: {n}종목 선정 — " +
+    log(f"포트폴리오: {n}종목 (보유 {len(hold_entries)} + 신규 {len(new_entries)}) — " +
         ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
     return selected, portfolio_mode, concordance, final_action
@@ -3069,7 +3120,8 @@ def main():
 
         # 포트폴리오 종목 선정
         selected, portfolio_mode, concordance, final_action = select_portfolio_stocks(
-            results_df, status_map, weighted_ranks, earnings_map, risk_status
+            results_df, status_map, weighted_ranks, earnings_map, risk_status,
+            today_str=today_str
         )
 
         # Forward Test 기록
