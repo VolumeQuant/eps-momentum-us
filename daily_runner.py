@@ -2012,9 +2012,86 @@ def _build_portfolio_entry(row, status_map, earnings_map):
     }
 
 
+def select_display_top5(results_df, status_map=None, weighted_ranks=None,
+                        earnings_map=None, risk_status=None):
+    """Signal 메시지용 순수 가중순위 Top 5 선정 (홀드 로직 없음)
+
+    매일 순수하게 가중순위 상위 5종목을 보여줌.
+    ✅ 검증 + 리스크 필터 적용, 포트폴리오 전략(홀드/교체) 미적용.
+    """
+    if earnings_map is None:
+        earnings_map = {}
+    if status_map is None:
+        status_map = {}
+    if weighted_ranks is None:
+        weighted_ranks = {}
+
+    portfolio_mode = risk_status.get('portfolio_mode', 'normal') if risk_status else 'normal'
+
+    if results_df is None or results_df.empty:
+        return []
+
+    if portfolio_mode == 'stop':
+        return []
+
+    top30 = get_part2_candidates(results_df, top_n=30)
+    if top30.empty:
+        return []
+
+    # ✅ 검증 종목만
+    verified_tickers = {t for t, s in status_map.items() if s == '✅'} if status_map else set()
+    candidates = top30[top30['ticker'].isin(verified_tickers)].copy()
+
+    # 가중 순위 정렬
+    if weighted_ranks:
+        candidates['_weighted'] = candidates['ticker'].map(
+            lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
+        )
+        candidates = candidates.sort_values('_weighted').reset_index(drop=True)
+
+    # 리스크 필터 적용, 상위 5개 선정
+    selected = []
+    for _, row in candidates.iterrows():
+        if len(selected) >= 5:
+            break
+        t = row['ticker']
+        rev_up = int(row.get('rev_up30', 0) or 0)
+        rev_down = int(row.get('rev_down30', 0) or 0)
+        num_analysts = int(row.get('num_analysts', 0) or 0)
+        flags = []
+        total_rev = rev_up + rev_down
+        if total_rev > 0 and rev_down / total_rev > 0.3:
+            flags.append("하향과반")
+        elif rev_down >= rev_up and rev_down >= 2:
+            flags.append("하향우세")
+        if num_analysts < 3:
+            flags.append("저커버리지")
+
+        if flags:
+            log(f"  ⛔ 디스플레이 제외 {t}: {','.join(flags)}")
+        else:
+            entry = _build_portfolio_entry(row, status_map, earnings_map)
+            selected.append(entry)
+
+    # 동일 비중
+    n = len(selected)
+    if n > 0:
+        base = 100 // n
+        remainder = 100 - base * n
+        weights = [base] * n
+        for i in range(remainder):
+            weights[i] += 1
+        for i, s in enumerate(selected):
+            s['weight'] = weights[i]
+
+    log(f"디스플레이 Top {n}: " + ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
+
+    return selected
+
+
 def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
                             earnings_map=None, risk_status=None, today_str=None):
-    """포트폴리오 종목 선정 — Top 5 진입, Top 30 이탈 매도
+    """포트폴리오 종목 선정 — Top 5 진입, Top 30 이탈 매도 (Forward Test용)
 
     전략:
     - 보유 종목: Top 30 내 유지 시 계속 보유 (리스크 필터 미적용)
@@ -3118,16 +3195,26 @@ def main():
 
         # ===== v3: Signal + AI Risk + Watchlist =====
 
-        # 포트폴리오 종목 선정
-        selected, portfolio_mode, concordance, final_action = select_portfolio_stocks(
+        # risk_status에서 공통 값 추출
+        concordance = risk_status.get('concordance', 'both_stable') if risk_status else 'both_stable'
+        final_action = risk_status.get('final_action', '') if risk_status else ''
+        portfolio_mode = risk_status.get('portfolio_mode', 'normal') if risk_status else 'normal'
+
+        # 디스플레이용 순수 Top 5 (메시지용 — 홀드 로직 없음)
+        display_top5 = select_display_top5(
+            results_df, status_map, weighted_ranks, earnings_map, risk_status
+        )
+
+        # 포트폴리오 전략 (Forward Test용 — Top 5 진입 + Top 30 홀드)
+        portfolio, _, _, _ = select_portfolio_stocks(
             results_df, status_map, weighted_ranks, earnings_map, risk_status,
             today_str=today_str
         )
 
-        # Forward Test 기록
-        if selected:
+        # Forward Test 기록 (포트폴리오 전략 기반)
+        if portfolio:
             try:
-                log_portfolio_trades(selected, biz_day.strftime('%Y-%m-%d'))
+                log_portfolio_trades(portfolio, biz_day.strftime('%Y-%m-%d'))
             except Exception as e:
                 log(f"Forward Test 기록 실패: {e}", "WARN")
 
@@ -3142,12 +3229,12 @@ def main():
         else:
             eps_screened, filter_count = 0, 0
 
-        # AI 2회 호출 (시장 요약 + 종목 내러티브)
-        ai_content = run_ai_analysis(config, selected, biz_day, risk_status, market_lines=market_lines)
+        # AI 2회 호출 (시장 요약 + 종목 내러티브) — 디스플레이 Top 5 기반
+        ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status, market_lines=market_lines)
 
-        # 메시지 1: Signal
+        # 메시지 1: Signal — 디스플레이 Top 5 기반
         msg_signal = create_signal_message(
-            selected, earnings_map, exit_reasons, biz_day, ai_content,
+            display_top5, earnings_map, exit_reasons, biz_day, ai_content,
             portfolio_mode, final_action,
             weighted_ranks=weighted_ranks, filter_count=filter_count,
             status_map=status_map, eps_screened=eps_screened,
@@ -3160,9 +3247,9 @@ def main():
             send_telegram_long(msg_signal, config, chat_id=private_id)
             log(f"Signal 전송 완료 → {dest}")
 
-        # 메시지 2: AI 리스크 필터
+        # 메시지 2: AI 리스크 필터 — 디스플레이 Top 5 기반
         msg_ai_risk = create_ai_risk_message(
-            config, selected, biz_day, risk_status, market_lines,
+            config, display_top5, biz_day, risk_status, market_lines,
             earnings_map, ai_content
         )
         if msg_ai_risk:

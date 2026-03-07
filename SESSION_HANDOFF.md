@@ -3640,3 +3640,21 @@ Q4→Q1 전환(250일 +8~12%)을 잡으려면 Q1 전환 전에 포지션 필요.
 
 ### 파일 변경
 - `daily_runner.py`: `select_portfolio_stocks()` 재작성, `_get_prev_portfolio()`, `_build_portfolio_entry()` 추가
+
+---
+
+## v47: 디스플레이 Top 5 / Forward Test 분리
+
+> **날짜**: 2026-03-07
+> **문제**: v46에서 포트폴리오 전략(Top 5 진입 + Top 30 홀드)이 Signal 메시지에 직접 적용됨
+> - LITE가 가중순위 1위인데도 5자리가 전부 HOLD로 채워져 메시지에 안 나옴
+> - 신규 고객이 보는 "오늘의 Top 5"가 순수 순위가 아닌 포트폴리오 홀드 결과를 보여주는 문제
+
+### 결정
+- **Signal/AI Risk 메시지**: `select_display_top5()` — 순수 가중순위 Top 5 (✅ 검증 + 리스크 필터만, 홀드 로직 없음)
+- **Forward Test**: `select_portfolio_stocks()` — Top 5 진입 + Top 30 홀드 (DB 기록용)
+- 두 결과는 독립적으로 동작, 메시지는 항상 순수 순위 기반
+
+### 파일 변경
+- `daily_runner.py`: `select_display_top5()` 신규 함수, `main()` 흐름 분리 (display_top5 vs portfolio)
+- `quick_test_v3.py`: `select_display_top5()` 사용으로 변경

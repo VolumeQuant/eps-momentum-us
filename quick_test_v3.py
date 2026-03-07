@@ -12,7 +12,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent))
 from daily_runner import (
     load_config, log, DB_PATH,
-    get_part2_candidates, select_portfolio_stocks,
+    get_part2_candidates, select_display_top5, select_portfolio_stocks,
     classify_exit_reasons,
     create_signal_message, create_ai_risk_message, create_watchlist_message,
     send_telegram_long, _clean_company_name,
@@ -186,11 +186,15 @@ def main():
     risk_status = mock_risk_status()
     market_lines = mock_market_lines()
 
-    # 3. 포트폴리오 종목 선정
-    selected, portfolio_mode, concordance, final_action = select_portfolio_stocks(
+    # 3. 디스플레이 Top 5 (메시지용)
+    concordance = risk_status.get('concordance', 'both_stable')
+    final_action = risk_status.get('final_action', '')
+    portfolio_mode = risk_status.get('portfolio_mode', 'normal')
+
+    selected = select_display_top5(
         results_df, status_map, weighted_ranks, earnings_map, risk_status
     )
-    print(f"포트폴리오: {len(selected)}종목, mode={portfolio_mode}")
+    print(f"디스플레이 Top 5: {len(selected)}종목, mode={portfolio_mode}")
 
     # 4. 이탈 사유 (v3: 태그 통일)
     exit_reasons = classify_exit_reasons(exited_tickers, results_df)
