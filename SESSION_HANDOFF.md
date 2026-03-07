@@ -3658,3 +3658,28 @@ Q4→Q1 전환(250일 +8~12%)을 잡으려면 Q1 전환 전에 포지션 필요.
 ### 파일 변경
 - `daily_runner.py`: `select_display_top5()` 신규 함수, `main()` 흐름 분리 (display_top5 vs portfolio)
 - `quick_test_v3.py`: `select_display_top5()` 사용으로 변경
+
+---
+
+## v47.1: 전문가 패널 리뷰 기반 메시지 개선
+
+> **날짜**: 2026-03-07
+> **방법**: 퀀트 전략가 + UX 전문가 + 리스크 전문가 3명 에이전트 병렬 리뷰
+
+### 변경 사항
+1. **Signal 시장 경고 배너**: VIX/HY 주의 이상일 때 종목 리스트 아래 1줄 표시 (🟡 HY 3.00% · 🟡 VIX 23.8)
+2. **VIX 등급 버그 수정**: 67~80th / 80~90th 동일 표시 → 🟡주의 / 🟠경계 분리
+3. **상관관계 경고 개선**: 3종목+ → "⚠️ 동일 섹터 — 이 중 1~2개 선택 권장" (기존 섹터 집중 경고 통합)
+4. **이탈 사유 Signal 표시**: 사유별 묶어서 표시 "AX·FHN(순위밀림) MCHP(MA120↓)"
+5. **용어 명확화**: "EPS 전망 +X%" / "매출성장 +X%", 의견을 순위 줄로 이동
+6. **Display vs Portfolio 안내**: "보유 종목이 상위 30 내라면 Watchlist 참고." 추가
+7. **Watchlist 면책 중복 제거**: Signal에만 유지
+
+### 검토 후 현행 유지
+- 리스크 필터(fwd_pe>100, 어닝 14일): 경고 표시로 충분, 차단 불필요
+- 섹터 집중도 제한: 순위 시스템 왜곡 우려 → 경고 강화로 대체
+- MA120 반등 문구: "재진입 대상" 조건부 표현이라 적절
+- z-score → rank percentile: 데이터 축적 후 검토 예정
+
+### 파일 변경
+- `daily_runner.py`: create_signal_message (risk_status 파라미터, 경고 배너, 이탈 사유, 용어, 상관관계), create_ai_risk_message (VIX 등급), create_watchlist_message (용어, 면책 제거)

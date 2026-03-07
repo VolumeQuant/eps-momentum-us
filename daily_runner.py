@@ -2604,7 +2604,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                           portfolio_mode, final_action,
                           weighted_ranks=None, filter_count=None,
                           status_map=None, eps_screened=None, universe_size=None,
-                          exited_tickers=None):
+                          exited_tickers=None, risk_status=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -2650,6 +2650,29 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         name = _clean_company_name(s['name'], s['ticker'])
         lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
 
+    # 시장 경고 배너 (VIX/HY 주의 이상일 때만)
+    if risk_status:
+        hy_data = risk_status.get('hy')
+        vix_data = risk_status.get('vix')
+        warn_parts = []
+        if hy_data:
+            hy_spread = hy_data.get('hy_spread', 0)
+            if hy_spread >= 4.5:
+                warn_parts.append(f'🔴 HY {hy_spread:.2f}%')
+            elif hy_spread >= 3.0:
+                warn_parts.append(f'🟡 HY {hy_spread:.2f}%')
+        if vix_data:
+            vix_cur = vix_data.get('vix_current', 0)
+            vix_pct = vix_data.get('vix_percentile', 0)
+            if vix_pct >= 90:
+                warn_parts.append(f'🔴 VIX {vix_cur:.1f}')
+            elif vix_pct >= 80:
+                warn_parts.append(f'🟠 VIX {vix_cur:.1f}')
+            elif vix_pct >= 67:
+                warn_parts.append(f'🟡 VIX {vix_cur:.1f}')
+        if warn_parts:
+            lines.append(' · '.join(warn_parts))
+
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
         import yfinance as yf
@@ -2690,18 +2713,13 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                         group.sort(key=lambda x: tickers_list.index(x))
                         groups.append(group)
                 if groups:
-                    group_strs = ['·'.join(g) for g in groups]
-                    lines.append(f'ℹ️ {", ".join(group_strs)} 주가 상관관계 높음')
+                    for g in groups:
+                        if len(g) >= 3:
+                            lines.append(f'⚠️ {" · ".join(g)} 동일 섹터 — 이 중 1~2개 선택 권장')
+                        else:
+                            lines.append(f'ℹ️ {"·".join(g)} 주가 상관관계 높음')
     except Exception as e:
         log(f"상관관계 계산 실패: {e}", level="WARN")
-
-    # 섹터 집중 경고
-    from collections import Counter
-    ind_counter = Counter(s.get('industry', '') for s in selected if s.get('industry'))
-    for ind, cnt in ind_counter.most_common(1):
-        if cnt >= 3 and ind:
-            pct = int(cnt / len(selected) * 100)
-            lines.append(f'⚠️ {ind} {cnt}종목 집중 ({pct}%)')
 
     # ━━ 섹션 2: 선정 과정 ━━
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
@@ -2736,19 +2754,17 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         price_str = f' · ${price:,.0f}' if price else ''
         lines.append(f'<b>{i+1}. {display_name}({ticker}) {industry}{price_str}</b>{earnings_tag}')
 
-        # L1: 증거 (EPS · 매출 · 의견)
+        # L1: 증거 (EPS 전망 · 매출성장)
         growth_parts = []
         if eps_chg:
-            growth_parts.append(f'EPS {int(round(eps_chg)):+d}%')
+            growth_parts.append(f'EPS 전망 {int(round(eps_chg)):+d}%')
         if rev:
-            growth_parts.append(f'매출 {int(round(rev * 100)):+d}%')
-        rev_up = int(s.get('rev_up', 0) or 0)
-        rev_down = int(s.get('rev_down', 0) or 0)
-        if rev_up or rev_down:
-            growth_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
+            growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
         lines.append(' · '.join(growth_parts))
 
-        # L2: 안정성 (순위 궤적)
+        # L2: 안정성 (순위 · 의견)
+        rev_up = int(s.get('rev_up', 0) or 0)
+        rev_down = int(s.get('rev_down', 0) or 0)
         w_info = weighted_ranks.get(ticker)
         if w_info:
             r0, r1, r2 = w_info['r0'], w_info['r1'], w_info['r2']
@@ -2757,7 +2773,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             rank_str = f'{r2_s}→{r1_s}→{r0}위'
         else:
             rank_str = f'-→-→?위'
-        lines.append(f'순위 {rank_str}')
+        rank_parts = [f'순위 {rank_str}']
+        if rev_up or rev_down:
+            rank_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
+        lines.append(' · '.join(rank_parts))
 
         # L3: 이야기 (AI 내러티브)
         narrative = narratives.get(ticker, '')
@@ -2768,11 +2787,17 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         if i < len(selected) - 1:
             lines.append('─ ─ ─ ─ ─ ─ ─ ─')
 
-    # ━━ 이탈 알림 (1줄) ━━
+    # ━━ 이탈 알림 (사유별 묶어서 표시) ━━
     if exit_reasons:
-        exit_tickers = [t for t, _, _ in exit_reasons]
+        from collections import defaultdict
+        reason_groups = defaultdict(list)
+        for t, _, reason in exit_reasons:
+            reason_groups[reason or '순위밀림'].append(t)
+        parts = []
+        for reason, tickers in reason_groups.items():
+            parts.append(f'{"·".join(tickers)}({reason})')
         lines.append('')
-        lines.append(f'⚠️ 이탈: {", ".join(exit_tickers)} → Watchlist 참고')
+        lines.append(f'⚠️ 이탈: {" ".join(parts)}')
         # MA120 이탈 + 어제 상위권 종목 → 반등 관심 대상
         if exited_tickers:
             for t, _, reason in exit_reasons:
@@ -2787,6 +2812,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('순위: 2일전→1일전→오늘')
     lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
     lines.append('포트폴리오 비중은 투자자의 판단입니다.')
+    lines.append('보유 종목이 상위 30 내라면 Watchlist 참고.')
     lines.append('')
     lines.append('💡 분할매수 권장: 한 번에 전량 매수보다')
     lines.append('2~3회 나눠서 조정 시 진입이 유리합니다.')
@@ -2860,7 +2886,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         elif vix_pct < 80:
             vix_icon, vix_ctx = '🟡', '주의'
         elif vix_pct < 90:
-            vix_icon, vix_ctx = '🟡', '주의'
+            vix_icon, vix_ctx = '🟠', '경계'
         else:
             vix_icon, vix_ctx = '🔴', '경고'
         lines.append(f'{vix_icon} 변동성지수(VIX) {vix_cur:.1f}{vix_arrow} — {vix_ctx}')
@@ -2992,12 +3018,12 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         elif lights:
             lines.append(f'EPS추이 {lights}')
 
-        # L2: EPS · 매출
+        # L2: EPS 전망 · 매출성장
         growth_parts = []
         if eps_90d is not None and pd.notna(eps_90d):
-            growth_parts.append(f'EPS {int(round(eps_90d)):+d}%')
+            growth_parts.append(f'EPS 전망 {int(round(eps_90d)):+d}%')
         if rev_g is not None and pd.notna(rev_g):
-            growth_parts.append(f'매출 {int(round(rev_g * 100)):+d}%')
+            growth_parts.append(f'매출성장 {int(round(rev_g * 100)):+d}%')
         lines.append(' · '.join(growth_parts))
 
         # L3: 의견 + 순위
@@ -3037,11 +3063,6 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('순위: 2일전→1일전→오늘')
     lines.append('목록 순서: 3일 가중순위')
-    lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
-    lines.append('포트폴리오 비중은 투자자의 판단입니다.')
-    lines.append('')
-    lines.append('💡 분할매수 권장: 한 번에 전량 매수보다')
-    lines.append('2~3회 나눠서 조정 시 진입이 유리합니다.')
 
     return '\n'.join(lines)
 
@@ -3239,7 +3260,7 @@ def main():
             weighted_ranks=weighted_ranks, filter_count=filter_count,
             status_map=status_map, eps_screened=eps_screened,
             universe_size=stats.get('universe'),
-            exited_tickers=exited_tickers
+            exited_tickers=exited_tickers, risk_status=risk_status
         )
         if msg_signal:
             if send_to_channel:
