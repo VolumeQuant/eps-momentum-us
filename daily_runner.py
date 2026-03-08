@@ -2693,39 +2693,53 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
             for i, s in enumerate(etf_stocks[:10]):
                 top_lines.append(f"{i+1}. {s['ticker']} — {s['name']} ({s['industry']})")
 
-            etf_prompt = f"""아래는 {biz_str} 기준 EPS 모멘텀 스크리닝 상위 종목입니다 (순위순).
+            etf_prompt = f"""아래는 {biz_str} 기준 EPS 모멘텀 스크리닝 상위 종목입니다 (순위순, 1위가 가장 중요).
 
 {chr(10).join(top_lines)}
 
-이 종목들을 가장 집중적으로 담고 있는 섹터/테마 ETF 3개를 추천해주세요.
+이 종목들을 가장 집중적으로 담고 있는 미국 상장 ETF 3개를 추천해주세요.
 
-[규칙]
-- SPY, QQQ, VOO, VTI, IWM 같은 시장 전체 ETF는 절대 제외
-- 섹터 ETF, 테마 ETF, 니치 ETF 중에서 선택
-- 상위 순위 종목이 포함된 ETF를 우선
-- 각 ETF에 포함된 위 종목을 반드시 명시 (포함 안 된 종목은 쓰지 마)
-- ETF 이름과 티커를 정확히
-- 추천 이유 2~3문장 — 왜 이 ETF가 위 종목들의 테마를 잘 잡는지
-- 한국어, ~예요 체
-- 마크다운 서식(**, ## 등) 사용하지 마
-- 인사말/맺음말 없이 바로 시작
+[절대 제외 — 이 ETF들은 추천하지 마]
+시장 전체: SPY, QQQ, VOO, VTI, IWM, RSP, SCHB, IVV, IWF, IWD, VONG, VUG, MGK, MTUM, QUAL
+기술 전체: XLK, VGT, IYW, FTEC
 
-[형식]
-1. ETF이름 (티커)
-포함 종목: TICKER1, TICKER2, ...
+[ETF 선택 기준]
+- 섹터 ETF(SMH, XSD, XLI, XLV 등), 테마 ETF(PAVE, FIVG 등), 니치 ETF 중에서만 선택
+- 상위 1~5위 종목이 많이 포함된 ETF를 우선
+- 동일가중(Equal-weight) ETF 우선 고려 (중소형 종목 비중 높음)
+- 각 ETF에 최소 2개 이상의 위 종목 포함 필수
+- 3개 ETF가 서로 다른 테마/섹터를 커버하면 좋음
+
+[정확성 — 최우선]
+- 해당 ETF가 실제로 해당 종목을 보유(holding)하고 있는 경우만 명시
+- 확실하지 않은 종목은 절대 쓰지 마
+- ETF 티커와 정식명칭(영문)을 정확히 써. 존재하지 않는 ETF를 만들어내지 마.
+- SNDK는 2024년 Western Digital에서 재분리 상장된 종목이야.
+
+[출력 형식 — 반드시 준수]
+1. ETF 정식명칭 (티커)
+포함 종목: TICKER1, TICKER2
 추천 이유 2~3문장.
 
-2. ETF이름 (티커)
-...
+2. ETF 정식명칭 (티커)
+포함 종목: TICKER1, TICKER2
+추천 이유 2~3문장.
 
-3. ETF이름 (티커)
-..."""
+3. ETF 정식명칭 (티커)
+포함 종목: TICKER1, TICKER2
+추천 이유 2~3문장.
+
+[규칙]
+- 한국어, ~예요 체
+- 마크다운 서식(**, ##, * 등) 사용 금지
+- ETF명은 영문 원래 이름 유지
+- 인사말/서두/맺음말 없이 바로 시작"""
 
             resp = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=etf_prompt,
                 config=types.GenerateContentConfig(
-                    temperature=0.3,
+                    temperature=0.15,
                 ),
             )
             text = extract_text(resp)
