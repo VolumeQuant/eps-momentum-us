@@ -2803,29 +2803,6 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         name = _clean_company_name(s['name'], s['ticker'])
         lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
 
-    # 시장 경고 배너 (VIX/HY 주의 이상일 때만)
-    if risk_status:
-        hy_data = risk_status.get('hy')
-        vix_data = risk_status.get('vix')
-        warn_parts = []
-        if hy_data:
-            hy_spread = hy_data.get('hy_spread', 0)
-            if hy_spread >= 4.5:
-                warn_parts.append(f'🔴 HY {hy_spread:.2f}%')
-            elif hy_spread >= 3.0:
-                warn_parts.append(f'🟡 HY {hy_spread:.2f}%')
-        if vix_data:
-            vix_cur = vix_data.get('vix_current', 0)
-            vix_pct = vix_data.get('vix_percentile', 0)
-            if vix_pct >= 90:
-                warn_parts.append(f'🔴 VIX {vix_cur:.1f}')
-            elif vix_pct >= 80:
-                warn_parts.append(f'🟠 VIX {vix_cur:.1f}')
-            elif vix_pct >= 67:
-                warn_parts.append(f'🟡 VIX {vix_cur:.1f}')
-        if warn_parts:
-            lines.append(' · '.join(warn_parts))
-
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
         import yfinance as yf
