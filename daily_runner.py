@@ -2510,11 +2510,11 @@ def _identify_filter_failure(row, ticker):
     return '필터탈락'
 
 
-def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=None):
-    """Gemini 2회 호출 — (1) 시장 요약 (2) 종목 내러티브
+def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=None, top10_for_etf=None):
+    """Gemini 3회 호출 — (1) 시장 요약 (2) 종목 내러티브 (3) ETF 추천
 
     AI 실패 시에도 빈 결과를 반환하여 메시지 정상 작동 보장.
-    Returns: {'market_summary': str, 'narratives': {ticker: str}}
+    Returns: {'market_summary': str, 'narratives': {ticker: str}, 'etf_recommendation': str}
     """
     import re
 
@@ -2684,6 +2684,61 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
                 log("AI: 내러티브 Gemini 응답 없음", "WARN")
         except Exception as e:
             log(f"AI: 내러티브 실패: {e}", "WARN")
+
+    # ── 호출 3: ETF 추천 (Top 10 기반) ──
+    etf_stocks = top10_for_etf or selected
+    if etf_stocks:
+        try:
+            top_lines = []
+            for i, s in enumerate(etf_stocks[:10]):
+                top_lines.append(f"{i+1}. {s['ticker']} — {s['name']} ({s['industry']})")
+
+            etf_prompt = f"""아래는 {biz_str} 기준 EPS 모멘텀 스크리닝 상위 종목입니다 (순위순).
+
+{chr(10).join(top_lines)}
+
+이 종목들을 가장 집중적으로 담고 있는 섹터/테마 ETF 3개를 추천해주세요.
+
+[규칙]
+- SPY, QQQ, VOO, VTI, IWM 같은 시장 전체 ETF는 절대 제외
+- 섹터 ETF, 테마 ETF, 니치 ETF 중에서 선택
+- 상위 순위 종목이 포함된 ETF를 우선
+- 각 ETF에 포함된 위 종목을 반드시 명시 (포함 안 된 종목은 쓰지 마)
+- ETF 이름과 티커를 정확히
+- 추천 이유 2~3문장 — 왜 이 ETF가 위 종목들의 테마를 잘 잡는지
+- 한국어, ~예요 체
+- 마크다운 서식(**, ## 등) 사용하지 마
+- 인사말/맺음말 없이 바로 시작
+
+[형식]
+1. ETF이름 (티커)
+포함 종목: TICKER1, TICKER2, ...
+추천 이유 2~3문장.
+
+2. ETF이름 (티커)
+...
+
+3. ETF이름 (티커)
+..."""
+
+            resp = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=etf_prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.3,
+                ),
+            )
+            text = extract_text(resp)
+            if text:
+                text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+                text = re.sub(r'#{1,3}\s*', '', text)
+                text = re.sub(r'\[cite:.*?\]', '', text)
+                result['etf_recommendation'] = text.strip()
+                log(f"AI: ETF 추천 {len(result['etf_recommendation'])}자")
+            else:
+                log("AI: ETF 추천 Gemini 응답 없음", "WARN")
+        except Exception as e:
+            log(f"AI: ETF 추천 실패: {e}", "WARN")
 
     return result
 
@@ -3199,6 +3254,23 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     return '\n'.join(lines)
 
 
+def create_etf_message(ai_content, biz_day):
+    """v3 Message 4: 맞춤형 ETF 추천 — AI 기반"""
+    etf_text = ai_content.get('etf_recommendation', '') if ai_content else ''
+    if not etf_text:
+        return None
+
+    lines = []
+    lines.append('━━━━━━━━━━━━━━━━━━━')
+    lines.append('  🏆 <b>맞춤형 ETF 추천</b>')
+    lines.append('━━━━━━━━━━━━━━━━━━━')
+    lines.append('EPS 모멘텀 상위 종목을 집중 보유한 ETF예요.')
+    lines.append('')
+    lines.append(etf_text)
+    lines.append('')
+    lines.append(f'<i>{biz_day.strftime("%m/%d")} 상위 10종목 기준 · AI 분석 참고용</i>')
+
+    return '\n'.join(lines)
 
 
 # ============================================================
@@ -3374,8 +3446,21 @@ def main():
         else:
             eps_screened, filter_count = 0, 0
 
-        # AI 2회 호출 (시장 요약 + 종목 내러티브) — 디스플레이 Top 5 기반
-        ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status, market_lines=market_lines)
+        # ETF 추천용 Top 10 (순수 가중순위, 검증/리스크 필터 없음)
+        top10_for_etf = []
+        top30_df = get_part2_candidates(results_df, top_n=30)
+        if not top30_df.empty and weighted_ranks:
+            top30_df = top30_df.copy()
+            top30_df['_weighted'] = top30_df['ticker'].map(
+                lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
+            )
+            top30_df = top30_df.sort_values('_weighted').head(10)
+            for _, row in top30_df.iterrows():
+                top10_for_etf.append(_build_portfolio_entry(row, status_map, earnings_map))
+
+        # AI 3회 호출 (시장 요약 + 종목 내러티브 + ETF 추천) — 디스플레이 Top 5 + Top 10
+        ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
+                                     market_lines=market_lines, top10_for_etf=top10_for_etf)
 
         # 메시지 1: Signal — 디스플레이 Top 5 기반
         msg_signal = create_signal_message(
@@ -3413,6 +3498,14 @@ def main():
                 send_telegram_long(msg_watchlist, config, chat_id=channel_id)
             send_telegram_long(msg_watchlist, config, chat_id=private_id)
             log(f"Watchlist 전송 완료 → {dest}")
+
+        # 메시지 4: 맞춤형 ETF 추천
+        msg_etf = create_etf_message(ai_content, biz_day)
+        if msg_etf:
+            if send_to_channel:
+                send_telegram_long(msg_etf, config, chat_id=channel_id)
+            send_telegram_long(msg_etf, config, chat_id=private_id)
+            log(f"ETF 추천 전송 완료 → {dest}")
 
         # 시스템 로그 → 개인봇에만
         send_telegram_long(msg_log, config, chat_id=private_id)
