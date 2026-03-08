@@ -3721,10 +3721,24 @@ Q4→Q1 전환(250일 +8~12%)을 잡으려면 Q1 전환 전에 포지션 필요.
    - 백테스트는 별도 스크립트로 언제든 가능
    - 함수 코드는 유지 (향후 필요 시 재활용)
 
+6. **맞춤형 ETF 추천 (메시지 4)**
+   - Top 10 종목 기반, Gemini 2-step으로 ETF 3개 추천
+   - Step 1: Google Search ON — 종목별 ETF 검색 + 복수 종목 포함 ETF 교차 검색
+   - Step 2: Search OFF — Greedy 알고리즘으로 최대 커버리지 조합 선택
+   - 프롬프트 튜닝: 광범위 ETF 제외, 복수 종목 교차검색이 게임체인저 (4/10 → 7/10)
+   - `create_etf_message()` + `run_ai_analysis()` 호출 3~4 추가
+
+7. **Signal HY/VIX 경고 배너 제거**
+   - AI Risk 메시지에서 상세히 표시하므로 Signal 중복 제거
+
+8. **상관관계 경고 줄바꿈 + 라벨 변경**
+   - "동일 섹터" → "주가 상관관계 높음"
+   - 줄바꿈 형태: `⚠️ SNDK·STX·MU` + `주가 상관관계 높음 — 이 중 1~2개 선택 권장`
+
 ### 검토 후 현행 유지
 - **홀드 기준 Top 30 유지**: Top 20 변경 효과 0, 16-20위가 최고 수익 구간
 - **z-score 방식 유지**: Rank percentile(N=35 해상도 부족), Robust z-score(결과 동일) 모두 불필요
 - **3일 검증 유지**: 5일 확대 시 반응 속도 저하, 현재 조합(3일 순위 + Top 30 홀드)이 역할 분담 적절
 
 ### 파일 변경
-- `daily_runner.py`: z_gap/z_rev clip(-2.5, 2.5), SECTOR_GROUP/SECTOR_ETF 매핑, analyze_sector_momentum(), Forward Test 호출 제거, 상관관계 경고 줄바꿈+라벨 변경, Signal HY/VIX 배너 제거
+- `daily_runner.py`: z_gap/z_rev clip(-2.5, 2.5), SECTOR_GROUP/SECTOR_ETF 매핑, analyze_sector_momentum(), Forward Test 호출 제거, 상관관계 경고 줄바꿈+라벨 변경, Signal HY/VIX 배너 제거, ETF 추천 2-step 추가
