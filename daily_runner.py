@@ -2020,6 +2020,7 @@ SECTOR_ETF = {
 
 def analyze_sector_momentum(results_df, today_str=None):
     """섹터별 EPS 모멘텀 분석 (개인봇 로그용)"""
+    import pandas as pd
     from eps_momentum_system import INDUSTRY_MAP
 
     if results_df is None or results_df.empty:
