@@ -2510,7 +2510,7 @@ def _identify_filter_failure(row, ticker):
     return '필터탈락'
 
 
-def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=None, top10_for_etf=None):
+def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=None):
     """Gemini 3회 호출 — (1) 시장 요약 (2) 종목 내러티브 (3) ETF 추천
 
     AI 실패 시에도 빈 결과를 반환하여 메시지 정상 작동 보장.
@@ -2685,17 +2685,17 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
         except Exception as e:
             log(f"AI: 내러티브 실패: {e}", "WARN")
 
-    # ── 호출 3~4: ETF 추천 2-step (Top 10 기반) ──
-    etf_stocks = top10_for_etf or selected
+    # ── 호출 3~4: ETF 추천 2-step (Top 5 기반) ──
+    etf_stocks = selected
     if etf_stocks:
         try:
             top_lines = []
-            for i, s in enumerate(etf_stocks[:10]):
+            for i, s in enumerate(etf_stocks[:5]):
                 top_lines.append(f"{i+1}. {s['ticker']} — {s['name']} ({s['industry']})")
             top_block = chr(10).join(top_lines)
 
             # ── Step 1: Google Search로 ETF 보유종목 조사 ──
-            step1_prompt = f"""아래 10개 종목이 포함된 미국 섹터/테마 ETF를 Google 검색해서 조사해줘.
+            step1_prompt = f"""아래 5개 종목이 포함된 미국 섹터/테마 ETF를 Google 검색해서 조사해줘.
 모든 종목은 현재 미국 시장에 상장 중이야.
 
 {top_block}
@@ -2707,14 +2707,14 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 
 과제 B: 위 종목 중 2개 이상을 동시에 포함하는 ETF
 검색어: "semiconductor ETF holdings" "SMH holdings" "SOXX holdings" "XSD holdings" "XLI holdings" "XLF holdings" "technology hardware ETF" "5G ETF" "healthcare ETF" "industrial ETF"
-각 ETF의 전체 보유종목을 확인해서 위 10개 중 어떤 것이 포함되는지 교차 확인.
+각 ETF의 전체 보유종목을 확인해서 위 5개 중 어떤 것이 포함되는지 교차 확인.
 
 [제외] SPY, QQQ, VOO, VTI, XLK, VGT, IYW, FTEC, IVV, IWF, 레버리지/인버스/옵션 ETF
 
 [출력]
 과제A:
 TICKER: ETF명(티커), ETF명(티커)
-(10개 전부)
+(5개 전부)
 
 과제B — 복수 종목 포함 ETF:
 ETF명(티커): TICKER1, TICKER2, ..."""
@@ -2738,13 +2738,13 @@ ETF명(티커): TICKER1, TICKER2, ..."""
                 raise ValueError("Step1 empty")
 
             # ── Step 2: Greedy 최적 조합 (검색 OFF) ──
-            step2_prompt = f"""[상위 10종목]
+            step2_prompt = f"""[상위 5종목]
 {top_block}
 
 [ETF 조사 결과]
 {step1_text}
 
-[과제] 위 10종목을 최대한 많이 커버하는 ETF 3개 조합을 Greedy로 찾아.
+[과제] 위 5종목을 최대한 많이 커버하는 ETF 3개 조합을 Greedy로 찾아.
 
 [Greedy]
 Step A: 과제B에서 가장 많은 종목을 커버하는 ETF 선택.
@@ -3324,7 +3324,7 @@ def create_etf_message(ai_content, biz_day):
     lines.append('')
     lines.append(etf_text)
     lines.append('')
-    lines.append(f'<i>{biz_day.strftime("%m/%d")} 상위 10종목 기준 · AI 분석 참고용</i>')
+    lines.append(f'<i>{biz_day.strftime("%m/%d")} 상위 5종목 기준 · AI 분석 참고용</i>')
 
     return '\n'.join(lines)
 
@@ -3502,21 +3502,9 @@ def main():
         else:
             eps_screened, filter_count = 0, 0
 
-        # ETF 추천용 Top 10 (순수 가중순위, 검증/리스크 필터 없음)
-        top10_for_etf = []
-        top30_df = get_part2_candidates(results_df, top_n=30)
-        if not top30_df.empty and weighted_ranks:
-            top30_df = top30_df.copy()
-            top30_df['_weighted'] = top30_df['ticker'].map(
-                lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
-            )
-            top30_df = top30_df.sort_values('_weighted').head(10)
-            for _, row in top30_df.iterrows():
-                top10_for_etf.append(_build_portfolio_entry(row, status_map, earnings_map))
-
-        # AI 3회 호출 (시장 요약 + 종목 내러티브 + ETF 추천) — 디스플레이 Top 5 + Top 10
+        # AI 3회 호출 (시장 요약 + 종목 내러티브 + ETF 추천) — 디스플레이 Top 5 기반
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
-                                     market_lines=market_lines, top10_for_etf=top10_for_etf)
+                                     market_lines=market_lines)
 
         # 메시지 1: Signal — 디스플레이 Top 5 기반
         msg_signal = create_signal_message(
