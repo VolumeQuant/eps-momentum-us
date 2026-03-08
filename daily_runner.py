@@ -2868,9 +2868,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                 if groups:
                     for g in groups:
                         if len(g) >= 3:
-                            lines.append(f'⚠️ {" · ".join(g)} 동일 섹터 — 이 중 1~2개 선택 권장')
+                            lines.append(f'⚠️ {" · ".join(g)} 상관관계 높음 — 이 중 1~2개 선택 권장')
                         else:
-                            lines.append(f'ℹ️ {"·".join(g)} 주가 상관관계 높음')
+                            lines.append(f'ℹ️ {"·".join(g)} 상관관계 높음')
     except Exception as e:
         log(f"상관관계 계산 실패: {e}", level="WARN")
 
