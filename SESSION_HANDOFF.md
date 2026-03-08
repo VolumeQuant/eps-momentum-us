@@ -3722,11 +3722,13 @@ Q4→Q1 전환(250일 +8~12%)을 잡으려면 Q1 전환 전에 포지션 필요.
    - 함수 코드는 유지 (향후 필요 시 재활용)
 
 6. **맞춤형 ETF 추천 (메시지 4)**
-   - Top 10 종목 기반, Gemini 2-step으로 ETF 3개 추천
+   - **Top 5 종목 기반** (Top 10→Top 5 축소 — 할루시네이션 감소)
+   - Gemini 2-step으로 ETF 3개 추천
    - Step 1: Google Search ON — 종목별 ETF 검색 + 복수 종목 포함 ETF 교차 검색
-   - Step 2: Search OFF — Greedy 알고리즘으로 최대 커버리지 조합 선택
-   - 프롬프트 튜닝: 광범위 ETF 제외, 복수 종목 교차검색이 게임체인저 (4/10 → 7/10)
-   - `create_etf_message()` + `run_ai_analysis()` 호출 3~4 추가
+   - Step 2: Search OFF — 순수 Greedy 알고리즘으로 최대 커버리지 조합 선택
+   - Top 5 우선 커버 규칙 제거됨 — 존재하지 않는 ETF를 만들어서라도 커버하려는 할루시네이션 유발
+   - 프롬프트 튜닝: 광범위 ETF 제외, 복수 종목 교차검색이 게임체인저
+   - `create_etf_message()` + `run_ai_analysis()` 호출 3~4 추가, `top10_for_etf` 파라미터 제거
 
 7. **Signal HY/VIX 경고 배너 제거**
    - AI Risk 메시지에서 상세히 표시하므로 Signal 중복 제거
