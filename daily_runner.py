@@ -2685,72 +2685,114 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
         except Exception as e:
             log(f"AI: 내러티브 실패: {e}", "WARN")
 
-    # ── 호출 3: ETF 추천 (Top 10 기반) ──
+    # ── 호출 3~4: ETF 추천 2-step (Top 10 기반) ──
     etf_stocks = top10_for_etf or selected
     if etf_stocks:
         try:
             top_lines = []
             for i, s in enumerate(etf_stocks[:10]):
                 top_lines.append(f"{i+1}. {s['ticker']} — {s['name']} ({s['industry']})")
+            top_block = chr(10).join(top_lines)
 
-            etf_prompt = f"""아래는 {biz_str} 기준 EPS 모멘텀 스크리닝 상위 종목입니다 (순위순, 1위가 가장 중요).
+            # ── Step 1: Google Search로 ETF 보유종목 조사 ──
+            step1_prompt = f"""아래 10개 종목이 포함된 미국 섹터/테마 ETF를 Google 검색해서 조사해줘.
+모든 종목은 현재 미국 시장에 상장 중이야.
 
-{chr(10).join(top_lines)}
+{top_block}
 
-이 종목들을 가장 집중적으로 담고 있는 미국 상장 ETF 3개를 추천해주세요.
+[검색 과제 2가지]
 
-[절대 제외 — 이 ETF들은 추천하지 마]
-시장 전체: SPY, QQQ, VOO, VTI, IWM, RSP, SCHB, IVV, IWF, IWD, VONG, VUG, MGK, MTUM, QUAL
-기술 전체: XLK, VGT, IYW, FTEC
+과제 A: 각 종목별 포함된 섹터/테마 ETF (종목당 최대 3개)
+검색어: "TICKER ETF holdings", "what ETF holds TICKER"
 
-[ETF 선택 기준]
-- 섹터 ETF(SMH, XSD, XLI, XLV 등), 테마 ETF(PAVE, FIVG 등), 니치 ETF 중에서만 선택
-- 상위 1~5위 종목이 많이 포함된 ETF를 우선
-- 동일가중(Equal-weight) ETF 우선 고려 (중소형 종목 비중 높음)
-- 각 ETF에 최소 2개 이상의 위 종목 포함 필수
-- 3개 ETF가 서로 다른 테마/섹터를 커버하면 좋음
+과제 B: 위 종목 중 2개 이상을 동시에 포함하는 ETF
+검색어: "semiconductor ETF holdings" "SMH holdings" "SOXX holdings" "XSD holdings" "XLI holdings" "XLF holdings" "technology hardware ETF" "5G ETF" "healthcare ETF" "industrial ETF"
+각 ETF의 전체 보유종목을 확인해서 위 10개 중 어떤 것이 포함되는지 교차 확인.
 
-[정확성 — 최우선]
-- 해당 ETF가 실제로 해당 종목을 보유(holding)하고 있는 경우만 명시
-- 확실하지 않은 종목은 절대 쓰지 마
-- ETF 티커와 정식명칭(영문)을 정확히 써. 존재하지 않는 ETF를 만들어내지 마.
-- SNDK는 2024년 Western Digital에서 재분리 상장된 종목이야.
+[제외] SPY, QQQ, VOO, VTI, XLK, VGT, IYW, FTEC, IVV, IWF, 레버리지/인버스/옵션 ETF
 
-[출력 형식 — 반드시 준수]
-1. ETF 정식명칭 (티커)
-포함 종목: TICKER1, TICKER2
-추천 이유 2~3문장.
+[출력]
+과제A:
+TICKER: ETF명(티커), ETF명(티커)
+(10개 전부)
 
-2. ETF 정식명칭 (티커)
-포함 종목: TICKER1, TICKER2
-추천 이유 2~3문장.
+과제B — 복수 종목 포함 ETF:
+ETF명(티커): TICKER1, TICKER2, ..."""
 
-3. ETF 정식명칭 (티커)
-포함 종목: TICKER1, TICKER2
-추천 이유 2~3문장.
-
-[규칙]
-- 한국어, ~예요 체
-- 마크다운 서식(**, ##, * 등) 사용 금지
-- ETF명은 영문 원래 이름 유지
-- 인사말/서두/맺음말 없이 바로 시작"""
-
-            resp = client.models.generate_content(
+            resp1 = client.models.generate_content(
                 model='gemini-2.5-flash',
-                contents=etf_prompt,
+                contents=step1_prompt,
                 config=types.GenerateContentConfig(
-                    temperature=0.15,
+                    tools=[grounding_tool],
+                    temperature=0.1,
                 ),
             )
-            text = extract_text(resp)
+            step1_text = extract_text(resp1)
+            if step1_text:
+                step1_text = re.sub(r'\*\*(.+?)\*\*', r'\1', step1_text)
+                step1_text = re.sub(r'#{1,3}\s*', '', step1_text)
+                step1_text = re.sub(r'\[cite:.*?\]', '', step1_text)
+                log(f"AI: ETF Step1 검색 완료 {len(step1_text)}자")
+            else:
+                log("AI: ETF Step1 Gemini 응답 없음", "WARN")
+                raise ValueError("Step1 empty")
+
+            # ── Step 2: Greedy 최적 조합 (검색 OFF) ──
+            step2_prompt = f"""[상위 10종목]
+{top_block}
+
+[ETF 조사 결과]
+{step1_text}
+
+[과제] 위 10종목을 최대한 많이 커버하는 ETF 3개 조합을 Greedy로 찾아.
+
+[Greedy — 복수 종목 포함 ETF 우선]
+Step A: 과제B에서 가장 많은 종목을 커버하는 ETF 선택.
+→ 커버: [...] | 미커버: [...]
+Step B: 미커버 중 가장 많이 커버하는 ETF 추가.
+→ 누적 커버: [...] | 미커버: [...]
+Step C: 남은 미커버 중 가장 많이 커버하는 ETF 추가.
+→ 최종 커버: [...] | 미커버: [...]
+
+[제외] SPY, QQQ, VOO, VTI, XLK, VGT, IYW, FTEC, IVV, IWF, 레버리지/인버스/옵션
+[규칙] Step 1 확인된 매핑만 사용. 한국어 ~예요 체. 마크다운 금지. ETF명 영문.
+
+[최종 출력 — Greedy 과정은 생략하고 결과만]
+1. ETF명 (티커)
+포함 종목: TICKER1, TICKER2
+추천 이유 2~3문장.
+
+2. ETF명 (티커)
+포함 종목: TICKER1, TICKER2
+추천 이유 2~3문장.
+
+3. ETF명 (티커)
+포함 종목: TICKER1, TICKER2
+추천 이유 2~3문장.
+
+총 커버리지: X/10"""
+
+            resp2 = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=step2_prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                ),
+            )
+            text = extract_text(resp2)
             if text:
                 text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
                 text = re.sub(r'#{1,3}\s*', '', text)
                 text = re.sub(r'\[cite:.*?\]', '', text)
-                result['etf_recommendation'] = text.strip()
+                # "총 커버리지" 줄 제거 (고객에겐 불필요)
+                lines_out = []
+                for ln in text.strip().split('\n'):
+                    if '커버리지' not in ln:
+                        lines_out.append(ln)
+                result['etf_recommendation'] = '\n'.join(lines_out).strip()
                 log(f"AI: ETF 추천 {len(result['etf_recommendation'])}자")
             else:
-                log("AI: ETF 추천 Gemini 응답 없음", "WARN")
+                log("AI: ETF Step2 Gemini 응답 없음", "WARN")
         except Exception as e:
             log(f"AI: ETF 추천 실패: {e}", "WARN")
 
