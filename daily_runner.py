@@ -915,6 +915,8 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
         if gap_std > 0 and rev_std > 0:
             z_gap = (filtered['adj_gap'] - gap_mean) / gap_std
             z_rev = (filtered['rev_growth'] - rev_mean) / rev_std
+            z_gap = z_gap.clip(-2.5, 2.5)
+            z_rev = z_rev.clip(-2.5, 2.5)
             # adj_gap은 음수가 좋으므로 부호 반전, rev_growth는 양수가 좋음
             filtered['composite'] = (-z_gap) * 0.7 + z_rev * 0.3
             filtered = filtered.sort_values('composite', ascending=False)
@@ -1952,7 +1954,157 @@ def create_system_log_message(stats, elapsed, config):
 
     lines.append(f'\n⏱️ 소요: {minutes}분 {seconds}초')
 
+    # 섹터 모멘텀 (개인봇 전용)
+    sector_summary = stats.get('sector_summary', '')
+    if sector_summary:
+        lines.append(f'\n{sector_summary}')
+
     return '\n'.join(lines)
+
+# 업종 대분류 매핑 (120개 → 15개) + 대표 ETF
+SECTOR_GROUP = {
+    '반도체': '반도체/HW', '반도체장비': '반도체/HW', '하드웨어': '반도체/HW',
+    '전자부품': '반도체/HW', '전자유통': '반도체/HW', '가전': '반도체/HW',
+    '통신장비': '반도체/HW', '계측기기': '반도체/HW',
+    '응용SW': '소프트웨어', '인프라SW': '소프트웨어', 'IT서비스': '소프트웨어',
+    '인터넷': '인터넷/플랫폼', '온라인유통': '인터넷/플랫폼', '게임': '인터넷/플랫폼',
+    '엔터': '통신/미디어', '방송': '통신/미디어', '출판': '통신/미디어',
+    '광고': '통신/미디어', '통신': '통신/미디어',
+    '지역은행': '금융', '대형은행': '금융', '자산운용': '금융', '자본시장': '금융',
+    '신용서비스': '금융', '금융데이터': '금융', '금융지주': '금융',
+    '손해보험': '보험', '생명보험': '보험', '종합보험': '보험',
+    '특수보험': '보험', '재보험': '보험', '보험중개': '보험',
+    '의료기기': '헬스케어', '의료용품': '헬스케어', '의료시설': '헬스케어',
+    '의약유통': '헬스케어', '진단연구': '헬스케어', '대형제약': '헬스케어',
+    '특수제약': '헬스케어', '바이오': '헬스케어', '건강보험': '헬스케어',
+    '의료정보': '헬스케어',
+    '방산': '산업재', '산업기계': '산업재', '중장비': '산업재', '건설': '산업재',
+    '건축자재': '산업재', '건자재': '산업재', '전기장비': '산업재', '공구': '산업재',
+    '산업유통': '산업재', '비즈니스서비스': '산업재', '컨설팅': '산업재',
+    '보안': '산업재', '폐기물': '산업재', '환경': '산업재', '복합기업': '산업재',
+    '물류': '운송', '철도': '운송', '트럭운송': '운송', '항공': '운송',
+    '해운': '운송', '렌탈리스': '운송',
+    '자동차부품': '소비재(임의)', '자동차': '소비재(임의)', '자동차딜러': '소비재(임의)',
+    '외식': '소비재(임의)', '전문소매': '소비재(임의)', '할인점': '소비재(임의)',
+    '홈인테리어': '소비재(임의)', '의류소매': '소비재(임의)', '의류제조': '소비재(임의)',
+    '백화점': '소비재(임의)', '신발잡화': '소비재(임의)', '명품': '소비재(임의)',
+    '주택건설': '소비재(임의)', '가구가전': '소비재(임의)', '리조트카지노': '소비재(임의)',
+    '도박': '소비재(임의)', '숙박': '소비재(임의)', '여행': '소비재(임의)',
+    '레저차량': '소비재(임의)', '레저': '소비재(임의)', '생활서비스': '소비재(임의)',
+    '식품': '소비재(필수)', '음료': '소비재(필수)', '맥주': '소비재(필수)',
+    '주류': '소비재(필수)', '제과': '소비재(필수)', '생활용품': '소비재(필수)',
+    '담배': '소비재(필수)', '식료품점': '소비재(필수)', '식품유통': '소비재(필수)',
+    '교육': '소비재(필수)',
+    '리츠특수': '리츠', '리츠주거': '리츠', '리츠소매': '리츠', '리츠산업': '리츠',
+    '리츠의료': '리츠', '리츠오피스': '리츠', '리츠호텔': '리츠', '리츠모기지': '리츠',
+    '리츠복합': '리츠', '부동산서비스': '리츠',
+    '석유가스': '에너지', '석유미드스트림': '에너지', '석유장비': '에너지',
+    '석유정제': '에너지', '석유종합': '에너지',
+    '전력': '신재생/유틸', '가스': '신재생/유틸', '수도': '신재생/유틸',
+    '유틸복합': '신재생/유틸', '독립발전': '신재생/유틸', '신재생': '신재생/유틸',
+    '태양광': '신재생/유틸',
+    '특수화학': '소재', '화학': '소재', '농업': '소재', '철강': '소재',
+    '알루미늄': '소재', '구리': '소재', '금': '소재', '귀금속': '소재',
+    '산업금속': '소재', '목재': '소재', '금속가공': '소재', '포장재': '소재',
+    '농산물': '소재', '금속가공': '소재',
+}
+
+SECTOR_ETF = {
+    '반도체/HW': 'SMH', '소프트웨어': 'IGV', '인터넷/플랫폼': 'SKYY',
+    '통신/미디어': 'XLC', '금융': 'XLF', '보험': 'KIE',
+    '헬스케어': 'XLV', '산업재': 'XLI', '운송': 'IYT',
+    '소비재(임의)': 'XLY', '소비재(필수)': 'XLP', '리츠': 'VNQ',
+    '에너지': 'XLE', '신재생/유틸': 'XLU', '소재': 'XLB',
+}
+
+
+def analyze_sector_momentum(results_df, today_str=None):
+    """섹터별 EPS 모멘텀 분석 (개인봇 로그용)"""
+    from eps_momentum_system import INDUSTRY_MAP
+
+    if results_df is None or results_df.empty:
+        return ''
+
+    df = results_df.copy()
+
+    # 업종 → 대분류 매핑
+    if 'industry' not in df.columns:
+        return ''
+    df['sector_group'] = df['industry'].map(
+        lambda x: SECTOR_GROUP.get(x, '')
+    )
+    df = df[df['sector_group'].str.len() > 0].copy()
+    if df.empty:
+        return ''
+
+    # 섹터별 집계
+    threshold = 5
+    sector = df.groupby('sector_group').agg(
+        total=('ticker', 'count'),
+        upward=('adj_score', lambda x: (x > threshold).sum()),
+    ).reset_index()
+    sector['pct'] = (sector['upward'] / sector['total'] * 100).round(0).astype(int)
+    sector = sector[sector['total'] >= 5]  # 최소 5종목
+    sector = sector.sort_values('pct', ascending=False)
+
+    # 전주 대비 (5영업일 전)
+    prev_pcts = {}
+    if today_str:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            dates = [r[0] for r in c.execute(
+                'SELECT DISTINCT date FROM ntm_screening ORDER BY date DESC LIMIT 6'
+            ).fetchall()]
+            if len(dates) >= 6:
+                prev_date = dates[5]
+                prev_df = pd.read_sql_query(
+                    'SELECT ticker, adj_score FROM ntm_screening WHERE date=? AND is_turnaround=0',
+                    conn, params=(prev_date,)
+                )
+                prev_df['sector_group'] = prev_df['ticker'].map(
+                    lambda t: SECTOR_GROUP.get(_get_cached_industry(t), '')
+                )
+                prev_df = prev_df[prev_df['sector_group'].str.len() > 0]
+                if not prev_df.empty:
+                    prev_sec = prev_df.groupby('sector_group').agg(
+                        total=('ticker', 'count'),
+                        upward=('adj_score', lambda x: (x > threshold).sum()),
+                    ).reset_index()
+                    prev_sec['pct'] = (prev_sec['upward'] / prev_sec['total'] * 100).round(0).astype(int)
+                    prev_pcts = dict(zip(prev_sec['sector_group'], prev_sec['pct']))
+            conn.close()
+        except Exception as e:
+            log(f"섹터 전주 비교 실패: {e}", "WARN")
+
+    # 메시지 생성
+    lines = ['📊 섹터 EPS 모멘텀']
+    for _, r in sector.head(5).iterrows():
+        name = r['sector_group']
+        etf = SECTOR_ETF.get(name, '')
+        pct = int(r['pct'])
+        total = int(r['total'])
+        upward = int(r['upward'])
+        prev = prev_pcts.get(name)
+        prev_str = f' (전주 {prev}%)' if prev is not None else ''
+        etf_str = f'({etf})' if etf else ''
+        lines.append(f'{name}{etf_str} {pct}% 상향 {upward}/{total}{prev_str}')
+
+    return '\n'.join(lines)
+
+
+def _get_cached_industry(ticker):
+    """ticker_info_cache.json에서 industry 조회"""
+    if not hasattr(_get_cached_industry, '_cache'):
+        cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ticker_info_cache.json')
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                import json
+                _get_cached_industry._cache = json.load(f)
+        except Exception:
+            _get_cached_industry._cache = {}
+    return _get_cached_industry._cache.get(ticker, {}).get('industry', '')
+
 
 def _get_prev_portfolio(today_str=None):
     """어제 포트폴리오 보유 종목 조회"""
@@ -3195,6 +3347,11 @@ def main():
     log(f"일치도: {risk_status['concordance']} | {risk_status['final_action']}")
 
     # 3. 메시지 생성
+    # 섹터 모멘텀 (개인봇 로그용)
+    sector_summary = analyze_sector_momentum(results_df, today_str=today_str)
+    if sector_summary:
+        stats['sector_summary'] = sector_summary
+
     # 실행 시간
     elapsed = (datetime.now() - start_time).total_seconds()
     msg_log = create_system_log_message(stats, elapsed, config)
@@ -3225,19 +3382,6 @@ def main():
         display_top5 = select_display_top5(
             results_df, status_map, weighted_ranks, earnings_map, risk_status
         )
-
-        # 포트폴리오 전략 (Forward Test용 — Top 5 진입 + Top 30 홀드)
-        portfolio, _, _, _ = select_portfolio_stocks(
-            results_df, status_map, weighted_ranks, earnings_map, risk_status,
-            today_str=today_str
-        )
-
-        # Forward Test 기록 (포트폴리오 전략 기반)
-        if portfolio:
-            try:
-                log_portfolio_trades(portfolio, biz_day.strftime('%Y-%m-%d'))
-            except Exception as e:
-                log(f"Forward Test 기록 실패: {e}", "WARN")
 
         # 이탈 종목 사유 분류
         exit_reasons = classify_exit_reasons(exited_tickers, results_df)

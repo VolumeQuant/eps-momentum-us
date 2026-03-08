@@ -3683,3 +3683,40 @@ Q4→Q1 전환(250일 +8~12%)을 잡으려면 Q1 전환 전에 포지션 필요.
 
 ### 파일 변경
 - `daily_runner.py`: create_signal_message (risk_status 파라미터, 경고 배너, 이탈 사유, 용어, 상관관계), create_ai_risk_message (VIX 등급), create_watchlist_message (용어, 면책 제거)
+
+---
+
+## v48 — 정규화 개선 + 섹터 모멘텀 + Forward Test 제거 (2026-03-08)
+
+### 전문가 패널 분석 (EDA / 트레이더 / 정규화)
+- **EDA 전문가**: 섹터 주도권 발굴 6가지 접근법 분석 — Breadth(밀도) + Acceleration(가속도) + EPS-Price 괴리가 최적
+- **트레이더 전문가**: Top 30→Top 20 변경 효과 0 (보유 종목 중 21위 밖 간 종목 없음), 16-20위 구간이 오히려 최고 수익(+4.82%), "좀비 홀딩"이 실제로는 최고 수익(LITE +16%)
+- **정규화 전문가**: SNDK 1종목이 adj_gap 분산의 30~68% 차지, Winsorized z-score(2.5σ cap) 권장 — 순위 변동 0이지만 해석성 개선 + 데이터 오류 안전장치
+
+### 변경 사항
+
+1. **Winsorized z-score (2.5σ cap)**
+   - `z_gap.clip(-2.5, 2.5)`, `z_rev.clip(-2.5, 2.5)` 추가
+   - SNDK 같은 극단 아웃라이어의 composite 점수 왜곡 방지
+   - 실질 순위 변동 없음 (14일 중 Top 5 동일)
+
+2. **섹터 모멘텀 분석 (개인봇 시스템 로그)**
+   - 업종 대분류 매핑 (INDUSTRY_MAP 120개 → SECTOR_GROUP 15개 대분류)
+   - SECTOR_ETF 매핑 (대분류 → 대표 ETF)
+   - `analyze_sector_momentum()`: 섹터별 EPS 상향 비율 + 전주 대비
+   - 시스템 로그에 Top 5 섹터 표시 (개인봇 전용, 고객 미발송)
+   - 고객 발송은 데이터 축적 후 검증 완료 시 추가 예정
+
+3. **Forward Test (portfolio_log) 제거**
+   - `log_portfolio_trades()` main() 호출 제거
+   - 순위 데이터는 `ntm_screening.part2_rank`에 이미 저장됨
+   - 백테스트는 별도 스크립트로 언제든 가능
+   - 함수 코드는 유지 (향후 필요 시 재활용)
+
+### 검토 후 현행 유지
+- **홀드 기준 Top 30 유지**: Top 20 변경 효과 0, 16-20위가 최고 수익 구간
+- **z-score 방식 유지**: Rank percentile(N=35 해상도 부족), Robust z-score(결과 동일) 모두 불필요
+- **3일 검증 유지**: 5일 확대 시 반응 속도 저하, 현재 조합(3일 순위 + Top 30 홀드)이 역할 분담 적절
+
+### 파일 변경
+- `daily_runner.py`: z_gap/z_rev clip(-2.5, 2.5), SECTOR_GROUP/SECTOR_ETF 매핑, analyze_sector_momentum(), Forward Test 호출 제거
