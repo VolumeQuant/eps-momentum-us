@@ -63,6 +63,8 @@
 > **v44**: 2026-02-26 집 PC — 동적 유니버스(NASDAQ API $5B+) + 원자재 제외 + OP<5% 필터: 916→~1,260종목 확장, commodity 업종 22개 하드필터 제외(금속+석유+농업+목재), 영업이익률<5% 턴어라운드 초기 종목 제외, MA120 사전필터+병렬 EPS 수집
 > **v44.1**: 2026-02-27 집 PC — 이탈 사유 단순화 + 순위 체계 통일: 7개 태그→2개(필터탈락/순위밀림), composite_rank(DB) 기준 통일(part2_rank 혼용 제거), 계절라벨·순위변동태그 완전 제거, 전체 날짜(2/12~2/25) v44 순위 재계산, ticker_info_cache 원자재 industry 보정
 > **v46**: 2026-03-06 집 PC — 메시지 개선(의견·섹터경고·분할매수) + DB 쿼리 중복 제거 + 이탈 사유 오분류 수정. 상관관계 분산 선정 도입→롤백 (스크리닝 도구는 순수 점수 순위를 보여주는 게 맞음)
+> **v48**: 2026-03-08 집 PC — Winsorized z-score(2.5σ) + 섹터 모멘텀(시스템 로그) + ETF 추천(코드 기반 매칭) + Forward Test 제거 + Signal HY/VIX 배너 제거 + 상관관계 경고 줄바꿈
+> **v48.2**: 2026-03-10 집 PC — ETF 비중 기반 추천 + 중복 제거(50% 룰) + 캐시 에러 로깅 + Reverse 단계 제거
 
 ---
 
@@ -3745,3 +3747,50 @@ Q4→Q1 전환(250일 +8~12%)을 잡으려면 Q1 전환 전에 포지션 필요.
 ### 파일 변경
 - `daily_runner.py`: z_gap/z_rev clip(-2.5, 2.5), SECTOR_GROUP/SECTOR_ETF 매핑, analyze_sector_momentum(), Forward Test 호출 제거, 상관관계 경고 줄바꿈+라벨 변경, Signal HY/VIX 배너 제거, ETF 추천 코드 기반 매칭(find_etf_recommendations), Gemini ETF 호출 제거
 - `etf_holdings_cache.json`: (신규) 71개 ETF Top 10 보유종목 캐시
+
+---
+
+## v48.2 — ETF 비중 기반 추천 + 중복 제거 (2026-03-10)
+
+### 배경
+- v48에서 ETF 추천 기능 도입했으나, GA에서 캐시 파일 커밋 전에 워크플로우를 실행해 캐시 미적용
+- 캐시 없이 yfinance 직접 호출 → rate limit으로 71개 ETF 전부 실패 → ETF 메시지 미생성
+- 캐시 적용 후에도 단순 종목 개수 매칭 → 반도체 ETF 3개(SMH, SOXX, SOXQ) 독점, 실질 커버 5종목뿐
+
+### 변경 사항
+
+1. **캐시에 보유 비중(weight) 포함**
+   - 기존: `"holdings": ["NVDA", "TSM", ...]` (리스트)
+   - 변경: `"holdings": {"NVDA": 0.177, "TSM": 0.114, ...}` (딕셔너리, 비중 포함)
+   - yfinance `get_funds_data().top_holdings`의 `Holding Percent` 활용
+
+2. **비중 합계 기준 정렬**
+   - 기존: 가중 Greedy (순위 점수 기반)
+   - 변경: 각 ETF의 Top 30 종목 비중 합계로 정렬 → 비중이 높은 ETF 우선
+   - 예: SMH(28.6%) > SOXX(22.4%) > SOXQ(20.3%)
+
+3. **중복 제거 (50% 룰)**
+   - 이미 선택된 ETF와 매칭 종목이 50% 이상 겹치면 스킵
+   - 순수 비중: SMH+SOXX+SOXQ → 합산 35.1%, 5종목
+   - 중복 제거: SMH+XLV+RSPT → 합산 51.0%, 8종목 (압도적 개선)
+
+4. **Reverse 단계 제거**
+   - `mutualfund_holders` 호출 제거 — GA에서도 rate limit으로 실패
+   - 캐시 전용으로 단순화
+
+5. **메시지 포맷 변경**
+   - `🏆 맞춤형 ETF 추천` → `📊 관련 ETF`
+   - 비중 % 표시: `Top 30 비중 29% · TSM, MU, LRCX, ADI`
+
+6. **캐시 로드 에러 로깅**
+   - `except Exception: pass` → `log(f"ETF 캐시 로드 실패: {e}", "WARN")`
+   - 캐시 경로: `Path(__file__).parent` → `PROJECT_ROOT` 통일
+
+### 검토 후 현행 유지
+- **ETF 3개 유지**: 5개로 늘리면 65% 커버이나 AIRR(8%), BOAT(6%) 등 비중 낮은 ETF 혼입
+- **ETF Top 10만 캐시**: 전체 보유종목은 yfinance 미제공 (top_holdings만 있음)
+- **커버 한계**: Top 30 중 중소형주(TSEM, FORM, TTMI, BOKF, CM, GMED, MOD)는 71개 ETF Top 10에 없음
+
+### 파일 변경
+- `daily_runner.py`: find_etf_recommendations() 비중 기반+중복 제거로 전면 재작성, create_etf_message() 비중 표시, Reverse 단계 제거
+- `etf_holdings_cache.json`: 비중 포함 딕셔너리로 갱신 (list → dict)
