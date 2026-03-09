@@ -1,0 +1,1066 @@
+{
+  "SMH": {
+    "name": "VanEck Semiconductor ETF",
+    "holdings": [
+      "NVDA",
+      "TSM",
+      "AVGO",
+      "MU",
+      "ASML",
+      "LRCX",
+      "AMAT",
+      "KLAC",
+      "ADI",
+      "TXN"
+    ]
+  },
+  "SOXX": {
+    "name": "iShares Semiconductor ETF",
+    "holdings": [
+      "MU",
+      "AMAT",
+      "NVDA",
+      "AMD",
+      "AVGO",
+      "LRCX",
+      "ADI",
+      "KLAC",
+      "ASML",
+      "TER"
+    ]
+  },
+  "XSD": {
+    "name": "State Street SPDR S&P Semiconductor ETF",
+    "holdings": [
+      "MU",
+      "SLAB",
+      "MTSI",
+      "POWI",
+      "ADI",
+      "ALGM",
+      "LSCC",
+      "ON",
+      "TXN",
+      "MPWR"
+    ]
+  },
+  "PSI": {
+    "name": "Invesco Semiconductors ETF",
+    "holdings": [
+      "MU",
+      "LRCX",
+      "UCTT",
+      "KLAC",
+      "INTC",
+      "TER",
+      "NVDA",
+      "ACMR",
+      "LASR",
+      "PLAB"
+    ]
+  },
+  "SOXQ": {
+    "name": "Invesco PHLX Semiconductor ETF",
+    "holdings": [
+      "NVDA",
+      "AVGO",
+      "AMD",
+      "MU",
+      "LRCX",
+      "AMAT",
+      "ASML",
+      "ADI",
+      "KLAC",
+      "TSM"
+    ]
+  },
+  "IGV": {
+    "name": "iShares Expanded Tech-Software Sector ETF",
+    "holdings": [
+      "MSFT",
+      "PLTR",
+      "CRM",
+      "ORCL",
+      "PANW",
+      "APP",
+      "INTU",
+      "ADBE",
+      "CRWD",
+      "NOW"
+    ]
+  },
+  "SKYY": {
+    "name": "First Trust Cloud Computing ETF",
+    "holdings": [
+      "CRWV",
+      "ANET",
+      "GOOGL",
+      "AMZN",
+      "MDB",
+      "NTNX",
+      "MSFT",
+      "IBM",
+      "ORCL",
+      "AKAM"
+    ]
+  },
+  "WCLD": {
+    "name": "WisdomTree Cloud Computing Fund",
+    "holdings": [
+      "HUBS",
+      "FIG",
+      "BRZE",
+      "PAYC",
+      "TTAN",
+      "IOT",
+      "PD",
+      "TWLO",
+      "FROG",
+      "FSLY"
+    ]
+  },
+  "QTEC": {
+    "name": "First Trust NASDAQ-100-Technology Sector Index Fund",
+    "holdings": [
+      "MU",
+      "WDC",
+      "AMAT",
+      "LRCX",
+      "ASML",
+      "STX",
+      "ADI",
+      "MPWR",
+      "INTC",
+      "KLAC"
+    ]
+  },
+  "FXL": {
+    "name": "First Trust Technology AlphaDEX Fund",
+    "holdings": [
+      "VRT",
+      "AMAT",
+      "MTSI",
+      "LRCX",
+      "ARW",
+      "KLAC",
+      "CRUS",
+      "MU",
+      "AVT",
+      "APH"
+    ]
+  },
+  "RSPT": {
+    "name": "Invesco S&P 500 Equal Weight Technology ETF",
+    "holdings": [
+      "SNDK",
+      "GLW",
+      "TER",
+      "MU",
+      "WDC",
+      "Q",
+      "KEYS",
+      "LRCX",
+      "STX",
+      "AMAT"
+    ]
+  },
+  "RYT": {
+    "name": "Invesco S&P 500 Equal Weight Technology ETF",
+    "holdings": [
+      "NVDA",
+      "AMD",
+      "MSFT",
+      "AVGO",
+      "NOW",
+      "CRM",
+      "LRCX",
+      "TYL",
+      "SNPS",
+      "AKAM"
+    ]
+  },
+  "XITK": {
+    "name": "State Street SPDR FactSet Innovative Technology ETF",
+    "holdings": [
+      "AAOI",
+      "AXTI",
+      "SKYT",
+      "SIMO",
+      "ACMR",
+      "NVMI",
+      "ONTO",
+      "UI",
+      "YOU",
+      "DOCN"
+    ]
+  },
+  "FIVG": {
+    "name": "Defiance Connective Technologies ETF",
+    "holdings": [
+      "NVDA",
+      "AAPL",
+      "AVGO",
+      "ORCL",
+      "QCOM",
+      "AMD",
+      "CSCO",
+      "ADI",
+      "ANET",
+      "INTC"
+    ]
+  },
+  "VOX": {
+    "name": "Vanguard Communication Services Index Fund ETF Shares",
+    "holdings": [
+      "META",
+      "GOOGL",
+      "GOOG",
+      "DIS",
+      "VZ",
+      "T",
+      "NFLX",
+      "WBD",
+      "CMCSA",
+      "TMUS"
+    ]
+  },
+  "NXTG": {
+    "name": "First Trust IndXX NextG ETF",
+    "holdings": [
+      "005930.KS",
+      "MU",
+      "066570.KS",
+      "3711.TW",
+      "2308.TW",
+      "KEYS",
+      "CIEN",
+      "2454.TW",
+      "6723.T",
+      "2303.TW"
+    ]
+  },
+  "XLI": {
+    "name": "State Street Industrial Select Sector SPDR ETF",
+    "holdings": [
+      "GE",
+      "CAT",
+      "RTX",
+      "GEV",
+      "BA",
+      "DE",
+      "UNP",
+      "UBER",
+      "HON",
+      "ETN"
+    ]
+  },
+  "VIS": {
+    "name": "Vanguard Industrials Index Fund ETF Shares",
+    "holdings": [
+      "GE",
+      "CAT",
+      "RTX",
+      "GEV",
+      "BA",
+      "UBER",
+      "HON",
+      "ETN",
+      "DE",
+      "LMT"
+    ]
+  },
+  "PAVE": {
+    "name": "Global X U.S. Infrastructure Development ETF",
+    "holdings": [
+      "DE",
+      "HWM",
+      "PWR",
+      "CSX",
+      "TT",
+      "UNP",
+      "ETN",
+      "SRE",
+      "NSC",
+      "PH"
+    ]
+  },
+  "AIRR": {
+    "name": "First Trust RBA American Industrial RenaissanceTM ETF",
+    "holdings": [
+      "FIX",
+      "STRL",
+      "MTZ",
+      "AGX",
+      "DY",
+      "SAIA",
+      "SPXC",
+      "EME",
+      "PRIM",
+      "HII"
+    ]
+  },
+  "FIDU": {
+    "name": "Fidelity MSCI Industrials Index ETF",
+    "holdings": [
+      "GE",
+      "CAT",
+      "RTX",
+      "GEV",
+      "BA",
+      "DE",
+      "UNP",
+      "HON",
+      "UBER",
+      "ETN"
+    ]
+  },
+  "RGI": {
+    "name": "Invesco S&P 500 Equal Weight Industrials ETF",
+    "holdings": [
+      "CPRT",
+      "VRSK",
+      "CSGP",
+      "ROL",
+      "PWR",
+      "GE",
+      "RSG",
+      "CTAS",
+      "WM",
+      "FDX"
+    ]
+  },
+  "ITB": {
+    "name": "iShares U.S. Home Construction ETF",
+    "holdings": [
+      "DHI",
+      "PHM",
+      "LEN",
+      "NVR",
+      "TOL",
+      "SHW",
+      "HD",
+      "LOW",
+      "BLD",
+      "LII"
+    ]
+  },
+  "PKB": {
+    "name": "Invesco Building & Construction ETF",
+    "holdings": [
+      "FIX",
+      "AMRZ.SW",
+      "JCI",
+      "PHM",
+      "MLM",
+      "VMC",
+      "CRH",
+      "TSCO",
+      "THR",
+      "ASTE"
+    ]
+  },
+  "IFRA": {
+    "name": "iShares U.S. Infrastructure ETF",
+    "holdings": [
+      "RYZ",
+      "HE",
+      "EIX",
+      "TKO.TO",
+      "CENX",
+      "PCG",
+      "ATI",
+      "KNTK",
+      "AM",
+      "NJR"
+    ]
+  },
+  "XLV": {
+    "name": "State Street Health Care Select Sector SPDR ETF",
+    "holdings": [
+      "LLY",
+      "JNJ",
+      "ABBV",
+      "MRK",
+      "UNH",
+      "AMGN",
+      "ABT",
+      "TMO",
+      "GILD",
+      "ISRG"
+    ]
+  },
+  "VHT": {
+    "name": "Vanguard Health Care Index Fund ETF Shares",
+    "holdings": [
+      "LLY",
+      "JNJ",
+      "ABBV",
+      "MRK",
+      "UNH",
+      "TMO",
+      "ABT",
+      "AMGN",
+      "ISRG",
+      "GILD"
+    ]
+  },
+  "IHI": {
+    "name": "iShares U.S. Medical Devices ETF",
+    "holdings": [
+      "ABT",
+      "ISRG",
+      "BSX",
+      "SYK",
+      "EW",
+      "GEHC",
+      "RMD",
+      "MDT",
+      "IDXX",
+      "BDX"
+    ]
+  },
+  "XBI": {
+    "name": "State Street SPDR S&P Biotech ETF",
+    "holdings": [
+      "MRNA",
+      "ROIV",
+      "PCVX",
+      "ACLX",
+      "RVMD",
+      "PRAX",
+      "AMGN",
+      "GILD",
+      "FOLD",
+      "MIRM"
+    ]
+  },
+  "XHE": {
+    "name": "State Street SPDR S&P Health Care Equipment ETF",
+    "holdings": [
+      "NEOG",
+      "NVST",
+      "LMAT",
+      "XRAY",
+      "MASI",
+      "LNTH",
+      "ITGR",
+      "TNDM",
+      "CNMD",
+      "ALGN"
+    ]
+  },
+  "RYH": {
+    "name": "Invesco S&P 500 Equal Weight Health Care ETF",
+    "holdings": [
+      "ISRG",
+      "LLY",
+      "DVA",
+      "MCK",
+      "CAH",
+      "BIIB",
+      "COO",
+      "ABC",
+      "TECH",
+      "EW"
+    ]
+  },
+  "XLF": {
+    "name": "State Street Financial Select Sector SPDR ETF",
+    "holdings": [
+      "BRK-B",
+      "JPM",
+      "V",
+      "MA",
+      "BAC",
+      "GS",
+      "WFC",
+      "MS",
+      "C",
+      "AXP"
+    ]
+  },
+  "KBE": {
+    "name": "State Street SPDR S&P Bank ETF",
+    "holdings": [
+      "BPOP",
+      "WBS",
+      "WSFS",
+      "BBT",
+      "CASH",
+      "BOH",
+      "SFBS",
+      "VLY",
+      "CFR",
+      "MTB"
+    ]
+  },
+  "KRE": {
+    "name": "State Street SPDR S&P Regional Banking ETF",
+    "holdings": [
+      "BPOP",
+      "WBS",
+      "VLY",
+      "CFR",
+      "MTB",
+      "SSB",
+      "CFG",
+      "WTFC",
+      "RF",
+      "HWC"
+    ]
+  },
+  "IAI": {
+    "name": "iShares U.S. Broker-Dealers & Securities Exchanges ETF",
+    "holdings": [
+      "GS",
+      "MS",
+      "SCHW",
+      "CME",
+      "ICE",
+      "MCO",
+      "MSCI",
+      "SPGI",
+      "NDAQ",
+      "IBKR"
+    ]
+  },
+  "KIE": {
+    "name": "State Street SPDR S&P Insurance ETF",
+    "holdings": [
+      "CB",
+      "RNR",
+      "TRV",
+      "FAF",
+      "RGA",
+      "ACGL",
+      "WTM",
+      "HIG",
+      "GL",
+      "L"
+    ]
+  },
+  "IAK": {
+    "name": "iShares U.S. Insurance ETF",
+    "holdings": [
+      "PGR",
+      "CB",
+      "TRV",
+      "ALL",
+      "AFL",
+      "HIG",
+      "AIG",
+      "ACGL",
+      "MET",
+      "PRU"
+    ]
+  },
+  "KBWB": {
+    "name": "Invesco KBW Bank ETF",
+    "holdings": [
+      "GS",
+      "MS",
+      "JPM",
+      "WFC",
+      "BAC",
+      "FITB",
+      "HBAN",
+      "MTB",
+      "USB",
+      "PNC"
+    ]
+  },
+  "XLE": {
+    "name": "State Street Energy Select Sector SPDR ETF",
+    "holdings": [
+      "XOM",
+      "CVX",
+      "COP",
+      "WMB",
+      "SLB",
+      "EOG",
+      "KMI",
+      "BKR",
+      "VLO",
+      "PSX"
+    ]
+  },
+  "XOP": {
+    "name": "State Street SPDR S&P Oil & Gas Exploration & Production ETF",
+    "holdings": [
+      "TPL",
+      "VG",
+      "XOM",
+      "OXY",
+      "CRC",
+      "CVX",
+      "PR",
+      "OVV",
+      "MGY",
+      "COP"
+    ]
+  },
+  "BOAT": {
+    "name": "SonicShares Global Shipping ETF",
+    "holdings": [
+      "FRO",
+      "9104.T",
+      "MAERSK-B.CO",
+      "9107.T",
+      "1308.HK",
+      "MATX",
+      "STNG",
+      "0316.HK",
+      "011200.KS",
+      "WAWI.OL"
+    ]
+  },
+  "XLY": {
+    "name": "State Street Consumer Discretionary Select Sector SPDR ETF",
+    "holdings": [
+      "AMZN",
+      "TSLA",
+      "HD",
+      "MCD",
+      "TJX",
+      "LOW",
+      "BKNG",
+      "SBUX",
+      "ORLY",
+      "RCL"
+    ]
+  },
+  "XLP": {
+    "name": "State Street Consumer Staples Select Sector SPDR ETF",
+    "holdings": [
+      "WMT",
+      "COST",
+      "PG",
+      "KO",
+      "PM",
+      "CL",
+      "PEP",
+      "MO",
+      "MDLZ",
+      "MNST"
+    ]
+  },
+  "XRT": {
+    "name": "State Street SPDR S&P Retail ETF",
+    "holdings": [
+      "CASY",
+      "FIVE",
+      "DG",
+      "PSMT",
+      "VVV",
+      "VSCO",
+      "TGT",
+      "BBWI",
+      "COST",
+      "ULTA"
+    ]
+  },
+  "FDIS": {
+    "name": "Fidelity MSCI Consumer Discretionary Index ETF",
+    "holdings": [
+      "AMZN",
+      "TSLA",
+      "HD",
+      "MCD",
+      "TJX",
+      "LOW",
+      "BKNG",
+      "SBUX",
+      "RCL",
+      "ORLY"
+    ]
+  },
+  "ITA": {
+    "name": "iShares U.S. Aerospace & Defense ETF",
+    "holdings": [
+      "GE",
+      "RTX",
+      "BA",
+      "LMT",
+      "HWM",
+      "NOC",
+      "LHX",
+      "GD",
+      "TDG",
+      "AXON"
+    ]
+  },
+  "PPA": {
+    "name": "Invesco Aerospace & Defense ETF",
+    "holdings": [
+      "LMT",
+      "RTX",
+      "GE",
+      "BA",
+      "NOC",
+      "GD",
+      "HWM",
+      "HON",
+      "LHX",
+      "PH"
+    ]
+  },
+  "XAR": {
+    "name": "State Street SPDR S&P Aerospace & Defense ETF",
+    "holdings": [
+      "ATI",
+      "LMT",
+      "HII",
+      "HWM",
+      "WWD",
+      "KRMN",
+      "CRS",
+      "NOC",
+      "LHX",
+      "CW"
+    ]
+  },
+  "XLB": {
+    "name": "State Street Materials Select Sector SPDR ETF",
+    "holdings": [
+      "LIN",
+      "NEM",
+      "FCX",
+      "SHW",
+      "CRH",
+      "ECL",
+      "CTVA",
+      "APD",
+      "MLM",
+      "NUE"
+    ]
+  },
+  "XME": {
+    "name": "State Street SPDR S&P Metals & Mining ETF",
+    "holdings": [
+      "CDE",
+      "FCX",
+      "HL",
+      "RGLD",
+      "AA",
+      "NEM",
+      "UEC",
+      "STLD",
+      "RS",
+      "NUE"
+    ]
+  },
+  "BOTZ": {
+    "name": "Global X Robotics & Artificial Intelligence ETF",
+    "holdings": [
+      "ABBN.SW",
+      "NVDA",
+      "6954.T",
+      "6861.T",
+      "ISRG",
+      "6383.T",
+      "6273.T",
+      "277810.KS",
+      "6506.T",
+      "CGNX"
+    ]
+  },
+  "ROBO": {
+    "name": "Robo Global Robotics and Automation Index ETF",
+    "holdings": [
+      "6134.T",
+      "IPGP",
+      "TER",
+      "6954.T",
+      "JEN.DE",
+      "098460.KQ",
+      "1590.TW",
+      "NOVT",
+      "6324.T",
+      "6273.T"
+    ]
+  },
+  "AIQ": {
+    "name": "Global X Artificial Intelligence & Technology ETF",
+    "holdings": [
+      "005930.KS",
+      "000660.KS",
+      "NFLX",
+      "TSM",
+      "CSCO",
+      "AAPL",
+      "MU",
+      "META",
+      "AVGO",
+      "NVDA"
+    ]
+  },
+  "ICLN": {
+    "name": "iShares Global Clean Energy ETF",
+    "holdings": [
+      "BE",
+      "NXT",
+      "FSLR",
+      "IBE.MC",
+      "600900.SS",
+      "ENPH",
+      "EQTL3.SA",
+      "ORA",
+      "VWS.CO",
+      "EDP.LS"
+    ]
+  },
+  "TAN": {
+    "name": "Invesco Solar ETF",
+    "holdings": [
+      "NXT",
+      "ENLT.TA",
+      "ENPH",
+      "FSLR",
+      "3800.HK",
+      "DORL.TA",
+      "RUN",
+      "SEDG",
+      "HASI",
+      "SLR.MC"
+    ]
+  },
+  "ARKK": {
+    "name": "ARK Innovation ETF",
+    "holdings": [
+      "TSLA",
+      "CRSP",
+      "TEM",
+      "ROKU",
+      "SHOP",
+      "COIN",
+      "HOOD",
+      "BEAM",
+      "RBLX",
+      "AMD"
+    ]
+  },
+  "ARKW": {
+    "name": "ARK Next Generation Internet ETF",
+    "holdings": [
+      "TSLA",
+      "AMD",
+      "ROKU",
+      "SHOP",
+      "HOOD",
+      "CRCL",
+      "RBLX",
+      "COIN",
+      "GOOG"
+    ]
+  },
+  "ARKG": {
+    "name": "ARK Genomic Revolution ETF",
+    "holdings": [
+      "CRSP",
+      "TEM",
+      "TWST",
+      "PSNL",
+      "BEAM",
+      "TXG",
+      "GH",
+      "NTRA",
+      "ILMN",
+      "RXRX"
+    ]
+  },
+  "ARKQ": {
+    "name": "ARK Autonomous Technology & Robotics ETF",
+    "holdings": [
+      "TSLA",
+      "TER",
+      "KTOS",
+      "RKLB",
+      "DE",
+      "AMD",
+      "AVAV",
+      "PLTR",
+      "GOOG",
+      "ACHR"
+    ]
+  },
+  "IJH": {
+    "name": "iShares Core S&P Mid-Cap ETF",
+    "holdings": [
+      "LITE",
+      "COHR",
+      "FTI",
+      "CW",
+      "CASY",
+      "XPO",
+      "RGLD",
+      "FLEX",
+      "WWD",
+      "ATI"
+    ]
+  },
+  "IJR": {
+    "name": "iShares Core S&P Small-Cap ETF",
+    "holdings": [
+      "XTSLA",
+      "SOLS",
+      "MOG-A",
+      "IDCC",
+      "CTRE",
+      "SITM",
+      "EMN",
+      "LKQ",
+      "SANM",
+      "PRIM"
+    ]
+  },
+  "MDY": {
+    "name": "State Street SPDR S&P MIDCAP 400 ETF Trust",
+    "holdings": [
+      "CIEN",
+      "COHR",
+      "LITE",
+      "CW",
+      "FLEX",
+      "CASY",
+      "FTI",
+      "ILMN",
+      "PSTG",
+      "RGLD"
+    ]
+  },
+  "IWM": {
+    "name": "iShares Russell 2000 ETF",
+    "holdings": [
+      "BE",
+      "FN",
+      "CDE",
+      "CRDO",
+      "HL",
+      "SATS",
+      "NXT",
+      "KTOS",
+      "IONQ",
+      "STRL"
+    ]
+  },
+  "VO": {
+    "name": "Vanguard Mid-Cap Index Fund ETF Shares",
+    "holdings": [
+      "NEM",
+      "CEG",
+      "STX",
+      "WDC",
+      "HWM",
+      "CRH",
+      "TDG",
+      "CMI",
+      "RCL",
+      "GLW"
+    ]
+  },
+  "VB": {
+    "name": "Vanguard Small-Cap Index Fund ETF Shares",
+    "holdings": [
+      "SNDK",
+      "RKLB",
+      "FIX",
+      "CIEN",
+      "COHR",
+      "EME",
+      "BE",
+      "NTRA",
+      "NRG",
+      "FTAI"
+    ]
+  },
+  "SCHA": {
+    "name": "Schwab U.S. Small-Cap ETF",
+    "holdings": [
+      "SNDK",
+      "LITE",
+      "ATI",
+      "RVMD",
+      "RKT",
+      "CDE",
+      "HL",
+      "MKSI",
+      "MTSI",
+      "NXT"
+    ]
+  },
+  "SLYG": {
+    "name": "State Street SPDR S&P 600 Small Cap Growth ETF",
+    "holdings": [
+      "MOG-A",
+      "IDCC",
+      "CTRE",
+      "SITM",
+      "SANM",
+      "PRIM",
+      "JBTM",
+      "FORM",
+      "ZWS",
+      "AWI"
+    ]
+  },
+  "VTV": {
+    "name": "Vanguard Value Index Fund ETF Shares",
+    "holdings": [
+      "JPM",
+      "BRK-B",
+      "XOM",
+      "JNJ",
+      "WMT",
+      "MU",
+      "ABBV",
+      "HD",
+      "PG",
+      "BAC"
+    ]
+  },
+  "SCHD": {
+    "name": "Schwab U.S. Dividend Equity ETF",
+    "holdings": [
+      "LMT",
+      "COP",
+      "VZ",
+      "CVX",
+      "BMY",
+      "MRK",
+      "MO",
+      "TXN",
+      "KO",
+      "PEP"
+    ]
+  },
+  "VBR": {
+    "name": "Vanguard Small-Cap Value Index Fund ETF Shares",
+    "holdings": [
+      "SNDK",
+      "EME",
+      "NRG",
+      "ATO",
+      "TPR",
+      "OMC",
+      "WSM",
+      "JBL",
+      "FLEX",
+      "CHRW"
+    ]
+  },
+  "SMOT": {
+    "name": "VanEck Morningstar SMID Moat ETF",
+    "holdings": [
+      "ALB",
+      "HII",
+      "SLB",
+      "HSY",
+      "NDSN",
+      "RPRX",
+      "HAS",
+      "CF",
+      "PCAR",
+      "POR"
+    ]
+  }
+}

@@ -3247,22 +3247,41 @@ def find_etf_recommendations(top30_tickers):
     top30_set = set(top30_tickers)
     etf_coverage = {}  # {etf_ticker: set of matched tickers}
 
-    # ── Step 1: Forward — ETF Top 10 보유종목 fetch ──
-    fwd_errors = 0
-    for etf_t in ETF_CANDIDATES:
+    # ── Step 1: Forward — 캐시에서 ETF 보유종목 로드 (없으면 yfinance fetch) ──
+    cache_path = Path(__file__).parent / 'etf_holdings_cache.json'
+    etf_cache = {}
+    if cache_path.exists():
         try:
-            funds = yf.Ticker(etf_t).get_funds_data()
-            holdings = funds.top_holdings
-            if holdings is not None and len(holdings) > 0:
-                matched = set(h for h in holdings.index.tolist() if h in top30_set)
-                if matched:
-                    etf_coverage[etf_t] = matched
-        except Exception as e:
-            fwd_errors += 1
-            if fwd_errors <= 3:
-                log(f"ETF Forward 실패 {etf_t}: {e}", "WARN")
-    if fwd_errors > 3:
-        log(f"ETF Forward 총 {fwd_errors}개 실패", "WARN")
+            with open(cache_path, 'r') as f:
+                etf_cache = json.load(f)
+            log(f"ETF 캐시 로드: {len(etf_cache)}개 ETF")
+        except Exception:
+            pass
+
+    if etf_cache:
+        # 캐시 기반 매칭
+        for etf_t, data in etf_cache.items():
+            holdings = data.get('holdings', [])
+            matched = set(h for h in holdings if h in top30_set)
+            if matched:
+                etf_coverage[etf_t] = matched
+    else:
+        # 캐시 없으면 yfinance 직접 fetch
+        fwd_errors = 0
+        for etf_t in ETF_CANDIDATES:
+            try:
+                funds = yf.Ticker(etf_t).get_funds_data()
+                holdings = funds.top_holdings
+                if holdings is not None and len(holdings) > 0:
+                    matched = set(h for h in holdings.index.tolist() if h in top30_set)
+                    if matched:
+                        etf_coverage[etf_t] = matched
+            except Exception as e:
+                fwd_errors += 1
+                if fwd_errors <= 3:
+                    log(f"ETF Forward 실패 {etf_t}: {e}", "WARN")
+        if fwd_errors > 3:
+            log(f"ETF Forward 총 {fwd_errors}개 실패", "WARN")
 
     fwd_covered = set()
     for v in etf_coverage.values():
@@ -3330,12 +3349,15 @@ def find_etf_recommendations(top30_tickers):
         if not new:
             break
         covered.update(new)
-        # ETF 이름 가져오기
-        try:
-            info = yf.Ticker(best).info
-            etf_name = info.get('longName', info.get('shortName', best))
-        except Exception:
-            etf_name = best
+        # ETF 이름: 캐시 → yfinance fallback
+        if best in etf_cache:
+            etf_name = etf_cache[best].get('name', best)
+        else:
+            try:
+                info = yf.Ticker(best).info
+                etf_name = info.get('longName', info.get('shortName', best))
+            except Exception:
+                etf_name = best
         selected.append({
             'ticker': best,
             'name': etf_name,

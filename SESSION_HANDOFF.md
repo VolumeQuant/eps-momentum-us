@@ -3721,14 +3721,14 @@ Q4→Q1 전환(250일 +8~12%)을 잡으려면 Q1 전환 전에 포지션 필요.
    - 백테스트는 별도 스크립트로 언제든 가능
    - 함수 코드는 유지 (향후 필요 시 재활용)
 
-6. **맞춤형 ETF 추천 (메시지 4)**
-   - **Top 5 종목 기반** (Top 10→Top 5 축소 — 할루시네이션 감소)
-   - Gemini 2-step으로 ETF 3개 추천
-   - Step 1: Google Search ON — 종목별 ETF 검색 + 복수 종목 포함 ETF 교차 검색
-   - Step 2: Search OFF — 순수 Greedy 알고리즘으로 최대 커버리지 조합 선택
-   - Top 5 우선 커버 규칙 제거됨 — 존재하지 않는 ETF를 만들어서라도 커버하려는 할루시네이션 유발
-   - 프롬프트 튜닝: 광범위 ETF 제외, 복수 종목 교차검색이 게임체인저
-   - `create_etf_message()` + `run_ai_analysis()` 호출 3~4 추가, `top10_for_etf` 파라미터 제거
+6. **맞춤형 ETF 추천 (메시지 4) — v48.1 코드 기반으로 전환**
+   - Gemini 2-step → yfinance 실데이터 매칭으로 변경 (할루시네이션 제로)
+   - **Top 30 종목 기반** (AI 방식은 할루시네이션이 심해 코드로 전환)
+   - `etf_holdings_cache.json`: 71개 ETF Top 10 보유종목 캐시 (GA에서 rate limit 회피)
+   - Forward: 캐시에서 매칭 → Reverse: 미커버 종목 `mutualfund_holders`에서 추가 ETF 발견
+   - 가중 Greedy: 1위=30점~30위=1점, 상위 순위 종목 우선 커버 ETF 3개 선택
+   - `find_etf_recommendations()` + `create_etf_message()` — AI 호출 불필요
+   - 결과: 30/30 커버(Forward+Reverse), Greedy 3개로 12/30, ~12초
 
 7. **Signal HY/VIX 경고 배너 제거**
    - AI Risk 메시지에서 상세히 표시하므로 Signal 중복 제거
@@ -3743,4 +3743,5 @@ Q4→Q1 전환(250일 +8~12%)을 잡으려면 Q1 전환 전에 포지션 필요.
 - **3일 검증 유지**: 5일 확대 시 반응 속도 저하, 현재 조합(3일 순위 + Top 30 홀드)이 역할 분담 적절
 
 ### 파일 변경
-- `daily_runner.py`: z_gap/z_rev clip(-2.5, 2.5), SECTOR_GROUP/SECTOR_ETF 매핑, analyze_sector_momentum(), Forward Test 호출 제거, 상관관계 경고 줄바꿈+라벨 변경, Signal HY/VIX 배너 제거, ETF 추천 2-step 추가
+- `daily_runner.py`: z_gap/z_rev clip(-2.5, 2.5), SECTOR_GROUP/SECTOR_ETF 매핑, analyze_sector_momentum(), Forward Test 호출 제거, 상관관계 경고 줄바꿈+라벨 변경, Signal HY/VIX 배너 제거, ETF 추천 코드 기반 매칭(find_etf_recommendations), Gemini ETF 호출 제거
+- `etf_holdings_cache.json`: (신규) 71개 ETF Top 10 보유종목 캐시
