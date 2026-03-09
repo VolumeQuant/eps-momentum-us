@@ -3311,14 +3311,16 @@ def find_etf_recommendations(top30_tickers):
         all_covered.update(v)
     log(f"ETF Forward+Reverse: {len(all_covered)}/{len(top30_tickers)} 커버")
 
-    # ── Step 3: Greedy — 최대 커버리지 ETF 3개 선택 ──
+    # ── Step 3: 가중 Greedy — 상위 순위 종목 우선 커버 ──
+    # 1위=30점, 2위=29점, ..., 30위=1점
+    rank_weight = {t: len(top30_tickers) + 1 - i for i, t in enumerate(top30_tickers, 1)}
     covered = set()
     selected = []
     remaining = dict(etf_coverage)
     for _ in range(3):
         if not remaining:
             break
-        best = max(remaining, key=lambda k: len(remaining[k] - covered))
+        best = max(remaining, key=lambda k: sum(rank_weight.get(t, 0) for t in remaining[k] - covered))
         new = remaining[best] - covered
         if not new:
             break

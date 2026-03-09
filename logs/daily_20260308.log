@@ -1,0 +1,103 @@
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: EAI"}}}
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: EMP"}}}
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: GJS"}}}
+HTTP Error 401: {"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}
+HTTP Error 401: {"finance":{"result":null,"error":{"code":"Unauthorized","description":"User is unable to access this feature - https://bit.ly/yahoo-finance-api-feedback"}}}
+HTTP Error 401: {"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}
+HTTP Error 401: {"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}
+[2026-03-08 22:11:12] [INFO] ============================================================
+[2026-03-08 22:11:12] [INFO] EPS Momentum Daily Runner v31 - Balanced Review
+[2026-03-08 22:11:12] [INFO] ============================================================
+[2026-03-08 22:11:12] [INFO] 설정 로드 완료: C:\dev\claude-code\eps-momentum-us\config.json
+[2026-03-08 22:11:12] [INFO] ============================================================
+[2026-03-08 22:11:12] [INFO] NTM EPS 데이터 수집 시작
+[2026-03-08 22:11:12] [INFO] ============================================================
+[2026-03-08 22:11:17] [INFO] NTM 데이터베이스 초기화 완료
+[2026-03-08 22:11:20] [INFO] 마켓 날짜: 2026-03-06
+[2026-03-08 22:11:20] [INFO] 기본 유니버스 (S&P500+400+NQ100): 916개
+[2026-03-08 22:11:28] [INFO]   비보통주 63개 제외 (우선주/채권/워런트)
+[2026-03-08 22:11:28] [INFO] 동적 확장 ($5B+): +524개 → 총 1440개
+[2026-03-08 22:11:28] [INFO] 유니버스: 1440개 종목
+[2026-03-08 22:11:28] [INFO] 종목 정보 캐시 로드: 1308개
+[2026-03-08 22:11:28] [INFO] 가격 데이터 일괄 다운로드 중...
+[2026-03-08 22:12:13] [INFO] 가격 다운로드 완료
+[2026-03-08 22:12:28] [INFO] MA120 사전 필터: 동적 종목 221개 제외 → 1219개 수집
+[2026-03-08 22:12:28] [INFO] NTM EPS 병렬 수집 중 (5스레드, 1219종목)...
+[2026-03-08 22:12:45] [INFO]   수집: 200/1219
+[2026-03-08 22:13:04] [INFO]   수집: 400/1219
+[2026-03-08 22:13:23] [INFO]   수집: 600/1219
+[2026-03-08 22:13:41] [INFO]   수집: 800/1219
+[2026-03-08 22:13:59] [INFO]   수집: 1000/1219
+[2026-03-08 22:14:17] [INFO]   수집: 1200/1219
+[2026-03-08 22:14:19] [INFO]   수집: 1219/1219
+[2026-03-08 22:14:19] [INFO] EPS 재시도: 5종목 (3초 대기 후)
+[2026-03-08 22:14:22] [INFO]   재시도 복구: 0/5
+[2026-03-08 22:14:22] [INFO] EPS 수집 완료: 1219종목, 115초
+[2026-03-08 22:14:29] [INFO]   처리: 200/1219 (메인: 175, 턴어라운드: 23)
+[2026-03-08 22:14:36] [INFO]   처리: 400/1219 (메인: 353, 턴어라운드: 39)
+[2026-03-08 22:14:44] [INFO]   처리: 600/1219 (메인: 529, 턴어라운드: 60)
+[2026-03-08 22:14:52] [INFO]   처리: 800/1219 (메인: 705, 턴어라운드: 76)
+[2026-03-08 22:15:00] [INFO]   처리: 1000/1219 (메인: 886, 턴어라운드: 90)
+[2026-03-08 22:15:07] [INFO]   처리: 1200/1219 (메인: 1064, 턴어라운드: 106)
+[2026-03-08 22:15:08] [INFO] 종목 정보 캐시 저장: 1309개
+[2026-03-08 22:15:08] [INFO] 수집 완료: 메인 1083, 턴어라운드 107, 데이터없음 24, 에러 5
+[2026-03-08 22:15:09] [INFO] 시장 지수: 4개
+[2026-03-08 22:15:09] [INFO] 매출+품질 수집 시작: 1083종목 (5스레드, 배치 50)
+[2026-03-08 22:15:29] [INFO]   수집 진행: 200/1083
+[2026-03-08 22:15:50] [INFO]   수집 진행: 400/1083
+[2026-03-08 22:16:11] [INFO]   수집 진행: 600/1083
+[2026-03-08 22:16:28] [INFO]   수집 진행: 800/1083
+[2026-03-08 22:16:43] [INFO]   수집 진행: 1000/1083
+[2026-03-08 22:16:49] [INFO] 매출+품질 수집 완료: 694/1083 (rev_growth 687개)
+[2026-03-08 22:16:49] [INFO] Industry 보정: 60종목 ('기타' → 실제 업종)
+[2026-03-08 22:16:49] [INFO] 매출 데이터 없음 제외: LBRDK, WDC, EQX, DD
+[2026-03-08 22:16:49] [INFO] 매출 성장 부족(<10%) 제외: BIPC, WLK, CENX, LUV, OMAB, Q, FCX, HSY, TECK, SM, AA, AMAT, CRUS, OUT, POWL, COLM, MGA, CACC, GEV, AGX, RGLD, AMG, CROX, DVA, TM, ASML, CGNX, ESE, NE, VAL, ONTO, EQIX, ENTG, AMX, MT, ATI, FTI, KLAC, CBOE, TIMB, GM, WFRD, CAMT, ULS, DECK, CRS, ENPH
+[2026-03-08 22:16:49] [INFO] 저커버리지(<3명) 제외: AUGO, UI, HSBC, SNEX, MUFG, IESC
+[2026-03-08 22:16:49] [INFO] 하향 과다(>30%) 제외: BE(↑15↓7), ASND(↑7↓4), VICR(↑2↓1), CDE(↑1↓2), HBM(↑8↓4), NEM(↑6↓6), TFPM(↑5↓3), BTSG(↑1↓1), DLR(↑1↓1), STRL(↑2↓1), IAG(↑4↓3), B(↑11↓6), SUN(↑2↓2), ALSN(↑1↓2), CNX(↑5↓3), MRVL(↑3↓19), VSEC(↑3↓3), EXAS(↑3↓3), AR(↑6↓8), SLAB(↑4↓3), AGI(↑3↓6)
+[2026-03-08 22:16:49] [INFO] 구조적 저마진 제외: DAR(OM8%/GM24%), ARW(OM4%/GM11%), DE(OM9%/GM26%), DELL(OM9%/GM20%), BWXT(OM9%/GM23%), AVT(OM3%/GM11%), MTZ(OM5%/GM13%), PWR(OM5%/GM15%)
+[2026-03-08 22:16:49] [INFO] 영업이익률 부족(<5%) 제외: ROKU(OM5%), IPGP(OM2%), FIVE(OM4%), LSCC(OM2%), WELL(OM-28%)
+[2026-03-08 22:16:49] [INFO] 원자재 제외(업종): WPM, BVN, ORLA, KGC, OR, SCCO, RIO, BHP, AEM, GFI, PAAS, CF, AU, FNV, NGD
+[2026-03-08 22:16:49] [INFO] 원자재 제외(티커): SQM
+[2026-03-08 22:16:49] [INFO] Part 2 rank 저장: 30개 종목 (가중순위 Top 30, eligible 38개)
+[2026-03-08 22:16:49] [INFO] 3일 교집합: ✅ 23개, ⏳ 3개, 🆕 4개
+[2026-03-08 22:16:49] [INFO] 가중 순위: 30개 종목 계산 (날짜 3일)
+[2026-03-08 22:16:49] [INFO] 순위 변동 태그: 23개 종목 (1.0σ 기준: price±2.83%, score±1.48)
+[2026-03-08 22:16:49] [INFO] 어제 대비: +4 신규, -4 이탈
+[2026-03-08 22:16:51] [INFO] VIX: 23.8 (252일 90th) → crisis (위기), 가감 +15%
+[2026-03-08 22:16:51] [INFO] Concordance: both_warn (q_days=7) → 과열 초기 (7일째), 변동성 높음 [portfolio: normal]
+[2026-03-08 22:16:51] [INFO] HY Spread: 3.00% | 분면: Q3 가을(과열국면) (7일째)
+[2026-03-08 22:16:51] [INFO]   과열 구간 — 수익률 둔화 경향
+[2026-03-08 22:16:51] [INFO] VIX: 23.8 (252일 90th) | slope +3.9 (rising) | 위기
+[2026-03-08 22:16:51] [INFO] 일치도: both_warn | 과열 초기 (7일째), 변동성 높음
+[2026-03-08 22:16:51] [INFO] 매출 데이터 없음 제외: LBRDK, WDC, EQX, DD
+[2026-03-08 22:16:51] [INFO] 매출 성장 부족(<10%) 제외: BIPC, WLK, CENX, LUV, OMAB, Q, FCX, HSY, TECK, SM, AA, AMAT, CRUS, OUT, POWL, COLM, MGA, CACC, GEV, AGX, RGLD, AMG, CROX, DVA, TM, ASML, CGNX, ESE, NE, VAL, ONTO, EQIX, ENTG, AMX, MT, ATI, FTI, KLAC, CBOE, TIMB, GM, WFRD, CAMT, ULS, DECK, CRS, ENPH
+[2026-03-08 22:16:51] [INFO] 저커버리지(<3명) 제외: AUGO, UI, HSBC, SNEX, MUFG, IESC
+[2026-03-08 22:16:51] [INFO] 하향 과다(>30%) 제외: BE(↑15↓7), ASND(↑7↓4), VICR(↑2↓1), CDE(↑1↓2), HBM(↑8↓4), NEM(↑6↓6), TFPM(↑5↓3), BTSG(↑1↓1), DLR(↑1↓1), STRL(↑2↓1), IAG(↑4↓3), B(↑11↓6), SUN(↑2↓2), ALSN(↑1↓2), CNX(↑5↓3), MRVL(↑3↓19), VSEC(↑3↓3), EXAS(↑3↓3), AR(↑6↓8), SLAB(↑4↓3), AGI(↑3↓6)
+[2026-03-08 22:16:51] [INFO] 구조적 저마진 제외: DAR(OM8%/GM24%), ARW(OM4%/GM11%), DE(OM9%/GM26%), DELL(OM9%/GM20%), BWXT(OM9%/GM23%), AVT(OM3%/GM11%), MTZ(OM5%/GM13%), PWR(OM5%/GM15%)
+[2026-03-08 22:16:51] [INFO] 영업이익률 부족(<5%) 제외: ROKU(OM5%), IPGP(OM2%), FIVE(OM4%), LSCC(OM2%), WELL(OM-28%)
+[2026-03-08 22:16:51] [INFO] 원자재 제외(업종): WPM, BVN, ORLA, KGC, OR, SCCO, RIO, BHP, AEM, GFI, PAAS, CF, AU, FNV, NGD
+[2026-03-08 22:16:51] [INFO] 원자재 제외(티커): SQM
+[2026-03-08 22:16:51] [INFO] 디스플레이 Top 5: SNDK(20%), LITE(20%), STX(20%), FIX(20%), MU(20%)
+[2026-03-08 22:16:51] [INFO] 매출 데이터 없음 제외: LBRDK, WDC, EQX, DD
+[2026-03-08 22:16:51] [INFO] 매출 성장 부족(<10%) 제외: BIPC, WLK, CENX, LUV, OMAB, Q, FCX, HSY, TECK, SM, AA, AMAT, CRUS, OUT, POWL, COLM, MGA, CACC, GEV, AGX, RGLD, AMG, CROX, DVA, TM, ASML, CGNX, ESE, NE, VAL, ONTO, EQIX, ENTG, AMX, MT, ATI, FTI, KLAC, CBOE, TIMB, GM, WFRD, CAMT, ULS, DECK, CRS, ENPH
+[2026-03-08 22:16:51] [INFO] 저커버리지(<3명) 제외: AUGO, UI, HSBC, SNEX, MUFG, IESC
+[2026-03-08 22:16:51] [INFO] 하향 과다(>30%) 제외: BE(↑15↓7), ASND(↑7↓4), VICR(↑2↓1), CDE(↑1↓2), HBM(↑8↓4), NEM(↑6↓6), TFPM(↑5↓3), BTSG(↑1↓1), DLR(↑1↓1), STRL(↑2↓1), IAG(↑4↓3), B(↑11↓6), SUN(↑2↓2), ALSN(↑1↓2), CNX(↑5↓3), MRVL(↑3↓19), VSEC(↑3↓3), EXAS(↑3↓3), AR(↑6↓8), SLAB(↑4↓3), AGI(↑3↓6)
+[2026-03-08 22:16:51] [INFO] 구조적 저마진 제외: DAR(OM8%/GM24%), ARW(OM4%/GM11%), DE(OM9%/GM26%), DELL(OM9%/GM20%), BWXT(OM9%/GM23%), AVT(OM3%/GM11%), MTZ(OM5%/GM13%), PWR(OM5%/GM15%)
+[2026-03-08 22:16:51] [INFO] 영업이익률 부족(<5%) 제외: ROKU(OM5%), IPGP(OM2%), FIVE(OM4%), LSCC(OM2%), WELL(OM-28%)
+[2026-03-08 22:16:51] [INFO] 원자재 제외(업종): WPM, BVN, ORLA, KGC, OR, SCCO, RIO, BHP, AEM, GFI, PAAS, CF, AU, FNV, NGD
+[2026-03-08 22:16:51] [INFO] 원자재 제외(티커): SQM
+[2026-03-08 22:17:05] [INFO] AI: 시장요약 419자
+[2026-03-08 22:17:19] [INFO] AI: 내러티브 5종목
+[2026-03-08 22:17:20] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-03-08 22:17:20] [INFO] Signal 전송 완료 → 개인봇
+[2026-03-08 22:17:21] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-03-08 22:17:21] [INFO] AI Risk 전송 완료 → 개인봇
+[2026-03-08 22:17:23] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-03-08 22:17:23] [INFO] Watchlist 전송 완료 → 개인봇
+[2026-03-08 22:17:24] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-03-08 22:17:24] [INFO] 시스템 로그 전송 완료 → 개인봇
+[2026-03-08 22:17:24] [INFO] Git commit/push 시작
+[2026-03-08 22:17:28] [INFO] Git push 완료
+[2026-03-08 22:17:28] [INFO] ============================================================
+[2026-03-08 22:17:28] [INFO] 전체 완료: 375.4초 소요
+[2026-03-08 22:17:28] [INFO] ============================================================

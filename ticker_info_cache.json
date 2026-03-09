@@ -5234,5 +5234,17 @@
   "ROKU": {
     "shortName": "ROKU",
     "industry": "기타"
+  },
+  "MWH": {
+    "shortName": "MWH",
+    "industry": "기타"
+  },
+  "NET": {
+    "shortName": "NET",
+    "industry": "기타"
+  },
+  "XENE": {
+    "shortName": "XENE",
+    "industry": "기타"
   }
 }
