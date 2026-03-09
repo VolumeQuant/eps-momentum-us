@@ -3248,15 +3248,15 @@ def find_etf_recommendations(top30_tickers):
     etf_coverage = {}  # {etf_ticker: set of matched tickers}
 
     # ── Step 1: Forward — 캐시에서 ETF 보유종목 로드 (없으면 yfinance fetch) ──
-    cache_path = Path(__file__).parent / 'etf_holdings_cache.json'
+    cache_path = PROJECT_ROOT / 'etf_holdings_cache.json'
     etf_cache = {}
     if cache_path.exists():
         try:
-            with open(cache_path, 'r') as f:
+            with open(cache_path, 'r', encoding='utf-8') as f:
                 etf_cache = json.load(f)
             log(f"ETF 캐시 로드: {len(etf_cache)}개 ETF")
-        except Exception:
-            pass
+        except Exception as e:
+            log(f"ETF 캐시 로드 실패: {e}", "WARN")
 
     if etf_cache:
         # 캐시 기반 매칭
