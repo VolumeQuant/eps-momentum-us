@@ -2511,10 +2511,11 @@ def _identify_filter_failure(row, ticker):
 
 
 def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=None):
-    """Gemini 3회 호출 — (1) 시장 요약 (2) 종목 내러티브 (3) ETF 추천
+    """Gemini 2회 호출 — (1) 시장 요약 (2) 종목 내러티브
 
     AI 실패 시에도 빈 결과를 반환하여 메시지 정상 작동 보장.
-    Returns: {'market_summary': str, 'narratives': {ticker: str}, 'etf_recommendation': str}
+    ETF 추천은 별도 코드 기반 함수(find_etf_recommendations)로 이동.
+    Returns: {'market_summary': str, 'narratives': {ticker: str}}
     """
     import re
 
@@ -2684,117 +2685,6 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
                 log("AI: 내러티브 Gemini 응답 없음", "WARN")
         except Exception as e:
             log(f"AI: 내러티브 실패: {e}", "WARN")
-
-    # ── 호출 3~4: ETF 추천 2-step (Top 5 기반) ──
-    etf_stocks = selected
-    if etf_stocks:
-        try:
-            top_lines = []
-            for i, s in enumerate(etf_stocks[:5]):
-                top_lines.append(f"{i+1}. {s['ticker']} — {s['name']} ({s['industry']})")
-            top_block = chr(10).join(top_lines)
-
-            # ── Step 1: Google Search로 ETF 보유종목 조사 ──
-            step1_prompt = f"""아래 5개 종목이 포함된 미국 섹터/테마 ETF를 Google 검색해서 조사해줘.
-모든 종목은 현재 미국 시장에 상장 중이야.
-
-{top_block}
-
-[검색 과제 2가지]
-
-과제 A: 각 종목별 포함된 섹터/테마 ETF (종목당 최대 3개)
-검색어: "TICKER ETF holdings", "what ETF holds TICKER"
-
-과제 B: 위 종목 중 2개 이상을 동시에 포함하는 ETF
-검색어: "semiconductor ETF holdings" "SMH holdings" "SOXX holdings" "XSD holdings" "XLI holdings" "XLF holdings" "technology hardware ETF" "5G ETF" "healthcare ETF" "industrial ETF"
-각 ETF의 전체 보유종목을 확인해서 위 5개 중 어떤 것이 포함되는지 교차 확인.
-
-[제외] SPY, QQQ, VOO, VTI, XLK, VGT, IYW, FTEC, IVV, IWF, 레버리지/인버스/옵션 ETF
-
-[출력]
-과제A:
-TICKER: ETF명(티커), ETF명(티커)
-(5개 전부)
-
-과제B — 복수 종목 포함 ETF:
-ETF명(티커): TICKER1, TICKER2, ..."""
-
-            resp1 = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=step1_prompt,
-                config=types.GenerateContentConfig(
-                    tools=[grounding_tool],
-                    temperature=0.1,
-                ),
-            )
-            step1_text = extract_text(resp1)
-            if step1_text:
-                step1_text = re.sub(r'\*\*(.+?)\*\*', r'\1', step1_text)
-                step1_text = re.sub(r'#{1,3}\s*', '', step1_text)
-                step1_text = re.sub(r'\[cite:.*?\]', '', step1_text)
-                log(f"AI: ETF Step1 검색 완료 {len(step1_text)}자")
-            else:
-                log("AI: ETF Step1 Gemini 응답 없음", "WARN")
-                raise ValueError("Step1 empty")
-
-            # ── Step 2: Greedy 최적 조합 (검색 OFF) ──
-            step2_prompt = f"""[상위 5종목]
-{top_block}
-
-[ETF 조사 결과]
-{step1_text}
-
-[과제] 위 5종목을 최대한 많이 커버하는 ETF 3개 조합을 Greedy로 찾아.
-
-[Greedy]
-Step A: 과제B에서 가장 많은 종목을 커버하는 ETF 선택.
-→ 커버: [...] | 미커버: [...]
-Step B: 미커버 중 가장 많이 커버하는 ETF 추가.
-→ 누적 커버: [...] | 미커버: [...]
-Step C: 남은 미커버 중 가장 많이 커버하는 ETF 추가.
-→ 최종 커버: [...] | 미커버: [...]
-
-[제외] SPY, QQQ, VOO, VTI, XLK, VGT, IYW, FTEC, IVV, IWF, 레버리지/인버스/옵션
-[규칙] Step 1 확인된 매핑만 사용. 한국어 ~예요 체. 마크다운 금지. ETF명 영문.
-
-[최종 출력 — Greedy 과정은 생략하고 결과만]
-1. ETF명 (티커)
-포함 종목: TICKER1, TICKER2
-추천 이유 2~3문장.
-
-2. ETF명 (티커)
-포함 종목: TICKER1, TICKER2
-추천 이유 2~3문장.
-
-3. ETF명 (티커)
-포함 종목: TICKER1, TICKER2
-추천 이유 2~3문장.
-
-총 커버리지: X/10"""
-
-            resp2 = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=step2_prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                ),
-            )
-            text = extract_text(resp2)
-            if text:
-                text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
-                text = re.sub(r'#{1,3}\s*', '', text)
-                text = re.sub(r'\[cite:.*?\]', '', text)
-                # "총 커버리지" 줄 제거 (고객에겐 불필요)
-                lines_out = []
-                for ln in text.strip().split('\n'):
-                    if '커버리지' not in ln:
-                        lines_out.append(ln)
-                result['etf_recommendation'] = '\n'.join(lines_out).strip()
-                log(f"AI: ETF 추천 {len(result['etf_recommendation'])}자")
-            else:
-                log("AI: ETF Step2 Gemini 응답 없음", "WARN")
-        except Exception as e:
-            log(f"AI: ETF 추천 실패: {e}", "WARN")
 
     return result
 
@@ -3310,21 +3200,169 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     return '\n'.join(lines)
 
 
-def create_etf_message(ai_content, biz_day):
-    """v3 Message 4: 맞춤형 ETF 추천 — AI 기반"""
-    etf_text = ai_content.get('etf_recommendation', '') if ai_content else ''
-    if not etf_text:
+# ── ETF 후보 리스트 (섹터/테마별) ──
+ETF_CANDIDATES = [
+    # 반도체
+    'SMH', 'SOXX', 'XSD', 'PSI', 'SOXQ',
+    # 테크
+    'IGV', 'SKYY', 'WCLD', 'QTEC', 'FXL', 'RSPT', 'RYT', 'XITK',
+    # 통신/5G
+    'FIVG', 'VOX', 'NXTG',
+    # 산업재
+    'XLI', 'VIS', 'PAVE', 'AIRR', 'FIDU', 'RGI',
+    # 건설/인프라
+    'ITB', 'PKB', 'IFRA',
+    # 헬스케어
+    'XLV', 'VHT', 'IHI', 'XBI', 'XHE', 'RYH',
+    # 금융
+    'XLF', 'KBE', 'KRE', 'IAI', 'KIE', 'IAK', 'KBWB',
+    # 에너지/해운
+    'XLE', 'XOP', 'BOAT',
+    # 소비재
+    'XLY', 'XLP', 'XRT', 'FDIS',
+    # 방산
+    'ITA', 'PPA', 'XAR',
+    # 소재
+    'XLB', 'XME',
+    # AI/로보틱스
+    'BOTZ', 'ROBO', 'AIQ',
+    # 클린에너지
+    'ICLN', 'TAN',
+    # 기타 테마
+    'ARKK', 'ARKW', 'ARKG', 'ARKQ',
+    # Mid/Small cap
+    'IJH', 'IJR', 'MDY', 'IWM', 'VO', 'VB', 'SCHA', 'SLYG',
+    # Value/Factor
+    'VTV', 'SCHD', 'VBR', 'SMOT',
+]
+
+
+def find_etf_recommendations(top30_tickers):
+    """코드 기반 ETF 매칭 — Forward(ETF→종목) + Reverse(종목→ETF) + Greedy
+
+    Returns: list of {'ticker', 'name', 'matched', 'new_covered'} or empty list
+    """
+    import yfinance as yf
+
+    top30_set = set(top30_tickers)
+    etf_coverage = {}  # {etf_ticker: set of matched tickers}
+
+    # ── Step 1: Forward — ETF Top 10 보유종목 fetch ──
+    for etf_t in ETF_CANDIDATES:
+        try:
+            funds = yf.Ticker(etf_t).get_funds_data()
+            holdings = funds.top_holdings
+            if holdings is not None and len(holdings) > 0:
+                matched = set(h for h in holdings.index.tolist() if h in top30_set)
+                if matched:
+                    etf_coverage[etf_t] = matched
+        except Exception:
+            pass
+
+    fwd_covered = set()
+    for v in etf_coverage.values():
+        fwd_covered.update(v)
+    log(f"ETF Forward: {len(etf_coverage)}개 ETF, {len(fwd_covered)}/{len(top30_tickers)} 커버")
+
+    # ── Step 2: Reverse — 미커버 종목의 mutualfund_holders에서 ETF 발견 ──
+    uncovered = top30_set - fwd_covered
+    if uncovered:
+        # mutualfund_holders 풀네임 → ETF 티커 매핑
+        KNOWN_ETF_NAMES = {
+            'iShares Core S&P Mid-Cap ETF': 'IJH',
+            'iShares Core S&P Small-Cap ETF': 'IJR',
+            'iShares Russell 2000 ETF': 'IWM',
+            'iShares S&P Mid-Cap 400 Growth ETF': 'IJK',
+            'iShares S&P Mid-Cap 400 Value ETF': 'IJJ',
+            'iShares S&P Small-Cap 600 Growth ETF': 'IJT',
+            'iShares S&P Small-Cap 600 Value ETF': 'IJS',
+            'SPDR S&P Regional Banking ETF': 'KRE',
+            'SPDR Portfolio S&P 600 Small Cap ETF': 'SPSM',
+            'iShares MSCI Canada ETF': 'EWC',
+            'iShares Core MSCI EAFE ETF': 'IEFA',
+            'Schwab International Equity ETF': 'SCHF',
+            'Invesco S&P SmallCap Momentum ETF': 'XSMO',
+            'Dimensional U.S. Targeted Value ETF': 'DFAT',
+            'iShares A.I. Innovation and Tech Active ETF': 'BAI',
+        }
+        log(f"ETF Reverse 탐색: {sorted(uncovered)}")
+        for ticker in uncovered:
+            try:
+                mf = yf.Ticker(ticker).mutualfund_holders
+                if mf is None:
+                    continue
+                for _, row in mf.iterrows():
+                    name = str(row['Holder'])
+                    if 'ETF' not in name:
+                        continue
+                    for etf_fullname, etf_t in KNOWN_ETF_NAMES.items():
+                        if etf_fullname in name:
+                            if etf_t in etf_coverage:
+                                etf_coverage[etf_t].add(ticker)
+                            else:
+                                etf_coverage[etf_t] = {ticker}
+                            log(f"ETF Reverse: {ticker} → {etf_t}")
+                            break
+            except Exception:
+                pass
+
+    all_covered = set()
+    for v in etf_coverage.values():
+        all_covered.update(v)
+    log(f"ETF Forward+Reverse: {len(all_covered)}/{len(top30_tickers)} 커버")
+
+    # ── Step 3: Greedy — 최대 커버리지 ETF 3개 선택 ──
+    covered = set()
+    selected = []
+    remaining = dict(etf_coverage)
+    for _ in range(3):
+        if not remaining:
+            break
+        best = max(remaining, key=lambda k: len(remaining[k] - covered))
+        new = remaining[best] - covered
+        if not new:
+            break
+        covered.update(new)
+        # ETF 이름 가져오기
+        try:
+            info = yf.Ticker(best).info
+            etf_name = info.get('longName', info.get('shortName', best))
+        except Exception:
+            etf_name = best
+        selected.append({
+            'ticker': best,
+            'name': etf_name,
+            'matched': sorted(remaining[best] & top30_set),
+            'new_covered': sorted(new),
+        })
+        del remaining[best]
+
+    log(f"ETF Greedy: {len(covered)}/{len(top30_tickers)} 커버, {len(selected)}개 ETF 선택")
+    return selected
+
+
+def create_etf_message(etf_results, biz_day, top30_count=30):
+    """v3 Message 4: 맞춤형 ETF 추천 — 코드 기반 매칭"""
+    if not etf_results:
         return None
+
+    total_covered = set()
+    for etf in etf_results:
+        total_covered.update(etf['matched'])
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append('  🏆 <b>맞춤형 ETF 추천</b>')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('EPS 모멘텀 상위 종목을 집중 보유한 ETF예요.')
+    lines.append(f'상위 30종목 중 <b>{len(total_covered)}개</b>를 보유한 ETF 조합이에요.')
     lines.append('')
-    lines.append(etf_text)
-    lines.append('')
-    lines.append(f'<i>{biz_day.strftime("%m/%d")} 상위 5종목 기준 · AI 분석 참고용</i>')
+
+    for i, etf in enumerate(etf_results, 1):
+        lines.append(f'{i}. <b>{etf["name"]}</b> ({etf["ticker"]})')
+        lines.append(f'포함 종목: {", ".join(etf["matched"])}')
+        lines.append('')
+
+    lines.append(f'<i>{biz_day.strftime("%m/%d")} 상위 30종목 기준 · 실제 ETF 보유종목 매칭</i>')
 
     return '\n'.join(lines)
 
@@ -3502,7 +3540,7 @@ def main():
         else:
             eps_screened, filter_count = 0, 0
 
-        # AI 3회 호출 (시장 요약 + 종목 내러티브 + ETF 추천) — 디스플레이 Top 5 기반
+        # AI 2회 호출 (시장 요약 + 종목 내러티브) — ETF는 코드 기반 별도 처리
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
@@ -3543,8 +3581,13 @@ def main():
             send_telegram_long(msg_watchlist, config, chat_id=private_id)
             log(f"Watchlist 전송 완료 → {dest}")
 
-        # 메시지 4: 맞춤형 ETF 추천
-        msg_etf = create_etf_message(ai_content, biz_day)
+        # 메시지 4: 맞춤형 ETF 추천 (코드 기반 매칭)
+        try:
+            etf_results = find_etf_recommendations(today_tickers)
+            msg_etf = create_etf_message(etf_results, biz_day)
+        except Exception as e:
+            log(f"ETF 추천 실패: {e}", "WARN")
+            msg_etf = None
         if msg_etf:
             if send_to_channel:
                 send_telegram_long(msg_etf, config, chat_id=channel_id)
