@@ -3248,6 +3248,7 @@ def find_etf_recommendations(top30_tickers):
     etf_coverage = {}  # {etf_ticker: set of matched tickers}
 
     # ── Step 1: Forward — ETF Top 10 보유종목 fetch ──
+    fwd_errors = 0
     for etf_t in ETF_CANDIDATES:
         try:
             funds = yf.Ticker(etf_t).get_funds_data()
@@ -3256,8 +3257,12 @@ def find_etf_recommendations(top30_tickers):
                 matched = set(h for h in holdings.index.tolist() if h in top30_set)
                 if matched:
                     etf_coverage[etf_t] = matched
-        except Exception:
-            pass
+        except Exception as e:
+            fwd_errors += 1
+            if fwd_errors <= 3:
+                log(f"ETF Forward 실패 {etf_t}: {e}", "WARN")
+    if fwd_errors > 3:
+        log(f"ETF Forward 총 {fwd_errors}개 실패", "WARN")
 
     fwd_covered = set()
     for v in etf_coverage.values():
