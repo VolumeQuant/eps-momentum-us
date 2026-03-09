@@ -3238,16 +3238,13 @@ ETF_CANDIDATES = [
 
 
 def find_etf_recommendations(top30_tickers):
-    """코드 기반 ETF 매칭 — Forward(ETF→종목) + Reverse(종목→ETF) + Greedy
+    """비중 기반 ETF 매칭 — Top 30 종목 비중 합계가 높은 ETF Top 3
 
-    Returns: list of {'ticker', 'name', 'matched', 'new_covered'} or empty list
+    Returns: list of {'ticker', 'name', 'matched', 'overlap_pct'} or empty list
     """
-    import yfinance as yf
-
     top30_set = set(top30_tickers)
-    etf_coverage = {}  # {etf_ticker: set of matched tickers}
 
-    # ── Step 1: Forward — 캐시에서 ETF 보유종목 로드 (없으면 yfinance fetch) ──
+    # ── Step 1: 캐시에서 ETF 보유종목+비중 로드 ──
     cache_path = PROJECT_ROOT / 'etf_holdings_cache.json'
     etf_cache = {}
     if cache_path.exists():
@@ -3258,140 +3255,70 @@ def find_etf_recommendations(top30_tickers):
         except Exception as e:
             log(f"ETF 캐시 로드 실패: {e}", "WARN")
 
-    if etf_cache:
-        # 캐시 기반 매칭
-        for etf_t, data in etf_cache.items():
-            holdings = data.get('holdings', [])
-            matched = set(h for h in holdings if h in top30_set)
-            if matched:
-                etf_coverage[etf_t] = matched
-    else:
-        # 캐시 없으면 yfinance 직접 fetch
-        fwd_errors = 0
-        for etf_t in ETF_CANDIDATES:
-            try:
-                funds = yf.Ticker(etf_t).get_funds_data()
-                holdings = funds.top_holdings
-                if holdings is not None and len(holdings) > 0:
-                    matched = set(h for h in holdings.index.tolist() if h in top30_set)
-                    if matched:
-                        etf_coverage[etf_t] = matched
-            except Exception as e:
-                fwd_errors += 1
-                if fwd_errors <= 3:
-                    log(f"ETF Forward 실패 {etf_t}: {e}", "WARN")
-        if fwd_errors > 3:
-            log(f"ETF Forward 총 {fwd_errors}개 실패", "WARN")
+    if not etf_cache:
+        log("ETF 캐시 없음 — ETF 추천 스킵", "WARN")
+        return []
 
-    fwd_covered = set()
-    for v in etf_coverage.values():
-        fwd_covered.update(v)
-    log(f"ETF Forward: {len(etf_coverage)}개 ETF, {len(fwd_covered)}/{len(top30_tickers)} 커버")
+    # ── Step 2: 각 ETF의 Top 30 비중 합계 계산 ──
+    etf_scores = []
+    for etf_t, data in etf_cache.items():
+        holdings = data.get('holdings', {})
+        if isinstance(holdings, list):
+            # 구버전 캐시(비중 없음) — 스킵
+            continue
+        matched = {h: w for h, w in holdings.items() if h in top30_set}
+        if matched:
+            etf_scores.append({
+                'ticker': etf_t,
+                'name': data.get('name', etf_t),
+                'matched_detail': matched,  # {ticker: weight}
+                'matched': sorted(matched.keys(), key=lambda h: matched[h], reverse=True),
+                'overlap_pct': sum(matched.values()),
+            })
 
-    # ── Step 2: Reverse — 미커버 종목의 mutualfund_holders에서 ETF 발견 ──
-    uncovered = top30_set - fwd_covered
-    if uncovered:
-        # mutualfund_holders 풀네임 → ETF 티커 매핑
-        KNOWN_ETF_NAMES = {
-            'iShares Core S&P Mid-Cap ETF': 'IJH',
-            'iShares Core S&P Small-Cap ETF': 'IJR',
-            'iShares Russell 2000 ETF': 'IWM',
-            'iShares S&P Mid-Cap 400 Growth ETF': 'IJK',
-            'iShares S&P Mid-Cap 400 Value ETF': 'IJJ',
-            'iShares S&P Small-Cap 600 Growth ETF': 'IJT',
-            'iShares S&P Small-Cap 600 Value ETF': 'IJS',
-            'SPDR S&P Regional Banking ETF': 'KRE',
-            'SPDR Portfolio S&P 600 Small Cap ETF': 'SPSM',
-            'iShares MSCI Canada ETF': 'EWC',
-            'iShares Core MSCI EAFE ETF': 'IEFA',
-            'Schwab International Equity ETF': 'SCHF',
-            'Invesco S&P SmallCap Momentum ETF': 'XSMO',
-            'Dimensional U.S. Targeted Value ETF': 'DFAT',
-            'iShares A.I. Innovation and Tech Active ETF': 'BAI',
-        }
-        log(f"ETF Reverse 탐색: {sorted(uncovered)}")
-        for ticker in uncovered:
-            try:
-                mf = yf.Ticker(ticker).mutualfund_holders
-                if mf is None:
-                    continue
-                for _, row in mf.iterrows():
-                    name = str(row['Holder'])
-                    if 'ETF' not in name:
-                        continue
-                    for etf_fullname, etf_t in KNOWN_ETF_NAMES.items():
-                        if etf_fullname in name:
-                            if etf_t in etf_coverage:
-                                etf_coverage[etf_t].add(ticker)
-                            else:
-                                etf_coverage[etf_t] = {ticker}
-                            log(f"ETF Reverse: {ticker} → {etf_t}")
-                            break
-            except Exception:
-                pass
-
-    all_covered = set()
-    for v in etf_coverage.values():
-        all_covered.update(v)
-    log(f"ETF Forward+Reverse: {len(all_covered)}/{len(top30_tickers)} 커버")
-
-    # ── Step 3: 가중 Greedy — 상위 순위 종목 우선 커버 ──
-    # 1위=30점, 2위=29점, ..., 30위=1점
-    rank_weight = {t: len(top30_tickers) + 1 - i for i, t in enumerate(top30_tickers, 1)}
-    covered = set()
+    # ── Step 3: 비중 기준 정렬 → 중복 제거 → Top 3 ──
+    etf_scores.sort(key=lambda x: x['overlap_pct'], reverse=True)
     selected = []
-    remaining = dict(etf_coverage)
-    for _ in range(3):
-        if not remaining:
+    covered_tickers = set()
+    for etf in etf_scores:
+        ticker_set = set(etf['matched'])
+        if covered_tickers:
+            overlap_ratio = len(ticker_set & covered_tickers) / len(ticker_set)
+            if overlap_ratio >= 0.5:
+                continue
+        selected.append(etf)
+        covered_tickers.update(ticker_set)
+        if len(selected) >= 3:
             break
-        best = max(remaining, key=lambda k: sum(rank_weight.get(t, 0) for t in remaining[k] - covered))
-        new = remaining[best] - covered
-        if not new:
-            break
-        covered.update(new)
-        # ETF 이름: 캐시 → yfinance fallback
-        if best in etf_cache:
-            etf_name = etf_cache[best].get('name', best)
-        else:
-            try:
-                info = yf.Ticker(best).info
-                etf_name = info.get('longName', info.get('shortName', best))
-            except Exception:
-                etf_name = best
-        selected.append({
-            'ticker': best,
-            'name': etf_name,
-            'matched': sorted(remaining[best] & top30_set),
-            'new_covered': sorted(new),
-        })
-        del remaining[best]
 
-    log(f"ETF Greedy: {len(covered)}/{len(top30_tickers)} 커버, {len(selected)}개 ETF 선택")
+    if selected:
+        top_info = ', '.join(f"{s['ticker']}({s['overlap_pct']*100:.1f}%)" for s in selected)
+        log(f"ETF 추천: {top_info} (커버 {len(covered_tickers)}종목)")
+    else:
+        log("ETF 추천: 매칭 ETF 없음")
+
     return selected
 
 
 def create_etf_message(etf_results, biz_day, top30_count=30):
-    """v3 Message 4: 맞춤형 ETF 추천 — 코드 기반 매칭"""
+    """v3 Message 4: 맞춤형 ETF — Top 30 비중 합계 기준"""
     if not etf_results:
         return None
 
-    total_covered = set()
-    for etf in etf_results:
-        total_covered.update(etf['matched'])
-
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('  🏆 <b>맞춤형 ETF 추천</b>')
+    lines.append('  📊 <b>관련 ETF</b>')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f'상위 30종목 중 <b>{len(total_covered)}개</b>를 보유한 ETF 조합이에요.')
+    lines.append('상위 30종목 비중이 높은 ETF에요.')
     lines.append('')
 
     for i, etf in enumerate(etf_results, 1):
+        pct = etf.get('overlap_pct', 0) * 100
         lines.append(f'{i}. <b>{etf["name"]}</b> ({etf["ticker"]})')
-        lines.append(f'포함 종목: {", ".join(etf["matched"])}')
+        lines.append(f'Top 30 비중 {pct:.0f}% · {", ".join(etf["matched"])}')
         lines.append('')
 
-    lines.append(f'<i>{biz_day.strftime("%m/%d")} 상위 30종목 기준 · 실제 ETF 보유종목 매칭</i>')
+    lines.append(f'<i>{biz_day.strftime("%m/%d")} 기준 · ETF Top 10 보유종목 대비</i>')
 
     return '\n'.join(lines)
 
