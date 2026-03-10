@@ -3537,9 +3537,10 @@ def main():
             send_telegram_long(msg_watchlist, config, chat_id=private_id)
             log(f"Watchlist 전송 완료 → {dest}")
 
-        # 메시지 4: 맞춤형 ETF 추천 (코드 기반 매칭)
+        # 메시지 4: 관련 ETF (3일 검증 종목 기준)
+        verified_tickers = [t for t in today_tickers if status_map.get(t) == '✅']
         try:
-            etf_results = find_etf_recommendations(today_tickers)
+            etf_results = find_etf_recommendations(verified_tickers)
             msg_etf = create_etf_message(etf_results, biz_day)
         except Exception as e:
             log(f"ETF 추천 실패: {e}", "WARN")
