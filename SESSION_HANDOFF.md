@@ -3786,6 +3786,15 @@ Q4→Q1 전환(250일 +8~12%)을 잡으려면 Q1 전환 전에 포지션 필요.
    - `except Exception: pass` → `log(f"ETF 캐시 로드 실패: {e}", "WARN")`
    - 캐시 경로: `Path(__file__).parent` → `PROJECT_ROOT` 통일
 
+7. **ETF 매칭 대상을 3일 검증(✅) 종목으로 한정**
+   - `today_tickers`(Top 30 전체) → `verified_tickers`(status_map ✅만)
+   - ⏳/🆕 종목은 아직 확인 안 된 상태이므로 ETF 매칭에서 제외
+
+8. **보안: `.claude/` 디렉토리 git 추적 제거**
+   - `.claude/settings.local.json`에 텔레그램 봇 토큰 포함된 명령어 이력 노출
+   - `.gitignore`에 `.claude/` 추가 + `git rm --cached`로 추적 해제
+   - 텔레그램 BotFather 토큰 재발급 권고
+
 ### 검토 후 현행 유지
 - **ETF 3개 유지**: 5개로 늘리면 65% 커버이나 AIRR(8%), BOAT(6%) 등 비중 낮은 ETF 혼입
 - **ETF Top 10만 캐시**: 전체 보유종목은 yfinance 미제공 (top_holdings만 있음)
