@@ -23,6 +23,9 @@ nul
 # Config (contains secrets)
 config.json
 
+# Claude Code (contains credentials in command history)
+.claude/
+
 # Logs (일일 로그는 Git에 올림)
 # logs/  <- 주석처리: 로그도 올림
 
