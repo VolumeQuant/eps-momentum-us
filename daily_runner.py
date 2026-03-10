@@ -3318,7 +3318,7 @@ def create_etf_message(etf_results, biz_day, top30_count=30):
         lines.append(f'Top 30 비중 {pct:.0f}% · {", ".join(etf["matched"])}')
         lines.append('')
 
-    lines.append(f'<i>{biz_day.strftime("%m/%d")} 기준 · ETF Top 10 보유종목 대비</i>')
+    lines.append(f'<i>{biz_day.strftime("%m/%d")} 기준</i>')
 
     return '\n'.join(lines)
 
