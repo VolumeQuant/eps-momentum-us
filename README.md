@@ -1,4 +1,4 @@
-# EPS Momentum System v45 (US Stocks)
+# EPS Momentum System v48 (US Stocks)
 
 Forward 12개월 EPS(NTM EPS) 기반 모멘텀 시스템. "파괴적 혁신 기업을 싸게 살래" 철학으로, EPS 괴리율(70%)과 매출 성장률(30%)을 복합 점수화하여 종목을 선별. MA60 + 3일 연속 검증으로 신뢰도를 높이고, AI(Gemini)가 위험 신호를 점검한 뒤 최종 포트폴리오를 추천.
 
@@ -130,23 +130,34 @@ NASDAQ 100 + S&P 500 + S&P 400 MidCap = **916개 종목** (중복 제거)
 
 ## 텔레그램 메시지 (v3)
 
-3개 메시지 + 시스템 로그 (개인봇). 채널은 Cold Start(3일 미만) 후 자동 활성화.
+4개 메시지 + 시스템 로그 (개인봇). 채널은 Cold Start(3일 미만) 후 자동 활성화.
 
 | 메시지 | 내용 |
 |--------|------|
-| **Signal** | Top 5 매수 후보 + 선정 과정 + 종목별 근거(EPS/매출+순위+AI 2~3문장) + 이탈 1줄 알림 |
+| **Signal** | Top 5 매수 후보 + 선정 과정 + 종목별 근거(EPS/매출+순위+100점환산점수+Top5 연속일수+AI 2~3문장) + 이탈 1줄 알림 |
 | **AI Risk** | 시장환경(지수+HY+VIX+concordance+final_action) + AI 시장동향 + 포트폴리오 경고 |
-| **Watchlist** | Top 30종목(이름+업종 / EPS추이 / EPS+매출 / 의견+순위) + 이탈 매도검토 섹션 |
+| **Watchlist** | Top 30종목(이름+업종 / EPS추이 / EPS+매출 / 의견+순위+100점환산점수) + 이탈 매도검토 섹션 |
+| **관련 ETF** | Top 30 종목 2개+ 포함 ETF만 표시 (1종목 매칭·저비중 제외) |
 | 시스템 로그 | DB 적재 결과, 분포 통계 (개인봇만) |
 
 핵심 원칙: **목록에 있으면 보유, 없으면 매도 검토.**
+
+### 종목 포맷 (Signal 4줄)
+```
+✅ 1. 종목명(티커) 업종 · $123.45
+EPS 전망 +N% · 매출성장 +N% · 86점
+순위 3→4→1위 · 의견 ↑N↓N · Top5 19일째
+AI가 생성한 2~3문장 내러티브
+```
+- 점수: 매출성장 옆 (데이터 그룹핑)
+- Top5: 의견 옆 (안정성 그룹핑)
 
 ### 종목 포맷 (Watchlist 4줄)
 ```
 ✅ 1. 종목명(티커) 업종
 EPS추이 ☀️🔥🔥🌤️ 중반 급등
-EPS +N% · 매출 +N% · 의견 ↑N↓N
-순위 3→4→1위
+EPS 전망 +N% · 매출성장 +N% · 86점
+의견 ↑N↓N · 순위 3→4→1위
 ```
 
 ### 포트폴리오 추천
@@ -278,6 +289,25 @@ final_cash = max(0, min(70, base_cash + vix_adj))
 
 **구현 상태**: ✅ FRED VIXCLS 수집 → ✅ VIX Layer 2 통합 → ✅ 텔레그램 VIX 표시 → ④ VIX3M term structure (미구현) → ⑤ 백테스트 (미구현)
 
+### ETF 매칭 (v2 — 전체 홀딩 기반)
+
+Top 30 종목이 어떤 섹터 ETF에 포함되는지 매칭하여 [관련 ETF] 메시지로 전송.
+
+**v1→v2 전환**: yfinance `fund_top_holdings` (Top 10만) → `etf-scraper` 기반 전체 홀딩 데이터.
+SPDR + iShares 계열 23개 ETF, 총 1348개 종목 커버.
+
+**ETF 목록**: SOXX, XSD, KBE, KRE, XLV, IHI, XBI, XHE, ITA, XAR, XLI, XLY, XLP, XRT, XLF, XLE, XOP, XLK, XLC, XLB, XME, XLRE, XLU
+
+**매칭 로직** (`find_etf_recommendations()`):
+1. 각 ETF에서 Top 30 종목 매칭 수 + 비중 합계 계산
+2. 매칭 종목 평균 비중 < 1% ETF 제외 (희석 ETF 필터링)
+3. 매칭 수 → 비중 순 정렬
+4. 기존 커버 종목과 50% 이상 중복 ETF 제외 (섹터 다양성 확보)
+5. 상위 5개 ETF 선정 + ETF 미포함 종목 목록 표시
+
+**캐시 갱신**: `python update_etf_cache.py` → `etf_holdings_cache_v2.json` 생성.
+v2 캐시 없으면 v1 캐시(`etf_holdings_cache.json`)로 자동 fallback.
+
 ## DB 스키마
 
 ```sql
@@ -331,11 +361,13 @@ python daily_runner.py
 ```
 eps_momentum_system.py    # INDICES, INDUSTRY_MAP, NTM 계산 함수, get_trend_lights()
 daily_runner.py           # 데이터 수집, MA120, 3일 검증, AI 분석(Gemini), 텔레그램 v3, main()
+update_etf_cache.py       # ETF 전체 홀딩 캐시 갱신 (etf-scraper 기반, SPDR+iShares 23개)
 config.json               # 텔레그램 토큰, Gemini API 키, Git 설정
 run_daily.bat             # Windows 로컬 실행 스크립트
 requirements.txt          # Python 패키지 의존성
 quick_test_v3.py          # DB+cache+mock 기반 빠른 v3 메시지 테스트
 ticker_info_cache.json    # 종목 이름/업종 캐시 (자동 생성)
+etf_holdings_cache_v2.json # ETF 전체 홀딩 캐시 (자동 생성, update_etf_cache.py)
 eps_momentum_data.db      # SQLite DB (자동 생성)
 backtest.py               # 백테스트 프레임워크 (검증일수 × 보유기간 매트릭스)
 SESSION_HANDOFF.md        # 설계 결정 히스토리 (v1~v45)
@@ -345,7 +377,12 @@ SESSION_HANDOFF.md        # 설계 결정 히스토리 (v1~v45)
 
 | 버전 | 날짜 | 변경 |
 |------|------|------|
-| **v45.1** | **2026-03-01** | **MA120↓ 표기 + 반등 관심**: 이탈 사유 MA↓→MA120↓ 명확화, MA120 이탈+어제 Top10 종목에 💡반등 관심 표시(Signal), 수집 안 된 종목도 DB 최근 데이터로 구체적 이탈 사유 추정 |
+| **v50** | **2026-03-11** | **점수 기준 정렬 통일**: 원본 composite score 3일 가중 → 100점 환산. Signal/Watchlist 정렬을 점수(높은순) 기준으로 변경. 순서와 점수 역전 방지 + 실제 격차 반영 |
+| **v49** | **2026-03-11** | **UI 배치 개선**: Signal 점수→매출성장 옆, Top5 streak→의견 옆. Watchlist 점수→매출성장 옆. **ETF UI**: 2종목+ 포함 ETF만 표시, 1종목 매칭·저비중 제거, 고객 친화 설명 추가 |
+| **v48** | **2026-03-11** | **Top 5 streak**: Signal 메시지에 Top 5 연속 유지 일수 표시 (`Top5 19일째`). `_build_top5_streak()`: 최근 30일 DB 조회, 최신일 Top 5부터 역순 연속 카운트 |
+| **v47** | **2026-03-11** | **ETF 매칭 v2**: yfinance Top 10 → etf-scraper 전체 홀딩 (SPDR+iShares 23개 ETF, 1348종목). 평균 비중 1% 미만 ETF 필터링, 50% 중복 ETF 제거, ETF 미포함 종목 표시. `update_etf_cache.py` 캐시 갱신 스크립트 추가 |
+| **v46** | **2026-03-11** | **100점 환산 가중점수**: DB 저장된 adj_gap/rev_growth로 composite score 재계산, 가중점수(T0×0.5+T1×0.3+T2×0.2) → 100점 환산. Signal 순위+점수, Watchlist 의견+순위+점수 표시. missing 종목은 rank50 점수 대체 |
+| v45.1 | 2026-03-01 | MA120↓ 표기 + 반등 관심: 이탈 사유 MA↓→MA120↓ 명확화, MA120 이탈+어제 Top10 종목에 💡반등 관심 표시(Signal), 수집 안 된 종목도 DB 최근 데이터로 구체적 이탈 사유 추정 |
 | v45 | 2026-02-28 | v2 메시지 제거: v3 전용, create_v2_signal/watchlist 삭제(-471줄), run_ai_analysis 리네임, quick_test_v2.py 삭제 |
 | v22 | 2026-02-12 | Revenue Required: 섹터 분산 제거, rev_growth 필수화, 매출 수집 전체 확대, 업종 분포 통계 추가 |
 | v21 | 2026-02-12 | Composite Score: adj_gap 70%+매출성장률 30% 복합 순위, 매출 10% 하드 필터, 동일 비중(각 20%), AI 프롬프트 구조화(3섹션+검증), 채널 전송 중단, 메시지 4줄 포맷, 순위 이력 3일 표시 |

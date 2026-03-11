@@ -2166,10 +2166,10 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 
 
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
-                        earnings_map=None, risk_status=None):
-    """Signal 메시지용 순수 가중순위 Top 5 선정 (홀드 로직 없음)
+                        earnings_map=None, risk_status=None, score_100_map=None):
+    """Signal 메시지용 가중점수 Top 5 선정 (홀드 로직 없음)
 
-    매일 순수하게 가중순위 상위 5종목을 보여줌.
+    매일 순수하게 가중점수 상위 5종목을 보여줌.
     ✅ 검증 + 리스크 필터 적용, 포트폴리오 전략(홀드/교체) 미적용.
     """
     if earnings_map is None:
@@ -2195,8 +2195,16 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     verified_tickers = {t for t, s in status_map.items() if s == '✅'} if status_map else set()
     candidates = top30[top30['ticker'].isin(verified_tickers)].copy()
 
-    # 가중 순위 정렬
-    if weighted_ranks:
+    # 가중 점수로 정렬 (float 정밀도 — 반올림 동점 방지)
+    if score_100_map:
+        candidates['_score100'] = candidates['ticker'].map(
+            lambda t: score_100_map.get(t, 0.0)
+        )
+        candidates = candidates.sort_values('_score100', ascending=False).reset_index(drop=True)
+        top_debug = [(row['ticker'], round(row['_score100'], 2))
+                     for _, row in candidates.head(7).iterrows()]
+        log(f"점수 정렬 상위 7: {top_debug}")
+    elif weighted_ranks:
         candidates['_weighted'] = candidates['ticker'].map(
             lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
         )
@@ -2754,11 +2762,94 @@ def compute_factor_ranks(results_df, today_tickers):
 # v3 메시지 (Signal + AI Risk + Watchlist)
 # ============================================================
 
+def _build_top5_streak(today_str=None):
+    """Top 5 연속 유지 일수 계산. Returns: {ticker: int(연속 일수)}"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    dates = _get_recent_dates(cursor, 'part2_rank', today_str, 30)
+
+    streak = {}
+    if not dates:
+        conn.close()
+        return streak
+
+    # 최신 날짜의 Top 5
+    latest = dates[0]
+    top5_rows = cursor.execute(
+        'SELECT ticker FROM ntm_screening WHERE date=? AND part2_rank <= 5',
+        (latest,)
+    ).fetchall()
+    top5_tickers = [r[0] for r in top5_rows]
+
+    for ticker in top5_tickers:
+        count = 0
+        for d in dates:
+            row = cursor.execute(
+                'SELECT part2_rank FROM ntm_screening WHERE date=? AND ticker=? AND part2_rank <= 5',
+                (d, ticker)
+            ).fetchone()
+            if row:
+                count += 1
+            else:
+                break
+        streak[ticker] = count
+
+    conn.close()
+    return streak
+
+
+def _build_score_100_map(today_str=None):
+    """DB에서 3일치 composite score를 재계산하고, 가중점수 → 100점 환산 맵 반환.
+    원본 점수 기반이라 실제 격차가 반영됨.
+    Returns: {ticker: int(0~100)}
+    """
+    import numpy as np
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    dates = _get_recent_dates(cursor, 'composite_rank', today_str, 3)
+
+    def _composite_map(date):
+        """해당 날짜의 {ticker: composite_score} + rank50 fallback"""
+        rows = cursor.execute(
+            '''SELECT ticker, composite_rank, adj_gap, rev_growth
+               FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL
+               ORDER BY composite_rank''', (date,)
+        ).fetchall()
+        if not rows:
+            return {}, 0
+        gaps = np.array([r[2] for r in rows])
+        revs = np.array([r[3] if r[3] else 0 for r in rows])
+        z_gap = (gaps - gaps.mean()) / gaps.std() if gaps.std() > 0 else gaps * 0
+        z_rev = (revs - revs.mean()) / revs.std() if revs.std() > 0 else revs * 0
+        z_gap = np.clip(z_gap, -2.5, 2.5)
+        z_rev = np.clip(z_rev, -2.5, 2.5)
+        composites = (-z_gap) * 0.7 + z_rev * 0.3
+        ticker_map = {rows[i][0]: composites[i] for i in range(len(rows))}
+        rank_map = {rows[i][1]: composites[i] for i in range(len(rows))}
+        fallback = rank_map.get(50, composites[-1] if len(composites) > 0 else 0)
+        return ticker_map, fallback
+
+    t0_map, _ = _composite_map(dates[0]) if len(dates) > 0 else ({}, 0)
+    t1_map, t1_fb = _composite_map(dates[1]) if len(dates) > 1 else ({}, 0)
+    t2_map, t2_fb = _composite_map(dates[2]) if len(dates) > 2 else ({}, 0)
+    conn.close()
+
+    result = {}
+    for ticker, s0 in t0_map.items():
+        s1 = t1_map.get(ticker, t1_fb)
+        s2 = t2_map.get(ticker, t2_fb)
+        ws = s0 * 0.5 + s1 * 0.3 + s2 * 0.2
+        # float 정밀도 유지 — 정렬 시 동점 방지, 표시 시만 반올림
+        result[ticker] = max(0.0, min(100.0, (ws + 2.5) / 5.0 * 100))
+    return result
+
+
 def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_content,
                           portfolio_mode, final_action,
                           weighted_ranks=None, filter_count=None,
                           status_map=None, eps_screened=None, universe_size=None,
-                          exited_tickers=None, risk_status=None):
+                          exited_tickers=None, risk_status=None,
+                          score_100_map=None, top5_streak=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -2887,15 +2978,17 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         price_str = f' · ${price:,.0f}' if price else ''
         lines.append(f'<b>{i+1}. {display_name}({ticker}) {industry}{price_str}</b>{earnings_tag}')
 
-        # L1: 증거 (EPS 전망 · 매출성장)
+        # L1: 증거 (EPS 전망 · 매출성장 · 점수)
         growth_parts = []
         if eps_chg:
             growth_parts.append(f'EPS 전망 {int(round(eps_chg)):+d}%')
         if rev:
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
+        if score_100_map and ticker in score_100_map:
+            growth_parts.append(f'{int(round(score_100_map[ticker]))}점')
         lines.append(' · '.join(growth_parts))
 
-        # L2: 안정성 (순위 · 의견)
+        # L2: 안정성 (순위 · 의견 · Top5 streak)
         rev_up = int(s.get('rev_up', 0) or 0)
         rev_down = int(s.get('rev_down', 0) or 0)
         w_info = weighted_ranks.get(ticker)
@@ -2909,6 +3002,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         rank_parts = [f'순위 {rank_str}']
         if rev_up or rev_down:
             rank_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
+        if top5_streak and ticker in top5_streak:
+            rank_parts.append(f'Top5 {top5_streak[ticker]}일째')
         lines.append(' · '.join(rank_parts))
 
         # L3: 이야기 (AI 내러티브)
@@ -3069,7 +3164,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
 
 
 def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers, biz_day,
-                             weighted_ranks=None):
+                             weighted_ranks=None, score_100_map=None):
     """v3 Message 3: Watchlist — 상세 모니터링/검증
 
     종목당 4줄: 이름·업종 / EPS추이(아이콘+설명) / EPS·매출 / 의견+순위
@@ -3092,8 +3187,14 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     else:
         filtered = get_part2_candidates(results_df, top_n=30)
 
-    # 가중 순위로 정렬
-    if weighted_ranks:
+    # 가중 점수로 정렬 (점수 높은 순 = 역전 방지)
+    if score_100_map:
+        filtered = filtered.copy()
+        filtered['_score100'] = filtered['ticker'].map(
+            lambda t: score_100_map.get(t, 0)
+        )
+        filtered = filtered.sort_values('_score100', ascending=False).reset_index(drop=True)
+    elif weighted_ranks:
         filtered = filtered.copy()
         filtered['_weighted'] = filtered['ticker'].map(
             lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
@@ -3133,7 +3234,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         marker = status_map.get(ticker, '🆕')
         name = _clean_company_name(row.get('short_name', ticker), ticker)
 
-        # L0: 이름·업종 (14자 제한 — 30종목이라 compact)
+        # L0: 이름·업종·점수 (14자 제한 — 30종목이라 compact)
         short_name = name
         if len(name) > 14:
             words = name.split()
@@ -3143,7 +3244,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                     short_name += ' ' + w
                 else:
                     break
-        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b> {industry}')
+        score_tag = ''
+        if score_100_map and ticker in score_100_map:
+            score_tag = f' {int(round(score_100_map[ticker]))}점'
+        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b> {industry}{score_tag}')
 
         # L1: EPS추이 아이콘 + 설명
         if lights and desc:
@@ -3238,160 +3342,126 @@ ETF_CANDIDATES = [
 
 
 def find_etf_recommendations(top30_tickers):
-    """코드 기반 ETF 매칭 — Forward(ETF→종목) + Reverse(종목→ETF) + Greedy
+    """전체 홀딩 기반 ETF 매칭 — Top 30 종목 매칭 수 + 비중 합계 기준
 
-    Returns: list of {'ticker', 'name', 'matched', 'new_covered'} or empty list
+    v2: etf-scraper 기반 전체 홀딩 캐시 사용 (기존 Top 10만 → 전체)
+    Returns: list of {'ticker', 'name', 'matched', 'overlap_pct', 'match_count'} or empty list
     """
-    import yfinance as yf
-
     top30_set = set(top30_tickers)
-    etf_coverage = {}  # {etf_ticker: set of matched tickers}
 
-    # ── Step 1: Forward — 캐시에서 ETF 보유종목 로드 (없으면 yfinance fetch) ──
-    cache_path = Path(__file__).parent / 'etf_holdings_cache.json'
+    # ── Step 1: v2 캐시 우선, 없으면 v1 fallback ──
+    cache_path = PROJECT_ROOT / 'etf_holdings_cache_v2.json'
+    if not cache_path.exists():
+        cache_path = PROJECT_ROOT / 'etf_holdings_cache.json'
     etf_cache = {}
     if cache_path.exists():
         try:
-            with open(cache_path, 'r') as f:
+            with open(cache_path, 'r', encoding='utf-8') as f:
                 etf_cache = json.load(f)
-            log(f"ETF 캐시 로드: {len(etf_cache)}개 ETF")
-        except Exception:
-            pass
+            log(f"ETF 캐시 로드: {len(etf_cache)}개 ETF ({cache_path.name})")
+        except Exception as e:
+            log(f"ETF 캐시 로드 실패: {e}", "WARN")
 
-    if etf_cache:
-        # 캐시 기반 매칭
-        for etf_t, data in etf_cache.items():
-            holdings = data.get('holdings', [])
-            matched = set(h for h in holdings if h in top30_set)
-            if matched:
-                etf_coverage[etf_t] = matched
-    else:
-        # 캐시 없으면 yfinance 직접 fetch
-        fwd_errors = 0
-        for etf_t in ETF_CANDIDATES:
-            try:
-                funds = yf.Ticker(etf_t).get_funds_data()
-                holdings = funds.top_holdings
-                if holdings is not None and len(holdings) > 0:
-                    matched = set(h for h in holdings.index.tolist() if h in top30_set)
-                    if matched:
-                        etf_coverage[etf_t] = matched
-            except Exception as e:
-                fwd_errors += 1
-                if fwd_errors <= 3:
-                    log(f"ETF Forward 실패 {etf_t}: {e}", "WARN")
-        if fwd_errors > 3:
-            log(f"ETF Forward 총 {fwd_errors}개 실패", "WARN")
+    if not etf_cache:
+        log("ETF 캐시 없음 — ETF 추천 스킵", "WARN")
+        return []
 
-    fwd_covered = set()
-    for v in etf_coverage.values():
-        fwd_covered.update(v)
-    log(f"ETF Forward: {len(etf_coverage)}개 ETF, {len(fwd_covered)}/{len(top30_tickers)} 커버")
+    # ── Step 2: 각 ETF의 Top 30 매칭 계산 ──
+    #   매칭 종목의 평균 비중이 1% 미만이면 제외 (희석된 ETF 필터링)
+    MIN_AVG_WEIGHT = 0.01  # 1%
+    etf_scores = []
+    for etf_t, data in etf_cache.items():
+        holdings = data.get('holdings', {})
+        if isinstance(holdings, list):
+            continue
+        matched = {h: w for h, w in holdings.items() if h in top30_set}
+        if matched:
+            avg_weight = sum(matched.values()) / len(matched)
+            if avg_weight < MIN_AVG_WEIGHT:
+                continue
+            etf_scores.append({
+                'ticker': etf_t,
+                'name': data.get('name', etf_t),
+                'matched_detail': matched,
+                'matched': sorted(matched.keys(), key=lambda h: matched[h], reverse=True),
+                'overlap_pct': sum(matched.values()),
+                'match_count': len(matched),
+            })
 
-    # ── Step 2: Reverse — 미커버 종목의 mutualfund_holders에서 ETF 발견 ──
-    uncovered = top30_set - fwd_covered
-    if uncovered:
-        # mutualfund_holders 풀네임 → ETF 티커 매핑
-        KNOWN_ETF_NAMES = {
-            'iShares Core S&P Mid-Cap ETF': 'IJH',
-            'iShares Core S&P Small-Cap ETF': 'IJR',
-            'iShares Russell 2000 ETF': 'IWM',
-            'iShares S&P Mid-Cap 400 Growth ETF': 'IJK',
-            'iShares S&P Mid-Cap 400 Value ETF': 'IJJ',
-            'iShares S&P Small-Cap 600 Growth ETF': 'IJT',
-            'iShares S&P Small-Cap 600 Value ETF': 'IJS',
-            'SPDR S&P Regional Banking ETF': 'KRE',
-            'SPDR Portfolio S&P 600 Small Cap ETF': 'SPSM',
-            'iShares MSCI Canada ETF': 'EWC',
-            'iShares Core MSCI EAFE ETF': 'IEFA',
-            'Schwab International Equity ETF': 'SCHF',
-            'Invesco S&P SmallCap Momentum ETF': 'XSMO',
-            'Dimensional U.S. Targeted Value ETF': 'DFAT',
-            'iShares A.I. Innovation and Tech Active ETF': 'BAI',
-        }
-        log(f"ETF Reverse 탐색: {sorted(uncovered)}")
-        for ticker in uncovered:
-            try:
-                mf = yf.Ticker(ticker).mutualfund_holders
-                if mf is None:
-                    continue
-                for _, row in mf.iterrows():
-                    name = str(row['Holder'])
-                    if 'ETF' not in name:
-                        continue
-                    for etf_fullname, etf_t in KNOWN_ETF_NAMES.items():
-                        if etf_fullname in name:
-                            if etf_t in etf_coverage:
-                                etf_coverage[etf_t].add(ticker)
-                            else:
-                                etf_coverage[etf_t] = {ticker}
-                            log(f"ETF Reverse: {ticker} → {etf_t}")
-                            break
-            except Exception:
-                pass
-
-    all_covered = set()
-    for v in etf_coverage.values():
-        all_covered.update(v)
-    log(f"ETF Forward+Reverse: {len(all_covered)}/{len(top30_tickers)} 커버")
-
-    # ── Step 3: 가중 Greedy — 상위 순위 종목 우선 커버 ──
-    # 1위=30점, 2위=29점, ..., 30위=1점
-    rank_weight = {t: len(top30_tickers) + 1 - i for i, t in enumerate(top30_tickers, 1)}
-    covered = set()
+    # ── Step 3: 매칭 수 → 비중 순 정렬 → 중복 제거 → Top 5 ──
+    #   기존 커버 종목과 50% 이상 겹치면 스킵 (섹터 다양성 확보)
+    etf_scores.sort(key=lambda x: (x['match_count'], x['overlap_pct']), reverse=True)
     selected = []
-    remaining = dict(etf_coverage)
-    for _ in range(3):
-        if not remaining:
+    covered_tickers = set()
+    for etf in etf_scores:
+        ticker_set = set(etf['matched'])
+        new_tickers = ticker_set - covered_tickers
+        if not new_tickers:
+            continue
+        if covered_tickers and len(new_tickers) / len(ticker_set) < 0.5:
+            continue
+        selected.append(etf)
+        covered_tickers.update(ticker_set)
+        if len(selected) >= 5:
             break
-        best = max(remaining, key=lambda k: sum(rank_weight.get(t, 0) for t in remaining[k] - covered))
-        new = remaining[best] - covered
-        if not new:
-            break
-        covered.update(new)
-        # ETF 이름: 캐시 → yfinance fallback
-        if best in etf_cache:
-            etf_name = etf_cache[best].get('name', best)
-        else:
-            try:
-                info = yf.Ticker(best).info
-                etf_name = info.get('longName', info.get('shortName', best))
-            except Exception:
-                etf_name = best
-        selected.append({
-            'ticker': best,
-            'name': etf_name,
-            'matched': sorted(remaining[best] & top30_set),
-            'new_covered': sorted(new),
-        })
-        del remaining[best]
 
-    log(f"ETF Greedy: {len(covered)}/{len(top30_tickers)} 커버, {len(selected)}개 ETF 선택")
-    return selected
+    # ── Step 4: 커버 안 되는 종목 리스트 ──
+    uncovered = [t for t in top30_tickers if t not in covered_tickers]
+
+    if selected:
+        top_info = ', '.join(f"{s['ticker']}({s['match_count']}종목)" for s in selected)
+        log(f"ETF 추천: {top_info} (커버 {len(covered_tickers)}/{len(top30_tickers)}종목, 미커버 {len(uncovered)})")
+    else:
+        log("ETF 추천: 매칭 ETF 없음")
+
+    return selected, uncovered
 
 
-def create_etf_message(etf_results, biz_day, top30_count=30):
-    """v3 Message 4: 맞춤형 ETF 추천 — 코드 기반 매칭"""
+def create_etf_message(etf_results, biz_day, uncovered=None, top30_count=30):
+    """v3 Message 4: 관련 ETF — 전체 홀딩 기반 매칭
+
+    2종목 이상 포함 ETF만 표시. ETF 이름(섹터), 매칭 비중 포함.
+    """
     if not etf_results:
         return None
 
-    total_covered = set()
-    for etf in etf_results:
-        total_covered.update(etf['matched'])
+    # 2종목 이상 포함 ETF만 필터
+    meaningful = [e for e in etf_results
+                  if e.get('match_count', len(e.get('matched', []))) >= 2]
+    if not meaningful:
+        return None
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('  🏆 <b>맞춤형 ETF 추천</b>')
+    lines.append('  📊 <b>관련 ETF</b>')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append(f'상위 30종목 중 <b>{len(total_covered)}개</b>를 보유한 ETF 조합이에요.')
+    lines.append('Top 30 종목을 여러 개 담고 있는 ETF에요.')
+    lines.append('개별 종목 대신 ETF로 분산 투자할 수 있어요.')
     lines.append('')
 
-    for i, etf in enumerate(etf_results, 1):
-        lines.append(f'{i}. <b>{etf["name"]}</b> ({etf["ticker"]})')
-        lines.append(f'포함 종목: {", ".join(etf["matched"])}')
-        lines.append('')
+    for i, etf in enumerate(meaningful, 1):
+        matched_detail = etf.get('matched_detail', {})
+        matched = etf.get('matched', [])
+        cnt = etf.get('match_count', len(matched))
+        overlap = etf.get('overlap_pct', 0)
+        etf_name = etf.get('name', etf['ticker'])
 
-    lines.append(f'<i>{biz_day.strftime("%m/%d")} 상위 30종목 기준 · 실제 ETF 보유종목 매칭</i>')
+        # L0: ETF 티커 + 이름(섹터) + 매칭 요약
+        lines.append(f'<b>{etf["ticker"]}</b> {etf_name}')
+        lines.append(f'{cnt}종목 포함 · 합산비중 {overlap*100:.1f}%')
+
+        # 매칭 종목별 비중 (비중 높은 순 — 이미 sorted)
+        stock_parts = []
+        for t in matched:
+            w = matched_detail.get(t, 0)
+            stock_parts.append(f'{t}({w*100:.1f}%)')
+        lines.append(f'  {", ".join(stock_parts)}')
+
+        if i < len(meaningful):
+            lines.append('')
+
+    lines.append('')
+    lines.append(f'<i>{biz_day.strftime("%m/%d")} 기준</i>')
 
     return '\n'.join(lines)
 
@@ -3553,9 +3623,13 @@ def main():
         final_action = risk_status.get('final_action', '') if risk_status else ''
         portfolio_mode = risk_status.get('portfolio_mode', 'normal') if risk_status else 'normal'
 
-        # 디스플레이용 순수 Top 5 (메시지용 — 홀드 로직 없음)
+        # 100점 환산 점수 맵 (Top 5 선정 + 정렬에 사용)
+        score_100_map = _build_score_100_map(today_str)
+
+        # 디스플레이용 Top 5 (점수 기준 정렬 — 격차 반영)
         display_top5 = select_display_top5(
-            results_df, status_map, weighted_ranks, earnings_map, risk_status
+            results_df, status_map, weighted_ranks, earnings_map, risk_status,
+            score_100_map=score_100_map
         )
 
         # 이탈 종목 사유 분류
@@ -3573,6 +3647,9 @@ def main():
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
+        # Top 5 연속 유지 일수
+        top5_streak = _build_top5_streak(today_str)
+
         # 메시지 1: Signal — 디스플레이 Top 5 기반
         msg_signal = create_signal_message(
             display_top5, earnings_map, exit_reasons, biz_day, ai_content,
@@ -3580,7 +3657,8 @@ def main():
             weighted_ranks=weighted_ranks, filter_count=filter_count,
             status_map=status_map, eps_screened=eps_screened,
             universe_size=stats.get('universe'),
-            exited_tickers=exited_tickers, risk_status=risk_status
+            exited_tickers=exited_tickers, risk_status=risk_status,
+            score_100_map=score_100_map, top5_streak=top5_streak
         )
         if msg_signal:
             if send_to_channel:
@@ -3602,7 +3680,7 @@ def main():
         # 메시지 3: Watchlist
         msg_watchlist = create_watchlist_message(
             results_df, status_map, exit_reasons, today_tickers, biz_day,
-            weighted_ranks=weighted_ranks
+            weighted_ranks=weighted_ranks, score_100_map=score_100_map
         )
         if msg_watchlist:
             if send_to_channel:
@@ -3610,10 +3688,11 @@ def main():
             send_telegram_long(msg_watchlist, config, chat_id=private_id)
             log(f"Watchlist 전송 완료 → {dest}")
 
-        # 메시지 4: 맞춤형 ETF 추천 (코드 기반 매칭)
+        # 메시지 4: 관련 ETF (3일 검증 종목 기준)
+        verified_tickers = [t for t in today_tickers if status_map.get(t) == '✅']
         try:
-            etf_results = find_etf_recommendations(today_tickers)
-            msg_etf = create_etf_message(etf_results, biz_day)
+            etf_results, etf_uncovered = find_etf_recommendations(verified_tickers)
+            msg_etf = create_etf_message(etf_results, biz_day, uncovered=etf_uncovered)
         except Exception as e:
             log(f"ETF 추천 실패: {e}", "WARN")
             msg_etf = None

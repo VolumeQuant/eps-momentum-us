@@ -5246,5 +5246,17 @@
   "XENE": {
     "shortName": "XENE",
     "industry": "기타"
+  },
+  "EGO": {
+    "shortName": "EGO",
+    "industry": "기타"
+  },
+  "RIVN": {
+    "shortName": "RIVN",
+    "industry": "기타"
+  },
+  "SUNB": {
+    "shortName": "SUNB",
+    "industry": "기타"
   }
 }
