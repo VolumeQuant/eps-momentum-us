@@ -2754,6 +2754,42 @@ def compute_factor_ranks(results_df, today_tickers):
 # v3 메시지 (Signal + AI Risk + Watchlist)
 # ============================================================
 
+def _build_top5_streak(today_str=None):
+    """Top 5 연속 유지 일수 계산. Returns: {ticker: int(연속 일수)}"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    dates = _get_recent_dates(cursor, 'part2_rank', today_str, 30)
+
+    streak = {}
+    if not dates:
+        conn.close()
+        return streak
+
+    # 최신 날짜의 Top 5
+    latest = dates[0]
+    top5_rows = cursor.execute(
+        'SELECT ticker FROM ntm_screening WHERE date=? AND part2_rank <= 5',
+        (latest,)
+    ).fetchall()
+    top5_tickers = [r[0] for r in top5_rows]
+
+    for ticker in top5_tickers:
+        count = 0
+        for d in dates:
+            row = cursor.execute(
+                'SELECT part2_rank FROM ntm_screening WHERE date=? AND ticker=? AND part2_rank <= 5',
+                (d, ticker)
+            ).fetchone()
+            if row:
+                count += 1
+            else:
+                break
+        streak[ticker] = count
+
+    conn.close()
+    return streak
+
+
 def _build_score_100_map(today_str=None):
     """DB에서 3일치 composite score를 재계산하고, 가중점수 → 100점 환산 맵 반환.
     Returns: {ticker: int(0~100)}
@@ -2805,7 +2841,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                           weighted_ranks=None, filter_count=None,
                           status_map=None, eps_screened=None, universe_size=None,
                           exited_tickers=None, risk_status=None,
-                          score_100_map=None):
+                          score_100_map=None, top5_streak=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -2956,7 +2992,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         score_str = ''
         if score_100_map and ticker in score_100_map:
             score_str = f' · {score_100_map[ticker]}점'
-        rank_parts = [f'순위 {rank_str}{score_str}']
+        streak_str = ''
+        if top5_streak and ticker in top5_streak:
+            streak_str = f' · {top5_streak[ticker]}일째'
+        rank_parts = [f'순위 {rank_str}{score_str}{streak_str}']
         if rev_up or rev_down:
             rank_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
         lines.append(' · '.join(rank_parts))
@@ -3572,8 +3611,9 @@ def main():
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
-        # 100점 환산 점수 맵 생성
+        # 100점 환산 점수 맵 + Top 5 연속 유지 일수
         score_100_map = _build_score_100_map(today_str)
+        top5_streak = _build_top5_streak(today_str)
 
         # 메시지 1: Signal — 디스플레이 Top 5 기반
         msg_signal = create_signal_message(
@@ -3583,7 +3623,7 @@ def main():
             status_map=status_map, eps_screened=eps_screened,
             universe_size=stats.get('universe'),
             exited_tickers=exited_tickers, risk_status=risk_status,
-            score_100_map=score_100_map
+            score_100_map=score_100_map, top5_streak=top5_streak
         )
         if msg_signal:
             if send_to_channel:

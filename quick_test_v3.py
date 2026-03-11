@@ -15,7 +15,7 @@ from daily_runner import (
     get_part2_candidates, select_display_top5, select_portfolio_stocks,
     classify_exit_reasons,
     create_signal_message, create_ai_risk_message, create_watchlist_message, create_etf_message,
-    send_telegram_long, _clean_company_name, _build_score_100_map,
+    send_telegram_long, _clean_company_name, _build_score_100_map, _build_top5_streak,
 )
 from eps_momentum_system import get_trend_lights
 
@@ -228,7 +228,9 @@ def main():
 
     # 7. 메시지 생성
     score_100_map = _build_score_100_map()
+    top5_streak = _build_top5_streak()
     print(f"\n100점 환산: {len(score_100_map)}종목")
+    print(f"Top 5 streak: {top5_streak}")
 
     print("\n" + "=" * 50)
     print("=== Message 1: Signal ===")
@@ -237,7 +239,7 @@ def main():
         selected, earnings_map, exit_reasons, biz_day, ai_content,
         portfolio_mode, final_action,
         weighted_ranks=weighted_ranks, filter_count=filter_count,
-        score_100_map=score_100_map
+        score_100_map=score_100_map, top5_streak=top5_streak
     )
     if msg_signal:
         # HTML 태그 제거해서 콘솔 출력
