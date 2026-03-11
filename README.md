@@ -377,6 +377,7 @@ SESSION_HANDOFF.md        # 설계 결정 히스토리 (v1~v45)
 
 | 버전 | 날짜 | 변경 |
 |------|------|------|
+| **v50** | **2026-03-11** | **점수 기준 정렬 통일**: 원본 composite score 3일 가중 → 100점 환산. Signal/Watchlist 정렬을 점수(높은순) 기준으로 변경. 순서와 점수 역전 방지 + 실제 격차 반영 |
 | **v49** | **2026-03-11** | **UI 배치 개선**: Signal 점수→매출성장 옆, Top5 streak→의견 옆. Watchlist 점수→매출성장 옆. **ETF UI**: 2종목+ 포함 ETF만 표시, 1종목 매칭·저비중 제거, 고객 친화 설명 추가 |
 | **v48** | **2026-03-11** | **Top 5 streak**: Signal 메시지에 Top 5 연속 유지 일수 표시 (`Top5 19일째`). `_build_top5_streak()`: 최근 30일 DB 조회, 최신일 Top 5부터 역순 연속 카운트 |
 | **v47** | **2026-03-11** | **ETF 매칭 v2**: yfinance Top 10 → etf-scraper 전체 홀딩 (SPDR+iShares 23개 ETF, 1348종목). 평균 비중 1% 미만 ETF 필터링, 50% 중복 ETF 제거, ETF 미포함 종목 표시. `update_etf_cache.py` 캐시 갱신 스크립트 추가 |
