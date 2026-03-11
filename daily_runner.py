@@ -2994,7 +2994,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             score_str = f' · {score_100_map[ticker]}점'
         streak_str = ''
         if top5_streak and ticker in top5_streak:
-            streak_str = f' · {top5_streak[ticker]}일째'
+            streak_str = f' · Top5 {top5_streak[ticker]}일째'
         rank_parts = [f'순위 {rank_str}{score_str}{streak_str}']
         if rev_up or rev_down:
             rank_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
