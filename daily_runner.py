@@ -2195,12 +2195,15 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     verified_tickers = {t for t, s in status_map.items() if s == '✅'} if status_map else set()
     candidates = top30[top30['ticker'].isin(verified_tickers)].copy()
 
-    # 가중 점수로 정렬 (점수 높은 순)
+    # 가중 점수로 정렬 (float 정밀도 — 반올림 동점 방지)
     if score_100_map:
         candidates['_score100'] = candidates['ticker'].map(
-            lambda t: score_100_map.get(t, 0)
+            lambda t: score_100_map.get(t, 0.0)
         )
         candidates = candidates.sort_values('_score100', ascending=False).reset_index(drop=True)
+        top_debug = [(row['ticker'], round(row['_score100'], 2))
+                     for _, row in candidates.head(7).iterrows()]
+        log(f"점수 정렬 상위 7: {top_debug}")
     elif weighted_ranks:
         candidates['_weighted'] = candidates['ticker'].map(
             lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
@@ -2836,7 +2839,8 @@ def _build_score_100_map(today_str=None):
         s1 = t1_map.get(ticker, t1_fb)
         s2 = t2_map.get(ticker, t2_fb)
         ws = s0 * 0.5 + s1 * 0.3 + s2 * 0.2
-        result[ticker] = max(0, min(100, round((ws + 2.5) / 5.0 * 100)))
+        # float 정밀도 유지 — 정렬 시 동점 방지, 표시 시만 반올림
+        result[ticker] = max(0.0, min(100.0, (ws + 2.5) / 5.0 * 100))
     return result
 
 
@@ -2981,7 +2985,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         if rev:
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
         if score_100_map and ticker in score_100_map:
-            growth_parts.append(f'{score_100_map[ticker]}점')
+            growth_parts.append(f'{int(round(score_100_map[ticker]))}점')
         lines.append(' · '.join(growth_parts))
 
         # L2: 안정성 (순위 · 의견 · Top5 streak)
@@ -3230,7 +3234,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         marker = status_map.get(ticker, '🆕')
         name = _clean_company_name(row.get('short_name', ticker), ticker)
 
-        # L0: 이름·업종 (14자 제한 — 30종목이라 compact)
+        # L0: 이름·업종·점수 (14자 제한 — 30종목이라 compact)
         short_name = name
         if len(name) > 14:
             words = name.split()
@@ -3240,7 +3244,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                     short_name += ' ' + w
                 else:
                     break
-        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b> {industry}')
+        score_tag = ''
+        if score_100_map and ticker in score_100_map:
+            score_tag = f' {int(round(score_100_map[ticker]))}점'
+        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b> {industry}{score_tag}')
 
         # L1: EPS추이 아이콘 + 설명
         if lights and desc:
@@ -3248,14 +3255,12 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         elif lights:
             lines.append(f'EPS추이 {lights}')
 
-        # L2: EPS 전망 · 매출성장 · 점수
+        # L2: EPS 전망 · 매출성장
         growth_parts = []
         if eps_90d is not None and pd.notna(eps_90d):
             growth_parts.append(f'EPS 전망 {int(round(eps_90d)):+d}%')
         if rev_g is not None and pd.notna(rev_g):
             growth_parts.append(f'매출성장 {int(round(rev_g * 100)):+d}%')
-        if score_100_map and ticker in score_100_map:
-            growth_parts.append(f'{score_100_map[ticker]}점')
         lines.append(' · '.join(growth_parts))
 
         # L3: 의견 + 순위
@@ -3415,7 +3420,7 @@ def find_etf_recommendations(top30_tickers):
 def create_etf_message(etf_results, biz_day, uncovered=None, top30_count=30):
     """v3 Message 4: 관련 ETF — 전체 홀딩 기반 매칭
 
-    2종목 이상 포함 ETF만 표시. 1종목 매칭이나 비중 미미한 ETF는 제외.
+    2종목 이상 포함 ETF만 표시. ETF 이름(섹터), 매칭 비중 포함.
     """
     if not etf_results:
         return None
@@ -3435,10 +3440,23 @@ def create_etf_message(etf_results, biz_day, uncovered=None, top30_count=30):
     lines.append('')
 
     for i, etf in enumerate(meaningful, 1):
+        matched_detail = etf.get('matched_detail', {})
         matched = etf.get('matched', [])
         cnt = etf.get('match_count', len(matched))
-        lines.append(f'<b>{etf["ticker"]}</b> — {cnt}종목 포함')
-        lines.append(f'  {", ".join(matched)}')
+        overlap = etf.get('overlap_pct', 0)
+        etf_name = etf.get('name', etf['ticker'])
+
+        # L0: ETF 티커 + 이름(섹터) + 매칭 요약
+        lines.append(f'<b>{etf["ticker"]}</b> {etf_name}')
+        lines.append(f'{cnt}종목 포함 · 합산비중 {overlap*100:.1f}%')
+
+        # 매칭 종목별 비중 (비중 높은 순 — 이미 sorted)
+        stock_parts = []
+        for t in matched:
+            w = matched_detail.get(t, 0)
+            stock_parts.append(f'{t}({w*100:.1f}%)')
+        lines.append(f'  {", ".join(stock_parts)}')
+
         if i < len(meaningful):
             lines.append('')
 
