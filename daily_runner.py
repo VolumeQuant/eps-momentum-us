@@ -2166,10 +2166,10 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 
 
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
-                        earnings_map=None, risk_status=None):
-    """Signal 메시지용 순수 가중순위 Top 5 선정 (홀드 로직 없음)
+                        earnings_map=None, risk_status=None, score_100_map=None):
+    """Signal 메시지용 가중점수 Top 5 선정 (홀드 로직 없음)
 
-    매일 순수하게 가중순위 상위 5종목을 보여줌.
+    매일 순수하게 가중점수 상위 5종목을 보여줌.
     ✅ 검증 + 리스크 필터 적용, 포트폴리오 전략(홀드/교체) 미적용.
     """
     if earnings_map is None:
@@ -2195,8 +2195,13 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     verified_tickers = {t for t, s in status_map.items() if s == '✅'} if status_map else set()
     candidates = top30[top30['ticker'].isin(verified_tickers)].copy()
 
-    # 가중 순위 정렬
-    if weighted_ranks:
+    # 가중 점수로 정렬 (점수 높은 순)
+    if score_100_map:
+        candidates['_score100'] = candidates['ticker'].map(
+            lambda t: score_100_map.get(t, 0)
+        )
+        candidates = candidates.sort_values('_score100', ascending=False).reset_index(drop=True)
+    elif weighted_ranks:
         candidates['_weighted'] = candidates['ticker'].map(
             lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
         )
@@ -2791,41 +2796,47 @@ def _build_top5_streak(today_str=None):
 
 
 def _build_score_100_map(today_str=None):
-    """DB에서 3일치 composite_rank 기반 가중순위 → 100점 환산.
-    가중순위 = composite_rank_T0×0.5 + T1×0.3 + T2×0.2 (missing=50)
-    점수 = 목록 순서와 동일한 기준이므로 역전 불가.
+    """DB에서 3일치 composite score를 재계산하고, 가중점수 → 100점 환산 맵 반환.
+    원본 점수 기반이라 실제 격차가 반영됨.
     Returns: {ticker: int(0~100)}
     """
-    MISSING_RANK = 50
+    import numpy as np
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     dates = _get_recent_dates(cursor, 'composite_rank', today_str, 3)
 
-    def _rank_map(date):
-        """해당 날짜의 {ticker: composite_rank}"""
+    def _composite_map(date):
+        """해당 날짜의 {ticker: composite_score} + rank50 fallback"""
         rows = cursor.execute(
-            '''SELECT ticker, composite_rank
-               FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL''',
-            (date,)
+            '''SELECT ticker, composite_rank, adj_gap, rev_growth
+               FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL
+               ORDER BY composite_rank''', (date,)
         ).fetchall()
-        return {r[0]: r[1] for r in rows}
+        if not rows:
+            return {}, 0
+        gaps = np.array([r[2] for r in rows])
+        revs = np.array([r[3] if r[3] else 0 for r in rows])
+        z_gap = (gaps - gaps.mean()) / gaps.std() if gaps.std() > 0 else gaps * 0
+        z_rev = (revs - revs.mean()) / revs.std() if revs.std() > 0 else revs * 0
+        z_gap = np.clip(z_gap, -2.5, 2.5)
+        z_rev = np.clip(z_rev, -2.5, 2.5)
+        composites = (-z_gap) * 0.7 + z_rev * 0.3
+        ticker_map = {rows[i][0]: composites[i] for i in range(len(rows))}
+        rank_map = {rows[i][1]: composites[i] for i in range(len(rows))}
+        fallback = rank_map.get(50, composites[-1] if len(composites) > 0 else 0)
+        return ticker_map, fallback
 
-    t0 = _rank_map(dates[0]) if len(dates) > 0 else {}
-    t1 = _rank_map(dates[1]) if len(dates) > 1 else {}
-    t2 = _rank_map(dates[2]) if len(dates) > 2 else {}
+    t0_map, _ = _composite_map(dates[0]) if len(dates) > 0 else ({}, 0)
+    t1_map, t1_fb = _composite_map(dates[1]) if len(dates) > 1 else ({}, 0)
+    t2_map, t2_fb = _composite_map(dates[2]) if len(dates) > 2 else ({}, 0)
     conn.close()
 
-    # 전체 종목 수 (100점 스케일 기준)
-    max_rank = max((max(t0.values()) if t0 else 50), 50)
-
     result = {}
-    for ticker, r0 in t0.items():
-        r1 = t1.get(ticker, MISSING_RANK)
-        r2 = t2.get(ticker, MISSING_RANK)
-        weighted = r0 * 0.5 + r1 * 0.3 + r2 * 0.2
-        # 1위=100점, max_rank위=0점 선형 환산
-        score = max(0, min(100, round((1 - (weighted - 1) / max(max_rank - 1, 1)) * 100)))
-        result[ticker] = score
+    for ticker, s0 in t0_map.items():
+        s1 = t1_map.get(ticker, t1_fb)
+        s2 = t2_map.get(ticker, t2_fb)
+        ws = s0 * 0.5 + s1 * 0.3 + s2 * 0.2
+        result[ticker] = max(0, min(100, round((ws + 2.5) / 5.0 * 100)))
     return result
 
 
@@ -3172,8 +3183,14 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     else:
         filtered = get_part2_candidates(results_df, top_n=30)
 
-    # 가중 순위로 정렬
-    if weighted_ranks:
+    # 가중 점수로 정렬 (점수 높은 순 = 역전 방지)
+    if score_100_map:
+        filtered = filtered.copy()
+        filtered['_score100'] = filtered['ticker'].map(
+            lambda t: score_100_map.get(t, 0)
+        )
+        filtered = filtered.sort_values('_score100', ascending=False).reset_index(drop=True)
+    elif weighted_ranks:
         filtered = filtered.copy()
         filtered['_weighted'] = filtered['ticker'].map(
             lambda t: weighted_ranks.get(t, {}).get('weighted', 50.0)
@@ -3588,9 +3605,13 @@ def main():
         final_action = risk_status.get('final_action', '') if risk_status else ''
         portfolio_mode = risk_status.get('portfolio_mode', 'normal') if risk_status else 'normal'
 
-        # 디스플레이용 순수 Top 5 (메시지용 — 홀드 로직 없음)
+        # 100점 환산 점수 맵 (Top 5 선정 + 정렬에 사용)
+        score_100_map = _build_score_100_map(today_str)
+
+        # 디스플레이용 Top 5 (점수 기준 정렬 — 격차 반영)
         display_top5 = select_display_top5(
-            results_df, status_map, weighted_ranks, earnings_map, risk_status
+            results_df, status_map, weighted_ranks, earnings_map, risk_status,
+            score_100_map=score_100_map
         )
 
         # 이탈 종목 사유 분류
@@ -3608,8 +3629,7 @@ def main():
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
-        # 100점 환산 점수 맵 + Top 5 연속 유지 일수
-        score_100_map = _build_score_100_map(today_str)
+        # Top 5 연속 유지 일수
         top5_streak = _build_top5_streak(today_str)
 
         # 메시지 1: Signal — 디스플레이 Top 5 기반
