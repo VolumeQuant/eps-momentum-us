@@ -2985,7 +2985,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         if rev:
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
         if score_100_map and ticker in score_100_map:
-            growth_parts.append(f'{int(round(score_100_map[ticker]))}점')
+            growth_parts.append(f'{score_100_map[ticker]:.1f}점')
         lines.append(' · '.join(growth_parts))
 
         # L2: 안정성 (순위 · 의견 · Top5 streak)
@@ -3246,7 +3246,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                     break
         score_tag = ''
         if score_100_map and ticker in score_100_map:
-            score_tag = f' {int(round(score_100_map[ticker]))}점'
+            score_tag = f' {score_100_map[ticker]:.1f}점'
         lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b> {industry}{score_tag}')
 
         # L1: EPS추이 아이콘 + 설명
