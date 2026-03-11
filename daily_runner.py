@@ -3291,20 +3291,23 @@ ETF_CANDIDATES = [
 
 
 def find_etf_recommendations(top30_tickers):
-    """비중 기반 ETF 매칭 — Top 30 종목 비중 합계가 높은 ETF Top 3
+    """전체 홀딩 기반 ETF 매칭 — Top 30 종목 매칭 수 + 비중 합계 기준
 
-    Returns: list of {'ticker', 'name', 'matched', 'overlap_pct'} or empty list
+    v2: etf-scraper 기반 전체 홀딩 캐시 사용 (기존 Top 10만 → 전체)
+    Returns: list of {'ticker', 'name', 'matched', 'overlap_pct', 'match_count'} or empty list
     """
     top30_set = set(top30_tickers)
 
-    # ── Step 1: 캐시에서 ETF 보유종목+비중 로드 ──
-    cache_path = PROJECT_ROOT / 'etf_holdings_cache.json'
+    # ── Step 1: v2 캐시 우선, 없으면 v1 fallback ──
+    cache_path = PROJECT_ROOT / 'etf_holdings_cache_v2.json'
+    if not cache_path.exists():
+        cache_path = PROJECT_ROOT / 'etf_holdings_cache.json'
     etf_cache = {}
     if cache_path.exists():
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
                 etf_cache = json.load(f)
-            log(f"ETF 캐시 로드: {len(etf_cache)}개 ETF")
+            log(f"ETF 캐시 로드: {len(etf_cache)}개 ETF ({cache_path.name})")
         except Exception as e:
             log(f"ETF 캐시 로드 실패: {e}", "WARN")
 
@@ -3312,49 +3315,59 @@ def find_etf_recommendations(top30_tickers):
         log("ETF 캐시 없음 — ETF 추천 스킵", "WARN")
         return []
 
-    # ── Step 2: 각 ETF의 Top 30 비중 합계 계산 ──
+    # ── Step 2: 각 ETF의 Top 30 매칭 계산 ──
+    #   매칭 종목의 평균 비중이 1% 미만이면 제외 (희석된 ETF 필터링)
+    MIN_AVG_WEIGHT = 0.01  # 1%
     etf_scores = []
     for etf_t, data in etf_cache.items():
         holdings = data.get('holdings', {})
         if isinstance(holdings, list):
-            # 구버전 캐시(비중 없음) — 스킵
             continue
         matched = {h: w for h, w in holdings.items() if h in top30_set}
         if matched:
+            avg_weight = sum(matched.values()) / len(matched)
+            if avg_weight < MIN_AVG_WEIGHT:
+                continue
             etf_scores.append({
                 'ticker': etf_t,
                 'name': data.get('name', etf_t),
-                'matched_detail': matched,  # {ticker: weight}
+                'matched_detail': matched,
                 'matched': sorted(matched.keys(), key=lambda h: matched[h], reverse=True),
                 'overlap_pct': sum(matched.values()),
+                'match_count': len(matched),
             })
 
-    # ── Step 3: 비중 기준 정렬 → 중복 제거 → Top 3 ──
-    etf_scores.sort(key=lambda x: x['overlap_pct'], reverse=True)
+    # ── Step 3: 매칭 수 → 비중 순 정렬 → 중복 제거 → Top 5 ──
+    #   기존 커버 종목과 50% 이상 겹치면 스킵 (섹터 다양성 확보)
+    etf_scores.sort(key=lambda x: (x['match_count'], x['overlap_pct']), reverse=True)
     selected = []
     covered_tickers = set()
     for etf in etf_scores:
         ticker_set = set(etf['matched'])
-        if covered_tickers:
-            overlap_ratio = len(ticker_set & covered_tickers) / len(ticker_set)
-            if overlap_ratio >= 0.5:
-                continue
+        new_tickers = ticker_set - covered_tickers
+        if not new_tickers:
+            continue
+        if covered_tickers and len(new_tickers) / len(ticker_set) < 0.5:
+            continue
         selected.append(etf)
         covered_tickers.update(ticker_set)
-        if len(selected) >= 3:
+        if len(selected) >= 5:
             break
 
+    # ── Step 4: 커버 안 되는 종목 리스트 ──
+    uncovered = [t for t in top30_tickers if t not in covered_tickers]
+
     if selected:
-        top_info = ', '.join(f"{s['ticker']}({s['overlap_pct']*100:.1f}%)" for s in selected)
-        log(f"ETF 추천: {top_info} (커버 {len(covered_tickers)}종목)")
+        top_info = ', '.join(f"{s['ticker']}({s['match_count']}종목)" for s in selected)
+        log(f"ETF 추천: {top_info} (커버 {len(covered_tickers)}/{len(top30_tickers)}종목, 미커버 {len(uncovered)})")
     else:
         log("ETF 추천: 매칭 ETF 없음")
 
-    return selected
+    return selected, uncovered
 
 
-def create_etf_message(etf_results, biz_day, top30_count=30):
-    """v3 Message 4: 맞춤형 ETF — Top 30 비중 합계 기준"""
+def create_etf_message(etf_results, biz_day, uncovered=None, top30_count=30):
+    """v3 Message 4: 맞춤형 ETF — 전체 홀딩 기반 매칭"""
     if not etf_results:
         return None
 
@@ -3362,13 +3375,19 @@ def create_etf_message(etf_results, biz_day, top30_count=30):
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append('  📊 <b>관련 ETF</b>')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('상위 30종목 비중이 높은 ETF에요.')
+    lines.append('Top 30 종목이 포함된 섹터 ETF에요.')
     lines.append('')
 
     for i, etf in enumerate(etf_results, 1):
+        cnt = etf.get('match_count', len(etf.get('matched', [])))
         pct = etf.get('overlap_pct', 0) * 100
         lines.append(f'{i}. <b>{etf["name"]}</b> ({etf["ticker"]})')
-        lines.append(f'Top 30 비중 {pct:.0f}% · {", ".join(etf["matched"])}')
+        lines.append(f'{cnt}종목 포함 · ETF 내 비중 {pct:.0f}% · {", ".join(etf["matched"])}')
+        lines.append('')
+
+    if uncovered:
+        lines.append(f'🔸 ETF 미포함: {", ".join(uncovered[:10])}')
+        lines.append('→ 개별 매수만 가능한 종목이에요.')
         lines.append('')
 
     lines.append(f'<i>{biz_day.strftime("%m/%d")} 기준</i>')
@@ -3597,8 +3616,8 @@ def main():
         # 메시지 4: 관련 ETF (3일 검증 종목 기준)
         verified_tickers = [t for t in today_tickers if status_map.get(t) == '✅']
         try:
-            etf_results = find_etf_recommendations(verified_tickers)
-            msg_etf = create_etf_message(etf_results, biz_day)
+            etf_results, etf_uncovered = find_etf_recommendations(verified_tickers)
+            msg_etf = create_etf_message(etf_results, biz_day, uncovered=etf_uncovered)
         except Exception as e:
             log(f"ETF 추천 실패: {e}", "WARN")
             msg_etf = None

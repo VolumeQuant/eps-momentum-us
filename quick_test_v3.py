@@ -15,7 +15,7 @@ from daily_runner import (
     get_part2_candidates, select_display_top5, select_portfolio_stocks,
     classify_exit_reasons,
     create_signal_message, create_ai_risk_message, create_watchlist_message, create_etf_message,
-    send_telegram_long, _clean_company_name,
+    send_telegram_long, _clean_company_name, _build_score_100_map,
 )
 from eps_momentum_system import get_trend_lights
 
@@ -227,13 +227,17 @@ def main():
             ai_content['narratives'][t] = mock_narratives[t]
 
     # 7. 메시지 생성
+    score_100_map = _build_score_100_map()
+    print(f"\n100점 환산: {len(score_100_map)}종목")
+
     print("\n" + "=" * 50)
     print("=== Message 1: Signal ===")
     print("=" * 50)
     msg_signal = create_signal_message(
         selected, earnings_map, exit_reasons, biz_day, ai_content,
         portfolio_mode, final_action,
-        weighted_ranks=weighted_ranks, filter_count=filter_count
+        weighted_ranks=weighted_ranks, filter_count=filter_count,
+        score_100_map=score_100_map
     )
     if msg_signal:
         # HTML 태그 제거해서 콘솔 출력
@@ -258,7 +262,7 @@ def main():
     print("=" * 50)
     msg_watchlist = create_watchlist_message(
         results_df, status_map, exit_reasons, today_tickers, biz_day,
-        weighted_ranks=weighted_ranks
+        weighted_ranks=weighted_ranks, score_100_map=score_100_map
     )
     if msg_watchlist:
         import re
