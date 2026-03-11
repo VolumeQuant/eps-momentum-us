@@ -5258,5 +5258,9 @@
   "SUNB": {
     "shortName": "SUNB",
     "industry": "기타"
+  },
+  "ALM": {
+    "shortName": "ALM",
+    "industry": "기타"
   }
 }
