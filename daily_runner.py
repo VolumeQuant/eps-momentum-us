@@ -2754,11 +2754,58 @@ def compute_factor_ranks(results_df, today_tickers):
 # v3 메시지 (Signal + AI Risk + Watchlist)
 # ============================================================
 
+def _build_score_100_map(today_str=None):
+    """DB에서 3일치 composite score를 재계산하고, 가중점수 → 100점 환산 맵 반환.
+    Returns: {ticker: int(0~100)}
+    """
+    import numpy as np
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    dates = _get_recent_dates(cursor, 'composite_rank', today_str, 3)
+
+    def _composite_map(date):
+        """해당 날짜의 {ticker: composite_score} + rank50 fallback"""
+        rows = cursor.execute(
+            '''SELECT ticker, composite_rank, adj_gap, rev_growth
+               FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL
+               ORDER BY composite_rank''', (date,)
+        ).fetchall()
+        if not rows:
+            return {}, 0
+        gaps = np.array([r[2] for r in rows])
+        revs = np.array([r[3] if r[3] else 0 for r in rows])
+        z_gap = (gaps - gaps.mean()) / gaps.std() if gaps.std() > 0 else gaps * 0
+        z_rev = (revs - revs.mean()) / revs.std() if revs.std() > 0 else revs * 0
+        z_gap = np.clip(z_gap, -2.5, 2.5)
+        z_rev = np.clip(z_rev, -2.5, 2.5)
+        composites = (-z_gap) * 0.7 + z_rev * 0.3
+        ticker_map = {rows[i][0]: composites[i] for i in range(len(rows))}
+        # rank 50 fallback (없으면 최하위 점수)
+        rank_map = {rows[i][1]: composites[i] for i in range(len(rows))}
+        fallback = rank_map.get(50, composites[-1] if len(composites) > 0 else 0)
+        return ticker_map, fallback
+
+    t0_map, _ = _composite_map(dates[0]) if len(dates) > 0 else ({}, 0)
+    t1_map, t1_fb = _composite_map(dates[1]) if len(dates) > 1 else ({}, 0)
+    t2_map, t2_fb = _composite_map(dates[2]) if len(dates) > 2 else ({}, 0)
+    conn.close()
+
+    # 모든 T-0 종목에 대해 가중점수 → 100점 환산
+    result = {}
+    for ticker, s0 in t0_map.items():
+        s1 = t1_map.get(ticker, t1_fb)
+        s2 = t2_map.get(ticker, t2_fb)
+        ws = s0 * 0.5 + s1 * 0.3 + s2 * 0.2
+        result[ticker] = max(0, min(100, round((ws + 2.5) / 5.0 * 100)))
+    return result
+
+
 def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_content,
                           portfolio_mode, final_action,
                           weighted_ranks=None, filter_count=None,
                           status_map=None, eps_screened=None, universe_size=None,
-                          exited_tickers=None, risk_status=None):
+                          exited_tickers=None, risk_status=None,
+                          score_100_map=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -2906,7 +2953,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             rank_str = f'{r2_s}→{r1_s}→{r0}위'
         else:
             rank_str = f'-→-→?위'
-        rank_parts = [f'순위 {rank_str}']
+        score_str = ''
+        if score_100_map and ticker in score_100_map:
+            score_str = f' · {score_100_map[ticker]}점'
+        rank_parts = [f'순위 {rank_str}{score_str}']
         if rev_up or rev_down:
             rank_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
         lines.append(' · '.join(rank_parts))
@@ -3069,7 +3119,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
 
 
 def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers, biz_day,
-                             weighted_ranks=None):
+                             weighted_ranks=None, score_100_map=None):
     """v3 Message 3: Watchlist — 상세 모니터링/검증
 
     종목당 4줄: 이름·업종 / EPS추이(아이콘+설명) / EPS·매출 / 의견+순위
@@ -3174,7 +3224,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                 rank_str = f'{r2_s}→{r1_s}→{r0}위'
         else:
             rank_str = f'-→-→{rank}위'
-        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
+        score_str = ''
+        if score_100_map and ticker in score_100_map:
+            score_str = f' · {score_100_map[ticker]}점'
+        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}{score_str}')
 
         # 점선 구분선
         if rank < 30:
@@ -3500,6 +3553,9 @@ def main():
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
+        # 100점 환산 점수 맵 생성
+        score_100_map = _build_score_100_map(today_str)
+
         # 메시지 1: Signal — 디스플레이 Top 5 기반
         msg_signal = create_signal_message(
             display_top5, earnings_map, exit_reasons, biz_day, ai_content,
@@ -3507,7 +3563,8 @@ def main():
             weighted_ranks=weighted_ranks, filter_count=filter_count,
             status_map=status_map, eps_screened=eps_screened,
             universe_size=stats.get('universe'),
-            exited_tickers=exited_tickers, risk_status=risk_status
+            exited_tickers=exited_tickers, risk_status=risk_status,
+            score_100_map=score_100_map
         )
         if msg_signal:
             if send_to_channel:
@@ -3529,7 +3586,7 @@ def main():
         # 메시지 3: Watchlist
         msg_watchlist = create_watchlist_message(
             results_df, status_map, exit_reasons, today_tickers, biz_day,
-            weighted_ranks=weighted_ranks
+            weighted_ranks=weighted_ranks, score_100_map=score_100_map
         )
         if msg_watchlist:
             if send_to_channel:
