@@ -1481,12 +1481,12 @@ def fetch_hy_quadrant():
 
     for attempt in range(3):
       try:
-        # FRED에서 10년치 HY spread CSV 다운로드
+        # FRED에서 8년치 HY spread CSV 다운로드 (10년 rolling median, min 5년)
         end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=365 * 11)).strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=365 * 8)).strftime('%Y-%m-%d')
         url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2&cosd={start_date}&coed={end_date}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with urllib.request.urlopen(req, timeout=45) as response:
             csv_data = response.read().decode('utf-8')
 
         df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
