@@ -2901,25 +2901,35 @@ def _build_top5_streak(today_str=None):
 
 
 def _build_score_100_map(today_str=None):
-    """adj_gap → 100점 선형 환산 (v52: 종목 간 절대 차이 보존).
+    """3일 가중 adj_gap 맵 (v52). 음수=저평가, 양수=고평가.
 
-    score = clamp((-adj_gap + 10) × 5, 0, 100)
-    adj_gap -10% → 100점, 0% → 50점, +10% → 0점
-    1점 = adj_gap 0.2% 차이 (선형, z-score 아님)
-    Returns: {ticker: float(0~100)}
+    weighted_gap = T0×0.5 + T1×0.3 + T2×0.2
+    Returns: {ticker: float(가중 adj_gap %)}
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    dates = _get_recent_dates(cursor, 'composite_rank', today_str, 1)
+    dates = _get_recent_dates(cursor, 'composite_rank', today_str, 3)
     if not dates:
         conn.close()
         return {}
+    weights = [0.5, 0.3, 0.2]
     rows = cursor.execute(
         '''SELECT ticker, adj_gap FROM ntm_screening
            WHERE date=? AND adj_gap IS NOT NULL''', (dates[0],)
     ).fetchall()
+    result = {}
+    for ticker, ag0 in rows:
+        gaps = [ag0]
+        for d in dates[1:]:
+            r = cursor.execute(
+                'SELECT adj_gap FROM ntm_screening WHERE date=? AND ticker=? AND adj_gap IS NOT NULL',
+                (d, ticker)
+            ).fetchone()
+            gaps.append(r[0] if r else 0.0)
+        w_gap = sum(gaps[i] * weights[i] for i in range(min(len(gaps), len(weights))))
+        result[ticker] = w_gap
     conn.close()
-    return {r[0]: max(0.0, min(100.0, (-r[1] + 10) * 5)) for r in rows}
+    return result
 
 
 def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_content,
@@ -3029,13 +3039,15 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('📋 선정 과정')
     uni = universe_size or 959
     if eps_screened and filter_count:
-        lines.append(f'{uni}종목 중 EPS 상향 상위 {eps_screened}종목')
+        lines.append(f'S&P·나스닥·MidCap {uni}종목')
+        lines.append(f'→ EPS 상향 {eps_screened}종목')
         lines.append(f'→ 매출·애널리스트·마진 필터 → {filter_count}종목')
     else:
-        lines.append(f'{uni}종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else f'{uni}종목 중 EPS 상향 스크리닝')
+        lines.append(f'S&P·나스닥·MidCap {uni}종목')
+        lines.append(f'→ EPS 상향 {filter_count}종목' if filter_count else '→ EPS 상향 스크리닝')
     lines.append('→ 원자재·저마진 업종 제외')
     lines.append('→ 저평가 순위 → 상위 30(3일 평균)')
-    lines.append(f'→ 3일 검증({verified_count}종목) → 매력도 85점 이상 → {len(selected)}종목')
+    lines.append(f'→ 3일 검증({verified_count}종목) → 괴리율 -7% 이하 → {len(selected)}종목')
 
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
@@ -3051,19 +3063,20 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
 
         # L0: 정체 (이름·업종·가격)
         display_name = _clean_company_name(s["name"], ticker)
-        price = s.get('price', 0) or 0
         industry = s.get('industry', '')
+        price = s.get('price', 0) or 0
         price_str = f' · ${price:,.0f}' if price else ''
-        lines.append(f'<b>{i+1}. {display_name}({ticker}) {industry}{price_str}</b>{earnings_tag}')
+        ind_str = f' · {industry}' if industry else ''
+        lines.append(f'<b>{i+1}. {display_name}({ticker}){ind_str}{price_str}</b>{earnings_tag}')
 
-        # L1: 증거 (EPS 전망 · 매출성장 · 점수)
+        # L1: 증거 (괴리율 볼드 · EPS 전망 · 매출성장)
         growth_parts = []
+        if score_100_map and ticker in score_100_map:
+            growth_parts.append(f'<b>괴리율 {score_100_map[ticker]:+.1f}%</b>')
         if eps_chg:
             growth_parts.append(f'EPS 전망 {int(round(eps_chg)):+d}%')
         if rev:
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
-        if score_100_map and ticker in score_100_map:
-            growth_parts.append(f'매력도 {score_100_map[ticker]:.1f}점')
         lines.append(' · '.join(growth_parts))
 
         # L2: 안정성 (순위 · 의견 · 저평가 streak)
@@ -3114,9 +3127,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('순위: 2일전→1일전→오늘')
-    lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
-    lines.append('포트폴리오 비중은 투자자의 판단입니다.')
-    lines.append('매력도 45점 이하 시 매도 검토 권장.')
+    lines.append('괴리율: EPS 개선 대비 주가 미반영도')
+    lines.append('-7% 이하 매수 검토, +1% 이상 매도 검토')
     lines.append('')
     lines.append('💡 분할매수 권장: 한 번에 전량 매수보다')
     lines.append('2~3회 나눠서 조정 시 진입이 유리합니다.')
@@ -3263,13 +3275,13 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     else:
         filtered = get_part2_candidates(results_df, top_n=30)
 
-    # 100점 환산 점수 높은 순 정렬 (v52: 선형 매핑, 저평가 = 고점수)
+    # 가중 괴리율 오름차순 정렬 (v52: 음수가 저평가 = 좋음)
     if score_100_map:
         filtered = filtered.copy()
-        filtered['_score100'] = filtered['ticker'].map(
+        filtered['_w_gap'] = filtered['ticker'].map(
             lambda t: score_100_map.get(t, 0)
         )
-        filtered = filtered.sort_values('_score100', ascending=False).reset_index(drop=True)
+        filtered = filtered.sort_values('_w_gap', ascending=True).reset_index(drop=True)
     elif weighted_ranks:
         filtered = filtered.copy()
         filtered['_weighted'] = filtered['ticker'].map(
@@ -3310,7 +3322,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         marker = status_map.get(ticker, '🆕')
         name = _clean_company_name(row.get('short_name', ticker), ticker)
 
-        # L0: 이름·업종·점수 (14자 제한 — 30종목이라 compact)
+        # L0: 이름·업종 (14자 제한 — 30종목이라 compact)
         short_name = name
         if len(name) > 14:
             words = name.split()
@@ -3320,10 +3332,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                     short_name += ' ' + w
                 else:
                     break
-        score_tag = ''
-        if score_100_map and ticker in score_100_map:
-            score_tag = f' {score_100_map[ticker]:.1f}점'
-        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{score_tag} {industry}')
+        ind_tag = f' · {industry}' if industry else ''
+        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}')
 
         # L1: EPS추이 아이콘 + 설명
         if lights and desc:
@@ -3331,8 +3341,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         elif lights:
             lines.append(f'EPS추이 {lights}')
 
-        # L2: EPS 전망 · 매출성장
+        # L2: 괴리율 볼드 · EPS 전망 · 매출성장
         growth_parts = []
+        if score_100_map and ticker in score_100_map:
+            growth_parts.append(f'<b>괴리율 {score_100_map[ticker]:+.1f}%</b>')
         if eps_90d is not None and pd.notna(eps_90d):
             growth_parts.append(f'EPS 전망 {int(round(eps_90d)):+d}%')
         if rev_g is not None and pd.notna(rev_g):
@@ -3375,7 +3387,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('순위: 2일전→1일전→오늘')
-    lines.append('목록 순서: 매력도(높은 순)')
+    lines.append('목록 순서: 괴리율(저평가 순)')
 
     return '\n'.join(lines)
 
@@ -3699,7 +3711,7 @@ def main():
         final_action = risk_status.get('final_action', '') if risk_status else ''
         portfolio_mode = risk_status.get('portfolio_mode', 'normal') if risk_status else 'normal'
 
-        # 100점 환산 맵 (v52: adj_gap 선형 매핑, 종목 간 절대 차이 보존)
+        # 가중 괴리율 맵 (v52: 3일 가중 adj_gap)
         score_100_map = _build_score_100_map(today_str)
 
         # 디스플레이용 추천 종목 (adj_gap < -7, 최대 7종목, v52)
