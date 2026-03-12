@@ -1483,7 +1483,7 @@ def fetch_hy_quadrant():
     for attempt in range(3):
       try:
         end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=365 * 6)).strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=365 * 11)).strftime('%Y-%m-%d')
         fred_key = os.environ.get('FRED_API_KEY', '')
 
         if fred_key:
@@ -1510,12 +1510,12 @@ def fetch_hy_quadrant():
         df['hy_spread'] = pd.to_numeric(df['hy_spread'], errors='coerce')
         df = df.dropna().set_index('date').sort_index()
 
-        if len(df) < 756:  # 최소 3년치 필요
+        if len(df) < 1260:  # 최소 5년치 필요
             log("HY Spread: 데이터 부족", level="WARN")
             return None
 
-        # 5년 롤링 중위수 (min 3년) — 수준 판단에 충분
-        df['median_10y'] = df['hy_spread'].rolling(1260, min_periods=756).median()
+        # 10년 롤링 중위수 (min 5년)
+        df['median_10y'] = df['hy_spread'].rolling(2520, min_periods=1260).median()
 
         hy_spread = df['hy_spread'].iloc[-1]
         hy_prev = df['hy_spread'].iloc[-2]
