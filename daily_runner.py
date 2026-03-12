@@ -1474,6 +1474,7 @@ def fetch_hy_quadrant():
     → Q1 회복(넓+하락), Q2 성장(좁+하락), Q3 과열(좁+상승), Q4 침체(넓+상승)
     """
     import urllib.request
+    import json as _json
     import io
     import pandas as pd
     import numpy as np
@@ -1481,16 +1482,30 @@ def fetch_hy_quadrant():
 
     for attempt in range(3):
       try:
-        # FRED에서 6년치 HY spread CSV 다운로드 (rolling median, min 3년)
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=365 * 6)).strftime('%Y-%m-%d')
-        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2&cosd={start_date}&coed={end_date}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=60) as response:
-            csv_data = response.read().decode('utf-8')
+        fred_key = os.environ.get('FRED_API_KEY', '')
 
-        df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
-        df.columns = ['date', 'hy_spread']
+        if fred_key:
+            # FRED 공식 API (JSON) — 안정적
+            url = (f"https://api.stlouisfed.org/fred/series/observations"
+                   f"?series_id=BAMLH0A0HYM2&api_key={fred_key}&file_type=json"
+                   f"&observation_start={start_date}&observation_end={end_date}")
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=30) as response:
+                data = _json.loads(response.read().decode('utf-8'))
+            rows = [(r['date'], r['value']) for r in data['observations'] if r['value'] != '.']
+            df = pd.DataFrame(rows, columns=['date', 'hy_spread'])
+            df['date'] = pd.to_datetime(df['date'])
+        else:
+            # fallback: CSV 엔드포인트 (API key 없을 때)
+            url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2&cosd={start_date}&coed={end_date}"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=60) as response:
+                csv_data = response.read().decode('utf-8')
+            df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
+            df.columns = ['date', 'hy_spread']
+
         df = df.dropna(subset=['hy_spread'])
         df['hy_spread'] = pd.to_numeric(df['hy_spread'], errors='coerce')
         df = df.dropna().set_index('date').sort_index()
@@ -1612,6 +1627,7 @@ def fetch_vix_data():
                        cash_adjustment, direction}
     """
     import urllib.request
+    import json as _json
     import io
     import pandas as pd
     import time
@@ -1620,16 +1636,27 @@ def fetch_vix_data():
       try:
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=400)).strftime('%Y-%m-%d')
-        url = (
-            f"https://fred.stlouisfed.org/graph/fredgraph.csv"
-            f"?id=VIXCLS&cosd={start_date}&coed={end_date}"
-        )
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=30) as response:
-            csv_data = response.read().decode('utf-8')
+        fred_key = os.environ.get('FRED_API_KEY', '')
 
-        df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
-        df.columns = ['date', 'vix']
+        if fred_key:
+            url = (f"https://api.stlouisfed.org/fred/series/observations"
+                   f"?series_id=VIXCLS&api_key={fred_key}&file_type=json"
+                   f"&observation_start={start_date}&observation_end={end_date}")
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=30) as response:
+                data = _json.loads(response.read().decode('utf-8'))
+            rows = [(r['date'], r['value']) for r in data['observations'] if r['value'] != '.']
+            df = pd.DataFrame(rows, columns=['date', 'vix'])
+            df['date'] = pd.to_datetime(df['date'])
+        else:
+            url = (f"https://fred.stlouisfed.org/graph/fredgraph.csv"
+                   f"?id=VIXCLS&cosd={start_date}&coed={end_date}")
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=30) as response:
+                csv_data = response.read().decode('utf-8')
+            df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
+            df.columns = ['date', 'vix']
+
         df['vix'] = pd.to_numeric(df['vix'], errors='coerce')
         df = df.dropna().set_index('date').sort_index()
 
