@@ -191,8 +191,10 @@ def main():
     final_action = risk_status.get('final_action', '')
     portfolio_mode = risk_status.get('portfolio_mode', 'normal')
 
+    score_100_map = _build_score_100_map()
     selected = select_display_top5(
-        results_df, status_map, weighted_ranks, earnings_map, risk_status
+        results_df, status_map, weighted_ranks, earnings_map, risk_status,
+        score_100_map=score_100_map
     )
     print(f"디스플레이 추천: {len(selected)}종목, mode={portfolio_mode}")
 
@@ -227,8 +229,7 @@ def main():
             ai_content['narratives'][t] = mock_narratives[t]
 
     # 7. 메시지 생성
-    score_100_map = _build_score_100_map()
-    print(f"\n100점 환산: {len(score_100_map)}종목")
+    print(f"\n가중 괴리율: {len(score_100_map)}종목")
 
     print("\n" + "=" * 50)
     print("=== Message 1: Signal ===")

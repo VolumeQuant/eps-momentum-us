@@ -3067,18 +3067,17 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         rev = _safe_float(s.get('rev_growth'))
         earnings_tag = s.get('earnings_note', '')
 
-        # L0: 정체 (이름·업종·가격)
+        # L0: 이름·업종·괴리율
         display_name = _clean_company_name(s["name"], ticker)
         industry = s.get('industry', '')
-        price = s.get('price', 0) or 0
-        price_str = f' · ${price:,.0f}' if price else ''
         ind_str = f' · {industry}' if industry else ''
-        lines.append(f'<b>{i+1}. {display_name}({ticker}){ind_str}{price_str}</b>{earnings_tag}')
-
-        # L1: 증거 (괴리율 볼드 · EPS 전망 · 매출성장)
-        growth_parts = []
+        gap_str = ''
         if score_100_map and ticker in score_100_map:
-            growth_parts.append(f'<b>괴리율 {score_100_map[ticker]:+.1f}%</b>')
+            gap_str = f' · 괴리율 {score_100_map[ticker]:+.1f}%'
+        lines.append(f'<b>{i+1}. {display_name}({ticker}){ind_str}{gap_str}</b>{earnings_tag}')
+
+        # L1: 증거 (EPS 전망 · 매출성장)
+        growth_parts = []
         if eps_chg:
             growth_parts.append(f'EPS 전망 {int(round(eps_chg)):+d}%')
         if rev:
@@ -3132,12 +3131,12 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('순위: 2일전→1일전→오늘')
-    lines.append('괴리율: EPS 개선 대비 주가 미반영도')
-    lines.append('음수 클수록 저평가, 양수 전환 시 매도 검토')
+    lines.append('순위: 3일 가중순위 (2일전→1일전→오늘)')
+    lines.append('괴리율 상위 종목만 추천에 선정')
+    lines.append('Watchlist 매도 검토선 아래 종목은 매도 검토')
     lines.append('')
-    lines.append('💡 분할매수 권장: 한 번에 전량 매수보다')
-    lines.append('2~3회 나눠서 조정 시 진입이 유리합니다.')
+    lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
+    lines.append('포트폴리오 비중은 투자자의 판단입니다.')
 
     return '\n'.join(lines)
 
@@ -3315,6 +3314,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('━━━━━━━━━━━━━━━')
 
     # ── 30종목 (4줄 + 구분선) ──
+    sell_line_drawn = False
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
         ticker = row['ticker']
@@ -3328,6 +3328,12 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         marker = status_map.get(ticker, '🆕')
         name = _clean_company_name(row.get('short_name', ticker), ticker)
 
+        # 매도 검토선: w_gap ≥ 0 지점에 삽입
+        w_gap_val = score_100_map.get(ticker, -999) if score_100_map else -999
+        if not sell_line_drawn and w_gap_val >= 0:
+            lines.append('── 매도 검토선 ──')
+            sell_line_drawn = True
+
         # L0: 이름·업종 (14자 제한 — 30종목이라 compact)
         short_name = name
         if len(name) > 14:
@@ -3339,7 +3345,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                 else:
                     break
         ind_tag = f' · {industry}' if industry else ''
-        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}')
+        gap_tag = ''
+        if score_100_map and ticker in score_100_map:
+            gap_tag = f' · <b>괴리율 {score_100_map[ticker]:+.1f}%</b>'
+        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}{gap_tag}')
 
         # L1: EPS추이 아이콘 + 설명
         if lights and desc:
@@ -3347,10 +3356,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         elif lights:
             lines.append(f'EPS추이 {lights}')
 
-        # L2: 괴리율 볼드 · EPS 전망 · 매출성장
+        # L2: EPS 전망 · 매출성장
         growth_parts = []
-        if score_100_map and ticker in score_100_map:
-            growth_parts.append(f'<b>괴리율 {score_100_map[ticker]:+.1f}%</b>')
         if eps_90d is not None and pd.notna(eps_90d):
             growth_parts.append(f'EPS 전망 {int(round(eps_90d)):+d}%')
         if rev_g is not None and pd.notna(rev_g):
@@ -3389,11 +3396,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             else:
                 lines.append(f'{t} [{reason}]')
 
-    # ── 범례 + 면책 ──
+    # ── 범례 ──
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('순위: 2일전→1일전→오늘')
-    lines.append('목록 순서: 괴리율(저평가 순)')
+    lines.append('순위: 3일 가중순위 (2일전→1일전→오늘)')
+    lines.append('매도 검토선 아래 종목은 매도 검토')
 
     return '\n'.join(lines)
 
