@@ -229,7 +229,7 @@ def main():
     # 7. 메시지 생성
     score_100_map = _build_score_100_map()
     top5_streak = _build_top5_streak()
-    print(f"\nadj_gap 맵: {len(score_100_map)}종목")
+    print(f"\n100점 환산: {len(score_100_map)}종목")
     print(f"저평가 streak: {top5_streak}")
 
     print("\n" + "=" * 50)

@@ -2901,8 +2901,12 @@ def _build_top5_streak(today_str=None):
 
 
 def _build_score_100_map(today_str=None):
-    """DB에서 오늘 adj_gap 값 맵 반환 (v52: composite 제거, adj_gap이 유일 신호).
-    Returns: {ticker: adj_gap(float)} — 음수일수록 저평가
+    """adj_gap → 100점 선형 환산 (v52: 종목 간 절대 차이 보존).
+
+    score = clamp((-adj_gap + 10) × 5, 0, 100)
+    adj_gap -10% → 100점, 0% → 50점, +10% → 0점
+    1점 = adj_gap 0.2% 차이 (선형, z-score 아님)
+    Returns: {ticker: float(0~100)}
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -2915,7 +2919,7 @@ def _build_score_100_map(today_str=None):
            WHERE date=? AND adj_gap IS NOT NULL''', (dates[0],)
     ).fetchall()
     conn.close()
-    return {r[0]: r[1] for r in rows}
+    return {r[0]: max(0.0, min(100.0, (-r[1] + 10) * 5)) for r in rows}
 
 
 def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_content,
@@ -3031,7 +3035,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'{uni}종목 중 EPS 상향 상위 {filter_count}종목' if filter_count else f'{uni}종목 중 EPS 상향 스크리닝')
     lines.append('→ 원자재·저마진 업종 제외')
     lines.append('→ 저평가 순위 → 상위 30(3일 평균)')
-    lines.append(f'→ 3일 검증({verified_count}종목) → 괴리율 &lt;-7% → {len(selected)}종목')
+    lines.append(f'→ 3일 검증({verified_count}종목) → 매력도 85점 이상 → {len(selected)}종목')
 
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
@@ -3059,7 +3063,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         if rev:
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
         if score_100_map and ticker in score_100_map:
-            growth_parts.append(f'괴리율 {score_100_map[ticker]:+.1f}%')
+            growth_parts.append(f'매력도 {score_100_map[ticker]:.1f}점')
         lines.append(' · '.join(growth_parts))
 
         # L2: 안정성 (순위 · 의견 · 저평가 streak)
@@ -3114,7 +3118,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('순위: 2일전→1일전→오늘')
     lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
     lines.append('포트폴리오 비중은 투자자의 판단입니다.')
-    lines.append('괴리율 +1% 이상 시 매도 검토 권장.')
+    lines.append('매력도 45점 이하 시 매도 검토 권장.')
     lines.append('')
     lines.append('💡 분할매수 권장: 한 번에 전량 매수보다')
     lines.append('2~3회 나눠서 조정 시 진입이 유리합니다.')
@@ -3261,13 +3265,13 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     else:
         filtered = get_part2_candidates(results_df, top_n=30)
 
-    # adj_gap 오름차순 정렬 (v52: 가장 저평가 순)
+    # 100점 환산 점수 높은 순 정렬 (v52: 선형 매핑, 저평가 = 고점수)
     if score_100_map:
         filtered = filtered.copy()
-        filtered['_adj_gap_sort'] = filtered['ticker'].map(
+        filtered['_score100'] = filtered['ticker'].map(
             lambda t: score_100_map.get(t, 0)
         )
-        filtered = filtered.sort_values('_adj_gap_sort', ascending=True).reset_index(drop=True)
+        filtered = filtered.sort_values('_score100', ascending=False).reset_index(drop=True)
     elif weighted_ranks:
         filtered = filtered.copy()
         filtered['_weighted'] = filtered['ticker'].map(
@@ -3320,8 +3324,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                     break
         score_tag = ''
         if score_100_map and ticker in score_100_map:
-            score_tag = f' 괴리율{score_100_map[ticker]:+.1f}%'
-        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b> {industry}{score_tag}')
+            score_tag = f' {score_100_map[ticker]:.1f}점'
+        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{score_tag} {industry}')
 
         # L1: EPS추이 아이콘 + 설명
         if lights and desc:
@@ -3373,7 +3377,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('순위: 2일전→1일전→오늘')
-    lines.append('목록 순서: 괴리율(저평가 순)')
+    lines.append('목록 순서: 매력도(높은 순)')
 
     return '\n'.join(lines)
 
@@ -3697,7 +3701,7 @@ def main():
         final_action = risk_status.get('final_action', '') if risk_status else ''
         portfolio_mode = risk_status.get('portfolio_mode', 'normal') if risk_status else 'normal'
 
-        # adj_gap 맵 (정렬 + 괴리율 표시에 사용, v52)
+        # 100점 환산 맵 (v52: adj_gap 선형 매핑, 종목 간 절대 차이 보존)
         score_100_map = _build_score_100_map(today_str)
 
         # 디스플레이용 추천 종목 (adj_gap < -7, 최대 7종목, v52)
