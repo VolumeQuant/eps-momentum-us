@@ -1,4 +1,4 @@
-# EPS Momentum System v48 (US Stocks)
+# EPS Momentum System v51 (US Stocks)
 
 Forward 12개월 EPS(NTM EPS) 기반 모멘텀 시스템. "파괴적 혁신 기업을 싸게 살래" 철학으로, EPS 괴리율(70%)과 매출 성장률(30%)을 복합 점수화하여 종목을 선별. MA60 + 3일 연속 검증으로 신뢰도를 높이고, AI(Gemini)가 위험 신호를 점검한 뒤 최종 포트폴리오를 추천.
 
@@ -40,8 +40,9 @@ composite = (-z_gap) * 0.7 + z_rev * 0.3
 
 ### 3일 연속 검증 + ⏳ 2일 관찰
 - Top 30 종목에 `part2_rank` 부여 → DB 저장
-- 최근 3일 모두 Top 30 = ✅ (포트폴리오 대상)
-- 최근 2일 연속 Top 30 = ⏳ (표시만, 내일 검증 가능)
+- **검증 기준: `composite_rank` (당일 순수 점수 순위) ≤ 30** — 가중순위(part2_rank) 아닌 각 날의 개별 순수 점수 기준
+- 최근 3일 모두 composite_rank ≤ 30 = ✅ (포트폴리오 대상)
+- 최근 2일 연속 composite_rank ≤ 30 = ⏳ (표시만, 내일 검증 가능)
 - 그 외 = 🆕 (오늘 첫 진입)
 - 포트폴리오는 ✅ 종목에서만 선정
 
@@ -377,6 +378,7 @@ SESSION_HANDOFF.md        # 설계 결정 히스토리 (v1~v45)
 
 | 버전 | 날짜 | 변경 |
 |------|------|------|
+| **v51** | **2026-03-12** | **검증 기준 composite_rank**: ✅/⏳/🆕 판별을 part2_rank(가중순위)→composite_rank(당일 순수 점수) 기준으로 수정. 점수 float 정밀도 유지(반올림 동점 방지). Watchlist 점수→업종 옆 이동. ETF UI에 이름·섹터·비중% 추가 |
 | **v50** | **2026-03-11** | **점수 기준 정렬 통일**: 원본 composite score 3일 가중 → 100점 환산. Signal/Watchlist 정렬을 점수(높은순) 기준으로 변경. 순서와 점수 역전 방지 + 실제 격차 반영 |
 | **v49** | **2026-03-11** | **UI 배치 개선**: Signal 점수→매출성장 옆, Top5 streak→의견 옆. Watchlist 점수→매출성장 옆. **ETF UI**: 2종목+ 포함 ETF만 표시, 1종목 매칭·저비중 제거, 고객 친화 설명 추가 |
 | **v48** | **2026-03-11** | **Top 5 streak**: Signal 메시지에 Top 5 연속 유지 일수 표시 (`Top5 19일째`). `_build_top5_streak()`: 최근 30일 DB 조회, 최신일 Top 5부터 역순 연속 카운트 |

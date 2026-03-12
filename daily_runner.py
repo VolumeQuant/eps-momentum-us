@@ -1200,22 +1200,22 @@ def get_3day_status(today_tickers, today_str=None):
 
     placeholders = ','.join('?' * len(dates))
 
-    # 3일 모두 리스트에 있는 종목
+    # 3일 모두 리스트에 있는 종목 (composite_rank 기준 — 당일 순수 점수 Top 30)
     verified_3d = set()
     if len(dates) >= 3:
         cursor.execute(f'''
             SELECT ticker FROM ntm_screening
-            WHERE date IN ({placeholders}) AND part2_rank IS NOT NULL AND part2_rank <= 30
+            WHERE date IN ({placeholders}) AND composite_rank IS NOT NULL AND composite_rank <= 30
             GROUP BY ticker HAVING COUNT(DISTINCT date) = 3
         ''', dates)
         verified_3d = {r[0] for r in cursor.fetchall()}
 
-    # 최근 2일 모두 리스트에 있는 종목
+    # 최근 2일 모두 리스트에 있는 종목 (composite_rank 기준)
     dates_2d = dates[:2]
     ph2 = ','.join('?' * len(dates_2d))
     cursor.execute(f'''
         SELECT ticker FROM ntm_screening
-        WHERE date IN ({ph2}) AND part2_rank IS NOT NULL AND part2_rank <= 30
+        WHERE date IN ({ph2}) AND composite_rank IS NOT NULL AND composite_rank <= 30
         Group BY ticker HAVING COUNT(DISTINCT date) = 2
     ''', dates_2d)
     verified_2d = {r[0] for r in cursor.fetchall()}
