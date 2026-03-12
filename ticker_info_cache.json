@@ -5262,5 +5262,13 @@
   "ALM": {
     "shortName": "ALM",
     "industry": "기타"
+  },
+  "CNR": {
+    "shortName": "CNR",
+    "industry": "기타"
+  },
+  "LBRT": {
+    "shortName": "LBRT",
+    "industry": "기타"
   }
 }
