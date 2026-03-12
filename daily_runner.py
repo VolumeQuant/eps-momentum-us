@@ -1129,6 +1129,20 @@ def save_part2_ranks(results_df, today_str):
         g2 = gap_by_date.get(t2, {}).get(ticker, 0) if t2 else 0
         weighted[ticker] = g0 * 0.5 + g1 * 0.3 + g2 * 0.2
 
+    # 3b. EPS 추세 일관성 보정 (B correction, v53)
+    #   pos_segs = seg1~seg4 중 양수 개수, factor = 0.3 + 0.7 × (pos_segs/4)
+    #   seg 전부 음수 → 0.3배, 전부 양수 → 1.0배
+    for ticker in list(weighted.keys()):
+        cand_row = all_candidates[all_candidates['ticker'] == ticker]
+        if cand_row.empty:
+            continue
+        r = cand_row.iloc[0]
+        segs = [r.get('seg1', 0) or 0, r.get('seg2', 0) or 0,
+                r.get('seg3', 0) or 0, r.get('seg4', 0) or 0]
+        pos_segs = sum(1 for s in segs if s > 0)
+        b_factor = 0.3 + 0.7 * (pos_segs / 4)
+        weighted[ticker] = weighted[ticker] * b_factor
+
     # 4. w_gap 오름차순 정렬 (가장 음수 = 가장 저평가) → Top 30
     sorted_tickers = sorted(weighted.items(), key=lambda x: x[1])
     top30 = sorted_tickers[:30]
@@ -2924,6 +2938,21 @@ def _build_score_100_map(today_str=None):
         '''SELECT ticker, adj_gap FROM ntm_screening
            WHERE date=? AND adj_gap IS NOT NULL''', (dates[0],)
     ).fetchall()
+    # seg 데이터 조회 (B correction용)
+    seg_rows = cursor.execute(
+        '''SELECT ticker, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d
+           FROM ntm_screening WHERE date=?''', (dates[0],)
+    ).fetchall()
+    seg_map = {}
+    for tk, nc, n7, n30, n60, n90 in seg_rows:
+        segs = []
+        for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
+            if b and abs(b) > 0.01:
+                segs.append((a - b) / abs(b) * 100)
+            else:
+                segs.append(0)
+        seg_map[tk] = sum(1 for s in segs if s > 0)
+
     result = {}
     for ticker, ag0 in rows:
         gaps = [ag0]
@@ -2934,7 +2963,10 @@ def _build_score_100_map(today_str=None):
             ).fetchone()
             gaps.append(r[0] if r else 0.0)
         w_gap = sum(gaps[i] * weights[i] for i in range(min(len(gaps), len(weights))))
-        result[ticker] = w_gap
+        # EPS 추세 일관성 보정 (B correction, v53)
+        pos_segs = seg_map.get(ticker, 4)
+        b_factor = 0.3 + 0.7 * (pos_segs / 4)
+        result[ticker] = w_gap * b_factor
     conn.close()
     return result
 
@@ -2984,7 +3016,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 섹션 1: 결론 먼저 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append(f'🛒 <b>EPS 모멘텀 상위 {len(selected)}</b>')
+    lines.append(f'🛒 <b>EPS 모멘텀 매수 후보</b>')
     lines.append('━━━━━━━━━━━━━━━')
     for idx, s in enumerate(selected):
         name = _clean_company_name(s['name'], s['ticker'])
@@ -3328,9 +3360,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         marker = status_map.get(ticker, '🆕')
         name = _clean_company_name(row.get('short_name', ticker), ticker)
 
-        # 매도 검토선: w_gap ≥ 0 지점에 삽입
+        # 매도 검토선: w_gap ≥ +2 지점에 삽입
         w_gap_val = score_100_map.get(ticker, -999) if score_100_map else -999
-        if not sell_line_drawn and w_gap_val >= 0:
+        if not sell_line_drawn and w_gap_val >= 2.0:
             lines.append('── 매도 검토선 ──')
             sell_line_drawn = True
 
