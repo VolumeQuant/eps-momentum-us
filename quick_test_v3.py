@@ -166,7 +166,7 @@ def mock_market_lines():
 
 def main():
     import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8', errors='replace')
 
     config = load_config()
     private_id = config.get('telegram_private_id') or config.get('telegram_chat_id')
@@ -194,13 +194,13 @@ def main():
     selected = select_display_top5(
         results_df, status_map, weighted_ranks, earnings_map, risk_status
     )
-    print(f"디스플레이 Top 5: {len(selected)}종목, mode={portfolio_mode}")
+    print(f"디스플레이 추천: {len(selected)}종목, mode={portfolio_mode}")
 
     # 4. 이탈 사유 (v3: 태그 통일)
     exit_reasons = classify_exit_reasons(exited_tickers, results_df)
     print(f"이탈: {len(exit_reasons)}종목")
-    for t, prev, cur, reasons in exit_reasons:
-        print(f"  {t}: {prev}→{cur} {reasons}")
+    for t, cur_rank, reason in exit_reasons:
+        print(f"  {t}: rank={cur_rank} [{reason}]")
 
     # 5. 필터 통과 수
     filter_count = len(get_part2_candidates(results_df)) if not results_df.empty else 0
@@ -229,8 +229,8 @@ def main():
     # 7. 메시지 생성
     score_100_map = _build_score_100_map()
     top5_streak = _build_top5_streak()
-    print(f"\n100점 환산: {len(score_100_map)}종목")
-    print(f"Top 5 streak: {top5_streak}")
+    print(f"\nadj_gap 맵: {len(score_100_map)}종목")
+    print(f"저평가 streak: {top5_streak}")
 
     print("\n" + "=" * 50)
     print("=== Message 1: Signal ===")
