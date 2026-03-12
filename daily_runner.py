@@ -1169,10 +1169,10 @@ def _get_recent_dates(cursor, rank_col='part2_rank', today_str=None, limit=3):
 
 
 def get_3day_status(today_tickers, today_str=None):
-    """3일 연속 Part 2 진입 여부 판별 → {ticker: '✅' or '⏳' or '🆕'}
-    ✅ = 3일 연속 (포트폴리오 포함)
-    ⏳ = 2일 연속 (표시만, 포트폴리오 제외)
-    🆕 = 오늘만 (표시만, 포트폴리오 제외)
+    """3일 연속 Top 30 진입 여부 판별 → {ticker: '✅' or '⏳' or '🆕'}
+    ✅ = 3일 연속 Top 30 (L3 동결 시 유지 대상)
+    ⏳ = 2일 연속 Top 30
+    🆕 = 오늘만 Top 30
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -1186,22 +1186,22 @@ def get_3day_status(today_tickers, today_str=None):
 
     placeholders = ','.join('?' * len(dates))
 
-    # 3일 모두 adj_gap < -7 (v52: 절대 괴리율 기준 검증)
+    # 3일 모두 Top 30 (part2_rank 존재)
     verified_3d = set()
     if len(dates) >= 3:
         cursor.execute(f'''
             SELECT ticker FROM ntm_screening
-            WHERE date IN ({placeholders}) AND adj_gap IS NOT NULL AND adj_gap < -7
+            WHERE date IN ({placeholders}) AND part2_rank IS NOT NULL
             GROUP BY ticker HAVING COUNT(DISTINCT date) = 3
         ''', dates)
         verified_3d = {r[0] for r in cursor.fetchall()}
 
-    # 최근 2일 모두 adj_gap < -7
+    # 최근 2일 모두 Top 30
     dates_2d = dates[:2]
     ph2 = ','.join('?' * len(dates_2d))
     cursor.execute(f'''
         SELECT ticker FROM ntm_screening
-        WHERE date IN ({ph2}) AND adj_gap IS NOT NULL AND adj_gap < -7
+        WHERE date IN ({ph2}) AND part2_rank IS NOT NULL
         GROUP BY ticker HAVING COUNT(DISTINCT date) = 2
     ''', dates_2d)
     verified_2d = {r[0] for r in cursor.fetchall()}
@@ -2261,9 +2261,9 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         earnings_map=None, risk_status=None, score_100_map=None):
-    """Signal 메시지용 추천 종목 선정 (v52: adj_gap < -7, 최대 7종목)
+    """Signal 메시지용 추천 종목 선정 (v52: w_gap < -6, 최대 5종목)
 
-    adj_gap 오름차순(가장 저평가 우선), ✅ 검증 + 리스크 필터 적용.
+    가중 괴리율(w_gap) 오름차순(가장 저평가 우선), 리스크 필터 적용.
     """
     if earnings_map is None:
         earnings_map = {}
@@ -2284,24 +2284,25 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     if top30.empty:
         return []
 
-    # ✅ 검증 + adj_gap < -7 (v52: 절대 괴리율 기준 진입)
-    verified_tickers = {t for t, s in status_map.items() if s == '✅'} if status_map else set()
+    # 가중 괴리율(w_gap) < -6 진입 (v52: 그리드서치 최적)
+    if not score_100_map:
+        score_100_map = {}
+    wgap_tickers = {t for t, wg in score_100_map.items() if wg < -6}
     candidates = top30[
-        top30['ticker'].isin(verified_tickers) &
-        (top30['adj_gap'].notna()) &
-        (top30['adj_gap'] < -7)
+        top30['ticker'].isin(wgap_tickers)
     ].copy()
 
-    # adj_gap 오름차순 정렬 (가장 음수 = 가장 저평가 = 1위)
-    candidates = candidates.sort_values('adj_gap', ascending=True).reset_index(drop=True)
-    top_debug = [(row['ticker'], round(row['adj_gap'], 1))
-                 for _, row in candidates.head(7).iterrows()]
-    log(f"adj_gap 정렬 상위 7: {top_debug}")
+    # w_gap 오름차순 정렬 (가장 음수 = 가장 저평가 = 1위)
+    candidates['_w_gap'] = candidates['ticker'].map(score_100_map)
+    candidates = candidates.sort_values('_w_gap', ascending=True).reset_index(drop=True)
+    top_debug = [(row['ticker'], round(row.get('_w_gap', 0), 1))
+                 for _, row in candidates.head(5).iterrows()]
+    log(f"w_gap 정렬 상위 5: {top_debug}")
 
-    # 리스크 필터 적용, 최대 7개 선정 (v52)
+    # 리스크 필터 적용, 최대 5개 선정 (v52: 그리드서치 최적)
     selected = []
     for _, row in candidates.iterrows():
-        if len(selected) >= 7:
+        if len(selected) >= 5:
             break
         t = row['ticker']
         rev_up = int(row.get('rev_up30', 0) or 0)
@@ -2530,7 +2531,7 @@ def classify_exit_reasons(exited_tickers, results_df):
     for t in sorted(exited_tickers, key=lambda x: exited_tickers[x]):
         cur_rank = composite_map.get(t)
         ag = adj_gap_map.get(t)
-        if ag is not None and ag > 1.0:
+        if ag is not None and ag > 2.0:
             reason = '괴리율↑'
         elif cur_rank is not None:
             reason = '순위밀림'
@@ -2865,7 +2866,7 @@ def compute_factor_ranks(results_df, today_tickers):
 # ============================================================
 
 def _build_top5_streak(today_str=None):
-    """adj_gap < -7 연속 유지 일수 계산 (v52). Returns: {ticker: int(연속 일수)}"""
+    """Top 30 연속 유지 일수 계산. Returns: {ticker: int(연속 일수)}"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     dates = _get_recent_dates(cursor, 'part2_rank', today_str, 30)
@@ -2875,10 +2876,10 @@ def _build_top5_streak(today_str=None):
         conn.close()
         return streak
 
-    # 최신 날짜의 adj_gap < -7 종목
+    # 최신 날짜의 Top 30 종목
     latest = dates[0]
     target_rows = cursor.execute(
-        'SELECT ticker FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL AND adj_gap < -7',
+        'SELECT ticker FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
         (latest,)
     ).fetchall()
     target_tickers = [r[0] for r in target_rows]
@@ -2887,7 +2888,7 @@ def _build_top5_streak(today_str=None):
         count = 0
         for d in dates:
             row = cursor.execute(
-                'SELECT adj_gap FROM ntm_screening WHERE date=? AND ticker=? AND adj_gap IS NOT NULL AND adj_gap < -7',
+                'SELECT part2_rank FROM ntm_screening WHERE date=? AND ticker=? AND part2_rank IS NOT NULL',
                 (d, ticker)
             ).fetchone()
             if row:
@@ -3047,7 +3048,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'→ EPS 상향 {filter_count}종목' if filter_count else '→ EPS 상향 스크리닝')
     lines.append('→ 원자재·저마진 업종 제외')
     lines.append('→ 저평가 순위 → 상위 30(3일 평균)')
-    lines.append(f'→ 3일 검증({verified_count}종목) → 괴리율 -7% 이하 → {len(selected)}종목')
+    lines.append(f'→ 괴리율 -6% 이하 → {len(selected)}종목')
 
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
@@ -3128,7 +3129,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('순위: 2일전→1일전→오늘')
     lines.append('괴리율: EPS 개선 대비 주가 미반영도')
-    lines.append('-7% 이하 매수 검토, +1% 이상 매도 검토')
+    lines.append('-6% 이하 매수 검토, +2% 이상 매도 검토')
     lines.append('')
     lines.append('💡 분할매수 권장: 한 번에 전량 매수보다')
     lines.append('2~3회 나눠서 조정 시 진입이 유리합니다.')
@@ -3714,7 +3715,7 @@ def main():
         # 가중 괴리율 맵 (v52: 3일 가중 adj_gap)
         score_100_map = _build_score_100_map(today_str)
 
-        # 디스플레이용 추천 종목 (adj_gap < -7, 최대 7종목, v52)
+        # 디스플레이용 추천 종목 (w_gap < -6, 최대 5종목, v52)
         display_top5 = select_display_top5(
             results_df, status_map, weighted_ranks, earnings_map, risk_status,
             score_100_map=score_100_map
@@ -3735,7 +3736,7 @@ def main():
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
-        # 메시지 1: Signal — adj_gap < -7 추천 종목 기반 (v52)
+        # 메시지 1: Signal — w_gap < -6 추천 종목 기반 (v52)
         msg_signal = create_signal_message(
             display_top5, earnings_map, exit_reasons, biz_day, ai_content,
             portfolio_mode, final_action,
