@@ -1070,19 +1070,19 @@ def get_forward_test_summary(today_str):
 
 
 def save_part2_ranks(results_df, today_str):
-    """Part 2 eligible 종목 저장 — composite_rank + 가중순위 Top 30
+    """Part 2 eligible 종목 저장 — composite_rank + w_gap Top 30
 
-    1. 전체 eligible의 composite 순위 → composite_rank 컬럼에 저장
-    2. T-1/T-2의 composite_rank로 가중순위 계산 (누적 방지)
-    3. 가중순위 상위 30개 → part2_rank 저장
-    Returns: Top 30 티커 리스트 (가중순위 순)
+    1. 전체 eligible의 당일 adj_gap 순위 → composite_rank 컬럼에 저장
+    2. T-1/T-2의 adj_gap으로 w_gap(가중 괴리율) 계산
+    3. w_gap 상위 30개 → part2_rank 저장
+    Returns: Top 30 티커 리스트 (w_gap 순)
     """
     all_candidates = get_part2_candidates(results_df, top_n=None)
     if all_candidates.empty:
         log("Part 2 후보 0개 — part2_rank 저장 스킵")
         return []
 
-    # 1. 오늘의 composite 순위 (1~N)
+    # 1. 오늘의 composite 순위 (1~N, 당일 adj_gap 오름차순)
     all_candidates = all_candidates.reset_index(drop=True)
     composite_ranks = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_candidates.iterrows())}
 
@@ -1097,33 +1097,39 @@ def save_part2_ranks(results_df, today_str):
             (crank, today_str, ticker)
         )
 
-    # 2. 이전 날짜의 composite_rank 조회
+    # 2. 이전 날짜의 adj_gap 조회
     cursor.execute(
         'SELECT DISTINCT date FROM ntm_screening WHERE composite_rank IS NOT NULL AND date < ? ORDER BY date DESC LIMIT 2',
         (today_str,)
     )
     prev_dates = sorted([r[0] for r in cursor.fetchall()])
 
-    PENALTY = 50
-    rank_by_date = {}
+    gap_by_date = {}
     for d in prev_dates:
         cursor.execute(
-            'SELECT ticker, composite_rank FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
+            'SELECT ticker, adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
             (d,)
         )
-        rank_by_date[d] = {r[0]: r[1] for r in cursor.fetchall()}
+        gap_by_date[d] = {r[0]: r[1] for r in cursor.fetchall()}
 
     t1 = prev_dates[-1] if len(prev_dates) >= 1 else None
     t2 = prev_dates[-2] if len(prev_dates) >= 2 else None
 
-    # 3. 가중순위 = composite_T0 × 0.5 + composite_T1 × 0.3 + composite_T2 × 0.2
-    weighted = {}
-    for ticker, r0 in composite_ranks.items():
-        r1 = rank_by_date.get(t1, {}).get(ticker, PENALTY) if t1 else PENALTY
-        r2 = rank_by_date.get(t2, {}).get(ticker, PENALTY) if t2 else PENALTY
-        weighted[ticker] = r0 * 0.5 + r1 * 0.3 + r2 * 0.2
+    # 오늘 adj_gap
+    today_gaps = {}
+    for _, row in all_candidates.iterrows():
+        t = row['ticker']
+        today_gaps[t] = row.get('adj_gap', 0) or 0
 
-    # 4. 가중순위로 정렬 → Top 30
+    # 3. w_gap = adj_gap_T0 × 0.5 + adj_gap_T1 × 0.3 + adj_gap_T2 × 0.2
+    weighted = {}
+    for ticker in composite_ranks:
+        g0 = today_gaps.get(ticker, 0)
+        g1 = gap_by_date.get(t1, {}).get(ticker, 0) if t1 else 0
+        g2 = gap_by_date.get(t2, {}).get(ticker, 0) if t2 else 0
+        weighted[ticker] = g0 * 0.5 + g1 * 0.3 + g2 * 0.2
+
+    # 4. w_gap 오름차순 정렬 (가장 음수 = 가장 저평가) → Top 30
     sorted_tickers = sorted(weighted.items(), key=lambda x: x[1])
     top30 = sorted_tickers[:30]
 
@@ -1139,7 +1145,7 @@ def save_part2_ranks(results_df, today_str):
 
     conn.commit()
     conn.close()
-    log(f"Part 2 rank 저장: {len(top30_tickers)}개 종목 (가중순위 Top 30, eligible {len(composite_ranks)}개)")
+    log(f"Part 2 rank 저장: {len(top30_tickers)}개 종목 (w_gap Top 30, eligible {len(composite_ranks)}개)")
     return top30_tickers
 
 
@@ -3047,8 +3053,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'S&P·나스닥·MidCap {uni}종목')
         lines.append(f'→ EPS 상향 {filter_count}종목' if filter_count else '→ EPS 상향 스크리닝')
     lines.append('→ 원자재·저마진 업종 제외')
-    lines.append('→ 저평가 순위 → 상위 30(3일 평균)')
-    lines.append(f'→ 괴리율 -6% 이하 → {len(selected)}종목')
+    lines.append(f'→ 저평가 순위 → 상위 30 → {len(selected)}종목 추천')
 
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
@@ -3129,7 +3134,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('순위: 2일전→1일전→오늘')
     lines.append('괴리율: EPS 개선 대비 주가 미반영도')
-    lines.append('-6% 이하 매수 검토, +2% 이상 매도 검토')
+    lines.append('음수 클수록 저평가, 양수 전환 시 매도 검토')
     lines.append('')
     lines.append('💡 분할매수 권장: 한 번에 전량 매수보다')
     lines.append('2~3회 나눠서 조정 시 진입이 유리합니다.')
