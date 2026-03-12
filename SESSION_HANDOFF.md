@@ -37,7 +37,9 @@
 > **v34**: 2026-02-19 집 PC — UX 대폭 개선: 읽는 법 각 메시지 상단 이동, 날씨 아이콘 설명, 아이콘 교체(🛡️→🚨🤖), [3/4] 어제 마감 집중, [4/4] Google Search Grounding으로 비즈니스 맥락 검색+비중요약 삭제+주의사항 정리+퍼널 간결화, 국내 프로젝트 동기화
 > **v34.1**: 2026-02-20 집 PC — 읽는 법 📖 가이드로 통합, yfinance Rate Limit 해결, 사계절 2줄 분리, HY/VIX 볼드+콜론, Gemini 서두 자동 제거, 국내 동기화(오늘의 메시지 목차 삭제)
 > **v34.2**: 2026-02-20 집 PC — [1/4] 다우존스 추가, [3/4] AI 지수 수치 반복 금지, 국내 가중치 개편(V45Q15G10M30, 공식 유지)
-> **v35**: 2026-02-20 집 PC — 가중순위 기반 Top 30 선정: eligible 전체에서 T0×0.5+T1×0.3+T2×0.2로 Top 30 경계 결정, 과거 8일 DB 재계산
+> **v35**: 2026-02-20 집 PC — 가중순위 기반 Top 30 선정
+> **v53**: 2026-03-12 — EPS 추세 일관성 보정 (B correction) → v54에서 롤백
+> **v54**: 2026-03-13 — eps_quality 팩터 도입, B correction 대체, 임계값 재보정: eligible 전체에서 T0×0.5+T1×0.3+T2×0.2로 Top 30 경계 결정, 과거 8일 DB 재계산
 > **v35.1**: 2026-02-20 집 PC — composite_rank 분리: DB에 composite_rank 컬럼 추가, 가중순위는 항상 composite에서 계산 (누적 방지)
 > **v35.2**: 2026-02-20 집 PC — 데이터 일관성 확보: rev_growth backfill + recalc_ranks composite_rank 저장 + 한국 프로젝트 교차 검증
 > **v35.3**: 2026-02-20 집 PC — 어닝 일정 수정: .calendar Rate Limit → .info earningsTimestamp 활용 + 장후(16시 ET) 발표 +1일 보정
@@ -4012,3 +4014,73 @@ UX 전문가 분석 결과:
 - **`quick_test_v3.py`**: stdout 인코딩 수정, exit_reasons 3-tuple 언패킹 수정
 - **`migrate_v52_ranks.py`**: 신규 — 18개 날짜 composite_rank + part2_rank adj_gap 기준 재계산
 - **`MEMORY.md`**: v52 전략 변경 반영
+
+---
+
+## v53: EPS 추세 일관성 보정 (B correction) — 2026-03-12
+> **롤백됨**: v54에서 eps_quality로 대체
+
+seg1~seg4 양수 개수(pos_segs)로 w_gap 보정:
+- `b_factor = 0.3 + 0.7 × (pos_segs / 4)`
+- 전부 음수 → 0.3배, 전부 양수 → 1.0배
+- **문제**: 1차원(EPS 방향만), 이산적(0~4단계), adj_gap 이후 적용이라 소스 보정 아님
+
+---
+
+## v54: eps_quality 팩터 도입 — 2026-03-13
+
+### 배경
+FTAI 문제: EPS 하향인데 주가 폭락으로 adj_gap이 매우 음수 → #1 선정.
+v53 B correction은 너무 조잡해서 근본적 해결 필요.
+
+### 4-Case Framework
+| Case | EPS | Price | 평가 |
+|------|-----|-------|------|
+| 3 | ↑ | ↓ | 최고 — 진짜 저평가 |
+| 1 | ↑ | ↑ | 양호 — 모멘텀 |
+| 2 | ↓ | ↓ | 주의 — 가짜 저평가 |
+| 4 | ↓ | ↑ | 최악 — 고평가 |
+
+### 설계 결정: EPS-only (A안 채택)
+
+**기각된 대안:**
+- **B안 (2-factor on adj_gap)**: adj_gap = Price/EPS 비율이므로 price 이미 포함. price_f 추가 시 이중 반영 → Case 2에서 eps_f 페널티를 price_f 보너스가 상쇄
+- **C안 (2-factor on adj_score)**: adj_score는 순수 NTM EPS 전망치 변화율. 가격 맥락 추가해도 의미 없는 지표
+
+### 구현
+
+```python
+# eps_chg_weighted: 가중평균 EPS 변화율
+# weights: 7d=0.4, 30d=0.3, 60d=0.2, 90d=0.1
+eps_chg_weighted = Σ(weight × (ntm_cur - ntm_period) / |ntm_period| × 100)
+
+# eps_quality: [0.7, 1.3]
+eps_quality = 1.0 + 0.3 × clamp(eps_chg_weighted / 10, -1, 1)
+
+# adj_gap 계산 (소스에서 보정)
+adj_gap = fwd_pe_chg × (1 + dir_factor) × eps_quality
+```
+
+### dir_factor vs eps_quality (둘 다 유지)
+- **dir_factor**: EPS 가속도 (2차 미분) — "EPS 상승이 빨라지고 있나?" [0.7, 1.3]
+- **eps_quality**: EPS 방향 (1차 미분) — "EPS가 올라가고 있나 내려가고 있나?" [0.7, 1.3]
+- Combined range: [0.49, 1.69]
+
+### 임계값 재보정
+eps_quality 증폭으로 adj_gap 분포 확대:
+- 진입: w_gap < **-8%** (was -6%)
+- 이탈: adj_gap > **+3%** (was +2%)
+- Watchlist 매도 검토선: w_gap >= **+3%** (was +2%)
+
+### 코드 변경
+- **`daily_runner.py`**:
+  - `init_ntm_database()`: eps_chg_weighted 컬럼 추가
+  - `run_ntm_collection()`: adj_gap = fwd_pe_chg × (1+dir_factor) × eps_q, eps_chg_weighted DB 저장
+  - `save_part2_ranks()`: B correction 블록 제거, w_gap 단순 가중평균만
+  - `_build_score_100_map()`: B correction 제거, 단순 가중평균
+  - `select_display_top5()`: w_gap < -6 → -8
+  - `classify_exit_reasons()`: adj_gap > 2 → 3
+  - `create_watchlist_message()`: 매도 검토선 2 → 3
+- **`migrate_v54_eps_quality.py`**: adj_gap × eps_quality 마이그레이션 (24,835행, 24일)
+- **`migrate_v54_rerank.py`**: composite_rank + part2_rank 재계산 (19일)
+- **`eps_momentum_data.db`**: 전체 재계산 완료 (백업: .bak_v53)
