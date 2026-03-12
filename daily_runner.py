@@ -2927,7 +2927,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                           weighted_ranks=None, filter_count=None,
                           status_map=None, eps_screened=None, universe_size=None,
                           exited_tickers=None, risk_status=None,
-                          score_100_map=None, top5_streak=None):
+                          score_100_map=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -3080,8 +3080,6 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         rank_parts = [f'순위 {rank_str}']
         if rev_up or rev_down:
             rank_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
-        if top5_streak and ticker in top5_streak:
-            rank_parts.append(f'매력 {top5_streak[ticker]}일 연속')
         lines.append(' · '.join(rank_parts))
 
         # L3: 이야기 (AI 내러티브)
@@ -3725,9 +3723,6 @@ def main():
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
-        # adj_gap < -7 연속 유지 일수 (v52)
-        top5_streak = _build_top5_streak(today_str)
-
         # 메시지 1: Signal — adj_gap < -7 추천 종목 기반 (v52)
         msg_signal = create_signal_message(
             display_top5, earnings_map, exit_reasons, biz_day, ai_content,
@@ -3736,7 +3731,7 @@ def main():
             status_map=status_map, eps_screened=eps_screened,
             universe_size=stats.get('universe'),
             exited_tickers=exited_tickers, risk_status=risk_status,
-            score_100_map=score_100_map, top5_streak=top5_streak
+            score_100_map=score_100_map,
         )
         if msg_signal:
             if send_to_channel:
