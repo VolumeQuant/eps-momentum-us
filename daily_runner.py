@@ -1486,7 +1486,7 @@ def fetch_hy_quadrant():
         start_date = (datetime.now() - timedelta(days=365 * 11)).strftime('%Y-%m-%d')
         url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2&cosd={start_date}&coed={end_date}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=15) as response:
+        with urllib.request.urlopen(req, timeout=30) as response:
             csv_data = response.read().decode('utf-8')
 
         df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
@@ -1594,7 +1594,7 @@ def fetch_hy_quadrant():
       except Exception as e:
         if attempt < 2:
             log(f"HY Spread 수집 재시도 ({attempt+1}/3): {e}", level="WARN")
-            time.sleep(5)
+            time.sleep(5 * (attempt + 1))
         else:
             log(f"HY Spread 수집 실패: {e}", level="WARN")
             return None
@@ -1625,7 +1625,7 @@ def fetch_vix_data():
             f"?id=VIXCLS&cosd={start_date}&coed={end_date}"
         )
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=15) as response:
+        with urllib.request.urlopen(req, timeout=30) as response:
             csv_data = response.read().decode('utf-8')
 
         df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
@@ -1712,10 +1712,91 @@ def fetch_vix_data():
       except Exception as e:
         if attempt < 2:
             log(f"VIX 수집 재시도 ({attempt+1}/3): {e}", level="WARN")
-            time.sleep(5)
+            time.sleep(5 * (attempt + 1))
         else:
-            log(f"VIX 수집 실패: {e}", level="WARN")
+            log(f"VIX FRED 수집 실패, yfinance fallback 시도: {e}", level="WARN")
+            return _fetch_vix_yfinance_fallback()
+
+
+def _fetch_vix_yfinance_fallback():
+    """FRED 실패 시 yfinance ^VIX로 VIX 데이터 수집"""
+    try:
+        import yfinance as yf
+        import pandas as pd
+
+        ticker = yf.Ticker('^VIX')
+        df = ticker.history(period='1y')
+        if df.empty or len(df) < 20:
+            log("VIX yfinance fallback: 데이터 부족", level="WARN")
             return None
+
+        df = df[['Close']].rename(columns={'Close': 'vix'}).dropna()
+
+        vix_current = float(df['vix'].iloc[-1])
+        vix_5d_ago = float(df['vix'].iloc[-5]) if len(df) >= 5 else float(df['vix'].iloc[0])
+        vix_slope = vix_current - vix_5d_ago
+        vix_ma_20 = float(df['vix'].rolling(20).mean().iloc[-1])
+
+        vix_pct = float(df['vix'].rolling(252, min_periods=126).rank(pct=True).iloc[-1] * 100)
+
+        if vix_slope > 0.5:
+            slope_dir = 'rising'
+        elif vix_slope < -0.5:
+            slope_dir = 'falling'
+        else:
+            slope_dir = 'flat'
+
+        if vix_pct >= 90:
+            if slope_dir in ('rising', 'flat'):
+                regime, label, icon = 'crisis', '위기', '🔴'
+                cash_adj = 15
+            else:
+                regime, label, icon = 'crisis_relief', '공포완화', '💎'
+                cash_adj = -10
+        elif vix_pct >= 80:
+            if slope_dir == 'rising':
+                regime, label, icon = 'high', '상승경보', '🔶'
+                cash_adj = 10
+            else:
+                regime, label, icon = 'high_stable', '높지만안정', '🟡'
+                cash_adj = 0
+        elif vix_pct >= 67:
+            if slope_dir == 'rising':
+                regime, label, icon = 'elevated', '경계', '⚠️'
+                cash_adj = 5
+            elif slope_dir == 'falling':
+                regime, label, icon = 'stabilizing', '안정화', '🌡️'
+                cash_adj = -5
+            else:
+                regime, label, icon = 'elevated_flat', '보통', '🟡'
+                cash_adj = 0
+        elif vix_pct < 10:
+            regime, label, icon = 'complacency', '안일', '⚠️'
+            cash_adj = 5
+        else:
+            regime, label, icon = 'normal', '안정', '🌡️'
+            cash_adj = 0
+
+        direction = 'warn' if regime in ('crisis', 'crisis_relief', 'high', 'elevated', 'complacency') else 'stable'
+
+        log(f"VIX (yfinance fallback): {vix_current:.1f} (252일 {vix_pct:.0f}th) → {regime} ({label}), 가감 {cash_adj:+d}%")
+
+        return {
+            'vix_current': vix_current,
+            'vix_5d_ago': vix_5d_ago,
+            'vix_slope': vix_slope,
+            'vix_slope_dir': slope_dir,
+            'vix_ma_20': vix_ma_20,
+            'vix_percentile': vix_pct,
+            'regime': regime,
+            'regime_label': label,
+            'regime_icon': icon,
+            'cash_adjustment': cash_adj,
+            'direction': direction,
+        }
+    except Exception as e:
+        log(f"VIX yfinance fallback도 실패: {e}", level="WARN")
+        return None
 
 
 def get_market_risk_status():
