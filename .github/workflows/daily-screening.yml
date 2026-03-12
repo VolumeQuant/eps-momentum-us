@@ -1,11 +1,11 @@
 name: Daily EPS Momentum Screening
 
 on:
-  schedule:
-    # 매일 UTC 21:30 = KST 06:30 (썸머타임 기준)
-    # 일~목 UTC 21:30 = 월~금 KST 06:30
-    - cron: '30 21 * * 0-4'
-  workflow_dispatch:  # 수동 실행 가능
+  # schedule:
+  #   # 매일 UTC 21:30 = KST 06:30 (썸머타임 기준)
+  #   # 일~목 UTC 21:30 = 월~금 KST 06:30
+  #   - cron: '30 21 * * 0-4'
+  workflow_dispatch:  # 수동 실행만 가능 (스케줄 해제)
 
 permissions:
   contents: write  # git push 권한

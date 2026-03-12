@@ -3081,7 +3081,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         if rev_up or rev_down:
             rank_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
         if top5_streak and ticker in top5_streak:
-            rank_parts.append(f'저평가 {top5_streak[ticker]}일째')
+            rank_parts.append(f'매력 {top5_streak[ticker]}일 연속')
         lines.append(' · '.join(rank_parts))
 
         # L3: 이야기 (AI 내러티브)
@@ -3766,19 +3766,7 @@ def main():
             send_telegram_long(msg_watchlist, config, chat_id=private_id)
             log(f"Watchlist 전송 완료 → {dest}")
 
-        # 메시지 4: 관련 ETF (3일 검증 종목 기준)
-        verified_tickers = [t for t in today_tickers if status_map.get(t) == '✅']
-        try:
-            etf_results, etf_uncovered = find_etf_recommendations(verified_tickers)
-            msg_etf = create_etf_message(etf_results, biz_day, uncovered=etf_uncovered)
-        except Exception as e:
-            log(f"ETF 추천 실패: {e}", "WARN")
-            msg_etf = None
-        if msg_etf:
-            if send_to_channel:
-                send_telegram_long(msg_etf, config, chat_id=channel_id)
-            send_telegram_long(msg_etf, config, chat_id=private_id)
-            log(f"ETF 추천 전송 완료 → {dest}")
+        # 메시지 4: 관련 ETF — 제거됨 (v52)
 
         # 시스템 로그 → 개인봇에만
         send_telegram_long(msg_log, config, chat_id=private_id)

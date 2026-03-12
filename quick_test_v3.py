@@ -14,7 +14,7 @@ from daily_runner import (
     load_config, log, DB_PATH,
     get_part2_candidates, select_display_top5, select_portfolio_stocks,
     classify_exit_reasons,
-    create_signal_message, create_ai_risk_message, create_watchlist_message, create_etf_message,
+    create_signal_message, create_ai_risk_message, create_watchlist_message,
     send_telegram_long, _clean_company_name, _build_score_100_map, _build_top5_streak,
 )
 from eps_momentum_system import get_trend_lights
