@@ -153,6 +153,12 @@ def init_ntm_database():
     except sqlite3.OperationalError:
         pass
 
+    # v54: eps_chg_weighted (EPS 품질 보정용)
+    try:
+        cursor.execute('ALTER TABLE ntm_screening ADD COLUMN eps_chg_weighted REAL')
+    except sqlite3.OperationalError:
+        pass
+
     # v33: 재무 품질 + rev_growth 컬럼
     for col, col_type in [('rev_growth', 'REAL'),
                           ('market_cap', 'REAL'), ('free_cashflow', 'REAL'),
@@ -581,11 +587,18 @@ def run_ntm_collection(config):
             except Exception as e:
                 log(f"  {ticker} 가격/PE 계산 실패: {e}", "WARN")
 
-            # adj_gap: 괴리율에 방향 보정 (가속 → 저평가 강화, 감속 → 저평가 약화)
+            # adj_gap: 괴리율에 방향 보정 + EPS 품질 보정
+            #   dir_factor: EPS 가속도 (가속 → 보너스, 감속 → 페널티) [0.7, 1.3]
+            #   eps_quality: EPS 방향 (상향 → 보너스, 하향 → 페널티) [0.7, 1.3]
+            #   → 괴리가 EPS 상향+가속 때문이면 최대 보상, 하향+감속이면 최대 페널티
             adj_gap = None
             if fwd_pe_chg is not None and direction is not None:
                 dir_factor = max(-0.3, min(0.3, direction / 30))
-                adj_gap = fwd_pe_chg * (1 + dir_factor)
+                eps_q = 1.0
+                if eps_chg_weighted is not None:
+                    eps_norm = max(-1.0, min(1.0, eps_chg_weighted / 10.0))
+                    eps_q = 1.0 + 0.3 * eps_norm
+                adj_gap = fwd_pe_chg * (1 + dir_factor) * eps_q
 
             row = {
                 'ticker': ticker,
@@ -622,10 +635,11 @@ def run_ntm_collection(config):
             cursor.execute('''
                 UPDATE ntm_screening
                 SET adj_score=?, adj_gap=?, price=?, ma60=?, ma120=?,
-                    rev_up30=?, rev_down30=?, num_analysts=?
+                    rev_up30=?, rev_down30=?, num_analysts=?, eps_chg_weighted=?
                 WHERE date=? AND ticker=?
             ''', (adj_score, adj_gap, current_price, ma60_val, ma120_val,
-                  rev_up30, rev_down30, num_analysts, today_str, ticker))
+                  rev_up30, rev_down30, num_analysts, eps_chg_weighted,
+                  today_str, ticker))
 
             if is_turnaround:
                 turnaround.append(row)
@@ -1129,19 +1143,8 @@ def save_part2_ranks(results_df, today_str):
         g2 = gap_by_date.get(t2, {}).get(ticker, 0) if t2 else 0
         weighted[ticker] = g0 * 0.5 + g1 * 0.3 + g2 * 0.2
 
-    # 3b. EPS 추세 일관성 보정 (B correction, v53)
-    #   pos_segs = seg1~seg4 중 양수 개수, factor = 0.3 + 0.7 × (pos_segs/4)
-    #   seg 전부 음수 → 0.3배, 전부 양수 → 1.0배
-    for ticker in list(weighted.keys()):
-        cand_row = all_candidates[all_candidates['ticker'] == ticker]
-        if cand_row.empty:
-            continue
-        r = cand_row.iloc[0]
-        segs = [r.get('seg1', 0) or 0, r.get('seg2', 0) or 0,
-                r.get('seg3', 0) or 0, r.get('seg4', 0) or 0]
-        pos_segs = sum(1 for s in segs if s > 0)
-        b_factor = 0.3 + 0.7 * (pos_segs / 4)
-        weighted[ticker] = weighted[ticker] * b_factor
+    # v54: B correction 제거 — adj_gap 계산 시점에 eps_quality가 이미 반영됨
+    # w_gap은 단순 가중평균만 수행
 
     # 4. w_gap 오름차순 정렬 (가장 음수 = 가장 저평가) → Top 30
     sorted_tickers = sorted(weighted.items(), key=lambda x: x[1])
@@ -2281,7 +2284,7 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         earnings_map=None, risk_status=None, score_100_map=None):
-    """Signal 메시지용 추천 종목 선정 (v52: w_gap < -6, 최대 5종목)
+    """Signal 메시지용 추천 종목 선정 (v54: w_gap < -8, 최대 5종목)
 
     가중 괴리율(w_gap) 오름차순(가장 저평가 우선), 리스크 필터 적용.
     """
@@ -2304,10 +2307,10 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     if top30.empty:
         return []
 
-    # 가중 괴리율(w_gap) < -6 진입 (v52: 그리드서치 최적)
+    # 가중 괴리율(w_gap) < -8 진입 (v54: eps_quality 보정 후 재보정)
     if not score_100_map:
         score_100_map = {}
-    wgap_tickers = {t for t, wg in score_100_map.items() if wg < -6}
+    wgap_tickers = {t for t, wg in score_100_map.items() if wg < -8}
     candidates = top30[
         top30['ticker'].isin(wgap_tickers)
     ].copy()
@@ -2551,7 +2554,7 @@ def classify_exit_reasons(exited_tickers, results_df):
     for t in sorted(exited_tickers, key=lambda x: exited_tickers[x]):
         cur_rank = composite_map.get(t)
         ag = adj_gap_map.get(t)
-        if ag is not None and ag > 2.0:
+        if ag is not None and ag > 3.0:
             reason = '괴리율↑'
         elif cur_rank is not None:
             reason = '순위밀림'
@@ -2938,21 +2941,8 @@ def _build_score_100_map(today_str=None):
         '''SELECT ticker, adj_gap FROM ntm_screening
            WHERE date=? AND adj_gap IS NOT NULL''', (dates[0],)
     ).fetchall()
-    # seg 데이터 조회 (B correction용)
-    seg_rows = cursor.execute(
-        '''SELECT ticker, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d
-           FROM ntm_screening WHERE date=?''', (dates[0],)
-    ).fetchall()
-    seg_map = {}
-    for tk, nc, n7, n30, n60, n90 in seg_rows:
-        segs = []
-        for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
-            if b and abs(b) > 0.01:
-                segs.append((a - b) / abs(b) * 100)
-            else:
-                segs.append(0)
-        seg_map[tk] = sum(1 for s in segs if s > 0)
 
+    # v54: B correction 제거 — adj_gap에 eps_quality 이미 반영, 단순 가중평균만
     result = {}
     for ticker, ag0 in rows:
         gaps = [ag0]
@@ -2963,10 +2953,7 @@ def _build_score_100_map(today_str=None):
             ).fetchone()
             gaps.append(r[0] if r else 0.0)
         w_gap = sum(gaps[i] * weights[i] for i in range(min(len(gaps), len(weights))))
-        # EPS 추세 일관성 보정 (B correction, v53)
-        pos_segs = seg_map.get(ticker, 4)
-        b_factor = 0.3 + 0.7 * (pos_segs / 4)
-        result[ticker] = w_gap * b_factor
+        result[ticker] = w_gap
     conn.close()
     return result
 
@@ -3360,9 +3347,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         marker = status_map.get(ticker, '🆕')
         name = _clean_company_name(row.get('short_name', ticker), ticker)
 
-        # 매도 검토선: w_gap ≥ +2 지점에 삽입
+        # 매도 검토선: w_gap ≥ +3 지점에 삽입 (v54: eps_quality 보정 후 재보정)
         w_gap_val = score_100_map.get(ticker, -999) if score_100_map else -999
-        if not sell_line_drawn and w_gap_val >= 2.0:
+        if not sell_line_drawn and w_gap_val >= 3.0:
             lines.append('── 매도 검토선 ──')
             sell_line_drawn = True
 
@@ -3759,7 +3746,7 @@ def main():
         # 가중 괴리율 맵 (v52: 3일 가중 adj_gap)
         score_100_map = _build_score_100_map(today_str)
 
-        # 디스플레이용 추천 종목 (w_gap < -6, 최대 5종목, v52)
+        # 디스플레이용 추천 종목 (w_gap < -8, 최대 5종목, v54)
         display_top5 = select_display_top5(
             results_df, status_map, weighted_ranks, earnings_map, risk_status,
             score_100_map=score_100_map
@@ -3780,7 +3767,7 @@ def main():
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
-        # 메시지 1: Signal — w_gap < -6 추천 종목 기반 (v52)
+        # 메시지 1: Signal — w_gap < -8 추천 종목 기반 (v54)
         msg_signal = create_signal_message(
             display_top5, earnings_map, exit_reasons, biz_day, ai_content,
             portfolio_mode, final_action,
