@@ -3085,7 +3085,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'S&P·나스닥·MidCap {uni}종목')
         lines.append(f'→ EPS 상향 {filter_count}종목' if filter_count else '→ EPS 상향 스크리닝')
     lines.append('→ 원자재·저마진 업종 제외')
-    lines.append(f'→ 저평가 순위 → 상위 30 → {len(selected)}종목 추천')
+    lines.append(f'→ 저평가 순위 → 상위 20 → {len(selected)}종목 선정')
 
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
