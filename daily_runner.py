@@ -3776,7 +3776,7 @@ def main():
         # 가중 괴리율 맵 (v52: 3일 가중 adj_gap)
         score_100_map = _build_score_100_map(today_str)
 
-        # 디스플레이용 추천 종목 (w_gap < -6, 최대 5종목, v54)
+        # 디스플레이용 종목 선정 (순위 상위 3종목, v55)
         display_top5 = select_display_top5(
             results_df, status_map, weighted_ranks, earnings_map, risk_status,
             score_100_map=score_100_map
@@ -3797,7 +3797,7 @@ def main():
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
-        # 메시지 1: Signal — w_gap < -6 추천 종목 기반 (v54)
+        # 메시지 1: Signal — 순위 상위 3종목 (v55)
         msg_signal = create_signal_message(
             display_top5, earnings_map, exit_reasons, biz_day, ai_content,
             portfolio_mode, final_action,
