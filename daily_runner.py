@@ -3164,8 +3164,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('순위: 3일 가중순위 (2일전→1일전→오늘)')
-    lines.append('괴리 상위 종목만 선정')
-    lines.append('Watchlist 매도 검토선 아래 종목은 매도 검토')
+    lines.append('괴리: EPS 대비 주가 저평가도 (음수=저평가)')
+    lines.append('진입: 순위 상위 3종목 / 이탈: 15위 밖 또는 추세둔화')
     lines.append('')
     lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
     lines.append('포트폴리오 비중은 투자자의 판단입니다.')
@@ -3348,8 +3348,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('🔥&gt;20% ☀️5~20% 🌤️1~5% ☁️±1% 🌧️&lt;-1%')
     lines.append('━━━━━━━━━━━━━━━')
 
-    # ── 30종목 (4줄 + 구분선) ──
-    sell_line_drawn = False
+    # ── 20종목 (4줄 + 구분선) ──
     health_warn_tickers = []  # min_seg < -2% 종목 수집
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
@@ -3367,12 +3366,6 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         # min_seg 계산 (EPS 건강도)
         _segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
         _min_seg = min(_segs) if _segs else 0
-
-        # 매도 검토선: w_gap ≥ +8 지점에 삽입 (v54: 전체 19일 분석 → +8%가 avg 3.9종목/13%)
-        w_gap_val = score_100_map.get(ticker, -999) if score_100_map else -999
-        if not sell_line_drawn and w_gap_val >= 8.0:
-            lines.append('── 매도 검토선 ──')
-            sell_line_drawn = True
 
         # L0: 이름·업종 (20자 제한 — 20종목이라 여유)
         short_name = name
@@ -3451,9 +3444,12 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     # ── 범례 ──
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
+    lines.append('📌 운영 규칙')
+    lines.append('진입: 순위 상위 3종목, 최대 3종목 보유')
+    lines.append('이탈: 순위 15위 밖 또는 ⚠️추세둔화 시')
+    lines.append('')
     lines.append('순위: 3일 가중순위 (2일전→1일전→오늘)')
-    lines.append('매도 검토선 아래 종목은 매도 검토')
-    lines.append('⚠️추세둔화: EPS 상향 추세 약화 감지')
+    lines.append('괴리: EPS 대비 주가 저평가도 (음수=저평가)')
 
     return '\n'.join(lines)
 
