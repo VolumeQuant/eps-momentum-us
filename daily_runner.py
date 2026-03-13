@@ -2289,9 +2289,9 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         earnings_map=None, risk_status=None, score_100_map=None):
-    """Signal 메시지용 종목 선정 (v55: Top3 순위 기반, 최대 3종목)
+    """Signal 메시지용 종목 선정 (v55: Top3/Top7 전략, 최대 3종목)
 
-    part2_rank 상위 3종목, 리스크 필터 적용.
+    part2_rank 상위 3종목, Top7 내 후보, 리스크 필터 적용.
     """
     if earnings_map is None:
         earnings_map = {}
@@ -2312,13 +2312,13 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     if top30.empty:
         return []
 
-    # v55: Top3 순위 기반 진입 (part2_rank 상위 3종목)
-    candidates = top30.head(15).copy()  # Top15까지 후보 (필터 제외 대비)
+    # v55: Top3/Top7 전략 — Top7 내 상위 3종목 진입
+    candidates = top30.head(7).copy()  # Top7까지 후보 (필터 제외 대비)
     top_debug = [(row['ticker'], int(row.get('part2_rank', 0) or idx + 1))
                  for idx, (_, row) in enumerate(candidates.head(5).iterrows())]
     log(f"순위 상위 5: {top_debug}")
 
-    # 리스크 필터 적용, 최대 3개 선정 (v55: Top3/Top15 전략)
+    # 리스크 필터 적용, 최대 3개 선정 (v55: Top3/Top7 전략)
     selected = []
     for _, row in candidates.iterrows():
         if len(selected) >= 3:
@@ -2335,11 +2335,6 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             flags.append("하향우세")
         if num_analysts < 3:
             flags.append("저커버리지")
-        # 이탈 조건 충족 종목은 진입 제외 (사자마자 다음날 이탈 방지)
-        _segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
-        _min_seg = min(_segs) if _segs else 0
-        if _min_seg < -2:
-            flags.append(f"추세둔화({_min_seg:.1f}%)")
 
         if flags:
             log(f"  ⛔ 디스플레이 제외 {t}: {','.join(flags)}")
@@ -2365,10 +2360,10 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
 
 def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
                             earnings_map=None, risk_status=None, today_str=None):
-    """포트폴리오 종목 선정 — Top 3 진입, Top 15 이탈 매도 (v55)
+    """포트폴리오 종목 선정 — Top 3 진입, Top 7 이탈 매도 (v55)
 
     전략:
-    - 보유 종목: Top 15 내 유지 시 계속 보유 (리스크 필터 미적용)
+    - 보유 종목: Top 7 내 유지 시 계속 보유 (리스크 필터 미적용)
     - 추가 이탈: 보유 중 min_seg < -2% → 매도 (EPS 건강도 악화)
     - 신규 진입: ✅ 검증 + 리스크 필터 통과 + 가중순위 상위
     - 최대 3종목, 동일 비중
@@ -2394,26 +2389,26 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
         log(f"포트폴리오: portfolio_mode=stop → 추천 중단 ({final_action})")
         return [], portfolio_mode, concordance, final_action
 
-    # Top 30 (하드 필터 적용, ✅ 필터 전) — Watchlist용 유지, 이탈은 Top 15 기준
+    # Top 30 (하드 필터 적용, ✅ 필터 전) — Watchlist용 유지, 이탈은 Top 7 기준
     top30 = get_part2_candidates(results_df, top_n=30)
     if top30.empty:
         return [], portfolio_mode, concordance, final_action
 
-    top15_tickers = set(top30.head(15)['ticker'].tolist())
+    top7_tickers = set(top30.head(7)['ticker'].tolist())
 
-    # ── 어제 보유 → Top 15 유지 시 홀드 (v55: Top30→Top15) ──
+    # ── 어제 보유 → Top 7 유지 시 홀드 (v55: Top3/Top7) ──
     prev_holdings = _get_prev_portfolio(today_str)
 
-    # 1차 이탈: Top 15 밖
-    holds_in_top15 = [t for t in prev_holdings if t in top15_tickers]
-    exited_rank = [t for t in prev_holdings if t not in top15_tickers]
+    # 1차 이탈: Top 7 밖
+    holds_in_top7 = [t for t in prev_holdings if t in top7_tickers]
+    exited_rank = [t for t in prev_holdings if t not in top7_tickers]
     if exited_rank:
-        log(f"  📤 Top15 이탈: {', '.join(exited_rank)}")
+        log(f"  📤 Top7 이탈: {', '.join(exited_rank)}")
 
     # 2차 이탈: min_seg < -2% (EPS 건강도 악화)
     hold_entries = []
     exited_health = []
-    for t in holds_in_top15:
+    for t in holds_in_top7:
         row = top30[top30['ticker'] == t]
         if row.empty:
             continue
@@ -2430,7 +2425,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
             continue
         entry = _build_portfolio_entry(row, status_map, earnings_map)
         hold_entries.append(entry)
-        log(f"  🔄 {t}: HOLD (Top15 유지) gap={_safe_float(row.get('adj_gap')):+.1f} desc={row.get('trend_desc', '')}")
+        log(f"  🔄 {t}: HOLD (Top7 유지) gap={_safe_float(row.get('adj_gap')):+.1f} desc={row.get('trend_desc', '')}")
 
     if exited_health:
         log(f"  📤 건강도 이탈: {', '.join(exited_health)}")
@@ -2438,7 +2433,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
     # ── 신규 진입 후보 (✅ + 리스크 필터) ──
     verified_tickers = {t for t, s in status_map.items() if s == '✅'} if status_map else set()
 
-    max_stocks = 3  # v55: Top3/Top15 전략 — 항상 3종목
+    max_stocks = 3  # v55: Top3/Top7 전략 — 항상 3종목
     vacancies = max(0, max_stocks - len(hold_entries))
 
     new_entries = []
@@ -3170,7 +3165,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('순위: 3일 가중순위 (2일전→1일전→오늘)')
     lines.append('괴리: EPS 대비 주가 저평가도 (음수=저평가)')
-    lines.append('진입: 순위 상위 3종목 / 이탈: 15위 밖 또는 추세둔화')
+    lines.append('진입: 순위 상위 3종목 / 이탈: 7위 밖 또는 추세둔화')
     lines.append('')
     lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
     lines.append('포트폴리오 비중은 투자자의 판단입니다.')
@@ -3451,7 +3446,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 운영 규칙')
     lines.append('진입: 순위 상위 3종목, 최대 3종목 보유')
-    lines.append('이탈: 순위 15위 밖 또는 ⚠️추세둔화 시')
+    lines.append('이탈: 순위 7위 밖 또는 ⚠️추세둔화 시')
     lines.append('')
     lines.append('순위: 3일 가중순위 (2일전→1일전→오늘)')
     lines.append('괴리: EPS 대비 주가 저평가도 (음수=저평가)')

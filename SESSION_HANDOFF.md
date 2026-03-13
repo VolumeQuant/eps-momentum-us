@@ -40,7 +40,7 @@
 > **v35**: 2026-02-20 집 PC — 가중순위 기반 Top 30 선정
 > **v53**: 2026-03-12 — EPS 추세 일관성 보정 (B correction) → v54에서 롤백
 > **v54**: 2026-03-13 — eps_quality 팩터 도입, B correction 대체, 임계값 재보정: eligible 전체에서 T0×0.5+T1×0.3+T2×0.2로 Top 30 경계 결정, 과거 8일 DB 재계산
-> **v55**: 2026-03-13 — eps_quality 재설계(ecw→min_seg), Top3/Top15 전략, ⚠️추세둔화 경고, Watchlist Top20, 괴리율→괴리, 운영 규칙 표시
+> **v55**: 2026-03-13 — eps_quality 재설계(ecw→min_seg), Top3/Top7 전략, ⚠️추세둔화 경고, Watchlist Top20, 괴리율→괴리, 운영 규칙 표시
 > **v35.1**: 2026-02-20 집 PC — composite_rank 분리: DB에 composite_rank 컬럼 추가, 가중순위는 항상 composite에서 계산 (누적 방지)
 > **v35.2**: 2026-02-20 집 PC — 데이터 일관성 확보: rev_growth backfill + recalc_ranks composite_rank 저장 + 한국 프로젝트 교차 검증
 > **v35.3**: 2026-02-20 집 PC — 어닝 일정 수정: .calendar Rate Limit → .info earningsTimestamp 활용 + 장후(16시 ET) 발표 +1일 보정
@@ -4114,11 +4114,15 @@ else:              eps_q = 0.7  # 한 구간이라도 꺾임
 - **min_seg ≥ 3%**: 승률 84%, 평균 수익 +7.1%
 - **min_seg < -2%**: 승률 50%, 평균 수익 -0.5% → 이탈 신호로 활용
 
-### 전략 최적화: Top5/Top30 → Top3/Top15
+### 전략 최적화: Top5/Top30 → Top3/Top7
 - **백테스트**: `bt_new_quality.py` (7전략 × 30품질함수 × 8이탈조건)
-- **결과**: Top3/Top15 + min_seg quality + min_seg<-2% exit
-  - 수익률 +21.4%, 거래 9회, 승률 78%, 최대 손실 -0.4%
-  - 기존 Top5/Top30(+15.5%) 대비 +5.9%p 개선
+- **1차**: Top3/Top15 +21.4% → **2차**: Top3/Top7 +20.1% (전문가 패널 추천)
+- **Top3/Top7 채택 이유**:
+  - 이탈선 빡빡 → 진입 필터 불필요 (Top7이 추세둔화 종목 먼저 잡음)
+  - min_seg<-2% exit는 Top3/Top7에서만 유의미 (+4.6%p)
+  - -2% 임계값은 데이터 노이즈 경계 (통계적 최적값 아님)
+  - 슬롯 3개 꽉 차면 신규 진입 없음 — 이탈 시에만 교체
+- 기존 Top5/Top30(+15.5%) 대비 +4.6%p 개선
 
 ### ⚠️ 추세둔화 경고 (UX)
 - **문제**: 시스템은 사용자의 진입 시점을 모름 → min_seg<-2% 이탈을 알릴 방법 없었음
@@ -4132,7 +4136,7 @@ else:              eps_q = 0.7  # 한 구간이라도 꺾임
 - **괴리 위치**: L0(이름 줄, 잘림) → L2(EPS·매출성장과 같은 줄)
 - **종목명**: 14자 → 20자 (20종목이라 여유)
 - **매도 검토선 제거**: v55 전략에 불필요
-- **운영 규칙 추가**: `진입: 순위 상위 3종목, 최대 3종목 보유` / `이탈: 순위 15위 밖 또는 ⚠️추세둔화 시`
+- **운영 규칙 추가**: `진입: 순위 상위 3종목, 최대 3종목 보유` / `이탈: 순위 7위 밖 또는 ⚠️추세둔화 시`
 - **괴리 설명**: `EPS 대비 주가 저평가도 (음수=저평가)`
 
 ### Signal 개선
@@ -4142,7 +4146,7 @@ else:              eps_q = 0.7  # 한 구간이라도 꺾임
 ### 코드 변경 (`daily_runner.py`)
 - `run_ntm_collection()`: eps_quality = min_seg 기반 3단계 (1.3/1.0/0.7)
 - `select_display_top5()`: w_gap 기반 → part2_rank 상위 3종목
-- `select_portfolio_stocks()`: Top30→Top15 이탈 + min_seg<-2% 건강도 이탈, max_stocks=3 고정
+- `select_portfolio_stocks()`: Top30→Top7 이탈 + min_seg<-2% 건강도 이탈, max_stocks=3 고정
 - `create_watchlist_message()`: Top20, 괴리 L2 이동, 추세둔화 태그, 운영 규칙 범례
 - `classify_exit_reasons()`: 괴리율↑ → 괴리↑, 임계값 +3→+5
 - `create_signal_message()`: 괴리율→괴리, 범례 업데이트
@@ -4156,3 +4160,4 @@ else:              eps_q = 0.7  # 한 구간이라도 꺾임
 - `bt_seg_grid.py`: seg1~seg4 이탈조건 전수 탐색
 - `bt_trend_exit.py`: seg1 이탈 필터 백테스트
 - `bt_trend_pattern.py`: 패턴 기반 진입 필터 (불채택 — 보유 중 패턴 변경)
+- `bt_entry_filter_check.py`: 진입 시 min_seg<-2% 스킵 효과 검증 (Top3/Top7에서 불필요 확인)
