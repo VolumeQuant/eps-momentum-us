@@ -60,18 +60,22 @@ def load_latest_from_db():
 
     def _calc_trend(row):
         try:
-            seg1 = _calc_seg_chg(row.get('ntm_60d', 0), row.get('ntm_90d', 0))
-            seg2 = _calc_seg_chg(row.get('ntm_30d', 0), row.get('ntm_60d', 0))
-            seg3 = _calc_seg_chg(row.get('ntm_7d', 0), row.get('ntm_30d', 0))
-            seg4 = _calc_seg_chg(row.get('ntm_current', 0), row.get('ntm_7d', 0))
-            lights, desc = get_trend_lights(seg1, seg2, seg3, seg4)
-            return lights, desc
+            seg4 = _calc_seg_chg(row.get('ntm_60d', 0), row.get('ntm_90d', 0))
+            seg3 = _calc_seg_chg(row.get('ntm_30d', 0), row.get('ntm_60d', 0))
+            seg2 = _calc_seg_chg(row.get('ntm_7d', 0), row.get('ntm_30d', 0))
+            seg1 = _calc_seg_chg(row.get('ntm_current', 0), row.get('ntm_7d', 0))
+            lights, desc = get_trend_lights(seg4, seg3, seg2, seg1)
+            return lights, desc, seg1, seg2, seg3, seg4
         except:
-            return '', ''
+            return '', '', 0, 0, 0, 0
 
     trends = df.apply(_calc_trend, axis=1)
     df['trend_lights'] = [t[0] for t in trends]
     df['trend_desc'] = [t[1] for t in trends]
+    df['seg1'] = [t[2] for t in trends]
+    df['seg2'] = [t[3] for t in trends]
+    df['seg3'] = [t[4] for t in trends]
+    df['seg4'] = [t[5] for t in trends]
 
     # ── ticker_info_cache.json에서 industry, short_name 보강 ──
     cache_path = Path(__file__).parent / 'ticker_info_cache.json'
