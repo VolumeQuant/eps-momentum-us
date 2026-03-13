@@ -40,6 +40,7 @@
 > **v35**: 2026-02-20 집 PC — 가중순위 기반 Top 30 선정
 > **v53**: 2026-03-12 — EPS 추세 일관성 보정 (B correction) → v54에서 롤백
 > **v54**: 2026-03-13 — eps_quality 팩터 도입, B correction 대체, 임계값 재보정: eligible 전체에서 T0×0.5+T1×0.3+T2×0.2로 Top 30 경계 결정, 과거 8일 DB 재계산
+> **v55**: 2026-03-13 — eps_quality 재설계(ecw→min_seg), Top3/Top15 전략, ⚠️추세둔화 경고, Watchlist Top20, 괴리율→괴리, 운영 규칙 표시
 > **v35.1**: 2026-02-20 집 PC — composite_rank 분리: DB에 composite_rank 컬럼 추가, 가중순위는 항상 composite에서 계산 (누적 방지)
 > **v35.2**: 2026-02-20 집 PC — 데이터 일관성 확보: rev_growth backfill + recalc_ranks composite_rank 저장 + 한국 프로젝트 교차 검증
 > **v35.3**: 2026-02-20 집 PC — 어닝 일정 수정: .calendar Rate Limit → .info earningsTimestamp 활용 + 장후(16시 ET) 발표 +1일 보정
@@ -4084,3 +4085,74 @@ eps_quality 증폭으로 adj_gap 분포 확대:
 - **`migrate_v54_eps_quality.py`**: adj_gap × eps_quality 마이그레이션 (24,835행, 24일)
 - **`migrate_v54_rerank.py`**: composite_rank + part2_rank 재계산 (19일)
 - **`eps_momentum_data.db`**: 전체 재계산 완료 (백업: .bak_v53)
+
+---
+
+## v55: eps_quality 재설계 + 전략 최적화 + UI 개선 (2026-03-13)
+
+### 배경: v54 eps_quality(ecw 기반)의 근본적 한계
+- EDA 결과: Top 30은 모두 EPS 상향 종목 → ecw 기반 quality가 종목 간 차별력 없음
+- adj_gap 자체가 "EPS↑ + 주가↓"를 이미 포착 → ecw 곱하면 이중 반영
+- **핵심 발견**: Top 30 내에서 수익률을 결정하는 건 EPS 수준이 아닌 **EPS 추세 일관성**(4구간 모두 양수인지)
+
+### eps_quality 재설계: ecw → min_seg 기반
+```python
+# OLD (v54): ecw 기반 — Top 30 내 차별력 없음
+eps_norm = clamp(eps_chg_weighted / 10, -1, 1)
+eps_q = 1.0 + 0.3 * eps_norm
+
+# NEW (v55): min_seg 기반 — 4구간 일관성 반영
+min_seg = min(seg1, seg2, seg3, seg4)
+if min_seg >= 2:   eps_q = 1.3  # 전 구간 고른 상향
+elif min_seg >= 0: eps_q = 1.0  # 중립
+else:              eps_q = 0.7  # 한 구간이라도 꺾임
+```
+
+### EDA 근거 (`eda_eps_health.py`)
+- **min_seg**: Top 7 내 5d 수익률 상관 r=+0.252 (전체에서 가장 높은 예측력)
+- **seg1**: r=+0.422 (최근 변화가 가장 강력한 신호)
+- **min_seg ≥ 3%**: 승률 84%, 평균 수익 +7.1%
+- **min_seg < -2%**: 승률 50%, 평균 수익 -0.5% → 이탈 신호로 활용
+
+### 전략 최적화: Top5/Top30 → Top3/Top15
+- **백테스트**: `bt_new_quality.py` (7전략 × 30품질함수 × 8이탈조건)
+- **결과**: Top3/Top15 + min_seg quality + min_seg<-2% exit
+  - 수익률 +21.4%, 거래 9회, 승률 78%, 최대 손실 -0.4%
+  - 기존 Top5/Top30(+15.5%) 대비 +5.9%p 개선
+
+### ⚠️ 추세둔화 경고 (UX)
+- **문제**: 시스템은 사용자의 진입 시점을 모름 → min_seg<-2% 이탈을 알릴 방법 없었음
+- **해결**: Watchlist에서 Top 20 전체에 대해 min_seg<-2% 종목 표시
+  - 인라인: `EPS추이 🌧️🔥☁️🌤️ 급등락 ⚠️추세둔화`
+  - 하단 요약: `⚠️ EPS 추세 둔화` 섹션 (종목명 + 최저구간 %)
+
+### Watchlist 개선
+- **Top 30 → Top 20**: 하위 10종목 제거 (가독성 + 4096자 여유, 2991→~2800자)
+- **괴리율 → 괴리**: 용어 통일 ('율' 중복 제거, % 이미 표시)
+- **괴리 위치**: L0(이름 줄, 잘림) → L2(EPS·매출성장과 같은 줄)
+- **종목명**: 14자 → 20자 (20종목이라 여유)
+- **매도 검토선 제거**: v55 전략에 불필요
+- **운영 규칙 추가**: `진입: 순위 상위 3종목, 최대 3종목 보유` / `이탈: 순위 15위 밖 또는 ⚠️추세둔화 시`
+- **괴리 설명**: `EPS 대비 주가 저평가도 (음수=저평가)`
+
+### Signal 개선
+- 선정 과정: `상위 30 → 3종목 추천` → `상위 20 → 3종목 선정`
+- 범례: 괴리 설명 + 진입/이탈 규칙 추가
+
+### 코드 변경 (`daily_runner.py`)
+- `run_ntm_collection()`: eps_quality = min_seg 기반 3단계 (1.3/1.0/0.7)
+- `select_display_top5()`: w_gap 기반 → part2_rank 상위 3종목
+- `select_portfolio_stocks()`: Top30→Top15 이탈 + min_seg<-2% 건강도 이탈, max_stocks=3 고정
+- `create_watchlist_message()`: Top20, 괴리 L2 이동, 추세둔화 태그, 운영 규칙 범례
+- `classify_exit_reasons()`: 괴리율↑ → 괴리↑, 임계값 +3→+5
+- `create_signal_message()`: 괴리율→괴리, 범례 업데이트
+
+### 테스트 코드 변경
+- `quick_test_v3.py`: seg1~seg4 컬럼을 df에 추가 (Watchlist 추세둔화 표시 지원)
+
+### 백테스트 파일 (신규)
+- `eda_eps_health.py`: EPS 건강도 vs 수익률 상관분석
+- `bt_new_quality.py`: 품질함수 × 전략 × 이탈조건 그리드
+- `bt_seg_grid.py`: seg1~seg4 이탈조건 전수 탐색
+- `bt_trend_exit.py`: seg1 이탈 필터 백테스트
+- `bt_trend_pattern.py`: 패턴 기반 진입 필터 (불채택 — 보유 중 패턴 변경)
