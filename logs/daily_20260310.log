@@ -1,4 +1,107 @@
 HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: EAI"}}}
 HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: EMP"}}}
 HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: GJS"}}}
-^C
+^CHTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: EAI"}}}
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: EMP"}}}
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: GJS"}}}
+HTTP Error 401: {"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}
+HTTP Error 401: {"finance":{"result":null,"error":{"code":"Unauthorized","description":"User is unable to access this feature - https://bit.ly/yahoo-finance-api-feedback"}}}
+[2026-03-10 13:00:01] [INFO] ============================================================
+[2026-03-10 13:00:01] [INFO] EPS Momentum Daily Runner v31 - Balanced Review
+[2026-03-10 13:00:01] [INFO] ============================================================
+[2026-03-10 13:00:01] [INFO] 설정 로드 완료: C:\dev\claude-code\eps-momentum-us\config.json
+[2026-03-10 13:00:01] [INFO] ============================================================
+[2026-03-10 13:00:01] [INFO] NTM EPS 데이터 수집 시작
+[2026-03-10 13:00:01] [INFO] ============================================================
+[2026-03-10 13:00:03] [INFO] NTM 데이터베이스 초기화 완료
+[2026-03-10 13:00:04] [INFO] 마켓 날짜: 2026-03-09
+[2026-03-10 13:00:04] [INFO] 기본 유니버스 (S&P500+400+NQ100): 916개
+[2026-03-10 13:00:11] [INFO]   비보통주 63개 제외 (우선주/채권/워런트)
+[2026-03-10 13:00:11] [INFO] 동적 확장 ($5B+): +525개 → 총 1441개
+[2026-03-10 13:00:11] [INFO] 유니버스: 1441개 종목
+[2026-03-10 13:00:11] [INFO] 종목 정보 캐시 로드: 1312개
+[2026-03-10 13:00:11] [INFO] 가격 데이터 일괄 다운로드 중...
+[2026-03-10 13:00:44] [INFO] 가격 다운로드 완료
+[2026-03-10 13:00:54] [INFO] MA120 사전 필터: 동적 종목 218개 제외 → 1223개 수집
+[2026-03-10 13:00:54] [INFO] NTM EPS 병렬 수집 중 (5스레드, 1223종목)...
+[2026-03-10 13:01:12] [INFO]   수집: 200/1223
+[2026-03-10 13:01:31] [INFO]   수집: 400/1223
+[2026-03-10 13:01:50] [INFO]   수집: 600/1223
+[2026-03-10 13:02:08] [INFO]   수집: 800/1223
+[2026-03-10 13:02:26] [INFO]   수집: 1000/1223
+[2026-03-10 13:02:44] [INFO]   수집: 1200/1223
+[2026-03-10 13:02:47] [INFO]   수집: 1223/1223
+[2026-03-10 13:02:47] [INFO] EPS 재시도: 4종목 (3초 대기 후)
+[2026-03-10 13:02:50] [INFO]   재시도 복구: 0/4
+[2026-03-10 13:02:50] [INFO] EPS 수집 완료: 1223종목, 117초
+[2026-03-10 13:02:55] [INFO]   처리: 200/1223 (메인: 175, 턴어라운드: 23)
+[2026-03-10 13:02:59] [INFO]   처리: 400/1223 (메인: 352, 턴어라운드: 40)
+[2026-03-10 13:03:03] [INFO]   처리: 600/1223 (메인: 528, 턴어라운드: 62)
+[2026-03-10 13:03:07] [INFO]   처리: 800/1223 (메인: 705, 턴어라운드: 79)
+[2026-03-10 13:03:11] [INFO]   처리: 1000/1223 (메인: 886, 턴어라운드: 93)
+[2026-03-10 13:03:15] [INFO]   처리: 1200/1223 (메인: 1064, 턴어라운드: 109)
+[2026-03-10 13:03:15] [INFO] 수집 완료: 메인 1086, 턴어라운드 111, 데이터없음 22, 에러 4
+[2026-03-10 13:03:16] [INFO] 시장 지수: 4개
+[2026-03-10 13:03:16] [INFO] 매출+품질 수집 시작: 1086종목 (5스레드, 배치 50)
+[2026-03-10 13:03:38] [INFO]   수집 진행: 200/1086
+[2026-03-10 13:04:00] [INFO]   수집 진행: 400/1086
+[2026-03-10 13:04:22] [INFO]   수집 진행: 600/1086
+[2026-03-10 13:04:39] [INFO]   수집 진행: 800/1086
+[2026-03-10 13:04:54] [INFO]   수집 진행: 1000/1086
+[2026-03-10 13:05:01] [INFO] 매출+품질 수집 완료: 681/1086 (rev_growth 675개)
+[2026-03-10 13:05:01] [INFO] Industry 보정: 63종목 ('기타' → 실제 업종)
+[2026-03-10 13:05:01] [INFO] 매출 데이터 없음 제외: WDC, EQX, DD
+[2026-03-10 13:05:01] [INFO] 매출 성장 부족(<10%) 제외: BIPC, WLK, CENX, TECK, LUV, OMAB, Q, FCX, SM, AA, AMAT, CRUS, FLR, POWL, COLM, MGA, CACC, HSY, GEV, AGX, RGLD, AMG, DVA, ASML, CROX, TM, CGNX, ESE, NE, VAL, ONTO, ATI, VLO, EQIX, ENTG, AMX, MT, KLAC, FTI, CBOE, CWST, TIMB, GM, WFRD, CAMT, ULS, DECK, CRS
+[2026-03-10 13:05:01] [INFO] 저커버리지(<3명) 제외: AUGO, UI, HSBC, SNEX, MUFG, IESC
+[2026-03-10 13:05:01] [INFO] 하향 과다(>30%) 제외: BVN(↑2↓1), ASND(↑4↓9), VICR(↑2↓1), BE(↑15↓7), SQM(↑5↓3), CDE(↑1↓2), NEM(↑6↓6), TFPM(↑5↓3), HBM(↑8↓7), DLR(↑1↓1), LB(↑0↓1), IAG(↑4↓3), B(↑11↓6), SUN(↑2↓2), ALSN(↑1↓2), JHX(↑2↓1), VSEC(↑3↓3), EXAS(↑3↓3), CNC(↑8↓6), SLAB(↑4↓3), AR(↑5↓8), AGI(↑3↓6)
+[2026-03-10 13:05:01] [INFO] 구조적 저마진 제외: DAR(OM8%/GM24%), BTSG(OM3%/GM12%), ARW(OM4%/GM11%), DE(OM9%/GM26%), DELL(OM9%/GM20%), BWXT(OM9%/GM23%), AVT(OM3%/GM11%), MTZ(OM5%/GM13%), PWR(OM5%/GM15%)
+[2026-03-10 13:05:01] [INFO] 영업이익률 부족(<5%) 제외: ROKU(OM5%), SITM(OM3%), IPGP(OM2%), LSCC(OM2%), WELL(OM-28%), FIVE(OM4%)
+[2026-03-10 13:05:01] [INFO] 원자재 제외(업종): WPM, KGC, SCCO, AEM, GFI, BHP, CF, AU, OR, ORLA, RIO, PAAS, FNV, NGD, CNX
+[2026-03-10 13:05:01] [INFO] Part 2 rank 저장: 30개 종목 (가중순위 Top 30, eligible 39개)
+[2026-03-10 13:05:01] [INFO] 3일 교집합: ✅ 25개, ⏳ 4개, 🆕 1개
+[2026-03-10 13:05:01] [INFO] 가중 순위: 30개 종목 계산 (날짜 3일)
+[2026-03-10 13:05:01] [INFO] 순위 변동 태그: 11개 종목 (1.0σ 기준: price±2.83%, score±1.48)
+[2026-03-10 13:05:01] [INFO] 어제 대비: +1 신규, -1 이탈
+[2026-03-10 13:05:02] [INFO] VIX: 29.5 (252일 95th) → crisis (위기), 가감 +15%
+[2026-03-10 13:05:02] [INFO] Concordance: both_warn (q_days=8) → 과열 초기 (8일째), 변동성 높음 [portfolio: normal]
+[2026-03-10 13:05:02] [INFO] HY Spread: 3.13% | 분면: Q3 가을(과열국면) (8일째)
+[2026-03-10 13:05:02] [INFO]   과열 구간 — 수익률 둔화 경향
+[2026-03-10 13:05:02] [INFO] VIX: 29.5 (252일 95th) | slope +8.0 (rising) | 위기
+[2026-03-10 13:05:02] [INFO] 일치도: both_warn | 과열 초기 (8일째), 변동성 높음
+[2026-03-10 13:05:02] [INFO] 매출 데이터 없음 제외: WDC, EQX, DD
+[2026-03-10 13:05:02] [INFO] 매출 성장 부족(<10%) 제외: BIPC, WLK, CENX, TECK, LUV, OMAB, Q, FCX, SM, AA, AMAT, CRUS, FLR, POWL, COLM, MGA, CACC, HSY, GEV, AGX, RGLD, AMG, DVA, ASML, CROX, TM, CGNX, ESE, NE, VAL, ONTO, ATI, VLO, EQIX, ENTG, AMX, MT, KLAC, FTI, CBOE, CWST, TIMB, GM, WFRD, CAMT, ULS, DECK, CRS
+[2026-03-10 13:05:02] [INFO] 저커버리지(<3명) 제외: AUGO, UI, HSBC, SNEX, MUFG, IESC
+[2026-03-10 13:05:02] [INFO] 하향 과다(>30%) 제외: BVN(↑2↓1), ASND(↑4↓9), VICR(↑2↓1), BE(↑15↓7), SQM(↑5↓3), CDE(↑1↓2), NEM(↑6↓6), TFPM(↑5↓3), HBM(↑8↓7), DLR(↑1↓1), LB(↑0↓1), IAG(↑4↓3), B(↑11↓6), SUN(↑2↓2), ALSN(↑1↓2), JHX(↑2↓1), VSEC(↑3↓3), EXAS(↑3↓3), CNC(↑8↓6), SLAB(↑4↓3), AR(↑5↓8), AGI(↑3↓6)
+[2026-03-10 13:05:02] [INFO] 구조적 저마진 제외: DAR(OM8%/GM24%), BTSG(OM3%/GM12%), ARW(OM4%/GM11%), DE(OM9%/GM26%), DELL(OM9%/GM20%), BWXT(OM9%/GM23%), AVT(OM3%/GM11%), MTZ(OM5%/GM13%), PWR(OM5%/GM15%)
+[2026-03-10 13:05:02] [INFO] 영업이익률 부족(<5%) 제외: ROKU(OM5%), SITM(OM3%), IPGP(OM2%), LSCC(OM2%), WELL(OM-28%), FIVE(OM4%)
+[2026-03-10 13:05:02] [INFO] 원자재 제외(업종): WPM, KGC, SCCO, AEM, GFI, BHP, CF, AU, OR, ORLA, RIO, PAAS, FNV, NGD, CNX
+[2026-03-10 13:05:02] [INFO] 디스플레이 Top 5: SNDK(20%), STX(20%), FIX(20%), TSEM(20%), LITE(20%)
+[2026-03-10 13:05:02] [INFO] 매출 데이터 없음 제외: WDC, EQX, DD
+[2026-03-10 13:05:02] [INFO] 매출 성장 부족(<10%) 제외: BIPC, WLK, CENX, TECK, LUV, OMAB, Q, FCX, SM, AA, AMAT, CRUS, FLR, POWL, COLM, MGA, CACC, HSY, GEV, AGX, RGLD, AMG, DVA, ASML, CROX, TM, CGNX, ESE, NE, VAL, ONTO, ATI, VLO, EQIX, ENTG, AMX, MT, KLAC, FTI, CBOE, CWST, TIMB, GM, WFRD, CAMT, ULS, DECK, CRS
+[2026-03-10 13:05:02] [INFO] 저커버리지(<3명) 제외: AUGO, UI, HSBC, SNEX, MUFG, IESC
+[2026-03-10 13:05:02] [INFO] 하향 과다(>30%) 제외: BVN(↑2↓1), ASND(↑4↓9), VICR(↑2↓1), BE(↑15↓7), SQM(↑5↓3), CDE(↑1↓2), NEM(↑6↓6), TFPM(↑5↓3), HBM(↑8↓7), DLR(↑1↓1), LB(↑0↓1), IAG(↑4↓3), B(↑11↓6), SUN(↑2↓2), ALSN(↑1↓2), JHX(↑2↓1), VSEC(↑3↓3), EXAS(↑3↓3), CNC(↑8↓6), SLAB(↑4↓3), AR(↑5↓8), AGI(↑3↓6)
+[2026-03-10 13:05:02] [INFO] 구조적 저마진 제외: DAR(OM8%/GM24%), BTSG(OM3%/GM12%), ARW(OM4%/GM11%), DE(OM9%/GM26%), DELL(OM9%/GM20%), BWXT(OM9%/GM23%), AVT(OM3%/GM11%), MTZ(OM5%/GM13%), PWR(OM5%/GM15%)
+[2026-03-10 13:05:02] [INFO] 영업이익률 부족(<5%) 제외: ROKU(OM5%), SITM(OM3%), IPGP(OM2%), LSCC(OM2%), WELL(OM-28%), FIVE(OM4%)
+[2026-03-10 13:05:02] [INFO] 원자재 제외(업종): WPM, KGC, SCCO, AEM, GFI, BHP, CF, AU, OR, ORLA, RIO, PAAS, FNV, NGD, CNX
+[2026-03-10 13:05:30] [INFO] AI: 시장요약 333자
+[2026-03-10 13:05:55] [INFO] AI: 내러티브 5종목
+[2026-03-10 13:05:57] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-03-10 13:05:57] [INFO] Signal 전송 완료 → 개인봇
+[2026-03-10 13:05:58] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-03-10 13:05:58] [INFO] AI Risk 전송 완료 → 개인봇
+[2026-03-10 13:05:59] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-03-10 13:05:59] [INFO] Watchlist 전송 완료 → 개인봇
+[2026-03-10 13:05:59] [INFO] ETF 캐시 로드: 71개 ETF
+[2026-03-10 13:05:59] [INFO] ETF Forward: 34개 ETF, 24/30 커버
+[2026-03-10 13:05:59] [INFO] ETF Reverse 탐색: ['BOKF', 'CM', 'GMED', 'MOD', 'TSEM', 'TTMI']
+[2026-03-10 13:06:01] [INFO] ETF Forward+Reverse: 24/30 커버
+[2026-03-10 13:06:01] [INFO] ETF Greedy: 12/30 커버, 3개 ETF 선택
+[2026-03-10 13:06:02] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-03-10 13:06:02] [INFO] ETF 추천 전송 완료 → 개인봇
+[2026-03-10 13:06:03] [INFO] 텔레그램 전송 완료 (1개 메시지)
+[2026-03-10 13:06:03] [INFO] 시스템 로그 전송 완료 → 개인봇
+[2026-03-10 13:06:03] [INFO] Git commit/push 시작
+[2026-03-10 13:06:05] [ERROR] Git 오류: Command '['git', 'push', 'origin', 'master']' returned non-zero exit status 1.
+[2026-03-10 13:06:05] [INFO] ============================================================
+[2026-03-10 13:06:05] [INFO] 전체 완료: 364.1초 소요
+[2026-03-10 13:06:05] [INFO] ============================================================

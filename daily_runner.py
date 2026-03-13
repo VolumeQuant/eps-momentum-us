@@ -2312,18 +2312,30 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     if top30.empty:
         return []
 
-    # v55: Top3/Top7 전략 — Top7 내 상위 3종목 진입
+    # v55: Top3/Top7 전략 — w_gap 오름차순 정렬, Top7 내 상위 3종목 진입
+    if score_100_map:
+        top30 = top30.copy()
+        top30['_w_gap'] = top30['ticker'].map(lambda t: score_100_map.get(t, 0))
+        top30 = top30.sort_values('_w_gap', ascending=True).reset_index(drop=True)
     candidates = top30.head(7).copy()  # Top7까지 후보 (필터 제외 대비)
-    top_debug = [(row['ticker'], int(row.get('part2_rank', 0) or idx + 1))
-                 for idx, (_, row) in enumerate(candidates.head(5).iterrows())]
-    log(f"순위 상위 5: {top_debug}")
+    top_debug = [(row['ticker'], round(score_100_map.get(row['ticker'], 0), 1))
+                 for _, row in candidates.head(5).iterrows()] if score_100_map else []
+    log(f"w_gap 상위 5: {top_debug}")
 
-    # 리스크 필터 적용, 최대 3개 선정 (v55: Top3/Top7 전략)
+    # 리스크 필터 + 추세둔화 필터 적용, 최대 3개 선정 (v55: Top3/Top7 전략)
     selected = []
     for _, row in candidates.iterrows():
         if len(selected) >= 3:
             break
         t = row['ticker']
+
+        # 추세둔화 필터: min_seg < -2% 제외
+        segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+        min_seg = min(segs) if segs else 0
+        if min_seg < -2:
+            log(f"  ⛔ 디스플레이 제외 {t}: 추세둔화(min_seg={min_seg:.1f}%)")
+            continue
+
         rev_up = int(row.get('rev_up30', 0) or 0)
         rev_down = int(row.get('rev_down30', 0) or 0)
         num_analysts = int(row.get('num_analysts', 0) or 0)
@@ -3326,8 +3338,21 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         )
         filtered = filtered.sort_values('_weighted').reset_index(drop=True)
 
-    # Top 20만 표시 (v55: 하위 10종목 제거 — 가독성 + 4096자 여유)
-    filtered = filtered.head(20)
+    # 추세둔화(min_seg < -2%) 종목 분리 — 메인 리스트에서 제외
+    health_warn_tickers = []
+    healthy_rows = []
+    for _, row in filtered.iterrows():
+        _segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+        _min_seg = min(_segs) if _segs else 0
+        if _min_seg < -2:
+            health_warn_tickers.append((row['ticker'], _min_seg))
+        else:
+            healthy_rows.append(row)
+    import pandas as pd
+    filtered = pd.DataFrame(healthy_rows).head(20) if healthy_rows else pd.DataFrame()
+
+    if filtered.empty:
+        return None
 
     lines = []
     lines.append('📋 <b>Top 20 종목 현황</b>')
@@ -3348,8 +3373,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('🔥&gt;20% ☀️5~20% 🌤️1~5% ☁️±1% 🌧️&lt;-1%')
     lines.append('━━━━━━━━━━━━━━━')
 
-    # ── 20종목 (4줄 + 구분선) ──
-    health_warn_tickers = []  # min_seg < -2% 종목 수집
+    # ── 종목 리스트 (4줄 + 구분선) ── 추세둔화 종목은 위에서 이미 제외됨
+    num_stocks = len(filtered)
     for idx, (_, row) in enumerate(filtered.iterrows()):
         rank = idx + 1
         ticker = row['ticker']
@@ -3363,11 +3388,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         marker = status_map.get(ticker, '🆕')
         name = _clean_company_name(row.get('short_name', ticker), ticker)
 
-        # min_seg 계산 (EPS 건강도)
-        _segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
-        _min_seg = min(_segs) if _segs else 0
-
-        # L0: 이름·업종 (20자 제한 — 20종목이라 여유)
+        # L0: 이름·업종 (20자 제한)
         short_name = name
         if len(name) > 20:
             words = name.split()
@@ -3380,15 +3401,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         ind_tag = f' · {industry}' if industry else ''
         lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}')
 
-        # L1: EPS추이 아이콘 + 설명 + 추세 둔화 경고
-        health_tag = ''
-        if _min_seg < -2:
-            health_tag = ' ⚠️추세둔화'
-            health_warn_tickers.append((ticker, _min_seg))
+        # L1: EPS추이 아이콘 + 설명
         if lights and desc:
-            lines.append(f'EPS추이 {lights} {desc}{health_tag}')
+            lines.append(f'EPS추이 {lights} {desc}')
         elif lights:
-            lines.append(f'EPS추이 {lights}{health_tag}')
+            lines.append(f'EPS추이 {lights}')
 
         # L2: EPS 전망 · 매출성장 · 괴리
         growth_parts = []
@@ -3418,15 +3435,14 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
 
         # 점선 구분선
-        if rank < 20:
+        if rank < num_stocks:
             lines.append('- - - - -')
 
-    # ── EPS 추세 둔화 ──
+    # ── EPS 추세 둔화 (메인 리스트에서 제외된 종목) ──
     if health_warn_tickers:
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
-        lines.append('⚠️ <b>EPS 추세 둔화</b>')
-        lines.append('EPS 상향 추세가 약해지고 있어요')
+        lines.append('⚠️ <b>EPS 추세 둔화 이탈</b>')
         for t, ms in health_warn_tickers:
             lines.append(f'{t} (최저구간 {ms:.1f}%)')
 
