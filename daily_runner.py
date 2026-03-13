@@ -2335,6 +2335,11 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             flags.append("하향우세")
         if num_analysts < 3:
             flags.append("저커버리지")
+        # 이탈 조건 충족 종목은 진입 제외 (사자마자 다음날 이탈 방지)
+        _segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+        _min_seg = min(_segs) if _segs else 0
+        if _min_seg < -2:
+            flags.append(f"추세둔화({_min_seg:.1f}%)")
 
         if flags:
             log(f"  ⛔ 디스플레이 제외 {t}: {','.join(flags)}")
