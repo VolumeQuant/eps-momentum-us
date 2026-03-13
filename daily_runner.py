@@ -2568,7 +2568,7 @@ def classify_exit_reasons(exited_tickers, results_df):
         cur_rank = composite_map.get(t)
         ag = adj_gap_map.get(t)
         if ag is not None and ag > 5.0:
-            reason = '괴리율↑'
+            reason = '괴리↑'
         elif cur_rank is not None:
             reason = '순위밀림'
         else:
@@ -3099,13 +3099,13 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         rev = _safe_float(s.get('rev_growth'))
         earnings_tag = s.get('earnings_note', '')
 
-        # L0: 이름·업종·괴리율
+        # L0: 이름·업종·괴리
         display_name = _clean_company_name(s["name"], ticker)
         industry = s.get('industry', '')
         ind_str = f' · {industry}' if industry else ''
         gap_str = ''
         if score_100_map and ticker in score_100_map:
-            gap_str = f' · 괴리율 {score_100_map[ticker]:+.1f}%'
+            gap_str = f' · 괴리 {score_100_map[ticker]:+.1f}%'
         lines.append(f'<b>{i+1}. {display_name}({ticker}){ind_str}{gap_str}</b>{earnings_tag}')
 
         # L1: 증거 (EPS 전망 · 매출성장)
@@ -3164,7 +3164,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('순위: 3일 가중순위 (2일전→1일전→오늘)')
-    lines.append('괴리율 상위 종목만 추천에 선정')
+    lines.append('괴리 상위 종목만 선정')
     lines.append('Watchlist 매도 검토선 아래 종목은 매도 검토')
     lines.append('')
     lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
@@ -3326,9 +3326,12 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         )
         filtered = filtered.sort_values('_weighted').reset_index(drop=True)
 
+    # Top 20만 표시 (v55: 하위 10종목 제거 — 가독성 + 4096자 여유)
+    filtered = filtered.head(20)
+
     lines = []
-    lines.append('📋 <b>Top 30 종목 현황</b>')
-    lines.append('상위 30종목과 순위 변동 현황이에요.')
+    lines.append('📋 <b>Top 20 종목 현황</b>')
+    lines.append('상위 20종목과 순위 변동 현황이에요.')
 
     # 섹터 분포 표시
     sector_counts = Counter(row.get('industry', '?') for _, row in filtered.iterrows() if row.get('industry'))
@@ -3371,21 +3374,18 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             lines.append('── 매도 검토선 ──')
             sell_line_drawn = True
 
-        # L0: 이름·업종 (14자 제한 — 30종목이라 compact)
+        # L0: 이름·업종 (20자 제한 — 20종목이라 여유)
         short_name = name
-        if len(name) > 14:
+        if len(name) > 20:
             words = name.split()
             short_name = words[0]
             for w in words[1:]:
-                if len(short_name) + 1 + len(w) <= 14:
+                if len(short_name) + 1 + len(w) <= 20:
                     short_name += ' ' + w
                 else:
                     break
         ind_tag = f' · {industry}' if industry else ''
-        gap_tag = ''
-        if score_100_map and ticker in score_100_map:
-            gap_tag = f' · <b>괴리율 {score_100_map[ticker]:+.1f}%</b>'
-        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}{gap_tag}')
+        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}')
 
         # L1: EPS추이 아이콘 + 설명 + 추세 둔화 경고
         health_tag = ''
@@ -3397,12 +3397,14 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         elif lights:
             lines.append(f'EPS추이 {lights}{health_tag}')
 
-        # L2: EPS 전망 · 매출성장
+        # L2: EPS 전망 · 매출성장 · 괴리
         growth_parts = []
         if eps_90d is not None and pd.notna(eps_90d):
             growth_parts.append(f'EPS 전망 {int(round(eps_90d)):+d}%')
         if rev_g is not None and pd.notna(rev_g):
             growth_parts.append(f'매출성장 {int(round(rev_g * 100)):+d}%')
+        if score_100_map and ticker in score_100_map:
+            growth_parts.append(f'괴리 {score_100_map[ticker]:+.1f}%')
         lines.append(' · '.join(growth_parts))
 
         # L3: 의견 + 순위
@@ -3423,7 +3425,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
 
         # 점선 구분선
-        if rank < 30:
+        if rank < 20:
             lines.append('- - - - -')
 
     # ── EPS 추세 둔화 ──
