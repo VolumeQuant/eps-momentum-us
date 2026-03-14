@@ -1,0 +1,18 @@
+
+13 Failed downloads:
+['TDG']: Timeout('Failed to perform, curl: (28) Connection timed out after 10607278 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+['APO']: Timeout('Failed to perform, curl: (28) Operation timed out after 10607322 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+['EVR']: Timeout('Failed to perform, curl: (28) Connection timed out after 10607256 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+['PEP']: Timeout('Failed to perform, curl: (28) Resolving timed out after 10607168 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+['RGC', 'FAF']: Timeout('Failed to perform, curl: (28) Operation timed out after 10607398 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+['PANW']: Timeout('Failed to perform, curl: (28) Connection timed out after 10607232 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+['RBA']: Timeout('Failed to perform, curl: (28) Resolving timed out after 10607169 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+['CPRT']: Timeout('Failed to perform, curl: (28) Connection timed out after 10607284 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+['GSK']: Timeout('Failed to perform, curl: (28) Operation timed out after 10607448 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+['PBA']: Timeout('Failed to perform, curl: (28) Connection timed out after 10607265 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+['THG']: Timeout('Failed to perform, curl: (28) Operation timed out after 10607389 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+['KRMN']: ConnectionError('Failed to perform, curl: (56) Connection closed abruptly. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: EAI"}}}
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: EMP"}}}
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"No fundamentals data found for symbol: GJS"}}}
+^C

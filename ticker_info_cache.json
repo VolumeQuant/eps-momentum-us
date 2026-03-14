@@ -5270,5 +5270,9 @@
   "LBRT": {
     "shortName": "LBRT",
     "industry": "기타"
+  },
+  "NIO": {
+    "shortName": "NIO",
+    "industry": "기타"
   }
 }
