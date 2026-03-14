@@ -513,7 +513,18 @@ def get_trend_lights(seg1, seg2, seg3, seg4):
                     else:
                         base = '상향 가속'
                 else:  # seg3/seg4(초반)가 피크
-                    base = '상향 둔화'
+                    # 단조감소 체크: 피크 이후 계속 하락
+                    mono_decline = all(
+                        segs[j] > segs[j + 1] + 0.5
+                        for j in range(peak_idx, 3)
+                    )
+                    if mono_decline and segs[3] <= 5:
+                        # 계속 하락 + 최근 ☀️ 미만 → 진짜 둔화
+                        base = '상향 둔화'
+                    elif min(segs[2:]) > 1:  # 최근 🌤️ 이상
+                        base = '중반 강세'
+                    else:
+                        base = '상향 둔화'
     elif old_neg > old_pos and recent_pos > recent_neg and recent_avg > old_avg:
         base = '반등'
     elif old_pos > old_neg and recent_neg > recent_pos and old_avg > recent_avg:
