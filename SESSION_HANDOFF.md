@@ -40,7 +40,7 @@
 > **v35**: 2026-02-20 집 PC — 가중순위 기반 Top 30 선정
 > **v53**: 2026-03-12 — EPS 추세 일관성 보정 (B correction) → v54에서 롤백
 > **v54**: 2026-03-13 — eps_quality 팩터 도입, B correction 대체, 임계값 재보정: eligible 전체에서 T0×0.5+T1×0.3+T2×0.2로 Top 30 경계 결정, 과거 8일 DB 재계산
-> **v55**: 2026-03-13 — eps_quality 재설계(ecw→min_seg), Top3/Top7 전략, ⚠️추세둔화 경고, Watchlist Top20, 괴리율→괴리, 운영 규칙 표시
+> **v55**: 2026-03-13~14 — eps_quality 재설계(ecw→min_seg), Top3/Top7 전략, ⚠️추세둔화 경고, Watchlist Top20, 괴리율→괴리, 운영 규칙 표시, DB 전체 재계산, 추세설명 둔화판정 개선, 날씨 임계값 검토(현행 유지)
 > **v35.1**: 2026-02-20 집 PC — composite_rank 분리: DB에 composite_rank 컬럼 추가, 가중순위는 항상 composite에서 계산 (누적 방지)
 > **v35.2**: 2026-02-20 집 PC — 데이터 일관성 확보: rev_growth backfill + recalc_ranks composite_rank 저장 + 한국 프로젝트 교차 검증
 > **v35.3**: 2026-02-20 집 PC — 어닝 일정 수정: .calendar Rate Limit → .info earningsTimestamp 활용 + 장후(16시 ET) 발표 +1일 보정
@@ -4161,3 +4161,29 @@ else:              eps_q = 0.7  # 한 구간이라도 꺾임
 - `bt_trend_exit.py`: seg1 이탈 필터 백테스트
 - `bt_trend_pattern.py`: 패턴 기반 진입 필터 (불채택 — 보유 중 패턴 변경)
 - `bt_entry_filter_check.py`: 진입 시 min_seg<-2% 스킵 효과 검증 (Top3/Top7에서 불필요 확인)
+
+### DB 마이그레이션 (2026-03-14)
+- `migrate_v55_eps_quality.py`: 전체 과거 adj_gap에 eps_quality(min_seg 기반) 적용 + composite_rank + part2_rank 재계산
+  - Step 1: `new_adj_gap = old_adj_gap × eps_q` (24,837행)
+  - Step 2: composite_rank 재정렬 (adj_gap 오름차순, 날짜별)
+  - Step 3: part2_rank 재계산 (w_gap 기반 Top 30)
+  - eps_q 분포: 0.7=15,061(61%), 1.0=9,471(38%), 1.3=305(1%)
+  - Git 원본 DB(`a519887`)와 교차 검증 완료 (3개 tier 모두 0 mismatches)
+
+### 추세 설명 "둔화" 판정 개선 (2026-03-14)
+- **문제**: SNDK ☀️🔥☀️☀️ (seg4=8.5, seg3=86.7, seg2=7.0, seg1=6.4) → "급등 후 둔화"로 분류
+  - seg3가 86.7%로 피크 → 이후 seg2/seg1이 낮아 "둔화"로 판정
+  - 하지만 seg1=6.4%는 ☀️(>5%) — 여전히 강한 상향 구간인데 "둔화"는 부적절
+- **해법**: `get_trend_lights()` (eps_momentum_system.py) 수정
+  - 기존: seg3/seg4가 피크면 무조건 "상향 둔화"
+  - 변경: (1) 단조감소(monotonic decline) **AND** (2) seg1 ≤ 5% 동시 충족 시에만 "둔화"
+  - seg1 > 5%(☀️ 이상)이면 → "중반 강세" 또는 "중반 급등"
+- **결과**: SNDK "급등 후 둔화" → "중반 급등" | MU 🔥☀️☀️🌤️ "급등 후 둔화" 유지 (정확)
+
+### 날씨 아이콘 임계값 검토 (2026-03-14)
+- **현행**: 🔥>20% ☀️>5% 🌤️>1% ☁️±1% 🌧️<-1% (전 구간 동일)
+- **검토 배경**: seg1이 7일 구간이라 구조적으로 변화율 작음 → seg1에만 다른 임계값?
+- **Top 20 분포 분석**: 🔥5% ☀️28% 🌤️42% ☁️23% 🌧️0% — 합리적
+- **seg1 특성**: 53% ☁️ (7일 vs 23~30일 구간) — 구조적 특성, 임계값 문제 아님
+- **차별력**: Top20 sunny(🔥+☀️) 33% vs 전체 시장 6% = 27%p → 충분
+- **결론**: 현행 임계값 유지 확정 (대안 3개 시뮬레이션 후 부작용 확인)
