@@ -591,18 +591,13 @@ def run_ntm_collection(config):
             #   dir_factor: EPS 가속도 (가속 → 보너스, 감속 → 페널티) [-0.3, 0.3]
             #   eps_quality: EPS 4구간 일관성 (min_seg 기반) [0.7, 1.3]
             #     min_seg ≥ 2% → 1.3 (전 구간 고른 상향)
-            #     min_seg ≥ 0% → 1.0 (중립)
-            #     min_seg < 0% → 0.7 (한 구간이라도 꺾임)
+            #     연속함수: eps_q = 1.0 + 0.3 × clamp(min_seg/2, -1, 1)
+            #     min_seg ≤ -2% → 0.7, min_seg = 0% → 1.0, min_seg ≥ 2% → 1.3
             adj_gap = None
             if fwd_pe_chg is not None and direction is not None:
                 dir_factor = max(-0.3, min(0.3, direction / 30))
                 min_seg = min(seg1 or 0, seg2 or 0, seg3 or 0, seg4 or 0)
-                if min_seg >= 2:
-                    eps_q = 1.3
-                elif min_seg >= 0:
-                    eps_q = 1.0
-                else:
-                    eps_q = 0.7
+                eps_q = 1.0 + 0.3 * max(-1, min(1, min_seg / 2))
                 adj_gap = fwd_pe_chg * (1 + dir_factor) * eps_q
 
             row = {
