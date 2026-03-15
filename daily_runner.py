@@ -3532,16 +3532,18 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         for t, ms in health_warn_tickers:
             lines.append(f'{t} (최저구간 {ms:.1f}%)')
 
-    # ── 순위 이탈 ──
+    # ── 순위 이탈 (사유별 묶어서 표시) ──
     if exit_reasons:
+        from collections import defaultdict
+        reason_groups = defaultdict(list)
+        for t, _, reason in exit_reasons:
+            reason_groups[reason or '순위밀림'].append(t)
+        parts = []
+        for reason, tickers in reason_groups.items():
+            parts.append(f'{"·".join(tickers)}({reason})')
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
-        lines.append('📉 <b>순위 이탈</b>')
-        for t, cur_rank, reason in exit_reasons:
-            if cur_rank is not None:
-                lines.append(f'{t} {cur_rank}위 [{reason}]')
-            else:
-                lines.append(f'{t} [{reason}]')
+        lines.append(f'📉 이탈: {" ".join(parts)}')
 
     # ── 범례 ──
     lines.append('')
