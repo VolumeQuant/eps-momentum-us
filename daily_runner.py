@@ -3418,7 +3418,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         )
         filtered = filtered.sort_values('_weighted').reset_index(drop=True)
 
-    # 추세둔화(min_seg < -2%) 종목 분리 — 메인 리스트에서 제외
+    # 매수 가능 종목만 표시 (min_seg >= 0%) — Signal 진입 기준과 통일
+    # 추세둔화(min_seg < -2%) 종목은 ⚠️ 섹션에 별도 표시
     health_warn_tickers = []
     healthy_rows = []
     for _, row in filtered.iterrows():
@@ -3426,8 +3427,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         _min_seg = min(_segs) if _segs else 0
         if _min_seg < -2:
             health_warn_tickers.append((row['ticker'], _min_seg))
-        else:
+        elif _min_seg >= 0:
             healthy_rows.append(row)
+        # -2% ≤ min_seg < 0%: 매수 불가지만 심각하지 않으므로 표시 안 함
     import pandas as pd
     filtered = pd.DataFrame(healthy_rows).head(20) if healthy_rows else pd.DataFrame()
 
