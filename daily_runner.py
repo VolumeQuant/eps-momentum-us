@@ -3115,7 +3115,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'S&P·나스닥·MidCap {uni}종목')
         lines.append(f'→ EPS 상향 {filter_count}종목' if filter_count else '→ EPS 상향 스크리닝')
     lines.append('→ 원자재·저마진 업종 제외')
-    lines.append(f'→ EPS는 오르는데 주가가 덜 오른 {len(selected)}종목 선정')
+    lines.append(f'→ 실적은 좋아지는데 주가가 덜 오른 상위 {len(selected)}종목')
 
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
@@ -3193,12 +3193,12 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('괴리: 실적 대비 주가 저평가도 (음수=저평가)')
-    lines.append('매수: 실적 대비 가장 저평가된 3종목')
-    lines.append('매도: 순위 15위 밖 · EPS 추세 반전 · −10% 손절')
+    lines.append('괴리: EPS 전망 상승분 대비 주가가 얼마나 덜 올랐는지 (음수일수록 저평가)')
+    lines.append('매수 기준: 괴리가 가장 큰 상위 3종목 (최대 보유 3종목)')
+    lines.append('매도 기준: 순위 15위 밖 | EPS 하향 전환 | −10% 손절')
     lines.append('')
-    lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
-    lines.append('포트폴리오 비중은 투자자의 판단입니다.')
+    lines.append('본 순위는 종목 선별 기준이며,')
+    lines.append('매수 비중과 시점은 투자자 본인의 판단입니다.')
 
     return '\n'.join(lines)
 
@@ -3541,11 +3541,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 운영 규칙')
-    lines.append('매수: 실적 대비 가장 저평가된 3종목')
-    lines.append('매도: 순위 15위 밖 · EPS 추세 반전 · −10% 손절')
+    lines.append('매수: 괴리가 가장 큰 상위 3종목 선정 (최대 3종목 보유)')
+    lines.append('매도: 순위 15위 밖 · EPS 하향 전환 · −10% 손절')
     lines.append('')
-    lines.append('순위: 실적 대비 저평가도 기준 (3일 평균)')
-    lines.append('괴리: 실적 대비 주가 저평가도 (음수=저평가)')
+    lines.append('순위: EPS 전망 상승 대비 주가 저평가 순서 (3일 가중 평균)')
+    lines.append('괴리: 음수가 클수록 실적 대비 주가가 덜 오른 상태')
 
     return '\n'.join(lines)
 
