@@ -2312,24 +2312,19 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     if top30.empty:
         return []
 
-    # v58: part2_rank(w_gap 기반) 오름차순 정렬
+    # v58: w_gap(score_100_map) 오름차순 정렬 — DB part2_rank 대신 직접 계산
     candidates = top30.copy()
-    candidates = candidates.sort_values('adj_gap', ascending=True).reset_index(drop=True)
+    if score_100_map:
+        candidates['_wgap'] = candidates['ticker'].map(lambda t: score_100_map.get(t, 0))
+        candidates = candidates.sort_values('_wgap', ascending=True).reset_index(drop=True)
+    else:
+        candidates = candidates.sort_values('adj_gap', ascending=True).reset_index(drop=True)
 
-    # part2_rank 가져오기 (w_gap 순위)
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        'SELECT ticker, part2_rank FROM ntm_screening WHERE date=(SELECT MAX(date) FROM ntm_screening WHERE part2_rank IS NOT NULL) AND part2_rank IS NOT NULL'
-    )
-    p2r_map = {r[0]: r[1] for r in cursor.fetchall()}
-    conn.close()
+    # w_gap 순위 맵 (1-based)
+    p2r_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(candidates.iterrows())}
 
-    # part2_rank 순 정렬
-    candidates['_p2r'] = candidates['ticker'].map(lambda t: p2r_map.get(t, 999))
-    candidates = candidates.sort_values('_p2r', ascending=True).reset_index(drop=True)
-
-    top_debug = [(row['ticker'], int(row['_p2r']), round(float(row.get('adj_gap', 0) or 0), 1))
+    top_debug = [(row['ticker'], p2r_map.get(row['ticker'], 999),
+                  round(float(score_100_map.get(row['ticker'], 0)) if score_100_map else float(row.get('adj_gap', 0) or 0), 1))
                  for _, row in candidates.head(7).iterrows()]
     log(f"w_gap 순위 상위 7: {top_debug}")
 
