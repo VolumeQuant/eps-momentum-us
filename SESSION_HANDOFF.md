@@ -76,6 +76,7 @@
 > **v57b**: 2026-03-15 집 PC — 실적 따라잡기 전략: rank 기반 → threshold 기반 전환. adj_gap≤-4% + min_seg≥1% 진입, min_seg<0% + -10% stop 이탈. w_gap 제거 → raw adj_gap. part2_rank 재계산 (migrate_v57b_raw_adjgap.py). 고객설명: "EPS 올라가는데 주가 안 따라간 종목 매수, 추세 꺾이면 매도"
 > **v58**: 2026-03-15 집 PC — w_gap Top3/Top15 전략: threshold→rank 기반 복귀. w_gap(3일 가중 adj_gap) 순위 Top3 진입(ms≥0%) + Top15 이탈(ms<-2%/-10% stop). part2_rank를 w_gap 기준 재계산 (migrate_v58_wgap_rank.py). 16개 시작일 평균 최선(-0.5%). Top3>>Top5, 좁은이탈선>>넓은이탈선 일관
 > **v64**: 2026-03-15 집 PC — 신용·변동성 메시지 리디자인: 1줄 결론(bold) + 개별 근거. HY 우선 종합 판정(🟢🟡🟠🔴). 내부 용어(Q3 가을/과열국면) → 고객 용어(주의). 퍼센타일 → "상위 N%, 매우 높음". 방향 화살표 제거
+> **v58b**: 2026-03-15 집 PC — min_seg<-2% 순위 전 제외 + 메시지 UX 개선: save_part2_ranks()에서 min_seg<-2% 종목 composite_rank 부여 전 제외(FTAI 1위 버그 수정), DB 전체 재계산(migrate_v58b), select_display_top5() w_gap 직접정렬(DB part2_rank 대신), Watchlist ⚠️추세주의(-2%≤min_seg<0%), 이탈 사유별 그룹 표시(Signal과 통일), 푸터 줄바꿈 방지(≤23자), 내부 용어(w_gap) 고객 메시지에서 제거, Top20 이탈 기준선
 
 ---
 
@@ -4324,3 +4325,38 @@ else:              eps_q = 0.7  # 한 구간이라도 꺾임
   - vs SPY: -2.2%, MDD -3.9% (수익률 우위, MDD 3.7배 열위)
 - **코드 변경**: select_display_top5(), select_portfolio_stocks(), Signal/Watchlist 푸터
 - **손절**: 시스템은 순위 이탈만 표시, −10% 손절은 투자자 판단 (진입가는 사용자마다 다름)
+
+---
+
+## v58b — min_seg 순위 전 제외 + 메시지 UX 개선 (2026-03-15)
+
+### 배경
+- FTAI가 min_seg<-2%인데 1위로 표시: min_seg 필터가 표시 시점에만 적용, 순위 부여 전에는 미적용
+- Signal/Watchlist 순위 불일치: select_display_top5()가 DB part2_rank(MAX(date)) 조회 → 과거 메시지 생성 시 잘못된 날짜 순위 참조
+- 내부 용어(w_gap) 고객 메시지에 노출
+- 푸터 텔레그램 모바일에서 줄바꿈
+- Watchlist 이탈 섹션 종목별 표시 불일치 (어떤 건 순위 있고 어떤 건 없음)
+
+### 핵심 변경 1: min_seg<-2% 순위 전 제외
+- `save_part2_ranks()`: composite_rank 부여 전에 min_seg<-2% 종목 필터링
+- DB 마이그레이션: `migrate_v58b_min_seg_filter.py` — 21거래일 전체 composite_rank + part2_rank 재계산
+- 결과: 446 종목 제외, 2077 composite 변경, 277 part2_rank 변경
+
+### 핵심 변경 2: select_display_top5() w_gap 직접정렬
+- DB part2_rank 조회 대신 score_100_map(w_gap) 직접 정렬
+- Signal/Watchlist 순위 일치 보장 (과거 날짜 메시지에서도)
+
+### 핵심 변경 3: Watchlist ⚠️ 추세주의
+- -2% ≤ min_seg < 0%: healthy_rows에 포함하되 ⚠️ 마크 표시
+- 범례: "⚠️: 추세 약화, 보유시 추이 확인"
+- 기존 "실적둔화"(과도한 표현) → "추세주의"로 변경
+
+### 핵심 변경 4: 이탈 섹션 사유별 그룹
+- Watchlist 이탈: 종목별 개별 표시 → Signal과 동일한 사유별 그룹
+- 형식: `📉 이탈: LITE·COHR(순위밀림) RL(MA120↓)`
+
+### 핵심 변경 5: 메시지 UX 정비
+- 푸터 전체 ≤23자 (텔레그램 모바일 줄바꿈 방지)
+- 내부 용어(w_gap 순위 기준) 제거
+- Top20 이탈 기준선 (기존 Top30)
+- `send_historical_messages.py` 신규: DB 기존 데이터로 과거 날짜 메시지 생성+발송
