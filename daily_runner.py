@@ -3194,12 +3194,12 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('괴리: 음수가 클수록 실적 대비 주가 저평가')
-    lines.append('매수: 상위 3종목 (최대 3종목 보유)')
-    lines.append('매도: 15위 밖 · 실적 하락 전환 · −10% 손절')
+    lines.append('괴리: 음수 클수록 주가 저평가')
+    lines.append('매수: 상위 3종목 (최대 3종목)')
+    lines.append('매도: 15위 밖 · 실적하락 · -10%')
     lines.append('')
     lines.append('※ 종목 선별 기준이며,')
-    lines.append('매수 비중과 시점은 본인 판단으로 결정하시기 바랍니다.')
+    lines.append('비중과 시점은 본인 판단입니다.')
 
     return '\n'.join(lines)
 
@@ -3547,11 +3547,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 운영 규칙')
-    lines.append('매수: 상위 3종목 (최대 3종목 보유)')
-    lines.append('매도: 15위 밖 · 실적 하락 전환 · −10% 손절')
-    lines.append('⚠️: 추세 약화 — 신규매수 불가, 보유시 추이 확인')
-    lines.append('괴리: 음수 클수록 실적 대비 주가 저평가')
-    lines.append('순위: 실적 대비 주가 저평가 순 (3일 평균)')
+    lines.append('매수: 상위 3종목 (최대 3종목)')
+    lines.append('매도: 15위 밖 · 실적하락 · -10%')
+    lines.append('⚠️: 추세 약화, 보유시 추이 확인')
+    lines.append('괴리: 음수 클수록 주가 저평가')
+    lines.append('순위: 주가 저평가 순 (3일 평균)')
 
     return '\n'.join(lines)
 
