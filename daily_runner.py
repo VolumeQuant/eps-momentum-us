@@ -1084,12 +1084,11 @@ def get_forward_test_summary(today_str):
 
 
 def save_part2_ranks(results_df, today_str):
-    """Part 2 eligible 종목 저장 — composite_rank + w_gap Top 30
+    """Part 2 eligible 종목 저장 — composite_rank + adj_gap Top 30 (v57b)
 
     1. 전체 eligible의 당일 adj_gap 순위 → composite_rank 컬럼에 저장
-    2. T-1/T-2의 adj_gap으로 w_gap(가중 괴리율) 계산
-    3. w_gap 상위 30개 → part2_rank 저장
-    Returns: Top 30 티커 리스트 (w_gap 순)
+    2. adj_gap 오름차순 상위 30개 → part2_rank 저장 (raw adj_gap 사용)
+    Returns: Top 30 티커 리스트 (adj_gap 순)
     """
     all_candidates = get_part2_candidates(results_df, top_n=None)
     if all_candidates.empty:
@@ -1111,49 +1110,14 @@ def save_part2_ranks(results_df, today_str):
             (crank, today_str, ticker)
         )
 
-    # 2. 이전 날짜의 adj_gap 조회
-    cursor.execute(
-        'SELECT DISTINCT date FROM ntm_screening WHERE composite_rank IS NOT NULL AND date < ? ORDER BY date DESC LIMIT 2',
-        (today_str,)
-    )
-    prev_dates = sorted([r[0] for r in cursor.fetchall()])
-
-    gap_by_date = {}
-    for d in prev_dates:
-        cursor.execute(
-            'SELECT ticker, adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
-            (d,)
-        )
-        gap_by_date[d] = {r[0]: r[1] for r in cursor.fetchall()}
-
-    t1 = prev_dates[-1] if len(prev_dates) >= 1 else None
-    t2 = prev_dates[-2] if len(prev_dates) >= 2 else None
-
-    # 오늘 adj_gap
-    today_gaps = {}
-    for _, row in all_candidates.iterrows():
-        t = row['ticker']
-        today_gaps[t] = row.get('adj_gap', 0) or 0
-
-    # 3. w_gap = adj_gap_T0 × 0.5 + adj_gap_T1 × 0.3 + adj_gap_T2 × 0.2
-    weighted = {}
-    for ticker in composite_ranks:
-        g0 = today_gaps.get(ticker, 0)
-        g1 = gap_by_date.get(t1, {}).get(ticker, 0) if t1 else 0
-        g2 = gap_by_date.get(t2, {}).get(ticker, 0) if t2 else 0
-        weighted[ticker] = g0 * 0.5 + g1 * 0.3 + g2 * 0.2
-
-    # v54: B correction 제거 — adj_gap 계산 시점에 eps_quality가 이미 반영됨
-    # w_gap은 단순 가중평균만 수행
-
-    # 4. w_gap 오름차순 정렬 (가장 음수 = 가장 저평가) → Top 30
-    sorted_tickers = sorted(weighted.items(), key=lambda x: x[1])
+    # 2. adj_gap 오름차순 Top 30 → part2_rank (v57b: raw adj_gap 사용)
+    sorted_tickers = sorted(composite_ranks.items(), key=lambda x: x[1])
     top30 = sorted_tickers[:30]
 
-    # 5. part2_rank 저장 (Top 30만)
+    # part2_rank 저장 (Top 30만)
     cursor.execute('UPDATE ntm_screening SET part2_rank=NULL WHERE date=?', (today_str,))
     top30_tickers = []
-    for rank, (ticker, w) in enumerate(top30, 1):
+    for rank, (ticker, _) in enumerate(top30, 1):
         cursor.execute(
             'UPDATE ntm_screening SET part2_rank=? WHERE date=? AND ticker=?',
             (rank, today_str, ticker)
@@ -1162,7 +1126,7 @@ def save_part2_ranks(results_df, today_str):
 
     conn.commit()
     conn.close()
-    log(f"Part 2 rank 저장: {len(top30_tickers)}개 종목 (w_gap Top 30, eligible {len(composite_ranks)}개)")
+    log(f"Part 2 rank 저장: {len(top30_tickers)}개 종목 (adj_gap Top 30, eligible {len(composite_ranks)}개)")
     return top30_tickers
 
 
@@ -1278,8 +1242,9 @@ def get_rank_history(today_tickers, today_str=None):
 
 
 def compute_weighted_ranks(today_tickers, today_str=None):
-    """3일 가중 순위 계산 — composite_rank 기반 (v52: adj_gap 순서)
+    """3일 순위 궤적 — composite_rank 기반 (Watchlist 표시용)
     T0 × 0.5 + T1 × 0.3 + T2 × 0.2
+    v57b: 매매 판단에는 미사용, 순위 변동 표시 전용
     Returns: {ticker: {'weighted': float, 'r0': int, 'r1': int, 'r2': int}}
     """
     conn = sqlite3.connect(DB_PATH)
@@ -2284,9 +2249,9 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         earnings_map=None, risk_status=None, score_100_map=None):
-    """Signal 메시지용 종목 선정 (v55: Top3/Top7 전략, 최대 3종목)
+    """Signal 메시지용 종목 선정 (v57b: adj_gap ≤ -4% + min_seg ≥ 1%, 최대 3종목)
 
-    part2_rank 상위 3종목, Top7 내 후보, 리스크 필터 적용.
+    실적 전망 대비 저평가(adj_gap ≤ -4%) + EPS 추세 건강(min_seg ≥ 1%) 종목만 진입.
     """
     if earnings_map is None:
         earnings_map = {}
@@ -2307,28 +2272,30 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     if top30.empty:
         return []
 
-    # v55: Top3/Top7 전략 — w_gap 오름차순 정렬, Top7 내 상위 3종목 진입
-    if score_100_map:
-        top30 = top30.copy()
-        top30['_w_gap'] = top30['ticker'].map(lambda t: score_100_map.get(t, 0))
-        top30 = top30.sort_values('_w_gap', ascending=True).reset_index(drop=True)
-    candidates = top30.head(7).copy()  # Top7까지 후보 (필터 제외 대비)
-    top_debug = [(row['ticker'], round(score_100_map.get(row['ticker'], 0), 1))
-                 for _, row in candidates.head(5).iterrows()] if score_100_map else []
-    log(f"w_gap 상위 5: {top_debug}")
+    # v57b: raw adj_gap 오름차순 정렬
+    candidates = top30.copy()
+    candidates = candidates.sort_values('adj_gap', ascending=True).reset_index(drop=True)
+    top_debug = [(row['ticker'], round(float(row.get('adj_gap', 0) or 0), 1))
+                 for _, row in candidates.head(7).iterrows()]
+    log(f"adj_gap 상위 7: {top_debug}")
 
-    # 리스크 필터 + 추세둔화 필터 적용, 최대 3개 선정 (v55: Top3/Top7 전략)
+    # v57b 진입: adj_gap ≤ -4% + min_seg ≥ 1% + 리스크 필터, 최대 3종목
     selected = []
     for _, row in candidates.iterrows():
         if len(selected) >= 3:
             break
         t = row['ticker']
+        adj_gap = float(row.get('adj_gap', 0) or 0)
 
-        # 추세둔화 필터: min_seg < -2% 제외
+        # v57b 진입 조건: adj_gap ≤ -4%
+        if adj_gap > -4:
+            continue
+
+        # v57b 진입 조건: min_seg ≥ 1%
         segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
         min_seg = min(segs) if segs else 0
-        if min_seg < -2:
-            log(f"  ⛔ 디스플레이 제외 {t}: 추세둔화(min_seg={min_seg:.1f}%)")
+        if min_seg < 1:
+            log(f"  ⛔ 디스플레이 제외 {t}: min_seg={min_seg:.1f}% (< 1%)")
             continue
 
         rev_up = int(row.get('rev_up30', 0) or 0)
@@ -2367,12 +2334,11 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
 
 def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
                             earnings_map=None, risk_status=None, today_str=None):
-    """포트폴리오 종목 선정 — Top 3 진입, Top 7 이탈 매도 (v55)
+    """포트폴리오 종목 선정 — v57b (미사용, 참조용)
 
     전략:
-    - 보유 종목: Top 7 내 유지 시 계속 보유 (리스크 필터 미적용)
-    - 추가 이탈: 보유 중 min_seg < -2% → 매도 (EPS 건강도 악화)
-    - 신규 진입: ✅ 검증 + 리스크 필터 통과 + 가중순위 상위
+    - 진입: adj_gap ≤ -4%, min_seg ≥ 1%, 상위 3종목
+    - 이탈: min_seg < 0% / -10% 손절, 순위 기반 이탈 없음
     - 최대 3종목, 동일 비중
 
     Returns: (selected, portfolio_mode, concordance, final_action)
@@ -2396,26 +2362,26 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
         log(f"포트폴리오: portfolio_mode=stop → 추천 중단 ({final_action})")
         return [], portfolio_mode, concordance, final_action
 
-    # Top 30 (하드 필터 적용, ✅ 필터 전) — Watchlist용 유지, 이탈은 Top 7 기준
+    # Top 30 (하드 필터 적용, ✅ 필터 전) — Watchlist용 유지, 이탈은 Top 20 기준
     top30 = get_part2_candidates(results_df, top_n=30)
     if top30.empty:
         return [], portfolio_mode, concordance, final_action
 
-    top7_tickers = set(top30.head(7)['ticker'].tolist())
+    top20_tickers = set(top30.head(20)['ticker'].tolist())
 
-    # ── 어제 보유 → Top 7 유지 시 홀드 (v55: Top3/Top7) ──
+    # ── 어제 보유 → Top 20 유지 시 홀드 (v57b: 미사용, 참조용) ──
     prev_holdings = _get_prev_portfolio(today_str)
 
-    # 1차 이탈: Top 7 밖
-    holds_in_top7 = [t for t in prev_holdings if t in top7_tickers]
-    exited_rank = [t for t in prev_holdings if t not in top7_tickers]
+    # 1차 이탈: Top 20 밖
+    holds_in_top20 = [t for t in prev_holdings if t in top20_tickers]
+    exited_rank = [t for t in prev_holdings if t not in top20_tickers]
     if exited_rank:
-        log(f"  📤 Top7 이탈: {', '.join(exited_rank)}")
+        log(f"  📤 Top20 이탈: {', '.join(exited_rank)}")
 
     # 2차 이탈: min_seg < -2% (EPS 건강도 악화)
     hold_entries = []
     exited_health = []
-    for t in holds_in_top7:
+    for t in holds_in_top20:
         row = top30[top30['ticker'] == t]
         if row.empty:
             continue
@@ -2432,7 +2398,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
             continue
         entry = _build_portfolio_entry(row, status_map, earnings_map)
         hold_entries.append(entry)
-        log(f"  🔄 {t}: HOLD (Top7 유지) gap={_safe_float(row.get('adj_gap')):+.1f} desc={row.get('trend_desc', '')}")
+        log(f"  🔄 {t}: HOLD (Top20 유지) gap={_safe_float(row.get('adj_gap')):+.1f} desc={row.get('trend_desc', '')}")
 
     if exited_health:
         log(f"  📤 건강도 이탈: {', '.join(exited_health)}")
@@ -2440,7 +2406,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
     # ── 신규 진입 후보 (✅ + 리스크 필터) ──
     verified_tickers = {t for t, s in status_map.items() if s == '✅'} if status_map else set()
 
-    max_stocks = 3  # v55: Top3/Top7 전략 — 항상 3종목
+    max_stocks = 3  # v57b: 최대 3종목 (미사용 함수)
     vacancies = max(0, max_stocks - len(hold_entries))
 
     new_entries = []
@@ -2495,8 +2461,8 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
         log("포트폴리오: 보유+신규 종목 없음", "WARN")
         return [], portfolio_mode, concordance, final_action
 
-    if len(selected) < 3:
-        log(f"포트폴리오: 선정 종목 부족 ({len(selected)}개)", "WARN")
+    if len(selected) < 1:
+        log(f"포트폴리오: 선정 종목 없음", "WARN")
         return [], portfolio_mode, concordance, final_action
 
     # 가중 순위로 정렬 (표시 순서)
@@ -2508,7 +2474,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
     log("포트폴리오: 가중 순위 (T0×0.5 + T1×0.3 + T2×0.2):")
     for i, s in enumerate(selected):
         w = s.get('_weighted', '-')
-        tag = '🔄' if s['ticker'] in holds_in_top30 else '🆕'
+        tag = '🔄' if s['ticker'] in holds_in_top20 else '🆕'
         log(f"    {i+1}. {tag} {s['ticker']}: 가중={w} gap={s['adj_gap']:+.1f} adj={s['adj_score']:.1f} {s['desc']} [{s['industry']}]")
 
     # 동일 비중
@@ -2554,7 +2520,7 @@ def classify_exit_reasons(exited_tickers, results_df):
         composite_map[t] = int(cr)
     conn.close()
 
-    # adj_gap 맵 (v52: 괴리율 기반 매도 신호)
+    # adj_gap 맵 (괴리율 참조)
     adj_gap_map = {}
     conn2 = sqlite3.connect(DB_PATH)
     cursor2 = conn2.cursor()
@@ -2945,35 +2911,22 @@ def _build_top5_streak(today_str=None):
 
 
 def _build_score_100_map(today_str=None):
-    """3일 가중 adj_gap 맵 (v52). 음수=저평가, 양수=고평가.
+    """당일 raw adj_gap 맵 (v57b). 음수=저평가, 양수=고평가.
 
-    weighted_gap = T0×0.5 + T1×0.3 + T2×0.2
-    Returns: {ticker: float(가중 adj_gap %)}
+    v57b: 3일 가중평균(w_gap) 제거 → 당일 adj_gap만 사용
+    Returns: {ticker: float(adj_gap %)}
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    dates = _get_recent_dates(cursor, 'composite_rank', today_str, 3)
+    dates = _get_recent_dates(cursor, 'composite_rank', today_str, 1)
     if not dates:
         conn.close()
         return {}
-    weights = [0.5, 0.3, 0.2]
     rows = cursor.execute(
         '''SELECT ticker, adj_gap FROM ntm_screening
            WHERE date=? AND adj_gap IS NOT NULL''', (dates[0],)
     ).fetchall()
-
-    # v54: B correction 제거 — adj_gap에 eps_quality 이미 반영, 단순 가중평균만
-    result = {}
-    for ticker, ag0 in rows:
-        gaps = [ag0]
-        for d in dates[1:]:
-            r = cursor.execute(
-                'SELECT adj_gap FROM ntm_screening WHERE date=? AND ticker=? AND adj_gap IS NOT NULL',
-                (d, ticker)
-            ).fetchone()
-            gaps.append(r[0] if r else 0.0)
-        w_gap = sum(gaps[i] * weights[i] for i in range(min(len(gaps), len(weights))))
-        result[ticker] = w_gap
+    result = {ticker: ag for ticker, ag in rows}
     conn.close()
     return result
 
@@ -3092,7 +3045,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'S&P·나스닥·MidCap {uni}종목')
         lines.append(f'→ EPS 상향 {filter_count}종목' if filter_count else '→ EPS 상향 스크리닝')
     lines.append('→ 원자재·저마진 업종 제외')
-    lines.append(f'→ 저평가 순위 → 상위 20 → {len(selected)}종목 선정')
+    lines.append(f'→ 괴리 4%+ 저평가 + 추세건강 → {len(selected)}종목 선정')
 
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
@@ -3170,14 +3123,76 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('순위: 3일 가중순위 (2일전→1일전→오늘)')
+    lines.append('순위: adj_gap 기준 (2일전→1일전→오늘)')
     lines.append('괴리: EPS 대비 주가 저평가도 (음수=저평가)')
-    lines.append('진입: 순위 상위 3종목 / 이탈: 7위 밖 또는 추세둔화')
+    lines.append('매수: 괴리 4%+ 저평가 + 추세건강 / 매도: 추세꺾임 · −10% 손절')
     lines.append('')
     lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
     lines.append('포트폴리오 비중은 투자자의 판단입니다.')
 
     return '\n'.join(lines)
+
+
+def _credit_indicator_icon(indicator, data):
+    """개별 지표의 🟢🟡🔴 아이콘 판정 (v64)"""
+    if indicator == 'hy':
+        q = data.get('quadrant', '')
+        q_days = data.get('q_days', 1)
+        if q in ('Q1', 'Q2'):
+            return '🟢'
+        elif q == 'Q3' and q_days < 60:
+            return '🟡'
+        else:  # Q3 60일+ or Q4
+            return '🔴'
+    elif indicator == 'vix':
+        pct = data.get('vix_percentile', 0)
+        if pct < 67:
+            return '🟢'
+        elif pct < 80:
+            return '🟡'
+        else:
+            return '🔴'
+    return '🟢'
+
+
+def _credit_pct_label(pct):
+    """퍼센타일 → '상위 N%, 매우 높음' 형태로 변환 (v64)"""
+    if pct >= 90:
+        return f"상위 {100 - pct:.0f}%, 매우 높음"
+    elif pct >= 67:
+        return f"상위 {100 - pct:.0f}%, 높음"
+    elif pct <= 10:
+        return f"하위 {pct:.0f}%, 매우 낮음"
+    elif pct <= 33:
+        return f"하위 {pct:.0f}%, 낮음"
+    else:
+        return "보통"
+
+
+def _credit_overall_status(hy_icon, vix_icon):
+    """HY 우선 종합 판정 (v64, US: HY+VIX 2축)
+
+    🟢 — 전부 🟢
+    🟡 — HY 🔴 아닌데 비정상 있음
+    🟠 — HY 🔴 단독
+    🔴 — HY 🔴 + VIX 🔴
+    """
+    hy_red = (hy_icon == '🔴')
+    vix_red = (vix_icon == '🔴')
+    any_non_green = (hy_icon != '🟢') or (vix_icon != '🟢')
+
+    if not any_non_green:
+        return '🟢', '안정적인 구간'
+    elif hy_red and vix_red:
+        return '🔴', '신용·변동성 동반 악화 — 신규 매수 보류가 유리한 구간'
+    elif hy_red:
+        return '🟠', '신용 지표 악화 — 보수적 비중 조절이 필요한 구간'
+    elif vix_red:
+        return '🟡', '단기 변동성 확대 — 신규 진입에 신중한 구간'
+    elif hy_icon == '🟡':
+        return '🟡', '신용 지표 변화 감지 — 시장 변화에 주의가 필요한 구간'
+    else:
+        return '🟡', '일부 지표 주의 — 신규 진입에 신중한 구간'
 
 
 def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
@@ -3218,7 +3233,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         elif idx_parts:
             lines.append(' · '.join(idx_parts))
 
-    # ── 📉 신용·변동성 ──
+    # ── 📉 신용·변동성 (v64: 1줄 결론 + 개별 근거) ──
     hy_data = risk_status.get('hy') if risk_status else None
     vix_data = risk_status.get('vix') if risk_status else None
 
@@ -3226,37 +3241,37 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         lines.append('')
         lines.append('📉 <b>신용·변동성</b>')
 
-    if hy_data:
-        hy_spread = hy_data.get('hy_spread', 0)
-        if hy_spread < 3.0:
-            hy_icon, hy_ctx = '🟢', '안정'
-        elif hy_spread < 4.5:
-            hy_icon, hy_ctx = '🟡', '주의'
-        else:
-            hy_icon, hy_ctx = '🔴', '경고'
-        lines.append(f'{hy_icon} 회사채 금리차 {hy_spread:.2f}% — {hy_ctx}')
+        # 개별 아이콘 판정
+        hy_icon = _credit_indicator_icon('hy', hy_data) if hy_data else '🟢'
+        vix_icon = _credit_indicator_icon('vix', vix_data) if vix_data else '🟢'
 
-    if vix_data:
-        vix_cur = vix_data.get('vix_current', 0)
-        vix_pct = vix_data.get('vix_percentile', 0)
-        vix_slope_dir = vix_data.get('vix_slope_dir', 'flat')
-        vix_arrow = '↑' if vix_slope_dir == 'rising' else ('↓' if vix_slope_dir == 'falling' else '')
-        if vix_pct < 67:
-            vix_icon, vix_ctx = '🟢', '안정'
-        elif vix_pct < 80:
-            vix_icon, vix_ctx = '🟡', '주의'
-        elif vix_pct < 90:
-            vix_icon, vix_ctx = '🟠', '경계'
-        else:
-            vix_icon, vix_ctx = '🔴', '경고'
-        lines.append(f'{vix_icon} 변동성지수(VIX) {vix_cur:.1f}{vix_arrow} — {vix_ctx}')
+        # 종합 판정 (HY 우선)
+        overall_icon, overall_msg = _credit_overall_status(hy_icon, vix_icon)
+        lines.append(f'<b>{overall_icon} {overall_msg}</b>')
 
-    # ── 과거 수익률 (팩트) ──
-    if hy_data:
-        q = hy_data.get('quadrant', '')
-        Q_ANNUAL = {'Q1': '+14.3', 'Q2': '+9.4', 'Q3': '+5.1', 'Q4': '+9.9'}
-        if q in Q_ANNUAL:
-            lines.append(f'과거 이 구간 S&P 연평균 {Q_ANNUAL[q]}%')
+        # 개별 근거 (아이콘 없이 텍스트만)
+        if hy_data:
+            q = hy_data.get('quadrant', '')
+            hy_status_map = {'Q1': '회복 중', 'Q2': '안정', 'Q3': '주의', 'Q4': '위험'}
+            hy_status = hy_status_map.get(q, '안정')
+            lines.append(f'  부도위험(HY) {hy_data["hy_spread"]:.2f}% — {hy_status}')
+
+        if vix_data:
+            vix_cur = vix_data.get('vix_current', 0)
+            vix_pct = vix_data.get('vix_percentile', 0)
+            pct_text = _credit_pct_label(vix_pct)
+            lines.append(f'  공포지수(VIX) {vix_cur:.1f} — {pct_text}')
+
+        # 과거 수익률 (팩트)
+        if hy_data:
+            q = hy_data.get('quadrant', '')
+            Q_ANNUAL = {'Q1': '+14.3', 'Q2': '+9.4', 'Q3': '+5.1', 'Q4': '+9.9'}
+            if q in Q_ANNUAL:
+                lines.append(f'  과거 이 구간 S&P 연평균 {Q_ANNUAL[q]}%')
+    elif not hy_data and not vix_data:
+        lines.append('')
+        lines.append('📉 <b>신용·변동성</b>')
+        lines.append('⚠️ 시장 지표 수집 실패 — 보수적으로 접근하세요')
 
     # ── 📰 시장 동향 (AI 해석) ──
     market_summary = ai_content.get('market_summary', '') if ai_content else ''
@@ -3319,13 +3334,13 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     else:
         filtered = get_part2_candidates(results_df, top_n=30)
 
-    # 가중 괴리율 오름차순 정렬 (v52: 음수가 저평가 = 좋음)
+    # adj_gap 오름차순 정렬 (v57b: 음수가 저평가 = 좋음)
     if score_100_map:
         filtered = filtered.copy()
-        filtered['_w_gap'] = filtered['ticker'].map(
+        filtered['_adj_gap'] = filtered['ticker'].map(
             lambda t: score_100_map.get(t, 0)
         )
-        filtered = filtered.sort_values('_w_gap', ascending=True).reset_index(drop=True)
+        filtered = filtered.sort_values('_adj_gap', ascending=True).reset_index(drop=True)
     elif weighted_ranks:
         filtered = filtered.copy()
         filtered['_weighted'] = filtered['ticker'].map(
@@ -3351,7 +3366,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
 
     lines = []
     lines.append('📋 <b>Top 20 종목 현황</b>')
-    lines.append('상위 20종목과 순위 변동 현황이에요.')
+    lines.append('EPS 상향 상위 20종목 현황이에요.')
 
     # 섹터 분포 표시
     sector_counts = Counter(row.get('industry', '?') for _, row in filtered.iterrows() if row.get('industry'))
@@ -3456,10 +3471,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 운영 규칙')
-    lines.append('진입: 순위 상위 3종목, 최대 3종목 보유')
-    lines.append('이탈: 순위 7위 밖 또는 ⚠️추세둔화 시')
+    lines.append('매수: 괴리 4%+ 저평가 + 추세건강(min_seg ≥ 1%), 최대 3종목')
+    lines.append('매도: 추세꺾임(min_seg < 0%) 또는 −10% 손절')
     lines.append('')
-    lines.append('순위: 3일 가중순위 (2일전→1일전→오늘)')
+    lines.append('순위: adj_gap 기준 (2일전→1일전→오늘)')
     lines.append('괴리: EPS 대비 주가 저평가도 (음수=저평가)')
 
     return '\n'.join(lines)
@@ -3784,10 +3799,10 @@ def main():
         final_action = risk_status.get('final_action', '') if risk_status else ''
         portfolio_mode = risk_status.get('portfolio_mode', 'normal') if risk_status else 'normal'
 
-        # 가중 괴리율 맵 (v52: 3일 가중 adj_gap)
+        # 괴리율 맵 (v57b: 당일 raw adj_gap)
         score_100_map = _build_score_100_map(today_str)
 
-        # 디스플레이용 종목 선정 (순위 상위 3종목, v55)
+        # 디스플레이용 종목 선정 (v57b: adj_gap ≤ -4% + min_seg ≥ 1%, 최대 3종목)
         display_top5 = select_display_top5(
             results_df, status_map, weighted_ranks, earnings_map, risk_status,
             score_100_map=score_100_map
@@ -3808,7 +3823,7 @@ def main():
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
-        # 메시지 1: Signal — 순위 상위 3종목 (v55)
+        # 메시지 1: Signal — v57b 진입 조건 충족 종목
         msg_signal = create_signal_message(
             display_top5, earnings_map, exit_reasons, biz_day, ai_content,
             portfolio_mode, final_action,
