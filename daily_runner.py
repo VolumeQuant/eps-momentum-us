@@ -1463,16 +1463,16 @@ def get_daily_changes(today_tickers, today_str=None):
     yesterday = dates[1]
 
     cursor.execute(
-        'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 30',
+        'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL AND part2_rank <= 20',
         (yesterday,)
     )
     yesterday_ranks = {r[0]: r[1] for r in cursor.fetchall()}
     conn.close()
 
-    yesterday_top30 = set(yesterday_ranks.keys())
+    yesterday_top20 = set(yesterday_ranks.keys())
     today_set = set(today_tickers)
-    entered = today_set - yesterday_top30
-    exited = yesterday_top30 - today_set
+    entered = today_set - yesterday_top20
+    exited = yesterday_top20 - today_set
     exited_with_rank = {t: yesterday_ranks[t] for t in exited}
 
     log(f"어제 대비: +{len(entered)} 신규, -{len(exited)} 이탈")
