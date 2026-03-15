@@ -3115,7 +3115,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'S&P·나스닥·MidCap {uni}종목')
         lines.append(f'→ EPS 상향 {filter_count}종목' if filter_count else '→ EPS 상향 스크리닝')
     lines.append('→ 원자재·저마진 업종 제외')
-    lines.append(f'→ 괴리 4%+ 저평가 + 추세건강 → {len(selected)}종목 선정')
+    lines.append(f'→ 저평가 상위 3 + EPS 추세 양호 → {len(selected)}종목 선정')
 
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
@@ -3193,9 +3193,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('순위: adj_gap 기준 (2일전→1일전→오늘)')
+    lines.append('순위: 괴리 3일 가중평균 기준 (2일전→1일전→오늘)')
     lines.append('괴리: EPS 대비 주가 저평가도 (음수=저평가)')
-    lines.append('매수: 괴리 4%+ 저평가 + 추세건강 / 매도: 추세꺾임 · −10% 손절')
+    lines.append('매수: 저평가 상위 3 + EPS 추세 양호 / 매도: 순위 15위 밖 · 추세 꺾임 · −10%')
     lines.append('')
     lines.append('EPS 모멘텀 순위는 종목 선별 기준이며,')
     lines.append('포트폴리오 비중은 투자자의 판단입니다.')
@@ -3541,10 +3541,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 운영 규칙')
-    lines.append('매수: 괴리 4%+ 저평가 + 추세건강(min_seg ≥ 1%), 최대 3종목')
-    lines.append('매도: 추세꺾임(min_seg < 0%) 또는 −10% 손절')
+    lines.append('매수: 저평가 상위 3 + EPS 추세 양호, 최대 3종목')
+    lines.append('매도: 순위 15위 밖 · 추세 꺾임 · −10% 손절')
     lines.append('')
-    lines.append('순위: adj_gap 기준 (2일전→1일전→오늘)')
+    lines.append('순위: 괴리 3일 가중평균 기준 (2일전→1일전→오늘)')
     lines.append('괴리: EPS 대비 주가 저평가도 (음수=저평가)')
 
     return '\n'.join(lines)
