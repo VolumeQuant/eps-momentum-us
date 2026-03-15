@@ -3060,8 +3060,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         earnings_tag = s.get('earnings_note', '')
 
         # L0: 이름·업종·괴리
-        display_name = _clean_company_name(s["name"], ticker)
-        industry = s.get('industry', '')
+        import html as _html
+        display_name = _html.escape(_clean_company_name(s["name"], ticker))
+        industry = _html.escape(s.get('industry', ''))
         ind_str = f' · {industry}' if industry else ''
         gap_str = ''
         if score_100_map and ticker in score_100_map:
@@ -3095,7 +3096,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         # L3: 이야기 (AI 내러티브)
         narrative = narratives.get(ticker, '')
         if narrative:
-            lines.append(f'💬 {narrative}')
+            lines.append(f'💬 {_html.escape(narrative)}')
 
         # 종목 간 구분선
         if i < len(selected) - 1:
@@ -3274,11 +3275,12 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         lines.append('⚠️ 시장 지표 수집 실패 — 보수적으로 접근하세요')
 
     # ── 📰 시장 동향 (AI 해석) ──
+    import html as _html
     market_summary = ai_content.get('market_summary', '') if ai_content else ''
     if market_summary:
         lines.append('')
         lines.append('📰 <b>시장 동향</b>')
-        lines.append(market_summary)
+        lines.append(_html.escape(market_summary))
 
     # ── ⚠️ 매수 주의 (14일 이내 어닝만) ──
     warnings = []
@@ -3318,6 +3320,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     순위 변동 태그 제거. 이탈 사유 포함.
     """
     import pandas as pd
+    import html as _html
     from collections import Counter
 
     if results_df is None or results_df.empty:
@@ -3373,7 +3376,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     if sector_counts:
         top_sectors = sector_counts.most_common(5)
         etc_count = sum(c for _, c in sector_counts.most_common()[5:])
-        sec_parts = [f'{s} {c}' for s, c in top_sectors]
+        sec_parts = [f'{_html.escape(s)} {c}' for s, c in top_sectors]
         if etc_count > 0:
             sec_parts.append(f'기타 {etc_count}')
         lines.append(' | '.join(sec_parts))
@@ -3408,12 +3411,12 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                     short_name += ' ' + w
                 else:
                     break
-        ind_tag = f' · {industry}' if industry else ''
-        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}')
+        ind_tag = f' · {_html.escape(industry)}' if industry else ''
+        lines.append(f'{marker} <b>{rank}. {_html.escape(short_name)}({ticker})</b>{ind_tag}')
 
         # L1: EPS추이 아이콘 + 설명
         if lights and desc:
-            lines.append(f'EPS추이 {lights} {desc}')
+            lines.append(f'EPS추이 {lights} {_html.escape(desc)}')
         elif lights:
             lines.append(f'EPS추이 {lights}')
 
