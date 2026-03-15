@@ -3194,9 +3194,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('괴리: 실적 전망은 올랐는데 주가가 덜 따라간 정도 (음수가 클수록 저평가)')
-    lines.append('매수: 괴리가 가장 큰 상위 3종목 선정 (최대 3종목 보유)')
-    lines.append('매도: 15위 밖으로 밀림 | 실적 전망 하락 전환 | −10% 손절')
+    lines.append('괴리: 음수가 클수록 실적 대비 주가 저평가')
+    lines.append('매수: 상위 3종목 (최대 3종목 보유)')
+    lines.append('매도: 15위 밖 · 실적 하락 전환 · −10% 손절')
     lines.append('')
     lines.append('※ 종목 선별 기준이며,')
     lines.append('매수 비중과 시점은 본인 판단으로 결정하시기 바랍니다.')
@@ -3441,7 +3441,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
 
     lines = []
     lines.append('📋 <b>Top 20 종목 현황</b>')
-    lines.append('EPS 상향 상위 20종목 현황이에요. (w_gap 순위 기준)')
+    lines.append('EPS 상향 상위 20종목 현황이에요.')
 
     # 섹터 분포 표시
     sector_counts = Counter(row.get('industry', '?') for _, row in filtered.iterrows() if row.get('industry'))
@@ -3547,12 +3547,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 운영 규칙')
-    lines.append('매수: 괴리가 가장 큰 상위 3종목 선정 (최대 3종목 보유)')
-    lines.append('매도: 15위 밖 · 실적 전망 하락 전환 · −10% 손절')
-    lines.append('⚠️ 종목: 실적 흐름 약화 중 — 신규매수 불가, 보유 중이면 추이 확인')
-    lines.append('')
-    lines.append('순위: 실적 전망 대비 주가가 덜 오른 순서 (최근 3일 평균)')
-    lines.append('괴리: 음수가 클수록 실적은 좋아지는데 주가가 덜 따라간 상태')
+    lines.append('매수: 상위 3종목 (최대 3종목 보유)')
+    lines.append('매도: 15위 밖 · 실적 하락 전환 · −10% 손절')
+    lines.append('⚠️: 실적 둔화 — 신규매수 불가, 보유시 추이 확인')
+    lines.append('괴리: 음수 클수록 실적 대비 주가 저평가')
+    lines.append('순위: 실적 대비 주가 저평가 순 (3일 평균)')
 
     return '\n'.join(lines)
 
