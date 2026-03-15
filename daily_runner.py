@@ -3699,7 +3699,13 @@ def send_telegram_long(message, config, chat_id=None):
         return True
 
     except Exception as e:
-        log(f"텔레그램 전송 실패: {e}", "ERROR")
+        detail = ''
+        if hasattr(e, 'read'):
+            try:
+                detail = e.read().decode('utf-8', errors='replace')
+            except Exception:
+                pass
+        log(f"텔레그램 전송 실패: {e} {detail}", "ERROR")
         return False
 
 
