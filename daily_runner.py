@@ -3453,7 +3453,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             sec_parts.append(f'기타 {etc_count}')
         lines.append(' | '.join(sec_parts))
 
-    lines.append('✅ 검증완료 ⏳ 관찰중 🆕 신규 ⚠️ 실적둔화')
+    lines.append('✅ 검증완료 ⏳ 관찰중 🆕 신규 ⚠️ 추세주의')
     lines.append('EPS추이(90→60→30→7일 변화율)')
     lines.append('🔥&gt;20% ☀️5~20% 🌤️1~5% ☁️±1% 🌧️&lt;-1%')
     lines.append('━━━━━━━━━━━━━━━')
@@ -3549,7 +3549,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('📌 운영 규칙')
     lines.append('매수: 상위 3종목 (최대 3종목 보유)')
     lines.append('매도: 15위 밖 · 실적 하락 전환 · −10% 손절')
-    lines.append('⚠️: 실적 둔화 — 신규매수 불가, 보유시 추이 확인')
+    lines.append('⚠️: 추세 약화 — 신규매수 불가, 보유시 추이 확인')
     lines.append('괴리: 음수 클수록 실적 대비 주가 저평가')
     lines.append('순위: 실적 대비 주가 저평가 순 (3일 평균)')
 
