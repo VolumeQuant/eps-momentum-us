@@ -1095,6 +1095,12 @@ def save_part2_ranks(results_df, today_str):
         log("Part 2 후보 0개 — part2_rank 저장 스킵")
         return []
 
+    # min_seg < -2% 제외 — 매도 신호 종목은 순위 부여 전에 걸러냄
+    def _calc_min_seg(row):
+        segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+        return min(segs) if segs else 0
+    all_candidates = all_candidates[all_candidates.apply(_calc_min_seg, axis=1) >= -2].copy()
+
     # 1. 오늘의 composite 순위 (1~N, 당일 adj_gap 오름차순)
     all_candidates = all_candidates.reset_index(drop=True)
     composite_ranks = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_candidates.iterrows())}
@@ -3193,12 +3199,12 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('괴리: EPS 전망 상승분 대비 주가가 얼마나 덜 올랐는지 (음수일수록 저평가)')
-    lines.append('매수 기준: 괴리가 가장 큰 상위 3종목 (최대 보유 3종목)')
-    lines.append('매도 기준: 순위 15위 밖 | EPS 하향 전환 | −10% 손절')
+    lines.append('괴리: 실적 전망은 올랐는데 주가가 덜 따라간 정도 (음수가 클수록 저평가)')
+    lines.append('매수: 괴리가 가장 큰 상위 3종목 선정 (최대 3종목 보유)')
+    lines.append('매도: 15위 밖으로 밀림 | 실적 전망 하락 전환 | −10% 손절')
     lines.append('')
-    lines.append('본 순위는 종목 선별 기준이며,')
-    lines.append('매수 비중과 시점은 투자자 본인의 판단입니다.')
+    lines.append('※ 종목 선별 기준이며,')
+    lines.append('매수 비중과 시점은 본인 판단으로 결정하시기 바랍니다.')
 
     return '\n'.join(lines)
 
@@ -3452,7 +3458,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             sec_parts.append(f'기타 {etc_count}')
         lines.append(' | '.join(sec_parts))
 
-    lines.append('✅ 3일 검증 ⏳ 2일 관찰 🆕 신규 진입 ⚠️ 신규매수 불가')
+    lines.append('✅ 3일 검증 ⏳ 2일 관찰 🆕 신규 진입 ⚠️ 실적 둔화, 신규매수 불가')
     lines.append('EPS추이(90→60→30→7일 변화율)')
     lines.append('🔥&gt;20% ☀️5~20% 🌤️1~5% ☁️±1% 🌧️&lt;-1%')
     lines.append('━━━━━━━━━━━━━━━')
@@ -3547,10 +3553,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 운영 규칙')
     lines.append('매수: 괴리가 가장 큰 상위 3종목 선정 (최대 3종목 보유)')
-    lines.append('매도: 순위 15위 밖 · EPS 하향 전환 · −10% 손절')
+    lines.append('매도: 15위 밖 · 실적 전망 하락 전환 · −10% 손절')
+    lines.append('⚠️ 종목: 실적 흐름 약화 중 — 신규매수 불가, 보유 중이면 추이 확인')
     lines.append('')
-    lines.append('순위: EPS 전망 상승 대비 주가 저평가 순서 (3일 가중 평균)')
-    lines.append('괴리: 음수가 클수록 실적 대비 주가가 덜 오른 상태')
+    lines.append('순위: 실적 전망 대비 주가가 덜 오른 순서 (최근 3일 평균)')
+    lines.append('괴리: 음수가 클수록 실적은 좋아지는데 주가가 덜 따라간 상태')
 
     return '\n'.join(lines)
 
