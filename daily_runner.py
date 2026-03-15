@@ -3060,9 +3060,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         earnings_tag = s.get('earnings_note', '')
 
         # L0: 이름·업종·괴리
-        import html as _html
-        display_name = _html.escape(_clean_company_name(s["name"], ticker))
-        industry = _html.escape(s.get('industry', ''))
+        display_name = _clean_company_name(s["name"], ticker)
+        industry = s.get('industry', '')
         ind_str = f' · {industry}' if industry else ''
         gap_str = ''
         if score_100_map and ticker in score_100_map:
@@ -3096,7 +3095,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         # L3: 이야기 (AI 내러티브)
         narrative = narratives.get(ticker, '')
         if narrative:
-            lines.append(f'💬 {_html.escape(narrative)}')
+            lines.append(f'💬 {narrative}')
 
         # 종목 간 구분선
         if i < len(selected) - 1:
@@ -3275,12 +3274,11 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         lines.append('⚠️ 시장 지표 수집 실패 — 보수적으로 접근하세요')
 
     # ── 📰 시장 동향 (AI 해석) ──
-    import html as _html
     market_summary = ai_content.get('market_summary', '') if ai_content else ''
     if market_summary:
         lines.append('')
         lines.append('📰 <b>시장 동향</b>')
-        lines.append(_html.escape(market_summary))
+        lines.append(market_summary)
 
     # ── ⚠️ 매수 주의 (14일 이내 어닝만) ──
     warnings = []
@@ -3320,7 +3318,6 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     순위 변동 태그 제거. 이탈 사유 포함.
     """
     import pandas as pd
-    import html as _html
     from collections import Counter
 
     if results_df is None or results_df.empty:
@@ -3376,7 +3373,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     if sector_counts:
         top_sectors = sector_counts.most_common(5)
         etc_count = sum(c for _, c in sector_counts.most_common()[5:])
-        sec_parts = [f'{_html.escape(s)} {c}' for s, c in top_sectors]
+        sec_parts = [f'{s} {c}' for s, c in top_sectors]
         if etc_count > 0:
             sec_parts.append(f'기타 {etc_count}')
         lines.append(' | '.join(sec_parts))
@@ -3411,12 +3408,12 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                     short_name += ' ' + w
                 else:
                     break
-        ind_tag = f' · {_html.escape(industry)}' if industry else ''
-        lines.append(f'{marker} <b>{rank}. {_html.escape(short_name)}({ticker})</b>{ind_tag}')
+        ind_tag = f' · {industry}' if industry else ''
+        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}')
 
         # L1: EPS추이 아이콘 + 설명
         if lights and desc:
-            lines.append(f'EPS추이 {lights} {_html.escape(desc)}')
+            lines.append(f'EPS추이 {lights} {desc}')
         elif lights:
             lines.append(f'EPS추이 {lights}')
 
@@ -3649,6 +3646,33 @@ def create_etf_message(etf_results, biz_day, uncovered=None, top30_count=30):
 # 텔레그램 전송
 # ============================================================
 
+def _sanitize_telegram_html(text):
+    """Telegram HTML 안전하게 정리 — 허용 태그만 유지, 나머지 < > & 이스케이프"""
+    import re
+    # 허용 태그를 플레이스홀더로 대체
+    _ALLOWED = re.compile(r'<(/?)([bi]|strong|em|u|ins|s|strike|del|code|pre|blockquote)(\s[^>]*)?>',
+                          re.IGNORECASE)
+    placeholders = []
+
+    def _save(m):
+        placeholders.append(m.group(0))
+        return f'\x00PH{len(placeholders)-1}\x00'
+
+    text = _ALLOWED.sub(_save, text)
+    # <a href="...">도 허용
+    _A_TAG = re.compile(r'<(/?)a(\s[^>]*)?>',  re.IGNORECASE)
+    text = _A_TAG.sub(_save, text)
+    # 기존 HTML 엔티티 보호 (&gt; &lt; &amp; &#123; &#x1F; 등)
+    _ENTITY = re.compile(r'&(amp|lt|gt|quot|#[0-9]+|#x[0-9a-fA-F]+);')
+    text = _ENTITY.sub(_save, text)
+    # 남은 <, >, & 이스케이프
+    text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    # 플레이스홀더 복원
+    for i, original in enumerate(placeholders):
+        text = text.replace(f'\x00PH{i}\x00', original)
+    return text
+
+
 def send_telegram_long(message, config, chat_id=None):
     """긴 메시지를 여러 개로 분할해서 전송 (chat_id 지정 가능)"""
     if not config.get('telegram_enabled', False):
@@ -3665,6 +3689,9 @@ def send_telegram_long(message, config, chat_id=None):
     try:
         import urllib.request
         import urllib.parse
+
+        # HTML 안전 정리
+        message = _sanitize_telegram_html(message)
 
         # 4000자씩 분할
         chunks = []
