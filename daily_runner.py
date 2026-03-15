@@ -3418,18 +3418,20 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         )
         filtered = filtered.sort_values('_weighted').reset_index(drop=True)
 
-    # 매수 가능 종목만 표시 (min_seg >= 0%) — Signal 진입 기준과 통일
-    # 추세둔화(min_seg < -2%) 종목은 ⚠️ 섹션에 별도 표시
+    # min_seg >= 0%: 매수 가능, min_seg < -2%: 이탈 대상 (⚠️ 섹션)
+    # -2% ≤ min_seg < 0%: 매수 불가지만 보유 추적용으로 표시 (⚠️ 마크)
     health_warn_tickers = []
     healthy_rows = []
+    caution_tickers = set()  # -2% ≤ min_seg < 0% — 매수 불가, 보유 추적용
     for _, row in filtered.iterrows():
         _segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
         _min_seg = min(_segs) if _segs else 0
         if _min_seg < -2:
             health_warn_tickers.append((row['ticker'], _min_seg))
-        elif _min_seg >= 0:
+        else:
             healthy_rows.append(row)
-        # -2% ≤ min_seg < 0%: 매수 불가지만 심각하지 않으므로 표시 안 함
+            if _min_seg < 0:
+                caution_tickers.add(row['ticker'])
     import pandas as pd
     filtered = pd.DataFrame(healthy_rows).head(20) if healthy_rows else pd.DataFrame()
 
@@ -3450,7 +3452,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             sec_parts.append(f'기타 {etc_count}')
         lines.append(' | '.join(sec_parts))
 
-    lines.append('✅ 3일 검증 ⏳ 2일 관찰 🆕 신규 진입')
+    lines.append('✅ 3일 검증 ⏳ 2일 관찰 🆕 신규 진입 ⚠️ 신규매수 불가')
     lines.append('EPS추이(90→60→30→7일 변화율)')
     lines.append('🔥&gt;20% ☀️5~20% 🌤️1~5% ☁️±1% 🌧️&lt;-1%')
     lines.append('━━━━━━━━━━━━━━━')
@@ -3481,7 +3483,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                 else:
                     break
         ind_tag = f' · {industry}' if industry else ''
-        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}')
+        caution_tag = ' ⚠️' if ticker in caution_tickers else ''
+        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}{caution_tag}')
 
         # L1: EPS추이 아이콘 + 설명
         if lights and desc:
