@@ -74,6 +74,7 @@
 > **v52**: 2026-03-12~13 집 PC — w_gap(가중 괴리율) 기반 전략 전환: z-score composite 완전 제거, w_gap<-6 진입 / w_gap>+2 매도 / 최대 5종목. part2_rank를 가중 adj_gap 값 기반으로 변경. 100점 환산/매력도 폐지 → 괴리율% 직접 표시. ETF 메시지 제거. 매도 검토선 도입. 임계값 고객 비노출 (과적합 방지)
 > **v53**: 2026-03-13 집 PC — EPS 추세 일관성 보정 (B correction) + UI 수정
 > **v57b**: 2026-03-15 집 PC — 실적 따라잡기 전략: rank 기반 → threshold 기반 전환. adj_gap≤-4% + min_seg≥1% 진입, min_seg<0% + -10% stop 이탈. w_gap 제거 → raw adj_gap. part2_rank 재계산 (migrate_v57b_raw_adjgap.py). 고객설명: "EPS 올라가는데 주가 안 따라간 종목 매수, 추세 꺾이면 매도"
+> **v58**: 2026-03-15 집 PC — w_gap Top3/Top15 전략: threshold→rank 기반 복귀. w_gap(3일 가중 adj_gap) 순위 Top3 진입(ms≥0%) + Top15 이탈(ms<-2%/-10% stop). part2_rank를 w_gap 기준 재계산 (migrate_v58_wgap_rank.py). 16개 시작일 평균 최선(-0.5%). Top3>>Top5, 좁은이탈선>>넓은이탈선 일관
 > **v64**: 2026-03-15 집 PC — 신용·변동성 메시지 리디자인: 1줄 결론(bold) + 개별 근거. HY 우선 종합 판정(🟢🟡🟠🔴). 내부 용어(Q3 가을/과열국면) → 고객 용어(주의). 퍼센타일 → "상위 N%, 매우 높음". 방향 화살표 제거
 
 ---
@@ -113,6 +114,44 @@
 ### 고객 설명 (실적 따라잡기 전략)
 - "EPS가 올라가는데 주가가 아직 안 따라간 종목 매수"
 - "EPS 추세가 꺾이면 매도, 큰 손실(-10%) 나면 즉시 매도"
+
+---
+
+## v58 — w_gap Top3/Top15 전략 (2026-03-15)
+
+### 배경
+- v57b threshold 전략(adj_gap≤-4% 진입)의 구조적 문제: 이탈 조건 부재 → 종목이 슬롯에 갇힘
+- 21일 데이터 백테스트 결과, v57b에서 완료 거래 2건뿐 (COHR 등 이탈 안 됨)
+- w_gap(3일 가중 adj_gap)이 rank 기반 전략에서 raw adj_gap보다 우수: raw Top3/Top7=-10.2% vs wTop3/Top7=+1.2%
+- 사용자 판단: "순위가 급하게 바뀌는데 w_gap 쓰는게 맞다" (노이즈 완화)
+
+### 핵심 변경: w_gap 기반 rank 전략 복귀
+- **진입**: w_gap 순위 Top3 + min_seg ≥ 0% + 리스크 필터, 최대 3종목
+- **이탈**: part2_rank > 15 (w_gap 기준) / min_seg < -2% / -10% 손절
+- **w_gap**: T0×0.5 + T1×0.3 + T2×0.2 (3일 가중 adj_gap)
+
+### 코드 변경
+| 함수 | 변경 |
+|------|------|
+| `save_part2_ranks()` | raw adj_gap → w_gap 기준 Top30 정렬 |
+| `_compute_w_gap_map()` | 신규 — 3일 가중 adj_gap 계산 |
+| `select_display_top5()` | adj_gap≤-4% 필터 제거 → part2_rank Top3 + ms≥0% |
+| `_build_score_100_map()` | 당일 adj_gap → w_gap 맵 반환 |
+| `select_portfolio_stocks()` | Top20→Top15 이탈선 (참조용 함수) |
+
+### DB 마이그레이션
+- `migrate_v58_wgap_rank.py`: 21일 데이터 part2_rank를 w_gap 기준 재계산 (465건 변경)
+
+### 백테스트 비교 (16개 시작일 평균, 21거래일)
+| 전략 | 평균 수익 | 플러스 비율 |
+|------|----------|------------|
+| **wTop3/wTop15** | **-0.5%** | **7/16** |
+| wTop3/wTop20 | -0.8% | 7/16 |
+| wTop3/wTop30 | -2.1% | 3/16 |
+| wTop5/wTop15 | -3.9% | 1/16 |
+
+- Top3 >> Top5 (일관), 좁은 이탈선 >> 넓은 이탈선 (일관)
+- 21일 데이터 한계: 확정 판단 불가, 데이터 축적 후 재검증
 
 ---
 

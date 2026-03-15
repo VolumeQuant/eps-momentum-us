@@ -1084,11 +1084,11 @@ def get_forward_test_summary(today_str):
 
 
 def save_part2_ranks(results_df, today_str):
-    """Part 2 eligible 종목 저장 — composite_rank + adj_gap Top 30 (v57b)
+    """Part 2 eligible 종목 저장 — composite_rank + w_gap Top 30 (v58)
 
     1. 전체 eligible의 당일 adj_gap 순위 → composite_rank 컬럼에 저장
-    2. adj_gap 오름차순 상위 30개 → part2_rank 저장 (raw adj_gap 사용)
-    Returns: Top 30 티커 리스트 (adj_gap 순)
+    2. w_gap(3일 가중 adj_gap) 오름차순 상위 30개 → part2_rank 저장
+    Returns: Top 30 티커 리스트 (w_gap 순)
     """
     all_candidates = get_part2_candidates(results_df, top_n=None)
     if all_candidates.empty:
@@ -1110,14 +1110,16 @@ def save_part2_ranks(results_df, today_str):
             (crank, today_str, ticker)
         )
 
-    # 2. adj_gap 오름차순 Top 30 → part2_rank (v57b: raw adj_gap 사용)
-    sorted_tickers = sorted(composite_ranks.items(), key=lambda x: x[1])
-    top30 = sorted_tickers[:30]
+    # 2. w_gap(3일 가중 adj_gap) 기준 Top 30 → part2_rank (v58)
+    eligible_tickers = list(composite_ranks.keys())
+    wgap_map = _compute_w_gap_map(cursor, today_str, eligible_tickers)
+    sorted_by_wgap = sorted(eligible_tickers, key=lambda tk: wgap_map.get(tk, 0))
+    top30 = sorted_by_wgap[:30]
 
     # part2_rank 저장 (Top 30만)
     cursor.execute('UPDATE ntm_screening SET part2_rank=NULL WHERE date=?', (today_str,))
     top30_tickers = []
-    for rank, (ticker, _) in enumerate(top30, 1):
+    for rank, ticker in enumerate(top30, 1):
         cursor.execute(
             'UPDATE ntm_screening SET part2_rank=? WHERE date=? AND ticker=?',
             (rank, today_str, ticker)
@@ -1126,8 +1128,39 @@ def save_part2_ranks(results_df, today_str):
 
     conn.commit()
     conn.close()
-    log(f"Part 2 rank 저장: {len(top30_tickers)}개 종목 (adj_gap Top 30, eligible {len(composite_ranks)}개)")
+    log(f"Part 2 rank 저장: {len(top30_tickers)}개 종목 (w_gap Top 30, eligible {len(composite_ranks)}개)")
     return top30_tickers
+
+
+def _compute_w_gap_map(cursor, today_str, tickers):
+    """w_gap(3일 가중 adj_gap) 계산 — T0×0.5 + T1×0.3 + T2×0.2
+
+    Returns: {ticker: float(w_gap)}
+    """
+    dates = _get_recent_dates(cursor, 'composite_rank', today_str, 3)
+    dates = sorted(dates)  # 오래된 순
+
+    gap_by_date = {}
+    for d in dates:
+        rows = cursor.execute(
+            'SELECT ticker, adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
+            (d,)
+        ).fetchall()
+        gap_by_date[d] = {r[0]: r[1] for r in rows}
+
+    weights = [0.2, 0.3, 0.5]  # T-2, T-1, T0 (오래된순)
+    if len(dates) == 2:
+        weights = [0.4, 0.6]
+    elif len(dates) == 1:
+        weights = [1.0]
+
+    result = {}
+    for tk in tickers:
+        wg = 0
+        for i, d in enumerate(dates):
+            wg += gap_by_date.get(d, {}).get(tk, 0) * weights[i]
+        result[tk] = wg
+    return result
 
 
 def is_cold_start():
@@ -1244,7 +1277,7 @@ def get_rank_history(today_tickers, today_str=None):
 def compute_weighted_ranks(today_tickers, today_str=None):
     """3일 순위 궤적 — composite_rank 기반 (Watchlist 표시용)
     T0 × 0.5 + T1 × 0.3 + T2 × 0.2
-    v57b: 매매 판단에는 미사용, 순위 변동 표시 전용
+    v58: 매매 판단은 part2_rank(w_gap 기반), 이 함수는 composite_rank 궤적 표시 전용
     Returns: {ticker: {'weighted': float, 'r0': int, 'r1': int, 'r2': int}}
     """
     conn = sqlite3.connect(DB_PATH)
@@ -2249,9 +2282,10 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         earnings_map=None, risk_status=None, score_100_map=None):
-    """Signal 메시지용 종목 선정 (v57b: adj_gap ≤ -4% + min_seg ≥ 1%, 최대 3종목)
+    """Signal 메시지용 종목 선정 (v58: w_gap 순위 Top3 + min_seg ≥ 0%, 최대 3종목)
 
-    실적 전망 대비 저평가(adj_gap ≤ -4%) + EPS 추세 건강(min_seg ≥ 1%) 종목만 진입.
+    part2_rank(w_gap 기반) 상위 3종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
+    이탈선: part2_rank > 15.
     """
     if earnings_map is None:
         earnings_map = {}
@@ -2272,30 +2306,44 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     if top30.empty:
         return []
 
-    # v57b: raw adj_gap 오름차순 정렬
+    # v58: part2_rank(w_gap 기반) 오름차순 정렬
     candidates = top30.copy()
     candidates = candidates.sort_values('adj_gap', ascending=True).reset_index(drop=True)
-    top_debug = [(row['ticker'], round(float(row.get('adj_gap', 0) or 0), 1))
-                 for _, row in candidates.head(7).iterrows()]
-    log(f"adj_gap 상위 7: {top_debug}")
 
-    # v57b 진입: adj_gap ≤ -4% + min_seg ≥ 1% + 리스크 필터, 최대 3종목
+    # part2_rank 가져오기 (w_gap 순위)
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT ticker, part2_rank FROM ntm_screening WHERE date=(SELECT MAX(date) FROM ntm_screening WHERE part2_rank IS NOT NULL) AND part2_rank IS NOT NULL'
+    )
+    p2r_map = {r[0]: r[1] for r in cursor.fetchall()}
+    conn.close()
+
+    # part2_rank 순 정렬
+    candidates['_p2r'] = candidates['ticker'].map(lambda t: p2r_map.get(t, 999))
+    candidates = candidates.sort_values('_p2r', ascending=True).reset_index(drop=True)
+
+    top_debug = [(row['ticker'], int(row['_p2r']), round(float(row.get('adj_gap', 0) or 0), 1))
+                 for _, row in candidates.head(7).iterrows()]
+    log(f"w_gap 순위 상위 7: {top_debug}")
+
+    # v58 진입: part2_rank Top3 + min_seg ≥ 0% + 리스크 필터, 최대 3종목
     selected = []
     for _, row in candidates.iterrows():
         if len(selected) >= 3:
             break
         t = row['ticker']
-        adj_gap = float(row.get('adj_gap', 0) or 0)
+        p2r = p2r_map.get(t, 999)
 
-        # v57b 진입 조건: adj_gap ≤ -4%
-        if adj_gap > -4:
+        # v58: Top3 이내만 진입 후보
+        if p2r > 3:
             continue
 
-        # v57b 진입 조건: min_seg ≥ 1%
+        # v58 진입 조건: min_seg ≥ 0%
         segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
         min_seg = min(segs) if segs else 0
-        if min_seg < 1:
-            log(f"  ⛔ 디스플레이 제외 {t}: min_seg={min_seg:.1f}% (< 1%)")
+        if min_seg < 0:
+            log(f"  ⛔ 디스플레이 제외 {t}: min_seg={min_seg:.1f}% (< 0%)")
             continue
 
         rev_up = int(row.get('rev_up30', 0) or 0)
@@ -2334,11 +2382,11 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
 
 def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
                             earnings_map=None, risk_status=None, today_str=None):
-    """포트폴리오 종목 선정 — v57b (미사용, 참조용)
+    """포트폴리오 종목 선정 — v58 (미사용, 참조용)
 
     전략:
-    - 진입: adj_gap ≤ -4%, min_seg ≥ 1%, 상위 3종목
-    - 이탈: min_seg < 0% / -10% 손절, 순위 기반 이탈 없음
+    - 진입: w_gap 순위 Top3, min_seg ≥ 0%, 최대 3종목
+    - 이탈: part2_rank > 15 (w_gap 기준) / min_seg < -2% / -10% 손절
     - 최대 3종목, 동일 비중
 
     Returns: (selected, portfolio_mode, concordance, final_action)
@@ -2362,21 +2410,21 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
         log(f"포트폴리오: portfolio_mode=stop → 추천 중단 ({final_action})")
         return [], portfolio_mode, concordance, final_action
 
-    # Top 30 (하드 필터 적용, ✅ 필터 전) — Watchlist용 유지, 이탈은 Top 20 기준
+    # Top 30 (하드 필터 적용, ✅ 필터 전) — Watchlist용 유지, 이탈은 Top 15 기준
     top30 = get_part2_candidates(results_df, top_n=30)
     if top30.empty:
         return [], portfolio_mode, concordance, final_action
 
-    top20_tickers = set(top30.head(20)['ticker'].tolist())
+    top15_tickers = set(top30.head(15)['ticker'].tolist())
 
-    # ── 어제 보유 → Top 20 유지 시 홀드 (v57b: 미사용, 참조용) ──
+    # ── 어제 보유 → Top 15 유지 시 홀드 (v58: 미사용, 참조용) ──
     prev_holdings = _get_prev_portfolio(today_str)
 
-    # 1차 이탈: Top 20 밖
-    holds_in_top20 = [t for t in prev_holdings if t in top20_tickers]
-    exited_rank = [t for t in prev_holdings if t not in top20_tickers]
+    # 1차 이탈: Top 15 밖
+    holds_in_top20 = [t for t in prev_holdings if t in top15_tickers]
+    exited_rank = [t for t in prev_holdings if t not in top15_tickers]
     if exited_rank:
-        log(f"  📤 Top20 이탈: {', '.join(exited_rank)}")
+        log(f"  📤 Top15 이탈: {', '.join(exited_rank)}")
 
     # 2차 이탈: min_seg < -2% (EPS 건강도 악화)
     hold_entries = []
@@ -2398,7 +2446,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
             continue
         entry = _build_portfolio_entry(row, status_map, earnings_map)
         hold_entries.append(entry)
-        log(f"  🔄 {t}: HOLD (Top20 유지) gap={_safe_float(row.get('adj_gap')):+.1f} desc={row.get('trend_desc', '')}")
+        log(f"  🔄 {t}: HOLD (Top15 유지) gap={_safe_float(row.get('adj_gap')):+.1f} desc={row.get('trend_desc', '')}")
 
     if exited_health:
         log(f"  📤 건강도 이탈: {', '.join(exited_health)}")
@@ -2406,7 +2454,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
     # ── 신규 진입 후보 (✅ + 리스크 필터) ──
     verified_tickers = {t for t, s in status_map.items() if s == '✅'} if status_map else set()
 
-    max_stocks = 3  # v57b: 최대 3종목 (미사용 함수)
+    max_stocks = 3  # v58: 최대 3종목 (미사용 함수)
     vacancies = max(0, max_stocks - len(hold_entries))
 
     new_entries = []
@@ -2911,22 +2959,44 @@ def _build_top5_streak(today_str=None):
 
 
 def _build_score_100_map(today_str=None):
-    """당일 raw adj_gap 맵 (v57b). 음수=저평가, 양수=고평가.
+    """w_gap(3일 가중 adj_gap) 맵 (v58). 음수=저평가, 양수=고평가.
 
-    v57b: 3일 가중평균(w_gap) 제거 → 당일 adj_gap만 사용
-    Returns: {ticker: float(adj_gap %)}
+    v58: 3일 가중평균(w_gap) = T0×0.5 + T1×0.3 + T2×0.2
+    Returns: {ticker: float(w_gap %)}
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    dates = _get_recent_dates(cursor, 'composite_rank', today_str, 1)
+    dates = sorted(_get_recent_dates(cursor, 'composite_rank', today_str, 3))
     if not dates:
         conn.close()
         return {}
-    rows = cursor.execute(
-        '''SELECT ticker, adj_gap FROM ntm_screening
-           WHERE date=? AND adj_gap IS NOT NULL''', (dates[0],)
-    ).fetchall()
-    result = {ticker: ag for ticker, ag in rows}
+
+    gap_by_date = {}
+    for d in dates:
+        rows = cursor.execute(
+            'SELECT ticker, adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
+            (d,)
+        ).fetchall()
+        gap_by_date[d] = {r[0]: r[1] for r in rows}
+
+    weights = [0.2, 0.3, 0.5]
+    if len(dates) == 2:
+        weights = [0.4, 0.6]
+    elif len(dates) == 1:
+        weights = [1.0]
+
+    # 모든 종목 수집
+    all_tickers = set()
+    for d in dates:
+        all_tickers.update(gap_by_date.get(d, {}).keys())
+
+    result = {}
+    for tk in all_tickers:
+        wg = 0
+        for i, d in enumerate(dates):
+            wg += gap_by_date.get(d, {}).get(tk, 0) * weights[i]
+        result[tk] = wg
+
     conn.close()
     return result
 
@@ -3334,7 +3404,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     else:
         filtered = get_part2_candidates(results_df, top_n=30)
 
-    # adj_gap 오름차순 정렬 (v57b: 음수가 저평가 = 좋음)
+    # w_gap 오름차순 정렬 (v58: 음수가 저평가 = 좋음)
     if score_100_map:
         filtered = filtered.copy()
         filtered['_adj_gap'] = filtered['ticker'].map(
@@ -3366,7 +3436,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
 
     lines = []
     lines.append('📋 <b>Top 20 종목 현황</b>')
-    lines.append('EPS 상향 상위 20종목 현황이에요.')
+    lines.append('EPS 상향 상위 20종목 현황이에요. (w_gap 순위 기준)')
 
     # 섹터 분포 표시
     sector_counts = Counter(row.get('industry', '?') for _, row in filtered.iterrows() if row.get('industry'))
