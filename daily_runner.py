@@ -1470,9 +1470,9 @@ def get_daily_changes(today_tickers, today_str=None):
     conn.close()
 
     yesterday_top20 = set(yesterday_ranks.keys())
-    today_set = set(today_tickers)
-    entered = today_set - yesterday_top20
-    exited = yesterday_top20 - today_set
+    today_top20 = set(today_tickers[:20])  # w_gap 순 Top 20만 비교 (Watchlist 기준)
+    entered = today_top20 - yesterday_top20
+    exited = yesterday_top20 - today_top20
     exited_with_rank = {t: yesterday_ranks[t] for t in exited}
 
     log(f"어제 대비: +{len(entered)} 신규, -{len(exited)} 이탈")
@@ -2308,12 +2308,18 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     if portfolio_mode == 'stop':
         return []
 
-    top30 = get_part2_candidates(results_df, top_n=30)
-    if top30.empty:
+    all_eligible = get_part2_candidates(results_df, top_n=None)
+    if all_eligible.empty:
         return []
 
-    # v58: w_gap(score_100_map) 오름차순 정렬 — DB part2_rank 대신 직접 계산
-    candidates = top30.copy()
+    # min_seg < -2% 제외 — save_part2_ranks()와 동일 기준 (순위 부여 전 필터)
+    def _calc_min_seg(row):
+        segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+        return min(segs) if segs else 0
+    all_eligible = all_eligible[all_eligible.apply(_calc_min_seg, axis=1) >= -2].copy()
+
+    # v58: w_gap(score_100_map) 오름차순 정렬 — save_part2_ranks()와 동일 파이프라인
+    candidates = all_eligible.copy()
     if score_100_map:
         candidates['_wgap'] = candidates['ticker'].map(lambda t: score_100_map.get(t, 0))
         candidates = candidates.sort_values('_wgap', ascending=True).reset_index(drop=True)
@@ -2589,8 +2595,16 @@ def classify_exit_reasons(exited_tickers, results_df):
     for t in sorted(exited_tickers, key=lambda x: exited_tickers[x]):
         cur_rank = composite_map.get(t)
         ag = adj_gap_map.get(t)
+        # min_seg < -2% 체크 (save_part2_ranks에서 순위 부여 전 제거된 종목)
+        row_data = full_data.get(t)
+        if row_data is not None:
+            segs = [float(row_data.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+            if segs and min(segs) < -2:
+                reason = '추세둔화'
+                result.append((t, cur_rank, reason))
+                continue
         if ag is not None and ag > 5.0:
-            reason = '괴리↑'
+            reason = '주가선반영'
         elif cur_rank is not None:
             reason = '순위밀림'
         else:
@@ -3419,20 +3433,16 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         )
         filtered = filtered.sort_values('_weighted').reset_index(drop=True)
 
-    # min_seg >= 0%: 매수 가능, min_seg < -2%: 이탈 대상 (⚠️ 섹션)
+    # min_seg < -2%: save_part2_ranks()에서 이미 제외됨 → 이탈은 classify_exit_reasons()에서 처리
     # -2% ≤ min_seg < 0%: 매수 불가지만 보유 추적용으로 표시 (⚠️ 마크)
-    health_warn_tickers = []
     healthy_rows = []
     caution_tickers = set()  # -2% ≤ min_seg < 0% — 매수 불가, 보유 추적용
     for _, row in filtered.iterrows():
         _segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
         _min_seg = min(_segs) if _segs else 0
-        if _min_seg < -2:
-            health_warn_tickers.append((row['ticker'], _min_seg))
-        else:
-            healthy_rows.append(row)
-            if _min_seg < 0:
-                caution_tickers.add(row['ticker'])
+        healthy_rows.append(row)
+        if _min_seg < 0:
+            caution_tickers.add(row['ticker'])
     import pandas as pd
     filtered = pd.DataFrame(healthy_rows).head(20) if healthy_rows else pd.DataFrame()
 
@@ -3525,13 +3535,6 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             lines.append('- - - - -')
 
     # ── EPS 추세 둔화 (메인 리스트에서 제외된 종목) ──
-    if health_warn_tickers:
-        lines.append('')
-        lines.append('━━━━━━━━━━━━━━━')
-        lines.append('⚠️ <b>EPS 추세 둔화 이탈</b>')
-        for t, ms in health_warn_tickers:
-            lines.append(f'{t} (최저구간 {ms:.1f}%)')
-
     # ── 순위 이탈 (사유별 묶어서 표시) ──
     if exit_reasons:
         from collections import defaultdict
