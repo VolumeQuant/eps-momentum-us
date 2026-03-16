@@ -5274,5 +5274,9 @@
   "NIO": {
     "shortName": "NIO",
     "industry": "기타"
+  },
+  "SUZ": {
+    "shortName": "SUZ",
+    "industry": "기타"
   }
 }
