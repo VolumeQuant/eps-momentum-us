@@ -5274,5 +5274,25 @@
   "NIO": {
     "shortName": "NIO",
     "industry": "기타"
+  },
+  "KMX": {
+    "shortName": "KMX",
+    "industry": "기타"
+  },
+  "ONDS": {
+    "shortName": "ONDS",
+    "industry": "기타"
+  },
+  "SUZ": {
+    "shortName": "SUZ",
+    "industry": "기타"
+  },
+  "TAL": {
+    "shortName": "TAL",
+    "industry": "기타"
+  },
+  "TGTX": {
+    "shortName": "TGTX",
+    "industry": "기타"
   }
 }
