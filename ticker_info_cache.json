@@ -5294,5 +5294,13 @@
   "TGTX": {
     "shortName": "TGTX",
     "industry": "기타"
+  },
+  "GLNG": {
+    "shortName": "GLNG",
+    "industry": "기타"
+  },
+  "PAYP": {
+    "shortName": "PAYP",
+    "industry": "기타"
   }
 }
