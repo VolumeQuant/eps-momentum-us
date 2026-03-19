@@ -1606,11 +1606,15 @@ def fetch_hy_quadrant():
         else:  # Q4
             action = '침체 구간 — 관망 유리'
 
+        # HY 퍼센타일 (10년 rolling, VIX와 동일 방식)
+        hy_pct = float(df['hy_spread'].rolling(2520, min_periods=1260).rank(pct=True).iloc[-1] * 100)
+
         return {
             'hy_spread': hy_spread,
             'median_10y': median_10y,
             'hy_3m_ago': hy_3m_ago,
             'hy_prev': hy_prev,
+            'hy_percentile': hy_pct,
             'quadrant': quadrant,
             'quadrant_label': label,
             'quadrant_icon': icon,
@@ -3225,66 +3229,52 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     return '\n'.join(lines)
 
 
-def _credit_indicator_icon(indicator, data):
-    """개별 지표의 🟢🟡🔴 아이콘 판정 (v64)"""
-    if indicator == 'hy':
-        q = data.get('quadrant', '')
-        q_days = data.get('q_days', 1)
-        if q in ('Q1', 'Q2'):
-            return '🟢'
-        elif q == 'Q3' and q_days < 60:
-            return '🟡'
-        else:  # Q3 60일+ or Q4
-            return '🔴'
-    elif indicator == 'vix':
-        pct = data.get('vix_percentile', 0)
-        if pct < 67:
-            return '🟢'
-        elif pct < 80:
-            return '🟡'
-        else:
-            return '🔴'
-    return '🟢'
-
-
-def _credit_pct_label(pct):
-    """퍼센타일 → '상위 N%, 매우 높음' 형태로 변환 (v64)"""
-    if pct >= 90:
-        return f"상위 {100 - pct:.0f}%, 매우 높음"
-    elif pct >= 67:
-        return f"상위 {100 - pct:.0f}%, 높음"
-    elif pct <= 10:
-        return f"하위 {pct:.0f}%, 매우 낮음"
-    elif pct <= 33:
-        return f"하위 {pct:.0f}%, 낮음"
+def _get_combined_return(hy_quadrant, vix_percentile):
+    """HY 분면 × VIX 구간 조합 과거 S&P 연평균 수익률 (24년 분석 기반)"""
+    RETURN_MATRIX = {
+        'Q1': {'normal': 10.2, 'elevated': 29.6, 'high': 28.1, 'crisis': 28.1},
+        'Q2': {'normal': 9.3, 'elevated': 8.3, 'high': 8.5, 'crisis': 8.5},
+        'Q3': {'normal': 7.3, 'elevated': 4.8, 'high': 0.4, 'crisis': 2.7},
+        'Q4': {'normal': 9.6, 'elevated': 12.1, 'high': 8.0, 'crisis': 8.0},
+    }
+    if vix_percentile < 67:
+        vix_regime = 'normal'
+    elif vix_percentile < 80:
+        vix_regime = 'elevated'
+    elif vix_percentile < 90:
+        vix_regime = 'high'
     else:
-        return "보통"
+        vix_regime = 'crisis'
+
+    return RETURN_MATRIX.get(hy_quadrant, {}).get(vix_regime, 9.0)
 
 
-def _credit_overall_status(hy_icon, vix_icon):
-    """HY 우선 종합 판정 (v64, US: HY+VIX 2축)
+def _credit_overall_status(hy_data, vix_data):
+    """HY×VIX 조합 수익률 기반 종합 판정 (v65, 3단계)
 
-    🟢 — 전부 🟢
-    🟡 — HY 🔴 아닌데 비정상 있음
-    🟠 — HY 🔴 단독
-    🔴 — HY 🔴 + VIX 🔴
+    ≥8% → 🟢 안정적인 시장이에요
+    2~8% → 🟡 평소보다 불안한 시장이에요
+    <2% → 🔴 시장 긴장이 높아요
+
+    VIX 95p 이상 → 최소 🟡 (공포 극대화 시점에 🟢 방지)
     """
-    hy_red = (hy_icon == '🔴')
-    vix_red = (vix_icon == '🔴')
-    any_non_green = (hy_icon != '🟢') or (vix_icon != '🟢')
+    hy_q = hy_data.get('quadrant', 'Q2') if hy_data else 'Q2'
+    vix_pct = vix_data.get('vix_percentile', 50) if vix_data else 50
 
-    if not any_non_green:
-        return '🟢', '안정적인 구간'
-    elif hy_red and vix_red:
-        return '🔴', '신용·변동성 동반 악화 — 신규 매수 보류가 유리한 구간'
-    elif hy_red:
-        return '🟠', '신용 지표 악화 — 보수적 비중 조절이 필요한 구간'
-    elif vix_red:
-        return '🟡', '단기 변동성 확대 — 신규 진입에 신중한 구간'
-    elif hy_icon == '🟡':
-        return '🟡', '신용 지표 변화 감지 — 시장 변화에 주의가 필요한 구간'
+    combined_return = _get_combined_return(hy_q, vix_pct)
+
+    if combined_return >= 8:
+        icon, msg = '🟢', '안정적인 시장이에요'
+    elif combined_return >= 2:
+        icon, msg = '🟡', '평소보다 불안한 시장이에요'
     else:
-        return '🟡', '일부 지표 주의 — 신규 진입에 신중한 구간'
+        icon, msg = '🔴', '시장 긴장이 높아요'
+
+    # VIX 극단 시 최소 🟡 (Q1+crisis=28%여도 🟢 방지)
+    if vix_pct >= 95 and icon == '🟢':
+        icon, msg = '🟡', '평소보다 불안한 시장이에요'
+
+    return icon, msg, combined_return
 
 
 def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
@@ -3333,33 +3323,22 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         lines.append('')
         lines.append('📉 <b>신용·변동성</b>')
 
-        # 개별 아이콘 판정
-        hy_icon = _credit_indicator_icon('hy', hy_data) if hy_data else '🟢'
-        vix_icon = _credit_indicator_icon('vix', vix_data) if vix_data else '🟢'
-
-        # 종합 판정 (HY 우선)
-        overall_icon, overall_msg = _credit_overall_status(hy_icon, vix_icon)
+        # 종합 판정 (HY×VIX 조합 수익률 기반, v65)
+        overall_icon, overall_msg, combined_ret = _credit_overall_status(hy_data, vix_data)
         lines.append(f'<b>{overall_icon} {overall_msg}</b>')
 
-        # 개별 근거 (아이콘 없이 텍스트만)
+        # 개별 근거 (수치 + 퍼센타일)
         if hy_data:
-            q = hy_data.get('quadrant', '')
-            hy_status_map = {'Q1': '회복 중', 'Q2': '안정', 'Q3': '주의', 'Q4': '위험'}
-            hy_status = hy_status_map.get(q, '안정')
-            lines.append(f'  부도위험(HY) {hy_data["hy_spread"]:.2f}% — {hy_status}')
+            hy_pct = hy_data.get('hy_percentile', 50)
+            lines.append(f'  회사채 금리차(HY) {hy_data["hy_spread"]:.2f}% · 상위 {100 - hy_pct:.0f}%')
 
         if vix_data:
             vix_cur = vix_data.get('vix_current', 0)
             vix_pct = vix_data.get('vix_percentile', 0)
-            pct_text = _credit_pct_label(vix_pct)
-            lines.append(f'  공포지수(VIX) {vix_cur:.1f} — {pct_text}')
+            lines.append(f'  변동성지수(VIX) {vix_cur:.1f} · 상위 {100 - vix_pct:.0f}%')
 
-        # 과거 수익률 (팩트)
-        if hy_data:
-            q = hy_data.get('quadrant', '')
-            Q_ANNUAL = {'Q1': '+14.3', 'Q2': '+9.4', 'Q3': '+5.1', 'Q4': '+9.9'}
-            if q in Q_ANNUAL:
-                lines.append(f'  과거 이 구간 S&P 연평균 {Q_ANNUAL[q]}%')
+        # 조합 과거 수익률
+        lines.append(f'  이 구간 과거 S&P 연평균 +{combined_ret:.1f}%')
     elif not hy_data and not vix_data:
         lines.append('')
         lines.append('📉 <b>신용·변동성</b>')
