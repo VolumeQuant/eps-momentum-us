@@ -3252,9 +3252,9 @@ def _get_combined_return(hy_quadrant, vix_percentile):
 def _credit_overall_status(hy_data, vix_data):
     """HY×VIX 조합 수익률 기반 종합 판정 (v65, 3단계)
 
-    ≥8% → 🟢 안정적인 시장이에요
-    2~8% → 🟡 평소보다 불안한 시장이에요
-    <2% → 🔴 시장 긴장이 높아요
+    ≥8% → 🟢 과거 수익률이 좋았던 구간이에요
+    2~8% → 🟡 과거 수익률이 보통인 구간이에요
+    <2% → 🔴 과거 수익률이 낮았던 구간이에요
 
     VIX 95p 이상 → 최소 🟡 (공포 극대화 시점에 🟢 방지)
     """
@@ -3264,15 +3264,15 @@ def _credit_overall_status(hy_data, vix_data):
     combined_return = _get_combined_return(hy_q, vix_pct)
 
     if combined_return >= 8:
-        icon, msg = '🟢', '안정적인 시장이에요'
+        icon, msg = '🟢', '과거 수익률이 좋았던 구간이에요'
     elif combined_return >= 2:
-        icon, msg = '🟡', '평소보다 불안한 시장이에요'
+        icon, msg = '🟡', '과거 수익률이 보통인 구간이에요'
     else:
-        icon, msg = '🔴', '시장 긴장이 높아요'
+        icon, msg = '🔴', '과거 수익률이 낮았던 구간이에요'
 
     # VIX 극단 시 최소 🟡 (Q1+crisis=28%여도 🟢 방지)
     if vix_pct >= 95 and icon == '🟢':
-        icon, msg = '🟡', '평소보다 불안한 시장이에요'
+        icon, msg = '🟡', '과거 수익률이 보통인 구간이에요'
 
     return icon, msg, combined_return
 
