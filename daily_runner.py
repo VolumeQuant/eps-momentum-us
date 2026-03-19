@@ -3332,7 +3332,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
 
     if hy_data or vix_data:
         lines.append('')
-        lines.append('📉 <b>신용·변동성</b>')
+        lines.append('🏦 <b>신용·변동성</b>')
 
         # 종합 판정 (HY×VIX 조합 수익률 기반, v65)
         overall_icon, overall_msg, combined_ret = _credit_overall_status(hy_data, vix_data)
@@ -3352,7 +3352,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         lines.append(f'  이 구간 과거 S&P 연평균 +{combined_ret:.1f}%')
     elif not hy_data and not vix_data:
         lines.append('')
-        lines.append('📉 <b>신용·변동성</b>')
+        lines.append('🏦 <b>신용·변동성</b>')
         lines.append('⚠️ 시장 지표 수집 실패 — 보수적으로 접근하세요')
 
     # ── 📰 시장 동향 (AI 해석) ──
