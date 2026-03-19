@@ -3250,26 +3250,40 @@ def _get_combined_return(hy_quadrant, vix_percentile):
 
 
 def _credit_overall_status(hy_data, vix_data):
-    """HY×VIX 조합 수익률 기반 종합 판정 (v65, 2단계)
+    """HY×VIX 조합 수익률 기반 종합 판정 (v65)
 
-    ≥8% → 🟢 과거 수익률이 좋았던 구간이에요
-    <8% → 🟡 과거 수익률이 보통 이하인 구간이에요
+    🟢 수익률 ≥8%: 과거 수익률이 좋았던 구간
+    🟡 수익률 <8%: 보통/낮았던 구간 (문구는 수익률에 따라)
+    🔴 수익률 <5% AND (VIX ≥90p OR HY ≥90p): 실제 위기 구간
 
     VIX 95p 이상 → 최소 🟡 (공포 극대화 시점에 🟢 방지)
     """
     hy_q = hy_data.get('quadrant', 'Q2') if hy_data else 'Q2'
     vix_pct = vix_data.get('vix_percentile', 50) if vix_data else 50
+    hy_pct = hy_data.get('hy_percentile', 50) if hy_data else 50
 
     combined_return = _get_combined_return(hy_q, vix_pct)
 
-    if combined_return >= 8:
-        icon, msg = '🟢', '과거 수익률이 좋았던 구간이에요'
+    # 🔴: 수익률 낮고 + 실제 지표도 극단
+    is_extreme = (vix_pct >= 90) or (hy_pct >= 90)
+    if combined_return < 5 and is_extreme:
+        icon = '🔴'
+    elif combined_return >= 8:
+        icon = '🟢'
     else:
-        icon, msg = '🟡', '과거 수익률이 보통 이하인 구간이에요'
+        icon = '🟡'
 
     # VIX 극단 시 최소 🟡 (Q1+crisis=28%여도 🟢 방지)
     if vix_pct >= 95 and icon == '🟢':
-        icon, msg = '🟡', '과거 수익률이 보통 이하인 구간이에요'
+        icon = '🟡'
+
+    # 문구는 실제 수익률에 맞게
+    if combined_return >= 8:
+        msg = '과거 수익률이 좋았던 구간이에요'
+    elif combined_return >= 3:
+        msg = '과거 수익률이 보통인 구간이에요'
+    else:
+        msg = '과거 수익률이 낮았던 구간이에요'
 
     return icon, msg, combined_return
 
