@@ -1470,9 +1470,9 @@ def get_daily_changes(today_tickers, today_str=None):
     conn.close()
 
     yesterday_top20 = set(yesterday_ranks.keys())
-    today_set = set(today_tickers)
-    entered = today_set - yesterday_top20
-    exited = yesterday_top20 - today_set
+    today_top20 = set(today_tickers[:20])  # w_gap 순 Top 20만 비교 (Watchlist 기준)
+    entered = today_top20 - yesterday_top20
+    exited = yesterday_top20 - today_top20
     exited_with_rank = {t: yesterday_ranks[t] for t in exited}
 
     log(f"어제 대비: +{len(entered)} 신규, -{len(exited)} 이탈")
@@ -1606,11 +1606,15 @@ def fetch_hy_quadrant():
         else:  # Q4
             action = '침체 구간 — 관망 유리'
 
+        # HY 퍼센타일 (10년 rolling, VIX와 동일 방식)
+        hy_pct = float(df['hy_spread'].rolling(2520, min_periods=1260).rank(pct=True).iloc[-1] * 100)
+
         return {
             'hy_spread': hy_spread,
             'median_10y': median_10y,
             'hy_3m_ago': hy_3m_ago,
             'hy_prev': hy_prev,
+            'hy_percentile': hy_pct,
             'quadrant': quadrant,
             'quadrant_label': label,
             'quadrant_icon': icon,
@@ -2308,12 +2312,18 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     if portfolio_mode == 'stop':
         return []
 
-    top30 = get_part2_candidates(results_df, top_n=30)
-    if top30.empty:
+    all_eligible = get_part2_candidates(results_df, top_n=None)
+    if all_eligible.empty:
         return []
 
-    # v58: w_gap(score_100_map) 오름차순 정렬 — DB part2_rank 대신 직접 계산
-    candidates = top30.copy()
+    # min_seg < -2% 제외 — save_part2_ranks()와 동일 기준 (순위 부여 전 필터)
+    def _calc_min_seg(row):
+        segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+        return min(segs) if segs else 0
+    all_eligible = all_eligible[all_eligible.apply(_calc_min_seg, axis=1) >= -2].copy()
+
+    # v58: w_gap(score_100_map) 오름차순 정렬 — save_part2_ranks()와 동일 파이프라인
+    candidates = all_eligible.copy()
     if score_100_map:
         candidates['_wgap'] = candidates['ticker'].map(lambda t: score_100_map.get(t, 0))
         candidates = candidates.sort_values('_wgap', ascending=True).reset_index(drop=True)
@@ -2589,8 +2599,16 @@ def classify_exit_reasons(exited_tickers, results_df):
     for t in sorted(exited_tickers, key=lambda x: exited_tickers[x]):
         cur_rank = composite_map.get(t)
         ag = adj_gap_map.get(t)
+        # min_seg < -2% 체크 (save_part2_ranks에서 순위 부여 전 제거된 종목)
+        row_data = full_data.get(t)
+        if row_data is not None:
+            segs = [float(row_data.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+            if segs and min(segs) < -2:
+                reason = '추세둔화'
+                result.append((t, cur_rank, reason))
+                continue
         if ag is not None and ag > 5.0:
-            reason = '괴리↑'
+            reason = '주가선반영'
         elif cur_rank is not None:
             reason = '순위밀림'
         else:
@@ -2739,19 +2757,26 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 
 {idx_ctx}
 
-[구조] 4~6문장, 총 250~350자로 작성:
-1. 당일 시장 흐름 — 상승/하락 원인 (1~2문장)
-2. 핵심 이슈 — 가장 중요한 뉴스와 시장 반응 (1~2문장)
-3. 섹터/테마 동향 — 어떤 업종이 강했고 어떤 업종이 약했는지 (1문장)
-4. 향후 일정 — 다음 주요 경제지표·이벤트 (1문장)
+[중요] 이 요약은 {biz_str} 미국 시장 마감(16시 ET) 이후에 작성하는 거야.
+마감 시점까지 이미 발표된 경제지표(FOMC 결정, CPI, PPI, 고용 등)는 "결과"로 써.
+"향후 예정", "발표될 예정" 같은 표현은 마감 이후 일정에만 써.
+예: FOMC가 당일 14시에 금리 동결 발표 → "연준이 금리를 동결했어요" (O) / "FOMC 결과가 예정되어 있어요" (X)
+
+[구조] 3문단, 총 400~550자로 작성 (문단 사이 빈 줄):
+문단1. 당일 시장 흐름 — 상승/하락 원인과 핵심 이슈 (2~3문장)
+문단2. 지수 움직임 — 주요 종목/섹터 동향, 수급 흐름 (2~3문장)
+문단3. 업종별 강약 — 어떤 테마가 주도했는지 + 향후 주요 일정 (2~3문장)
 
 [규칙]
-- 250~350자. 너무 짧으면 안 돼.
+- 400~550자. 3문단으로 나눠서 써. 문단 사이에 빈 줄 넣어.
 - 위 [당일 지수 마감] 데이터와 반드시 일치해야 해. 지수가 마이너스면 "하락", 플러스면 "상승".
 - 지수 수치(S&P, 나스닥 등)는 별도 표시하니 생략.
 - 구체적으로 써 — "관세 이슈" 대신 "트럼프 15% 글로벌 관세 발표에..." 같이.
 - 트럼프는 2025년 1월 재취임한 현직 대통령이야. "전 대통령"이라고 쓰지 마.
 - 섹터 동향도 구체적으로 — "기술주 약세" 대신 "AI·반도체주가 2% 넘게 하락" 같이.
+- 전일(어제) 이벤트를 당일 일처럼 쓰지 마. {biz_str} 당일 변동만.
+- 개별 종목 급등락은 당일 변동만 언급해.
+- 한국 투자자(서학개미) 동향은 쓰지 마. 미국 시장만.
 - 한국어, ~예요 체. 번역투 금지. 자연스럽게.
 - 인사말/서두/맺음말 없이 바로 시작."""
 
@@ -3204,66 +3229,63 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     return '\n'.join(lines)
 
 
-def _credit_indicator_icon(indicator, data):
-    """개별 지표의 🟢🟡🔴 아이콘 판정 (v64)"""
-    if indicator == 'hy':
-        q = data.get('quadrant', '')
-        q_days = data.get('q_days', 1)
-        if q in ('Q1', 'Q2'):
-            return '🟢'
-        elif q == 'Q3' and q_days < 60:
-            return '🟡'
-        else:  # Q3 60일+ or Q4
-            return '🔴'
-    elif indicator == 'vix':
-        pct = data.get('vix_percentile', 0)
-        if pct < 67:
-            return '🟢'
-        elif pct < 80:
-            return '🟡'
-        else:
-            return '🔴'
-    return '🟢'
-
-
-def _credit_pct_label(pct):
-    """퍼센타일 → '상위 N%, 매우 높음' 형태로 변환 (v64)"""
-    if pct >= 90:
-        return f"상위 {100 - pct:.0f}%, 매우 높음"
-    elif pct >= 67:
-        return f"상위 {100 - pct:.0f}%, 높음"
-    elif pct <= 10:
-        return f"하위 {pct:.0f}%, 매우 낮음"
-    elif pct <= 33:
-        return f"하위 {pct:.0f}%, 낮음"
+def _get_combined_return(hy_quadrant, vix_percentile):
+    """HY 분면 × VIX 구간 조합 과거 S&P 연평균 수익률 (24년 분석 기반)"""
+    RETURN_MATRIX = {
+        'Q1': {'normal': 10.2, 'elevated': 29.6, 'high': 28.1, 'crisis': 28.1},
+        'Q2': {'normal': 9.3, 'elevated': 8.3, 'high': 8.5, 'crisis': 8.5},
+        'Q3': {'normal': 7.3, 'elevated': 4.8, 'high': 0.4, 'crisis': 2.7},
+        'Q4': {'normal': 9.6, 'elevated': 12.1, 'high': 8.0, 'crisis': 8.0},
+    }
+    if vix_percentile < 67:
+        vix_regime = 'normal'
+    elif vix_percentile < 80:
+        vix_regime = 'elevated'
+    elif vix_percentile < 90:
+        vix_regime = 'high'
     else:
-        return "보통"
+        vix_regime = 'crisis'
+
+    return RETURN_MATRIX.get(hy_quadrant, {}).get(vix_regime, 9.0)
 
 
-def _credit_overall_status(hy_icon, vix_icon):
-    """HY 우선 종합 판정 (v64, US: HY+VIX 2축)
+def _credit_overall_status(hy_data, vix_data):
+    """HY×VIX 조합 수익률 기반 종합 판정 (v65)
 
-    🟢 — 전부 🟢
-    🟡 — HY 🔴 아닌데 비정상 있음
-    🟠 — HY 🔴 단독
-    🔴 — HY 🔴 + VIX 🔴
+    🟢 수익률 ≥8%: 과거 수익률이 좋았던 구간
+    🟡 수익률 <8%: 보통/낮았던 구간 (문구는 수익률에 따라)
+    🔴 수익률 <5% AND (VIX ≥90p OR HY ≥90p): 실제 위기 구간
+
+    VIX 95p 이상 → 최소 🟡 (공포 극대화 시점에 🟢 방지)
     """
-    hy_red = (hy_icon == '🔴')
-    vix_red = (vix_icon == '🔴')
-    any_non_green = (hy_icon != '🟢') or (vix_icon != '🟢')
+    hy_q = hy_data.get('quadrant', 'Q2') if hy_data else 'Q2'
+    vix_pct = vix_data.get('vix_percentile', 50) if vix_data else 50
+    hy_pct = hy_data.get('hy_percentile', 50) if hy_data else 50
 
-    if not any_non_green:
-        return '🟢', '안정적인 구간'
-    elif hy_red and vix_red:
-        return '🔴', '신용·변동성 동반 악화 — 신규 매수 보류가 유리한 구간'
-    elif hy_red:
-        return '🟠', '신용 지표 악화 — 보수적 비중 조절이 필요한 구간'
-    elif vix_red:
-        return '🟡', '단기 변동성 확대 — 신규 진입에 신중한 구간'
-    elif hy_icon == '🟡':
-        return '🟡', '신용 지표 변화 감지 — 시장 변화에 주의가 필요한 구간'
+    combined_return = _get_combined_return(hy_q, vix_pct)
+
+    # 🔴: 수익률 낮고 + 실제 지표도 극단
+    is_extreme = (vix_pct >= 90) or (hy_pct >= 90)
+    if combined_return < 5 and is_extreme:
+        icon = '🔴'
+    elif combined_return >= 8:
+        icon = '🟢'
     else:
-        return '🟡', '일부 지표 주의 — 신규 진입에 신중한 구간'
+        icon = '🟡'
+
+    # VIX 극단 시 최소 🟡 (Q1+crisis=28%여도 🟢 방지)
+    if vix_pct >= 95 and icon == '🟢':
+        icon = '🟡'
+
+    # 문구는 실제 수익률에 맞게
+    if combined_return >= 8:
+        msg = '과거 수익률이 좋았던 구간이에요'
+    elif combined_return >= 3:
+        msg = '과거 수익률이 보통인 구간이에요'
+    else:
+        msg = '과거 수익률이 낮았던 구간이에요'
+
+    return icon, msg, combined_return
 
 
 def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
@@ -3310,38 +3332,27 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
 
     if hy_data or vix_data:
         lines.append('')
-        lines.append('📉 <b>신용·변동성</b>')
+        lines.append('🏦 <b>신용·변동성</b>')
 
-        # 개별 아이콘 판정
-        hy_icon = _credit_indicator_icon('hy', hy_data) if hy_data else '🟢'
-        vix_icon = _credit_indicator_icon('vix', vix_data) if vix_data else '🟢'
-
-        # 종합 판정 (HY 우선)
-        overall_icon, overall_msg = _credit_overall_status(hy_icon, vix_icon)
+        # 종합 판정 (HY×VIX 조합 수익률 기반, v65)
+        overall_icon, overall_msg, combined_ret = _credit_overall_status(hy_data, vix_data)
         lines.append(f'<b>{overall_icon} {overall_msg}</b>')
 
-        # 개별 근거 (아이콘 없이 텍스트만)
+        # 개별 근거 (수치 + 퍼센타일)
         if hy_data:
-            q = hy_data.get('quadrant', '')
-            hy_status_map = {'Q1': '회복 중', 'Q2': '안정', 'Q3': '주의', 'Q4': '위험'}
-            hy_status = hy_status_map.get(q, '안정')
-            lines.append(f'  부도위험(HY) {hy_data["hy_spread"]:.2f}% — {hy_status}')
+            hy_pct = hy_data.get('hy_percentile', 50)
+            lines.append(f'  회사채 금리차(HY) {hy_data["hy_spread"]:.2f}% · 상위 {100 - hy_pct:.0f}%')
 
         if vix_data:
             vix_cur = vix_data.get('vix_current', 0)
             vix_pct = vix_data.get('vix_percentile', 0)
-            pct_text = _credit_pct_label(vix_pct)
-            lines.append(f'  공포지수(VIX) {vix_cur:.1f} — {pct_text}')
+            lines.append(f'  변동성지수(VIX) {vix_cur:.1f} · 상위 {100 - vix_pct:.0f}%')
 
-        # 과거 수익률 (팩트)
-        if hy_data:
-            q = hy_data.get('quadrant', '')
-            Q_ANNUAL = {'Q1': '+14.3', 'Q2': '+9.4', 'Q3': '+5.1', 'Q4': '+9.9'}
-            if q in Q_ANNUAL:
-                lines.append(f'  과거 이 구간 S&P 연평균 {Q_ANNUAL[q]}%')
+        # 조합 과거 수익률
+        lines.append(f'  이 구간 과거 S&P 연평균 +{combined_ret:.1f}%')
     elif not hy_data and not vix_data:
         lines.append('')
-        lines.append('📉 <b>신용·변동성</b>')
+        lines.append('🏦 <b>신용·변동성</b>')
         lines.append('⚠️ 시장 지표 수집 실패 — 보수적으로 접근하세요')
 
     # ── 📰 시장 동향 (AI 해석) ──
@@ -3419,20 +3430,16 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         )
         filtered = filtered.sort_values('_weighted').reset_index(drop=True)
 
-    # min_seg >= 0%: 매수 가능, min_seg < -2%: 이탈 대상 (⚠️ 섹션)
+    # min_seg < -2%: save_part2_ranks()에서 이미 제외됨 → 이탈은 classify_exit_reasons()에서 처리
     # -2% ≤ min_seg < 0%: 매수 불가지만 보유 추적용으로 표시 (⚠️ 마크)
-    health_warn_tickers = []
     healthy_rows = []
     caution_tickers = set()  # -2% ≤ min_seg < 0% — 매수 불가, 보유 추적용
     for _, row in filtered.iterrows():
         _segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
         _min_seg = min(_segs) if _segs else 0
-        if _min_seg < -2:
-            health_warn_tickers.append((row['ticker'], _min_seg))
-        else:
-            healthy_rows.append(row)
-            if _min_seg < 0:
-                caution_tickers.add(row['ticker'])
+        healthy_rows.append(row)
+        if _min_seg < 0:
+            caution_tickers.add(row['ticker'])
     import pandas as pd
     filtered = pd.DataFrame(healthy_rows).head(20) if healthy_rows else pd.DataFrame()
 
@@ -3525,13 +3532,6 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             lines.append('- - - - -')
 
     # ── EPS 추세 둔화 (메인 리스트에서 제외된 종목) ──
-    if health_warn_tickers:
-        lines.append('')
-        lines.append('━━━━━━━━━━━━━━━')
-        lines.append('⚠️ <b>EPS 추세 둔화 이탈</b>')
-        for t, ms in health_warn_tickers:
-            lines.append(f'{t} (최저구간 {ms:.1f}%)')
-
     # ── 순위 이탈 (사유별 묶어서 표시) ──
     if exit_reasons:
         from collections import defaultdict
