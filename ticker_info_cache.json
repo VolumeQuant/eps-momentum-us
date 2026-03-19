@@ -5302,5 +5302,13 @@
   "PAYP": {
     "shortName": "PAYP",
     "industry": "기타"
+  },
+  "TERN": {
+    "shortName": "TERN",
+    "industry": "기타"
+  },
+  "TGS": {
+    "shortName": "TGS",
+    "industry": "기타"
   }
 }
