@@ -2338,7 +2338,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                  for _, row in candidates.head(7).iterrows()]
     log(f"w_gap 순위 상위 7: {top_debug}")
 
-    # v58 진입: part2_rank Top3 + min_seg ≥ 0% + 리스크 필터, 최대 3종목
+    # v58b: part2_rank 순서대로 3종목 채울 때까지 탐색 (Top7 상한)
     selected = []
     for _, row in candidates.iterrows():
         if len(selected) >= 3:
@@ -2346,9 +2346,9 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
         t = row['ticker']
         p2r = p2r_map.get(t, 999)
 
-        # v58: Top3 이내만 진입 후보
-        if p2r > 3:
-            continue
+        # Top7까지만 탐색 — 3종목 못 채우면 그만큼만 추천
+        if p2r > 7:
+            break
 
         # v58 진입 조건: min_seg ≥ 0% (소수점 1자리 반올림 기준)
         segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
