@@ -5310,5 +5310,9 @@
   "TGS": {
     "shortName": "TGS",
     "industry": "기타"
+  },
+  "CRK": {
+    "shortName": "CRK",
+    "industry": "기타"
   }
 }
