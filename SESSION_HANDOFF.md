@@ -78,6 +78,7 @@
 > **v64**: 2026-03-15 집 PC — 신용·변동성 메시지 리디자인: 1줄 결론(bold) + 개별 근거. HY 우선 종합 판정(🟢🟡🟠🔴). 내부 용어(Q3 가을/과열국면) → 고객 용어(주의). 퍼센타일 → "상위 N%, 매우 높음". 방향 화살표 제거
 > **v58b**: 2026-03-15 집 PC — min_seg<-2% 순위 전 제외 + 메시지 UX 개선: save_part2_ranks()에서 min_seg<-2% 종목 composite_rank 부여 전 제외(FTAI 1위 버그 수정), DB 전체 재계산(migrate_v58b), select_display_top5() w_gap 직접정렬(DB part2_rank 대신), Watchlist ⚠️추세주의(-2%≤min_seg<0%), 이탈 사유별 그룹 표시(Signal과 통일), 푸터 줄바꿈 방지(≤23자), 내부 용어(w_gap) 고객 메시지에서 제거, Top20 이탈 기준선
 > **v58c**: 2026-03-17 집 PC — Signal/이탈 일관성 버그 4건 수정: (1) select_display_top5() 유니버스 불일치(adj_gap top30→eligible 전체+w_gap 정렬, save_part2_ranks와 동일 파이프라인) (2) min_seg<-2% 이탈 사유 '필터탈락'→'추세둔화' 라벨 (3) 이탈 감지 Top30→Top20 비교(Watchlist 기준 통일) (4) 이탈 라벨 '괴리↑'→'주가선반영'(의미 명확화). Watchlist 추세둔화 섹션 죽은코드 제거
+> **v68**: 2026-03-20 — 톤 통일: 전체 메시지 ~해요/~예요 체 → ~입니다 체 (Gemini 프롬프트 포함 12곳)
 
 ---
 

@@ -2760,7 +2760,7 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 [중요] 이 요약은 {biz_str} 미국 시장 마감(16시 ET) 이후에 작성하는 거야.
 마감 시점까지 이미 발표된 경제지표(FOMC 결정, CPI, PPI, 고용 등)는 "결과"로 써.
 "향후 예정", "발표될 예정" 같은 표현은 마감 이후 일정에만 써.
-예: FOMC가 당일 14시에 금리 동결 발표 → "연준이 금리를 동결했어요" (O) / "FOMC 결과가 예정되어 있어요" (X)
+예: FOMC가 당일 14시에 금리 동결 발표 → "연준이 금리를 동결했습니다" (O) / "FOMC 결과가 예정되어 있습니다" (X)
 
 [구조] 3문단, 총 400~550자로 작성 (문단 사이 빈 줄):
 문단1. 당일 시장 흐름 — 상승/하락 원인과 핵심 이슈 (2~3문장)
@@ -2777,7 +2777,7 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 - 전일(어제) 이벤트를 당일 일처럼 쓰지 마. {biz_str} 당일 변동만.
 - 개별 종목 급등락은 당일 변동만 언급해.
 - 한국 투자자(서학개미) 동향은 쓰지 마. 미국 시장만.
-- 한국어, ~예요 체. 번역투 금지. 자연스럽게.
+- 한국어, ~입니다 체. 번역투 금지. 자연스럽게.
 - 인사말/서두/맺음말 없이 바로 시작."""
 
         resp = client.models.generate_content(
@@ -2824,9 +2824,9 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 
 [규칙]
 - 각 종목의 실적 성장 배경(왜 EPS/매출이 오르는지)을 검색해서 2~3문장으로 자세히 써.
-  좋은 예: "최근 재상장된 SNDK는 스마트폰, 데이터센터, AI 통합 등 소비자 가전 및 5G 네트워크의 플래시 메모리 수요 증가에 힘입어 성장하고 있어요."
-  좋은 예: "AI 인프라 구축을 위한 데이터센터의 폭발적인 GPU 수요와 주요 클라우드 제공업체들의 AI 클라우드 서비스 투자 확대가 실적 성장을 이끌고 있어요."
-  나쁜 예: "SSD 매출 증가와 제품 믹스 개선으로 실적이 크게 성장했어요." ← 너무 짧고 구체적 내용 없음
+  좋은 예: "최근 재상장된 SNDK는 스마트폰, 데이터센터, AI 통합 등 소비자 가전 및 5G 네트워크의 플래시 메모리 수요 증가에 힘입어 성장하고 있습니다."
+  좋은 예: "AI 인프라 구축을 위한 데이터센터의 폭발적인 GPU 수요와 주요 클라우드 제공업체들의 AI 클라우드 서비스 투자 확대가 실적 성장을 이끌고 있습니다."
+  나쁜 예: "SSD 매출 증가와 제품 믹스 개선으로 실적이 크게 성장했습니다." ← 너무 짧고 구체적 내용 없음
 - 구체적으로: 어떤 제품/서비스가, 어떤 시장에서, 왜 수요가 느는지 써.
 - 회사명은 티커만 써 (NVDA, APH 등). "Corporation", "Inc.", 풀네임 금지.
 - 번역투 금지: "탁월한", "유기적", "전략적 인수 프로그램", "모멘텀에 힘입어" 같은 표현 쓰지 마.
@@ -2835,7 +2835,7 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 - 주의/경고/유의 표현 금지. 긍정적 매력만.
 - 종목마다 문장 구조를 다르게 써. "~에 힘입어 ~성장" 패턴만 반복하지 마.
   다양한 시작: "~가 늘면서", "~덕분에", "~로 인해", "~의 확대가", "~시장이 커지면서" 등.
-- 한국어, ~예요 체.
+- 한국어, ~입니다 체.
 - 서두/인사말/맺음말 금지. 첫 종목부터 바로 시작."""
 
             resp = client.models.generate_content(
@@ -3067,7 +3067,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     weekday = weekdays[biz_day.weekday()]
     lines.append(f'📡 <b>AI 종목 브리핑 US</b> · {biz_str}({weekday})')
     lines.append('월가 애널리스트의 이익 전망 변화를 추적해')
-    lines.append('유망 종목을 매일 선별해 드려요.')
+    lines.append('유망 종목을 매일 선별해 드립니다.')
 
     # ━━ 섹션 1: 결론 먼저 ━━
     lines.append('')
@@ -3279,11 +3279,11 @@ def _credit_overall_status(hy_data, vix_data):
 
     # 문구는 실제 수익률에 맞게
     if combined_return >= 8:
-        msg = '과거 수익률이 좋았던 구간이에요'
+        msg = '과거 수익률이 좋았던 구간입니다'
     elif combined_return >= 3:
-        msg = '과거 수익률이 보통인 구간이에요'
+        msg = '과거 수익률이 보통인 구간입니다'
     else:
-        msg = '과거 수익률이 낮았던 구간이에요'
+        msg = '과거 수익률이 낮았던 구간입니다'
 
     return icon, msg, combined_return
 
@@ -3300,7 +3300,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append('  🤖 <b>AI 리스크 필터</b>')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('상위 종목의 리스크 요소를 AI가 분석했어요.')
+    lines.append('상위 종목의 리스크 요소를 AI가 분석했습니다.')
 
     # ── 📊 시장 지수 ──
     lines.append('')
@@ -3448,7 +3448,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
 
     lines = []
     lines.append('📋 <b>Top 20 종목 현황</b>')
-    lines.append('EPS 상향 상위 20종목 현황이에요.')
+    lines.append('EPS 상향 상위 20종목 현황입니다.')
 
     # 섹터 분포 표시
     sector_counts = Counter(row.get('industry', '?') for _, row in filtered.iterrows() if row.get('industry'))
@@ -3689,8 +3689,8 @@ def create_etf_message(etf_results, biz_day, uncovered=None, top30_count=30):
     lines.append('━━━━━━━━━━━━━━━━━━━')
     lines.append('  📊 <b>관련 ETF</b>')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('Top 30 종목을 여러 개 담고 있는 ETF에요.')
-    lines.append('개별 종목 대신 ETF로 분산 투자할 수 있어요.')
+    lines.append('Top 30 종목을 여러 개 담고 있는 ETF입니다.')
+    lines.append('개별 종목 대신 ETF로 분산 투자할 수 있습니다.')
     lines.append('')
 
     for i, etf in enumerate(meaningful, 1):
