@@ -2350,10 +2350,10 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
         if p2r > 3:
             continue
 
-        # v58 진입 조건: min_seg ≥ 0%
+        # v58 진입 조건: min_seg ≥ 0% (소수점 1자리 반올림 기준)
         segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
         min_seg = min(segs) if segs else 0
-        if min_seg < 0:
+        if round(min_seg, 1) < 0:
             log(f"  ⛔ 디스플레이 제외 {t}: min_seg={min_seg:.1f}% (< 0%)")
             continue
 
@@ -3438,7 +3438,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         _segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
         _min_seg = min(_segs) if _segs else 0
         healthy_rows.append(row)
-        if _min_seg < 0:
+        if round(_min_seg, 1) < 0:
             caution_tickers.add(row['ticker'])
     import pandas as pd
     filtered = pd.DataFrame(healthy_rows).head(20) if healthy_rows else pd.DataFrame()
