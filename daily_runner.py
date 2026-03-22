@@ -3464,13 +3464,13 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                 if groups:
                     for g in groups:
                         if len(g) >= 3:
-                            lines.append(f'⚠️ {"·".join(g)}')
-                            lines.append('주가 상관관계 높음 — 이 중 1~2개 선택 권장')
+                            lines.append(f'⚠️ {"·".join(g)} 주가 상관관계 높음 — 1~2개 선택 권장')
                         else:
-                            lines.append(f'ℹ️ {"·".join(g)}')
-                            lines.append('주가 상관관계 높음')
+                            lines.append(f'ℹ️ {"·".join(g)} 주가 상관관계 높음')
     except Exception as e:
         log(f"상관관계 계산 실패: {e}", level="WARN")
+
+    lines.append('💡 변동성 낮은 종목에 더 많이 배분')
 
     # ━━ 섹션 2: 선정 과정 ━━
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
@@ -3599,8 +3599,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('매수: 상위 3종목 (최대 3종목)')
     lines.append('매도: 15위 밖 · 실적하락 · -10%')
     lines.append('')
-    lines.append('비중: 최근 5일 변동성 기반 역가중')
-    lines.append('(변동성 큰 종목 적게, 작은 종목 많이)')
+    lines.append('비중: 변동성 역가중 · 종목 변경 시 리밸런싱')
 
     return '\n'.join(lines)
 
