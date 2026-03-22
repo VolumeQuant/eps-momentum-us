@@ -2375,16 +2375,49 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             entry = _build_portfolio_entry(row, status_map, earnings_map)
             selected.append(entry)
 
-    # 동일 비중
+    # 역변동성(5일) 비중 — 변동성 큰 종목에 적게, 작은 종목에 많이
     n = len(selected)
     if n > 0:
-        base = 100 // n
-        remainder = 100 - base * n
-        weights = [base] * n
-        for i in range(remainder):
-            weights[i] += 1
-        for i, s in enumerate(selected):
-            s['weight'] = weights[i]
+        if n == 1:
+            selected[0]['weight'] = 100
+        else:
+            try:
+                import yfinance as yf
+                tickers_list = [s['ticker'] for s in selected]
+                hist = yf.download(tickers_list, period='15d', threads=True, progress=False)
+                close = hist['Close'] if len(tickers_list) > 1 else hist[['Close']].rename(columns={'Close': tickers_list[0]})
+                inv_vols = {}
+                for tk in tickers_list:
+                    col = close[tk].dropna() if tk in close.columns else None
+                    if col is not None and len(col) >= 4:
+                        rets = col.pct_change().dropna().tail(5)
+                        vol = float(rets.std()) if len(rets) >= 2 else None
+                        if vol and vol > 0:
+                            inv_vols[tk] = 1.0 / vol
+                if inv_vols and len(inv_vols) == n:
+                    total = sum(inv_vols.values())
+                    raw_weights = {tk: inv_vols[tk] / total * 100 for tk in tickers_list}
+                    # 정수 반올림 (합계 100% 보정)
+                    int_weights = {tk: int(round(w)) for tk, w in raw_weights.items()}
+                    diff = 100 - sum(int_weights.values())
+                    if diff != 0:
+                        # 잔여분은 비중 가장 큰 종목에 배분
+                        max_tk = max(int_weights, key=int_weights.get)
+                        int_weights[max_tk] += diff
+                    for s in selected:
+                        s['weight'] = int_weights[s['ticker']]
+                    log(f"역변동성 비중: " + ", ".join(f"{tk}(vol={1/inv_vols[tk]:.3f},w={int_weights[tk]}%)" for tk in tickers_list))
+                else:
+                    raise ValueError(f"vol 계산 불가: {len(inv_vols)}/{n}")
+            except Exception as e:
+                log(f"역변동성 계산 실패, 동일비중 fallback: {e}", level="WARN")
+                base = 100 // n
+                remainder = 100 - base * n
+                weights = [base] * n
+                for i in range(remainder):
+                    weights[i] += 1
+                for i, s in enumerate(selected):
+                    s['weight'] = weights[i]
 
     log(f"디스플레이 {n}종목: " + ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
@@ -3085,7 +3118,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('━━━━━━━━━━━━━━━')
     for idx, s in enumerate(selected):
         name = _clean_company_name(s['name'], s['ticker'])
-        lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
+        w = s.get('weight', 0)
+        lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b> · 비중 {w}%')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
@@ -3232,8 +3266,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('매수: 상위 3종목 (최대 3종목)')
     lines.append('매도: 15위 밖 · 실적하락 · -10%')
     lines.append('')
-    lines.append('※ 종목 선별 기준이며,')
-    lines.append('비중과 시점은 본인 판단입니다.')
+    lines.append('비중: 최근 5일 변동성 기반 역가중')
+    lines.append('(변동성 큰 종목 적게, 작은 종목 많이)')
 
     return '\n'.join(lines)
 

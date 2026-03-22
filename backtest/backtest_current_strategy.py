@@ -8,9 +8,10 @@
 import sqlite3
 import sys
 from collections import defaultdict
+from pathlib import Path
 
 sys.stdout.reconfigure(encoding='utf-8')
-DB_PATH = 'eps_momentum_data.db'
+DB_PATH = Path(__file__).parent.parent / 'eps_momentum_data.db'
 
 
 def calc_min_seg(nc, n7, n30, n60, n90):
@@ -191,104 +192,38 @@ def main():
 
     conn.close()
 
-    # 결과
+    # 거래 내역
     print(f'=== 거래 내역 ===')
-    total_ret = 0
-    winners = 0
     for t in trade_log:
         status = '✅' if t['return'] > 0 else '❌'
         print(f"  {status} {t['ticker']:6s} {t['entry_date']}→{t['exit_date']} "
               f"{t['entry_price']:.1f}→{t['exit_price']:.1f} {t['return']:+.1f}% [{t['reason']}]")
-        total_ret += t['return']
-        if t['return'] > 0:
-            winners += 1
 
     # 미청산 포지션
     print(f'\n=== 미청산 포지션 ===')
     last_prices = all_prices[all_dates[-1]]
-    unrealized_ret = 0
     for tk, pos in portfolio.items():
         cur = last_prices.get(tk, pos['entry_price'])
         ret = (cur - pos['entry_price']) / pos['entry_price'] * 100
         print(f"  {'✅' if ret > 0 else '❌'} {tk:6s} {pos['entry_date']}→(보유중) "
               f"{pos['entry_price']:.1f}→{cur:.1f} {ret:+.1f}%")
-        unrealized_ret += ret
 
-    # 누적 수익률
-    cumulative = 0
-    for r in daily_returns:
-        cumulative += r
+    # 종합 성과 리포트
+    from bt_metrics import report as metrics_report, trade_stats
+    metrics_report(
+        daily_returns, trade_log,
+        label=f'wTop3/wTop15 ({all_dates[start_idx]}~{all_dates[-1]}, {len(all_dates)-start_idx}거래일)'
+    )
 
-    # MDD
-    peak = 0
-    mdd = 0
-    cum = 0
-    for r in daily_returns:
-        cum += r
-        if cum > peak:
-            peak = cum
-        dd = cum - peak
-        if dd < mdd:
-            mdd = dd
-
-    # SPY 비교
-    print(f'\n=== 요약 ===')
-    print(f'기간: {all_dates[start_idx]} ~ {all_dates[-1]} ({len(all_dates) - start_idx}거래일)')
-    print(f'완료 거래: {len(trade_log)}건 (승률 {winners}/{len(trade_log)} = {winners/len(trade_log)*100:.0f}%)' if trade_log else '완료 거래: 0건')
-    print(f'미청산: {len(portfolio)}종목')
-    print(f'실현 수익: {total_ret:+.1f}% (평균 {total_ret/len(trade_log):+.1f}%)' if trade_log else '실현 수익: 0')
-    print(f'미실현 수익: {unrealized_ret:+.1f}%')
-    print(f'포트폴리오 누적: {cumulative:+.1f}%')
-    print(f'MDD: {mdd:.1f}%')
-
-    # 일별 보유 종목 출력
-    print(f'\n=== 일별 보유 현황 ===')
-    portfolio2 = {}
-    for i in range(start_idx, len(all_dates)):
-        date = all_dates[i]
-        data = daily_data[date]
-        prices = all_prices[date]
-        w_gap = compute_w_gap(cursor if not conn else sqlite3.connect(DB_PATH).cursor(), date, all_dates)
-
-        ticker_min_seg2 = {}
-        for tk, info in data.items():
-            ms = calc_min_seg(info['ntm_current'], info['ntm_7d'], info['ntm_30d'], info['ntm_60d'], info['ntm_90d'])
-            ticker_min_seg2[tk] = ms
-
-        eligible2 = [(tk, w_gap.get(tk, 0)) for tk in data.keys() if ticker_min_seg2.get(tk, 0) >= -2]
-        eligible2.sort(key=lambda x: x[1])
-        wgap_rank2 = {tk: rank + 1 for rank, (tk, _) in enumerate(eligible2)}
-
-        # 이탈
-        for tk in list(portfolio2.keys()):
-            cur_price = prices.get(tk)
-            if cur_price is None:
-                del portfolio2[tk]; continue
-            rank = wgap_rank2.get(tk)
-            ms = ticker_min_seg2.get(tk, 0)
-            ret = (cur_price - portfolio2[tk]['entry_price']) / portfolio2[tk]['entry_price'] * 100
-            if (rank is None or rank > 15) or ms < -2 or ret <= -10:
-                del portfolio2[tk]
-
-        # 진입
-        slots = 3 - len(portfolio2)
-        if slots > 0:
-            for tk, wg in eligible2[:30]:
-                if tk in portfolio2: continue
-                if wgap_rank2.get(tk, 999) > 3: continue
-                if ticker_min_seg2.get(tk, -999) < 0: continue
-                cur_price = prices.get(tk)
-                if cur_price:
-                    portfolio2[tk] = {'entry_date': date, 'entry_price': cur_price}
-                    slots -= 1
-                    if slots <= 0: break
-
-        holdings = []
-        for tk, pos in portfolio2.items():
-            cur = prices.get(tk, pos['entry_price'])
-            ret = (cur - pos['entry_price']) / pos['entry_price'] * 100
-            holdings.append(f'{tk}({ret:+.1f}%)')
-        print(f'  {date}: {", ".join(holdings) if holdings else "(없음)"}')
+    # 이탈 사유 분석
+    if trade_log:
+        reasons = defaultdict(list)
+        for t in trade_log:
+            reasons[t['reason']].append(t['return'])
+        print(f'\n=== 이탈 사유별 분석 ===')
+        for reason, rets in sorted(reasons.items()):
+            avg = sum(rets) / len(rets)
+            print(f'  {reason}: {len(rets)}건, 평균 {avg:+.1f}%')
 
 
 if __name__ == '__main__':
