@@ -3386,7 +3386,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         perf = _get_system_performance()
         if perf and perf['n_days'] >= 5:
             lines.append('')
-            lines.append(f'📈 시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)')
+            lines.append(f'📈 <b>시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)</b>')
             lines.append(f'    같은 기간 S&P500은 {perf["spy_cum"]:+.1f}%')
     except Exception:
         pass
