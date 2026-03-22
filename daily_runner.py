@@ -3543,7 +3543,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         alpha_parts = []
         surp = asig.get('earnings_surp')
         if surp is not None:
-            if surp > 0:
+            if surp > 0.3:
                 alpha_parts.append(f'어닝 서프 +{surp*100:.0f}%')
             elif surp < 0:
                 alpha_parts.append(f'⚠️ 어닝 미스 {surp*100:.0f}%')
@@ -3598,8 +3598,6 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('괴리: 음수 클수록 주가 저평가')
     lines.append('매수: 상위 3종목 (최대 3종목)')
     lines.append('매도: 15위 밖 · 실적하락 · -10%')
-    lines.append('')
-    lines.append('비중: 변동성 역가중 · 종목 변경 시 리밸런싱')
 
     return '\n'.join(lines)
 
