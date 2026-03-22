@@ -2756,11 +2756,13 @@ def _identify_filter_failure(row, ticker):
     return '필터탈락'
 
 
-def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=None):
+def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=None,
+                     alpha_signals=None):
     """Gemini 2회 호출 — (1) 시장 요약 (2) 종목 내러티브
 
     AI 실패 시에도 빈 결과를 반환하여 메시지 정상 작동 보장.
     ETF 추천은 별도 코드 기반 함수(find_etf_recommendations)로 이동.
+    alpha_signals: 어닝 서프/공매도 → Gemini 내러티브에 자연어로 녹이기 위해 전달
     Returns: {'market_summary': str, 'narratives': {ticker: str}}
     """
     import re
@@ -2870,10 +2872,27 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
                 gap = _safe_float(s.get('adj_gap'))
                 lights = s.get('lights', '')
                 desc = s.get('desc', '')
+                # 어닝 서프/공매도 데이터를 Gemini에 전달
+                alpha_parts = []
+                if alpha_signals:
+                    asig = alpha_signals.get(s['ticker'], {})
+                    surp = asig.get('earnings_surp')
+                    if surp is not None and (surp > 0.3 or surp < 0):
+                        alpha_parts.append(f"어닝서프 {surp*100:+.0f}%")
+                    sp = asig.get('short_pct', 0)
+                    if sp >= 8:
+                        sm = asig.get('short_mom', 0)
+                        short_str = f"공매도 {sp:.1f}%"
+                        if sm <= -20:
+                            short_str += "(감소 중)"
+                        elif sm >= 20:
+                            short_str += "(급증)"
+                        alpha_parts.append(short_str)
+                alpha_line = f"\n   {' · '.join(alpha_parts)}" if alpha_parts else ""
                 stock_lines.append(
                     f"{i+1}. {s['name']}({s['ticker']}) · {s['industry']}\n"
                     f"   EPS {s['eps_chg']:+.1f}% · 매출 {rev:+.0%} · 괴리 {gap:+.1f}%\n"
-                    f"   EPS추세 {lights} {desc}"
+                    f"   EPS추세 {lights} {desc}{alpha_line}"
                 )
 
             stock_prompt = f"""아래 {len(selected)}종목 각각에 대해 Google 검색해서 종목 브리핑을 써줘.
@@ -2887,7 +2906,7 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 괴리(adj_gap)가 음수일수록 EPS 대비 주가가 저평가 상태라는 뜻이야.
 
 [형식]
-종목별 2~3문장(120~180자). 종목 사이에 [SEP] 표시.
+종목별 2~3문장(150~200자). 종목 사이에 [SEP] 표시.
 형식: TICKER: 설명
 
 [규칙]
@@ -2896,6 +2915,13 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 - 2문장: {biz_str} 전후 1~2주 이내 관련 뉴스(실적 발표, 수주, 제품 출시, 규제 변화 등)가 있으면 한 줄로 언급.
   검색해도 최근 뉴스가 없으면 이 문장은 생략하고 성장 배경만 2~3문장으로 써.
   반드시 검색 결과에 있는 실제 뉴스만 써. 없는 뉴스를 만들어내지 마.
+- 어닝 서프라이즈 데이터가 있으면 실적 설명 흐름에 자연스럽게 녹여.
+  좋은 예: "3월 18일 발표된 분기 실적에서 EPS가 시장 예상을 36% 상회했습니다."
+  나쁜 예: "어닝 서프라이즈는 +36%입니다." ← 숫자만 읽어주기 금지
+- 공매도 비율이 높으면(8%+) 시장 심리 맥락에서 한 줄로 언급해.
+  좋은 예: "다만 공매도 비율이 12%로 높아 단기 변동성에 유의할 필요가 있습니다."
+  나쁜 예: "공매도 비율은 12%입니다." ← 맥락 없는 수치 나열 금지
+- 이 데이터가 없는 종목은 어닝 서프/공매도를 언급하지 마.
 - 좋은 예: "AI 서버용 HBM 수요 폭증과 DRAM 가격 상승으로 분기 매출이 사상 최고를 기록했습니다. 3월 19일 실적 발표에서 가이던스를 상향 조정하며 AI 메모리 투자 확대를 시사했습니다."
 - 좋은 예: "데이터센터 및 방위 산업 PCB 수요 증가로 고부가가치 제품 비중이 높아지며 이익률이 크게 개선되고 있습니다."
 - 나쁜 예: "SSD 매출 증가와 제품 믹스 개선으로 실적이 크게 성장했습니다." ← 너무 추상적
@@ -3486,23 +3512,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         rank_parts = [f'순위 {rank_str}']
         if rev_up or rev_down:
             rank_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
-        # 알파 시그널 (어닝 서프/쇼크, 공매도)을 같은 줄에
-        asig = alpha_signals.get(ticker, {})
-        surp = asig.get('earnings_surp')
-        if surp is not None:
-            if surp > 0.3:
-                rank_parts.append(f'어닝 서프 +{surp*100:.0f}%')
-            elif surp < 0:
-                rank_parts.append(f'⚠️ 어닝 미스 {surp*100:.0f}%')
-        sp = asig.get('short_pct', 0)
-        sm = asig.get('short_mom', 0)
-        if sp >= 8:
-            short_str = f'공매도 {sp:.1f}%'
-            if sm <= -20:
-                short_str += '(숏커버 중)'
-            elif sm >= 20:
-                short_str += '(급증)'
-            rank_parts.append(short_str)
+        # 어닝 서프/공매도는 AI 내러티브에서 자연어로 표현 (v69)
         lines.append(' · '.join(rank_parts))
 
         # L3: 이야기 (AI 내러티브)
@@ -3839,23 +3849,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         else:
             rank_str = f'-→-→{rank}위'
         rank_parts = [f'순위 {rank_str}', f'의견 ↑{rev_up}↓{rev_down}']
-        if alpha_signals:
-            asig = alpha_signals.get(ticker, {})
-            surp = asig.get('earnings_surp')
-            if surp is not None:
-                if surp > 0.3:
-                    rank_parts.append(f'어닝 서프 +{surp*100:.0f}%')
-                elif surp < 0:
-                    rank_parts.append(f'⚠️ 어닝 미스 {surp*100:.0f}%')
-            sp = asig.get('short_pct', 0)
-            sm = asig.get('short_mom', 0)
-            if sp >= 8:
-                short_str = f'공매도 {sp:.1f}%'
-                if sm <= -20:
-                    short_str += '(숏커버 중)'
-                elif sm >= 20:
-                    short_str += '(급증)'
-                rank_parts.append(short_str)
+        # 어닝 서프/공매도는 Signal 메시지의 AI 내러티브에서 표현 (v69)
         lines.append(' · '.join(rank_parts))
 
         # 점선 구분선
@@ -4262,11 +4256,8 @@ def main():
         else:
             eps_screened, filter_count = 0, 0
 
-        # AI 2회 호출 (시장 요약 + 종목 내러티브) — ETF는 코드 기반 별도 처리
-        ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
-                                     market_lines=market_lines)
-
         # 알파 시그널 (Top 20, 전부 info_cache에서 — 추가 HTTP 호출 없음)
+        # AI 내러티브에서 어닝서프/공매도를 자연어로 녹이기 위해 AI 호출 전에 수집
         try:
             watchlist_tickers = [t for t in today_tickers[:20]]
             alpha_signals = _get_alpha_signals(watchlist_tickers, info_cache=info_cache)
@@ -4274,6 +4265,11 @@ def main():
         except Exception as e:
             log(f"알파 시그널 수집 실패: {e}", level="WARN")
             alpha_signals = {}
+
+        # AI 2회 호출 (시장 요약 + 종목 내러티브) — ETF는 코드 기반 별도 처리
+        ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
+                                     market_lines=market_lines,
+                                     alpha_signals=alpha_signals)
 
         # 메시지 1: Signal — v57b 진입 조건 충족 종목
         msg_signal = create_signal_message(
