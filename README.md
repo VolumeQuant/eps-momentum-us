@@ -1,405 +1,590 @@
-# EPS Momentum System v52 (US Stocks)
+# EPS Momentum System v58b (US Stocks)
 
-Forward 12개월 EPS(NTM EPS) 기반 모멘텀 시스템. "파괴적 혁신 기업을 싸게 살래" 철학으로, w_gap(가중 괴리율 = 3일 가중 adj_gap)을 기반으로 저평가 종목을 선별. 괴리율이 음수일수록 저평가. MA120 + 리스크 필터로 신뢰도를 높이고, AI(Gemini)가 위험 신호를 점검한 뒤 최대 5종목을 추천.
+Forward 12개월 EPS(NTM EPS) 기반 모멘텀 시스템. **"파괴적 혁신 기업을 싸게 살래"** 철학으로, w_gap(가중 괴리율)을 기반으로 저평가 종목을 선별한다. 괴리율이 음수일수록 EPS 개선 대비 주가가 덜 반영된 상태(= 저평가). MA120 + 리스크 필터로 신뢰도를 높이고, AI(Gemini 2.5 Flash)가 위험 신호를 점검한 뒤 최대 3종목을 추천한다.
+
+---
+
+## 목차
+1. [핵심 전략](#핵심-전략)
+2. [NTM EPS 계산](#ntm-eps-계산)
+3. [EPS 점수 체계](#eps-점수-체계)
+4. [괴리율 (adj_gap → w_gap)](#괴리율)
+5. [매수 후보 선정](#매수-후보-선정)
+6. [진입·이탈 규칙 (v58b)](#진입이탈-규칙-v58b)
+7. [리스크 필터](#리스크-필터)
+8. [신용·변동성 모니터링 (HY+VIX)](#신용변동성-모니터링-hyvix)
+9. [AI 리스크 분석 (Gemini)](#ai-리스크-분석-gemini)
+10. [텔레그램 메시지](#텔레그램-메시지)
+11. [데이터 흐름](#데이터-흐름)
+12. [DB 스키마](#db-스키마)
+13. [실행 방법](#실행-방법)
+14. [프로젝트 구조](#프로젝트-구조)
+15. [환경변수](#환경변수)
+16. [버전 히스토리](#버전-히스토리)
+
+---
 
 ## 핵심 전략
 
-### NTM (Next Twelve Months) EPS
-yfinance의 0y/+1y EPS를 **endDate 기반 시간 가중치**로 블렌딩하여 Forward 12개월 EPS를 산출.
-기존 +1y 컬럼은 종목마다 가리키는 연도가 달라 비교가 불가능했으나, NTM으로 통일.
+**한 줄 요약**: EPS 전망이 꾸준히 올라가는데 주가가 아직 안 따라간 종목(= 저평가)을 찾아 매수.
 
-### 매수 후보 선정 (w_gap 기반)
+### 투자 철학
+- **adj_gap**(방향 보정 괴리율)이 유일한 순위 신호. 음수가 클수록 저평가
+- 혁신 없는 종목은 하드필터(매출 성장 ≥10%)로 사전 제거
+- 추세가 살아있는 종목만(MA120 이상) 대상
+- 최대 3종목 집중 투자 (동일 비중)
+- 목록에 있으면 보유, 없으면 매도 검토
 
-**철학**: w_gap(가중 괴리율) = 3일 가중 adj_gap이 유일한 순위 신호. 음수가 클수록 저평가. 혁신 없는 종목은 하드필터(매출 ≥10%)로 제외.
+---
 
-**필터 (10개)**:
-| 필터 | 조건 | 근거 |
-|------|------|------|
-| EPS 모멘텀 | adj_score > 9 | 방향 보정 점수 최소 기준 |
-| EPS 개선 | eps_change_90d > 0 | EPS가 실제로 올라야 함 |
-| Fwd PE 유효 | fwd_pe > 0 | 데이터 유효성 |
-| **MA120** | price > 120일 이동평균 (fallback MA60) | 하락 추세 종목 제외 |
-| **$10** | price ≥ $10 | 페니스톡 제외 |
-| **매출 성장** | rev_growth ≥ 10% | 혁신 부족 기업 제외 (하드필터만, 순위 반영 안 함) |
-| **커버리지** | num_analysts ≥ 3 | 소수 의견 데이터 불안정 |
-| **하향 제한** | 하향 비율 ≤ 30% | 다수 애널리스트 동시 하향 제외 |
-| **저마진 제외** | OM < 10% & GM < 30% 또는 OP < 5% | 구조적 저마진/저수익 기업 제외 |
-| **원자재 제외** | 22개 원자재 업종 제외 | 구조적 성장 필터링 |
+## NTM EPS 계산
 
-**정렬: adj_gap ascending** (낮을수록 좋음 = 더 저평가):
+**NTM = Next Twelve Months** — 향후 12개월 EPS를 하나의 숫자로 통일.
+
+yfinance의 0y(현재 회계연도)/+1y(다음 회계연도) EPS를 **endDate 기반 시간 가중치**로 블렌딩한다.
+
 ```
-필터 통과 종목을 adj_gap 오름차순 정렬 → Top 30 선정
+예시: endDate=2026-12-31, 오늘=2026-03-22
+  → 현재 연도 잔여일: 284일 → 0y 가중치 = 284/365 ≈ 0.78
+  → +1y 가중치 = 1 - 0.78 = 0.22
+  → NTM EPS = 0y × 0.78 + (+1y) × 0.22
 ```
-- adj_gap: EPS 개선 대비 주가 미반영도 — 유일한 순위 신호
-- rev_growth: 순위에 반영하지 않음 (하드필터 ≥10%만)
-- `fetch_revenue_growth()`: eligible 상위 50종목만 수집 (~12초)
 
-### w_gap (가중 괴리율) — 3일 가중 adj_gap
-```
-w_gap = adj_gap_T0 × 0.5 + adj_gap_T1 × 0.3 + adj_gap_T2 × 0.2
-```
-- T0=오늘, T1=어제, T2=2일전의 adj_gap 값을 가중합산
-- w_gap 오름차순 → part2_rank 1~30 부여 (가장 저평가 = 1위)
-- **기존 weighted ranks (순위 가중) 대비 장점**: 절대 크기 차이 보존
+**왜 NTM인가?**: 기존 +1y 컬럼은 종목마다 가리키는 연도가 달라 비교가 불가능했다. NTM으로 통일하면 모든 종목을 같은 시간축(오늘부터 12개월)에서 비교할 수 있다.
 
-### 3일 상태 표시 (✅/⏳/🆕)
-- **기준: Top 30 소속 여부** (part2_rank IS NOT NULL)
-- 최근 3일 모두 Top 30 = ✅
-- 최근 2일 Top 30 = ⏳
-- 오늘만 Top 30 = 🆕
-- 진입 조건에서 ✅ 불요 — w_gap이 3일 가중이므로 별도 검증 불필요
+구현: `eps_momentum_system.py`의 `calc_ntm_eps()` — yfinance `stock._analysis._earnings_trend`에서 endDate를 추출.
 
-### 매도 기준
-- w_gap 기반 매도 검토선을 Watchlist에 시각적 표시
-- 어제 대비 이탈 종목 + 이탈 사유([괴리율↑], [MA120↓], [EPS↓], [매출↓], [저커버리지], [순위밀림]) 표시
-- `classify_exit_reasons()`: 괴리율 기반 우선, 그 외 기존 사유 유지
-- 최소 2주 보유 권장 (이익 전망 → 주가 반영 사이클)
+---
 
-### EPS 점수: Score → adj_score (방향 보정)
-**기본 Score** = seg1 + seg2 + seg3 + seg4
-90일을 4개 독립 구간으로 나눠 각 구간 변화율 합산 (세그먼트 캡: ±100%).
+## EPS 점수 체계
+
+### Score (기본 점수)
+90일을 4개 독립 구간으로 나눠 각 구간의 NTM EPS 변화율을 합산:
+
 ```
 |----seg4----|----seg3----|----seg2----|--seg1--|
 90d         60d         30d          7d      today
+
+Score = seg1 + seg2 + seg3 + seg4   (세그먼트 캡: ±100%)
 ```
 
-**방향 보정 (adj_score)**:
+### adj_score (방향 보정 점수)
+최근 추세(seg1+seg2)와 과거 추세(seg3+seg4)의 차이로 가속/감속 판단:
+
 ```
 recent = (seg1 + seg2) / 2
 old = (seg3 + seg4) / 2
 direction = recent - old
-adj_score = score × (1 + clamp(direction / 30, -0.3, +0.3))
+adj_score = score × (1 + clamp(direction/30, -0.3, +0.3))
 ```
-- Part 2 진입 필터(adj_score > 9)에 사용
 
-### 괴리율: fwd_pe_chg → adj_gap (방향 보정)
-**기본 fwd_pe_chg** = 가중평균 Fwd P/E 변화율 (7d×40% + 30d×30% + 60d×20% + 90d×10%)
-각 시점의 Fwd PE(= 주가/NTM EPS)를 비교. 음수 = EPS 개선 대비 주가 미반영 (저평가).
+- 가속 (direction > 0) → adj_score 증가 (최대 +30%)
+- 감속 (direction < 0) → adj_score 감소 (최대 -30%)
+- Part 2 진입 필터에서 `adj_score > 9` 기준으로 사용
 
-**방향 보정 (adj_gap)**:
+### eps_quality (v55b)
+min_seg(4개 세그먼트 중 최솟값) 기반 **연속 함수** — cliff effect 제거:
+
 ```
-adj_gap = fwd_pe_chg × (1 + clamp(direction / 30, -0.3, +0.3))
+min_seg = min(seg1, seg2, seg3, seg4)
+eps_quality = 1.0 + 0.3 × clamp(min_seg / 2, -1, 1)
 ```
-- 가속 EPS(direction > 0) → 저평가 강화 (더 음수)
-- 감속 EPS(direction < 0) → 저평가 약화 (덜 음수)
-- **유일한 순위 신호 (v52)**: w_gap(가중 adj_gap) 기반 진입/매도
 
-### 추세 표시: 5단계 아이콘 + 12패턴
-4개 세그먼트의 방향과 크기를 아이콘으로 시각화 (순서: 과거→현재):
-- 🔥 폭등 (>20%) — 폭발적 상승
-- ☀️ 강세 (5~20%)
-- 🌤️ 상승 (1~5%)
-- ☁️ 보합 (±1%)
-- 🌧️ 하락 (<-1%)
+| min_seg | eps_quality | 의미 |
+|---------|-------------|------|
+| ≤ -2% | 0.7 | EPS 추세 불안정 → 괴리율 30% 할인 |
+| 0% | 1.0 | 보통 |
+| ≥ +2% | 1.3 | 전 구간 상승 → 괴리율 30% 할증 |
 
-🔥가 있으면 해당 구간에서 폭등이 발생했다는 것을 즉시 파악 가능.
-12개 기본 패턴(횡보/하락/전구간 상승/꾸준한 상승/상향 가속/최근 급상향/중반 강세/상승 등락/상향 둔화/반등/추세 전환/등락 반복)에 🔥 강도 수식어(폭발적~/급~/중반 급등/폭발적 등락/급등 후 둔화 등) 조합.
+### 추세 아이콘 (5단계 × 12패턴)
+4개 세그먼트의 방향과 크기를 날씨 아이콘으로 시각화 (과거→현재 순):
 
-### 의견 (EPS Revision Breadth)
-30일간 EPS 상향/하향 수정 애널리스트 수 표시: `의견 ↑N ↓N`
-yfinance `epsRevisions.upLast30days/downLast30days` — **max(0y, +1y)** 데이터 사용. NTM 블렌딩에 맞춰 양쪽 기간 반영.
+| 아이콘 | 기준 | 의미 |
+|--------|------|------|
+| 🔥 | > 20% | 폭등 |
+| ☀️ | 5~20% | 강세 |
+| 🌤️ | 1~5% | 상승 |
+| ☁️ | ±1% | 보합 |
+| 🌧️ | < -1% | 하락 |
 
-### ⚠️ 경고 시스템
-주가 하락이 EPS 개선 대비 과도한 종목 감지:
-- 조건: EPS 가중평균 > 0, 주가 가중평균 < 0, |주가변화| / |EPS변화| > 5
-- ⚠️ 아이콘 표시 (텍스트 없이 아이콘만)
+12개 기본 패턴(횡보/전구간 상승/꾸준한 상승/상향 가속/최근 급상향/중반 강세/상향 둔화/반등/추세 전환 등)에 🔥 강도 수식어 조합.
 
-### 리스크 필터 (포트폴리오 & AI 리스크 필터 공통)
-시스템 철학: adj_gap = 저평가 기회. 필터는 **데이터 자체의 신뢰성**만 검증하고, 주가/밸류에이션은 건드리지 않음.
+---
+
+## 괴리율
+
+### fwd_pe_chg (기본 괴리율)
+가중평균 Fwd P/E 변화율. 각 시점의 Fwd PE(= 주가/NTM EPS)를 비교:
+
+```
+fwd_pe_chg = 7d변화×40% + 30d변화×30% + 60d변화×20% + 90d변화×10%
+```
+
+음수 = EPS 개선 대비 주가 미반영 (저평가).
+
+### adj_gap (방향 보정 괴리율)
+```
+adj_gap = fwd_pe_chg × (1 + clamp(direction/30, -0.3, +0.3)) × eps_quality
+```
+
+- 가속 EPS + 전 구간 상승 → 저평가 최대 강화 (×1.3 × 1.3 ≈ 1.69)
+- 감속 EPS + 일부 하락 → 저평가 약화
+- **유일한 순위 신호** — 다른 팩터(매출 등)는 하드필터로만 사용
+
+### w_gap (가중 괴리율) — 3일 가중 adj_gap
+일간 adj_gap의 노이즈를 완화하기 위해 3일 가중합산:
+
+```
+w_gap = adj_gap(T0) × 0.5 + adj_gap(T1) × 0.3 + adj_gap(T2) × 0.2
+```
+
+- T0=오늘, T1=어제, T2=2일전
+- w_gap 오름차순 → part2_rank 1~30 부여 (가장 저평가 = 1위)
+- 기존 일별 adj_gap 순위 가중 방식 대비 **절대 크기 차이 보존**
+
+### 매력도 (Score 100)
+```
+매력도 = clamp((-adj_gap + 10) × 5, 0, 100)
+```
+adj_gap = -10 → 100점, adj_gap = +10 → 0점. Signal/Watchlist 메시지에 표시.
+
+---
+
+## 매수 후보 선정
+
+### 유니버스
+NASDAQ 100 + S&P 500 + S&P 400 MidCap = **916개 고정 종목** + `fetch_dynamic_tickers()`로 시가총액 $50억+ 종목 추가 (~1,260개 총 유니버스).
+
+### Part 2 필터 (10개)
+`get_part2_candidates()` — 모든 종목에 순서대로 적용:
+
+| # | 필터 | 조건 | 근거 |
+|---|------|------|------|
+| 1 | EPS 모멘텀 | adj_score > 9 | 방향 보정 점수 최소 기준 |
+| 2 | EPS 개선 | eps_change_90d > 0 | 90일간 NTM EPS가 실제로 상승 |
+| 3 | Fwd PE 유효 | fwd_pe > 0 | 데이터 유효성 |
+| 4 | 최소 주가 | price ≥ $10 | 페니스톡 제외 |
+| 5 | MA120 추세 | price > MA120 (fallback MA60) | 하락 추세 종목 제외 |
+| 6 | 매출 성장 | rev_growth ≥ 10% | 혁신 부족 기업 제외 |
+| 7 | 커버리지 | num_analysts ≥ 3 | 소수 의견 데이터 불안정 |
+| 8 | 하향 제한 | 하향 비율 ≤ 30% | 다수 애널리스트 동시 하향 |
+| 9 | 저마진 제외 | OM<10% & GM<30%, 또는 OP<5% | 구조적 저수익 기업 |
+| 10 | 원자재 제외 | 22개 원자재 업종 + 개별 티커(SQM, ALB) | commodity 가격 패스스루 |
+
+매출 수집: eligible 상위 50종목에 대해서만 `fetch_revenue_growth()` 실행 (~12초).
+
+### 순위 부여 (`save_part2_ranks()`)
+1. 필터 통과 종목 중 **min_seg < -2% 제외** (EPS 추세 불안정)
+2. 당일 adj_gap 오름차순 → `composite_rank` 부여 (전 eligible 종목)
+3. w_gap(3일 가중 adj_gap) 오름차순 → 상위 30개에 `part2_rank` 1~30 부여
+
+---
+
+## 진입·이탈 규칙 (v58b)
+
+### 진입 조건
+`select_display_top5()` — 실제로는 최대 3종목 선정:
+
+1. w_gap 순위 **Top 7** 이내에서 탐색
+2. **min_seg ≥ 0%** (전 구간 EPS 상승 확인)
+3. **리스크 필터** 통과 (하향과반·저커버리지 차단)
+4. 조건 충족 순서대로 **최대 3종목** 선정
+
+> v58b 변경: 기존 Top3 상한 → Top7 탐색. min_seg 필터로 Top 3 내 종목이 제외되어도 4~7위에서 채울 수 있다.
+
+### 이탈 조건
+| 조건 | 기준 | 이탈 사유 표시 |
+|------|------|----------------|
+| 순위 밀림 | part2_rank > 15 (w_gap Top 20 이탈) | [순위밀림] |
+| EPS 추세 악화 | min_seg < -2% | [EPS↓] |
+| 추세 이탈 | price < MA120 | [MA120↓] |
+| 매출 둔화 | rev_growth < 10% | [매출↓] |
+| 저커버리지 | num_analysts < 3 | [저커버리지] |
+| 괴리율 악화 | adj_gap 양수 전환 | [괴리율↑] |
+| 손절 | -10% 하락 | (유일한 가격 기반 안전장치) |
+
+이탈 종목은 Signal/Watchlist에서 사유별로 그룹핑 표시.
+
+### 3일 상태 표시
+기준: DB의 `part2_rank`(Top 30 소속 여부)가 존재하는 최근 3거래일 수
+
+| 상태 | 조건 | 의미 |
+|------|------|------|
+| ✅ | 3일 연속 Top 30 | 검증됨 |
+| ⏳ | 2일 Top 30 | 검증 중 |
+| 🆕 | 1일만 Top 30 | 신규 진입 |
+
+진입 조건에서 3일 검증(✅)은 **불요** — w_gap이 이미 3일 가중이므로 별도 검증 불필요.
+
+### L3 시장 동결
+`concordance = both_warn`(HY+VIX 동시 경고) 시:
+- 비검증(🆕⏳) 종목은 포트폴리오에서 제외
+- ✅ 종목만 유지
+
+---
+
+## 리스크 필터
+
+시스템 철학: adj_gap = 저평가 기회. 필터는 **데이터 자체의 신뢰성**만 검증하고, 주가/밸류에이션은 건드리지 않는다.
+
+### 차단 필터 (2개)
 | 플래그 | 조건 | 근거 |
 |--------|------|------|
-| 하향 | rev_down/(up+down) > 30% | 다수 애널리스트 동시 하향 → EPS 전망 신뢰 하락 |
-| 저커버리지 | num_analysts < 3 | 소수 의견 → NTM EPS 데이터 불안정 |
-| 어닝 | 2주 이내 실적발표 | **표시만** (포트폴리오 제외 안 함). EPS 상향 중이면 오히려 기회 |
+| 하향과반 | rev_down/(up+down) > 30%, 또는 down≥up 且 down≥2 | EPS 전망 신뢰 하락 |
+| 저커버리지 | num_analysts < 3 | 소수 의견 → NTM EPS 불안정 |
+
+### 경고 표시 (2개)
+| 플래그 | 조건 | 처리 |
+|--------|------|------|
+| 고평가 | fwd_pe > 100 | (미구현) |
+| 어닝 2주 이내 | yfinance `stock.calendar` 기반 | AI Risk 메시지에 ⚠️ 표시만 (포트폴리오 제외 안 함) |
 
 `rev_up`, `rev_down`, `num_analysts`는 **max(0y, +1y)** — NTM 블렌딩에 맞춰 양쪽 기간 반영.
 
 ### 턴어라운드 (내부 처리)
-`abs(NTM_current) < $1.00` 또는 `abs(NTM_90d) < $1.00`인 종목은 내부적으로 분리.
-저 베이스 EPS로 인한 Score 왜곡 방지 목적. 별도 메시지로 발송하지 않음.
+`abs(NTM_current) < $1.00` 또는 `abs(NTM_90d) < $1.00`인 종목은 내부적으로 분리. 저 베이스 EPS로 인한 Score 왜곡 방지. 별도 메시지로 발송하지 않음.
 
-### AI 리스크 필터 (Gemini 2.5 Flash)
-"검색은 코드가, 분석은 AI가" — yfinance로 팩트 수집, AI는 데이터 해석에 집중.
-- **📰 시장 동향** (필수): 어제 미국 시장 마감 + 금주 주요 이벤트 (Google Search 1회)
-- **⚠️ 매수 주의**: 위험 신호 기반 주의 종목 (없으면 "✅ 양호")
-- **📅 어닝 주의**: yfinance `stock.calendar`에서 2주내 실적발표 직접 조회 (AI 비의존)
-- 인사말/서두/맺음말 금지 → 3개 섹션만 출력
-- 응답 검증: 📰 또는 "시장" 키워드 없으면 자동 재시도
-- `[SEP]` 마커 → 빈 줄(`\n\n`) 변환
-- 데이터에 있는 정보만 사용, 없는 내용 생성 금지, temperature 0.2
+### ⚠️ 주가 괴리 경고
+주가 하락이 EPS 개선 대비 과도한 종목:
+- 조건: EPS 가중평균 > 0, 주가 가중평균 < 0, |주가변화| / |EPS변화| > 5
+- 종목명 옆에 ⚠️ 아이콘 표시
 
-## 유니버스
+---
 
-NASDAQ 100 + S&P 500 + S&P 400 MidCap = **916개 종목** (중복 제거)
+## 신용·변동성 모니터링 (HY+VIX)
 
-## 텔레그램 메시지 (v3)
+### Layer 1: HY Spread (FRED BAMLH0A0HYM2)
+US High Yield Spread 기반 Verdad 4분면 모델. `fetch_hy_quadrant()` — FRED API CSV 수집.
 
-4개 메시지 + 시스템 로그 (개인봇). 채널은 Cold Start(3일 미만) 후 자동 활성화.
+**HY 퍼센타일**: 2520일(10년) rolling rank.
 
-| 메시지 | 내용 |
-|--------|------|
-| **Signal** | 매수 후보 최대 7종목 + 선정 과정 + 종목별 근거(EPS/매출+순위+매력도 점수+저평가 연속일수+AI 2~3문장) + 이탈 1줄 알림 |
-| **AI Risk** | 시장환경(지수+HY+VIX+concordance+final_action) + AI 시장동향 + 포트폴리오 경고 |
-| **Watchlist** | Top 30종목(이름+매력도점수+업종 / EPS추이 / EPS+매출 / 의견+순위) + 이탈 매도검토 섹션 |
-| **관련 ETF** | Top 30 종목 2개+ 포함 ETF만 표시 (1종목 매칭·저비중 제외) |
-| 시스템 로그 | DB 적재 결과, 분포 통계 (개인봇만) |
+### Layer 2: VIX (FRED VIXCLS)
+`fetch_vix_data()` — 252일 rolling percentile 기반 (최소 126일):
 
-핵심 원칙: **목록에 있으면 보유, 없으면 매도 검토.**
+| 퍼센타일 | 상태 | 의미 |
+|----------|------|------|
+| < 10th | 안일 (complacency) | 시장 과신 경계 |
+| 10~67th | 정상 | 평소 수준 |
+| 67~80th | 경계 | 변동성 증가 |
+| 80~90th | 상승경보 | 위험 구간 |
+| ≥ 90th | 위기 | 극단적 공포 |
 
-### 종목 포맷 (Signal 4줄)
+### Concordance (교차 검증)
+`get_market_risk_status()` — HY(메인) + VIX(보조) 교차:
+
+| HY 방향 | VIX 방향 | concordance | VIX 가감 처리 |
+|---------|---------|-------------|---------------|
+| 경고 (Q3/Q4) | 경고 | both_warn | 전액 적용 |
+| 안정 (Q1/Q2) | 안정 | both_stable | 그대로 |
+| 경고 | 안정 | hy_only | 0% (HY가 이미 반영) |
+| 안정 | 경고 | vix_only | 50%만 (일시적 쇼크) |
+
+concordance/final_action은 **내부 로직(L3 동결 등)에만** 사용, 고객 메시지에는 미표시.
+
+### 종합 판정 (v65 HY×VIX 조합)
+HY×VIX 조합의 과거 수익률 기반 4단계:
+
+| 과거 수익률 | 아이콘 | 판정 |
+|-------------|--------|------|
+| ≥ 10% | 🟢 | 매수하기 좋은 구간 |
+| 5~10% | 🟡 | 신중하게 접근할 구간 |
+| 2~5% | 🟠 | 매수를 줄일 구간 |
+| < 2% | 🔴 | 매수를 쉬어갈 구간 |
+
+메시지 포맷: 1줄 결론 → 아래 근거 (바빠도 첫 줄만 보면 판단 가능).
+
+---
+
+## AI 리스크 분석 (Gemini)
+
+**"검색은 코드가, 분석은 AI가"** — yfinance로 팩트 수집, Gemini 2.5 Flash는 데이터 해석에 집중.
+
+SDK: `google-genai>=1.0.0` (NOT google-generativeai)
+
+### 출력 섹션
+| 섹션 | 내용 | 데이터 소스 |
+|------|------|-------------|
+| 📰 시장 동향 | 어제 미국 시장 마감 + 금주 이벤트 | Google Search 1회 |
+| ⚠️ 매수 주의 | 위험 신호 기반 주의 종목 (없으면 "✅ 양호") | yfinance 데이터 |
+| 📅 어닝 주의 | 2주 이내 실적발표 | yfinance `stock.calendar` 직접 조회 |
+
+### AI 내러티브 (종목별)
+Signal 메시지의 각 종목에 **2~3문장(120~150자)** AI 해설 추가. 인사말/서두/맺음말 금지.
+
+### 검증
+- 📰 또는 "시장" 키워드 없으면 자동 재시도
+- `[SEP]` 마커 → `\n\n` 변환
+- temperature 0.2, 데이터에 있는 정보만 사용
+
+---
+
+## 텔레그램 메시지
+
+3개 메시지 + 시스템 로그 (개인봇만). 채널은 Cold Start(3일 미만) 후 자동 활성화.
+
+| # | 메시지 | 내용 |
+|---|--------|------|
+| 1 | **Signal** | 추천 최대 3종목 + 선정과정 + 종목별 근거(EPS/매출/순위/매력도/AI 2~3문장) + 이탈 1줄 |
+| 2 | **AI Risk** | 시장환경(지수) + 신용·변동성 + AI 시장동향 + 포트폴리오 경고 |
+| 3 | **Watchlist** | Top 20 현황(w_gap 순위) + ⚠️추세둔화 섹션 + 이탈 섹션 + 운영 규칙 범례 |
+| - | 시스템 로그 | DB 적재 결과, 분포 통계 (개인봇만) |
+
+### Signal 종목 포맷 (4줄)
 ```
 ✅ 1. 종목명(티커) 업종 · $123.45
 EPS 전망 +N% · 매출성장 +N% · 매력도 86.0점
 순위 3→4→1위 · 의견 ↑N↓N · 저평가 19일째
 AI가 생성한 2~3문장 내러티브
 ```
-- 매력도: 매출성장 옆 (데이터 그룹핑), `clamp((-adj_gap + 10) × 5, 0, 100)`
-- 저평가 streak: 의견 옆 (adj_gap < -7 연속일수)
 
-### 종목 포맷 (Watchlist 4줄)
+- **매력도**: `clamp((-adj_gap + 10) × 5, 0, 100)` — 매출성장 옆 배치
+- **저평가 streak**: adj_gap < -7 연속일수 — 의견 옆 배치
+- **의견**: 30일간 EPS 상향/하향 수정 애널리스트 수 (`↑N ↓N`)
+
+### Watchlist 종목 포맷 (4줄)
 ```
 ✅ 1. 종목명(티커) 86.0점 업종
 EPS추이 ☀️🔥🔥🌤️ 중반 급등
 EPS 전망 +N% · 매출성장 +N%
 의견 ↑N↓N · 순위 3→4→1위
 ```
-- 매력도 점수: 이름+업종 사이 배치 (높은순 정렬)
 
-### 포트폴리오 추천
-✅ (3일 검증) + adj_gap < -7 + 리스크 필터 통과 종목 → adj_gap 순 최대 7개 선정.
-**동일 비중**. Gemini가 종목별 선정 이유 생성.
-✅ 종목 부족 시 있는 만큼만 추천. 0개면 "관망 권장" 메시지.
+### 용어 규칙 (v55)
+- "EPS 전망 +X%", "매출성장 +X%"
+- **괴리** (괴리율 → 괴리)
 
-### 신용시장 모니터링 (HY Spread)
-FRED BAMLH0A0HYM2 (US High Yield Spread) 기반 Verdad 4분면 모델.
-[1/3] 메시지에 시장지수 아래 표시, 현금비중 자동 조절 (0~70%).
+---
 
-| 분면 | 현금 | 행동 가이드 |
-|------|------|------------|
-| Q1 회복기 | 0% | 적극 매수하세요. 역사적으로 수익률이 가장 높은 구간이에요. |
-| Q2 성장기 | 20% | 평소대로 투자하세요. |
-| Q3 과열기 | 20~30% | 매수할 때 신중하게 / 신규 매수를 줄여가세요. |
-| Q4 침체기 | 30~70% | 매수 멈추고 → 비중 축소 → 현금 확보 (단계적) |
-
-해빙 신호 4종 (적극 매수 기회): HY 급락, 5% 하향돌파, 60일 고점 대비 -300bp, Q4→Q1 전환.
-
-### VIX 변동성 레이어 (Layer 2 — daily_runner.py)
-
-두 에이전트(한국 전략 + US 전략)가 독립적으로 VIX 35년(1990~2025) 데이터를 분석하여 동일한 결론에 도달. 이를 기반으로 `fetch_vix_data()` + `get_market_risk_status()` 구현.
-
-#### 구현 상세
+## 데이터 흐름
 
 ```
-fetch_vix_data():
-  FRED VIXCLS CSV (~400일) → 5일 slope (±0.5 threshold)
-  레짐 7종: normal / elevated / high / crisis / crisis_relief / stabilizing / complacency
-  cash_adjustment: -10% ~ +15%
-
-get_market_risk_status():
-  Layer 1: fetch_hy_quadrant()     → base_cash
-  Layer 2: fetch_vix_data()        → raw_vix_adj
-  Concordance: hy_dir × vix_dir   → vix_adj 조정
-  final_cash = max(0, min(70, base_cash + vix_adj))
+                           daily_runner.py main()
+                                  │
+    ┌─────────────────────────────┼─────────────────────────────┐
+    │                             │                             │
+    ▼                             ▼                             ▼
+ 1. 데이터 수집            2. 필터·순위 부여           3. 메시지 생성·발송
+    │                             │                             │
+    ├─ yfinance 전종목 수집       ├─ get_part2_candidates()     ├─ create_v3_signal()
+    │  (NTM EPS, 가격,            │  (10개 하드필터)             │  (Top 3 추천)
+    │   MA120, 업종 등)           │                             │
+    │                             ├─ save_part2_ranks()         ├─ create_v3_ai_risk()
+    ├─ fetch_revenue_growth()     │  (min_seg 필터 →            │  (시장+HY+VIX+AI)
+    │  (상위 50종목 매출)          │   composite_rank →          │
+    │                             │   w_gap Top 30)             ├─ create_v3_watchlist()
+    ├─ fetch_hy_quadrant()        │                             │  (Top 20 현황)
+    │  (FRED HY Spread)           ├─ select_display_top5()      │
+    │                             │  (Top 7 탐색 →              ├─ 텔레그램 발송
+    ├─ fetch_vix_data()           │   min_seg ≥ 0% →            │  (4000자 분할)
+    │  (FRED VIX)                 │   리스크 필터 →              │
+    │                             │   최대 3종목)               └─ Git auto commit/push
+    ├─ DB 저장                    │
+    │  (ntm_screening)            └─ get_daily_changes()
+    │                                (이탈 감지 + 사유 분류)
+    └─ run_ai_analysis()
+       (Gemini 2.5 Flash)
 ```
 
-**텔레그램 [1/4] 시장 현황 표시**:
-```
-📊 VIX(변동성) 17.6
-평균(17.4) 이상, 안정적이에요.
-```
-위기 시: `🔴 VIX(변동성) 42.1 ↑ — 위기 구간이에요. 현금 +15%`
+### 실행 순서
+1. **DB 초기화** + SPY 기반 마켓 날짜 감지
+2. **전 종목 NTM EPS 수집** (yfinance ~1,260종목, ~15분)
+3. **DB 저장** (ntm_screening 테이블)
+4. **매출+품질 수집** (yfinance `.info` — 상위 50종목)
+5. **Part 2 필터 적용** → 순위 부여 (composite_rank + w_gap)
+6. **시장 리스크** (HY Spread + VIX + Concordance)
+7. **AI 분석** (Gemini — 시장동향 + 종목별 내러티브)
+8. **메시지 생성** (Signal + AI Risk + Watchlist)
+9. **텔레그램 발송** (개인봇 + 채널)
+10. **Git 자동 커밋/푸시** (DB + 캐시)
 
-#### 연구 배경
-
-**1. VIX 기초 통계**: 평균 19.71, 중앙값 17.84, 최저 9.14(2017), 최고 82.69(2020 코로나). 우편향 분포 — 평소 낮은 수준, 간헐적 극단 스파이크.
-
-**2. Mean-Reversion (평균회귀)**: VIX는 금융 지표 중 가장 강력한 평균회귀 특성. Half-life 2~10일(평상시). 스파이크가 클수록 회귀 속도가 빠름. 단, 구조적 위기(2008, 2020)에서는 수개월 고착 가능 → HY 교차 확인 필수.
-
-**3. VIX 레벨별 향후 수익률** (Hartford Funds, WisdomTree, BlackRock 실증):
-
-| VIX 레벨 | 6개월 후 | 12개월 후 |
-|----------|---------|----------|
-| <15 (저변동) | +3~5% | +5~8% |
-| 15~20 (보통) | +4~6% | +8~12% |
-| 20~30 (고변동) | +5~10% | +10~18% |
-| **30+ (극단)** | **+13.4%** | **+23.4%** |
-
-VIX 30+ 이후 6개월 후 85% 확률 상승, 12개월 후 90% 확률 상승. VIX 40+ 도달 후 3년 이내 **예외 없이** 시장 회복.
-
-**4. HY와 VIX의 상호보완성**: 상관계수 +0.71 (일별). VIX가 HY 분산의 51%만 설명 → 나머지 49%는 독립 정보.
-
-| 상황 | VIX 반응 | HY 반응 |
-|------|----------|---------|
-| 급락장 초기 (1~3일) | 즉시 +50~100% 스파이크 | 1~3일 지연 |
-| 신용 위기 서서히 확대 | 반응 미미 | 수주~수개월 점진 상승 |
-| Flash crash | 극단적 스파이크 | 거의 무반응 |
-
-→ **HY = 방향타 (구조적 방향), VIX = 속도계 (순간적 변동성)**
-
-**5. VIX Term Structure**: VIX/VIX3M 비율 >1.0(백워데이션) = 단기 공포 극심. 백워데이션에서 정상(콘탱고)으로 복귀하는 시점 = 바닥 확인의 가장 신뢰도 높은 신호 (COVID 바닥 2020.04 일치).
-
-**6. VVIX (2차 미분)**: VIX의 변동성. 120+ 도달 후 하락 전환 = VIX 정점 신호.
-
-#### 구현된 전략: HY + VIX 복합 2레이어 모델
-
-```
-Layer 1: HY Quadrant (기존) → base_cash = Q1:0% Q2:20% Q3:30% Q4:30~70%
-Layer 2: VIX Adjustment (구현) → vix_adj = VIX 상태 + Concordance 반영
-
-Concordance Check:
-  both_warn   → VIX 전액 적용
-  hy_only     → VIX 0% (HY가 이미 반영)
-  vix_only    → VIX 50%만 (일시적 쇼크)
-  both_stable → VIX 그대로
-
-final_cash = max(0, min(70, base_cash + vix_adj))
-```
-
-**Layer 2: VIX 가감 규칙**:
-
-| VIX 조건 | 가감 | 이유 |
-|----------|------|------|
-| VIX > 35, 기울기 상승 | +15% | 위기 모드 |
-| VIX 25~35, 기울기 상승 | +10% | 상승 경계 |
-| VIX 20~25, 기울기 상승 | +5% | 경미한 경계 |
-| VIX < 12 | +5% | Complacency 경고 |
-| **VIX > 35, 기울기 하락** | **-10%** | **공포 해소 = 매수 기회** |
-| VIX 20~25, 기울기 하락 | -5% | 안정화 중 |
-
-**Concordance Check (구현됨)**:
-
-| HY 방향 | VIX 방향 | VIX 가감 처리 | 해석 |
-|---------|---------|--------------|------|
-| 경고 (Q3/Q4) | 경고 (warn) | 전액 적용 | 이중 확인 — 2008, 2020 초기 패턴 |
-| 안정 (Q1/Q2) | 안정 (stable) | 그대로 (보통 0) | 정상 상태 |
-| **경고** | **안정** | **0% (무시)** | **스텔스 위기 — HY가 이미 반영** |
-| **안정** | **경고** | **50%만 적용** | **일시적 쇼크 — 과잉 대응 방지** |
-
-**VIX 40+ 역설**: 극단적 공포 구간에서 VIX가 하락 전환하면 역사적 최고 매수 기회. Q1(회복) + VIX 하락 = 12개월 평균 +23.4%. 단, 하락 전환 전까지는 추가 급락 가능 → 분할 매수 원칙 병행.
-
-**데이터 소스**: FRED `VIXCLS` (CBOE VIX 일별, 1990~), `VXVCLS` (VIX3M, 2007.12~). 기존 `fetch_hy_quadrant()`의 FRED CSV 패턴 그대로 사용 가능.
-
-**백테스트 규칙 8개**:
-
-| # | 조건 | 행동 | 근거 |
-|---|------|------|------|
-| V1 | VIX > 30, 5일Δ > 10 | 현금 +15~20% | 급등 지속 = 방어 |
-| V2 | VIX > 40, 5일Δ < 0 | 현금 -15~20% | 패닉 후 회복 = 매수 기회 |
-| V3 | VIX < 15 20일 연속 | 현금 -5% | 안정 구간 |
-| V4 | VIX/VIX3M > 1.0 | 현금 +10% | 백워데이션 = 단기 공포 |
-| V5 | HY Q4 + VIX 30+ | 현금 = 70% | 이중 위험 |
-| V6 | HY Q1 + VIX 하락 | 현금 = 0% | 이중 안전 |
-| V7 | HY Q4 + VIX 급락(-10pt/5d) | 현금 40% | VIX 선행 회복 |
-| V8 | 일변화 > 5pt | 당일 긴급 +10% | 일일 급등 방어 |
-
-**구현 상태**: ✅ FRED VIXCLS 수집 → ✅ VIX Layer 2 통합 → ✅ 텔레그램 VIX 표시 → ④ VIX3M term structure (미구현) → ⑤ 백테스트 (미구현)
-
-### ETF 매칭 (v2 — 전체 홀딩 기반)
-
-Top 30 종목이 어떤 섹터 ETF에 포함되는지 매칭하여 [관련 ETF] 메시지로 전송.
-
-**v1→v2 전환**: yfinance `fund_top_holdings` (Top 10만) → `etf-scraper` 기반 전체 홀딩 데이터.
-SPDR + iShares 계열 23개 ETF, 총 1348개 종목 커버.
-
-**ETF 목록**: SOXX, XSD, KBE, KRE, XLV, IHI, XBI, XHE, ITA, XAR, XLI, XLY, XLP, XRT, XLF, XLE, XOP, XLK, XLC, XLB, XME, XLRE, XLU
-
-**매칭 로직** (`find_etf_recommendations()`):
-1. 각 ETF에서 Top 30 종목 매칭 수 + 비중 합계 계산
-2. 매칭 종목 평균 비중 < 1% ETF 제외 (희석 ETF 필터링)
-3. 매칭 수 → 비중 순 정렬
-4. 기존 커버 종목과 50% 이상 중복 ETF 제외 (섹터 다양성 확보)
-5. 상위 5개 ETF 선정 + ETF 미포함 종목 목록 표시
-
-**캐시 갱신**: `python update_etf_cache.py` → `etf_holdings_cache_v2.json` 생성.
-v2 캐시 없으면 v1 캐시(`etf_holdings_cache.json`)로 자동 fallback.
+---
 
 ## DB 스키마
 
+### ntm_screening (핵심 테이블)
 ```sql
 CREATE TABLE ntm_screening (
-    date TEXT, ticker TEXT, rank INTEGER, score REAL,
-    ntm_current REAL, ntm_7d REAL, ntm_30d REAL, ntm_60d REAL, ntm_90d REAL,
-    is_turnaround INTEGER DEFAULT 0,
-    adj_score REAL, adj_gap REAL,
-    price REAL, ma60 REAL,
-    part2_rank INTEGER,
+    date            TEXT,
+    ticker          TEXT,
+    rank            INTEGER,
+    score           REAL,         -- 기본 Score (seg1+seg2+seg3+seg4)
+    ntm_current     REAL,         -- 오늘 NTM EPS
+    ntm_7d          REAL,         -- 7일전 NTM EPS
+    ntm_30d         REAL,         -- 30일전 NTM EPS
+    ntm_60d         REAL,         -- 60일전 NTM EPS
+    ntm_90d         REAL,         -- 90일전 NTM EPS
+    is_turnaround   INTEGER DEFAULT 0,
+    adj_score       REAL,         -- 방향 보정 점수
+    adj_gap         REAL,         -- 방향 보정 괴리율
+    price           REAL,
+    ma60            REAL,
+    part2_rank      INTEGER,      -- w_gap 기준 Top 30 순위 (NULL = 미선정)
+    composite_rank  INTEGER,      -- 당일 adj_gap 순수 순위
     PRIMARY KEY (date, ticker)
 );
 ```
 
-전 종목 매일 저장 (`INSERT ... ON CONFLICT DO UPDATE` — 재수집 시 part2_rank 보존).
-`save_part2_ranks()`: 저장 전 기존 rank 전부 NULL 초기화 → 잔여 rank 방지.
+- 전 종목 매일 저장 (`INSERT ... ON CONFLICT DO UPDATE`)
+- `save_part2_ranks()`: 저장 전 기존 rank 전부 NULL 초기화 → 잔여 rank 방지
 
-## 실행
-
-```bash
-# 로컬 실행
-python daily_runner.py
-
-# GitHub Actions
-# KST 07:15 자동 실행 (cron: '15 22 * * 0-4' UTC)
+### ai_analysis (AI 분석 저장)
+```sql
+CREATE TABLE ai_analysis (
+    date            TEXT NOT NULL,
+    analysis_type   TEXT NOT NULL,   -- 'market', 'stock' 등
+    ticker          TEXT DEFAULT '__ALL__',
+    content         TEXT NOT NULL,
+    created_at      TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (date, analysis_type, ticker)
+);
 ```
 
-### 마켓 날짜 자동 감지
-- SPY 최근 거래일 기준으로 `today_str` 결정 (`yf.Ticker("SPY").history(period="5d")`)
-- `MARKET_DATE` 환경변수로 오버라이드 가능
-- EST 자정 이후 테스트 실행 시 미래 날짜 저장 방지
+### portfolio_log (포트폴리오 추적)
+```sql
+CREATE TABLE portfolio_log (
+    date        TEXT,
+    ticker      TEXT,
+    action      TEXT,       -- 'enter', 'hold', 'exit'
+    price       REAL,
+    weight      REAL,
+    entry_date  TEXT,
+    entry_price REAL,
+    exit_price  REAL,
+    return_pct  REAL,
+    PRIMARY KEY (date, ticker)
+);
+```
 
-### 영업일/휴장 처리
-- 3일 교집합은 **DB에 있는 distinct date** 기준 → 주말/공휴일 별도 처리 불필요
+**DB 파일**: `eps_momentum_data.db` (NOT eps_momentum.db)
+
+---
+
+## 실행 방법
+
+### 로컬 실행
+```bash
+python daily_runner.py
+```
+또는 Windows 배치:
+```bash
+run_daily.bat
+```
+
+### GitHub Actions (자동)
+- **일일 스케줄**: 평일 KST 06:15 (cron: `'15 21 * * 0-4'` UTC)
+- **워크플로우**: `.github/workflows/daily-screening.yml`
+- DB + 캐시 자동 커밋/푸시
+
+### 테스트 (수동)
+- **워크플로우**: `.github/workflows/test-private-only.yml` (수동 dispatch)
+- 개인봇만 전송, DB 커밋 안 함 (프로덕션 오염 방지)
+- `MARKET_DATE` 파라미터로 특정 날짜 지정 가능
+
+### 빠른 메시지 테스트
+```bash
+python quick_test_v3.py
+```
+DB + 캐시 + mock 기반, 실제 yfinance 수집 없이 메시지 포맷 확인.
+
+### 마켓 날짜
+- SPY 최근 거래일 기준 자동 감지 (`yf.Ticker("SPY").history(period="5d")`)
+- `MARKET_DATE` 환경변수로 오버라이드 가능
 - 미국 공휴일은 yfinance 데이터 부재로 자연스럽게 skip
 
-### Cold Start 자동 전환
-- DB에 `part2_rank` 데이터가 3일 미만 → **개인봇만** 전송 (채널 비활성화)
-- 3일 이상 축적되면 자동 전환
-- 날짜 하드코딩 없이 DB 상태 기반 자동 판단 (`is_cold_start()`)
-- Cold start 시 전부 🆕 처리 (검증 없이 ✅ 부여하지 않음)
+### Cold Start
+- `is_cold_start()`: DB에 `part2_rank` 데이터 3일 미만 → 개인봇만 전송
+- 3일 이상 축적 시 자동 전환 (날짜 하드코딩 없이 DB 상태 기반)
 
-### 환경변수 (GitHub Secrets)
-- `TELEGRAM_BOT_TOKEN`: 텔레그램 봇 토큰
-- `TELEGRAM_CHAT_ID`: 채널 ID (현재 비활성)
-- `TELEGRAM_PRIVATE_ID`: 개인봇 ID
-- `GEMINI_API_KEY`: Google AI Studio API 키
+---
 
-## 파일 구조
+## 프로젝트 구조
 
 ```
-eps_momentum_system.py    # INDICES, INDUSTRY_MAP, NTM 계산 함수, get_trend_lights()
-daily_runner.py           # 데이터 수집, MA120, 3일 검증, AI 분석(Gemini), 텔레그램 v3, main()
-update_etf_cache.py       # ETF 전체 홀딩 캐시 갱신 (etf-scraper 기반, SPDR+iShares 23개)
-config.json               # 텔레그램 토큰, Gemini API 키, Git 설정
-run_daily.bat             # Windows 로컬 실행 스크립트
-requirements.txt          # Python 패키지 의존성
-quick_test_v3.py          # DB+cache+mock 기반 빠른 v3 메시지 테스트
-migrate_v52_ranks.py      # v52 adj_gap 기반 순위 재계산 마이그레이션
-ticker_info_cache.json    # 종목 이름/업종 캐시 (자동 생성)
-etf_holdings_cache_v2.json # ETF 전체 홀딩 캐시 (자동 생성, update_etf_cache.py)
-eps_momentum_data.db      # SQLite DB (자동 생성)
-backtest.py               # 백테스트 프레임워크 (검증일수 × 보유기간 매트릭스)
-SESSION_HANDOFF.md        # 설계 결정 히스토리 (v1~v45)
+eps-momentum-us/
+├── eps_momentum_system.py     # 핵심: INDICES(916종목), INDUSTRY_MAP, NTM EPS 계산, get_trend_lights()
+├── daily_runner.py            # 메인 실행: ~3,998줄, 데이터수집→필터→순위→AI→메시지→텔레그램
+├── quick_test_v3.py           # DB+cache+mock 기반 빠른 v3 메시지 테스트
+├── config.json                # 텔레그램 토큰, Gemini API 키, Git 설정
+├── run_daily.bat              # Windows 로컬 실행 스크립트
+├── requirements.txt           # pandas, yfinance, pytz, google-genai
+├── SESSION_HANDOFF.md         # 설계 결정 히스토리 (v1~v68)
+│
+├── backtest/                  # 백테스트 스크립트 (17개)
+│   ├── backtest.py            #   기본 프레임워크 (검증일수 × 보유기간 매트릭스)
+│   ├── backtest_wgap_*.py     #   w_gap 관련 (grid, multistart, final, variants, startdate)
+│   ├── backtest_compare_all.py
+│   ├── backtest_current_strategy.py
+│   ├── backtest_exit_compare.py
+│   ├── backtest_grid.py
+│   ├── backtest_v57b_revised.py
+│   ├── bt_funcs.py            #   공통 유틸리티
+│   ├── bt_entry_filter_check.py
+│   ├── bt_part1.py
+│   └── research_buff_gridsearch.py
+│
+├── migrate/                   # DB 마이그레이션 스크립트 (9개)
+│   ├── migrate_v44_ranks.py
+│   ├── migrate_v52_ranks.py
+│   ├── migrate_v54_eps_quality.py
+│   ├── migrate_v54_rerank.py
+│   ├── migrate_v55_eps_quality.py
+│   ├── migrate_v55b_smooth_eps_q.py
+│   ├── migrate_v57b_raw_adjgap.py
+│   ├── migrate_v58_wgap_rank.py
+│   └── migrate_v58b_min_seg_filter.py
+│
+├── scripts/                   # 유틸리티 스크립트
+│   ├── update_etf_cache.py    #   ETF 전체 홀딩 캐시 갱신 (etf-scraper)
+│   └── send_historical_messages.py  #   과거 메시지 재발송
+│
+├── .github/workflows/
+│   ├── daily-screening.yml    # 일일 자동 실행 (KST 06:15)
+│   └── test-private-only.yml  # 수동 테스트 (개인봇만, DB 미커밋)
+│
+├── eps_momentum_data.db       # SQLite DB (자동 생성)
+├── ticker_info_cache.json     # 종목 이름/업종 캐시 (자동 생성)
+└── etf_holdings_cache_v2.json # ETF 전체 홀딩 캐시 (자동 생성)
 ```
+
+---
+
+## 환경변수
+
+| 변수 | 용도 | 필수 |
+|------|------|------|
+| `TELEGRAM_BOT_TOKEN` | 텔레그램 봇 토큰 | ✅ |
+| `TELEGRAM_CHAT_ID` | 채널 ID | 선택 (없으면 채널 전송 안 함) |
+| `TELEGRAM_PRIVATE_ID` | 개인봇 ID | ✅ |
+| `GEMINI_API_KEY` | Google AI Studio API 키 | ✅ (없으면 AI 분석 스킵) |
+| `FRED_API_KEY` | FRED 경제 데이터 API 키 | ✅ (없으면 CSV fallback) |
+| `MARKET_DATE` | 마켓 날짜 오버라이드 (YYYY-MM-DD) | 선택 |
+| `MESSAGE_VERSION` | 메시지 버전 (v3 고정) | 선택 |
+
+GitHub Actions에서는 Secrets로 등록.
+
+---
 
 ## 버전 히스토리
 
-| 버전 | 날짜 | 변경 |
-|------|------|------|
-| **v52** | **2026-03-12** | **adj_gap 절대값 기반 전략 전환**: z-score composite → adj_gap 직접 정렬. 진입 adj_gap<-7(매력도 85점+), 매도 adj_gap>+1(매력도 45점-), 최대 7종목. rev_growth 순위 제거(하드필터만). 100점 선형 환산 `clamp((-adj_gap+10)×5, 0, 100)`. "매력도" 라벨. 3일 검증 adj_gap<-7 기준. 이탈 사유 "괴리율↑" 추가 |
-| **v51** | **2026-03-12** | **검증 기준 composite_rank**: ✅/⏳/🆕 판별을 part2_rank(가중순위)→composite_rank(당일 순수 점수) 기준으로 수정. 점수 float 정밀도 유지(반올림 동점 방지). Watchlist 점수→업종 옆 이동. ETF UI에 이름·섹터·비중% 추가 |
-| **v50** | **2026-03-11** | **점수 기준 정렬 통일**: 원본 composite score 3일 가중 → 100점 환산. Signal/Watchlist 정렬을 점수(높은순) 기준으로 변경. 순서와 점수 역전 방지 + 실제 격차 반영 |
-| **v49** | **2026-03-11** | **UI 배치 개선**: Signal 점수→매출성장 옆, Top5 streak→의견 옆. Watchlist 점수→매출성장 옆. **ETF UI**: 2종목+ 포함 ETF만 표시, 1종목 매칭·저비중 제거, 고객 친화 설명 추가 |
-| **v48** | **2026-03-11** | **Top 5 streak**: Signal 메시지에 Top 5 연속 유지 일수 표시 (`Top5 19일째`). `_build_top5_streak()`: 최근 30일 DB 조회, 최신일 Top 5부터 역순 연속 카운트 |
-| **v47** | **2026-03-11** | **ETF 매칭 v2**: yfinance Top 10 → etf-scraper 전체 홀딩 (SPDR+iShares 23개 ETF, 1348종목). 평균 비중 1% 미만 ETF 필터링, 50% 중복 ETF 제거, ETF 미포함 종목 표시. `update_etf_cache.py` 캐시 갱신 스크립트 추가 |
-| **v46** | **2026-03-11** | **100점 환산 가중점수**: DB 저장된 adj_gap/rev_growth로 composite score 재계산, 가중점수(T0×0.5+T1×0.3+T2×0.2) → 100점 환산. Signal 순위+점수, Watchlist 의견+순위+점수 표시. missing 종목은 rank50 점수 대체 |
-| v45.1 | 2026-03-01 | MA120↓ 표기 + 반등 관심: 이탈 사유 MA↓→MA120↓ 명확화, MA120 이탈+어제 Top10 종목에 💡반등 관심 표시(Signal), 수집 안 된 종목도 DB 최근 데이터로 구체적 이탈 사유 추정 |
-| v45 | 2026-02-28 | v2 메시지 제거: v3 전용, create_v2_signal/watchlist 삭제(-471줄), run_ai_analysis 리네임, quick_test_v2.py 삭제 |
-| v22 | 2026-02-12 | Revenue Required: 섹터 분산 제거, rev_growth 필수화, 매출 수집 전체 확대, 업종 분포 통계 추가 |
-| v21 | 2026-02-12 | Composite Score: adj_gap 70%+매출성장률 30% 복합 순위, 매출 10% 하드 필터, 동일 비중(각 20%), AI 프롬프트 구조화(3섹션+검증), 채널 전송 중단, 메시지 4줄 포맷, 순위 이력 3일 표시 |
-| v20 | 2026-02-11 | Simple & Clear: Death List 제거→set 비교, Top 30 통일, ⏳ 표시 전용, 투자 가이드 재작성, 메시지 3개 분리, adj_gap≤0 필터 제거, 마켓 날짜 자동 감지, ON CONFLICT 보존, 섹터 분산, 리스크 필터 철학 확립(하향 비율 30%, 고평가 제거, 어닝 소프트) |
-| v19.2 | 2026-02-10 | UI 개선: [1/2][2/2] 구조, 시장 컨텍스트, MAX_WEIGHT 30%, 날짜 biz_day 통일 |
-| v19 | 2026-02-10 | Safety & Trend Fusion: MA60+3일검증+Death List, Part 1 제거, 메시지 3개 축소, cron 22:15 |
-| v18 | 2026-02-09 | adj_gap 도입, 리스크 필터 정비 (모순 제거 + 저커버리지 추가) |
-| v15 | 2026-02-09 | 날씨 아이콘 전환 (6단계 신호등→5단계 날씨), 정량 리스크 스캐너, 포트폴리오 추천 |
-| v14 | 2026-02-08 | AI 브리핑 전환: 뉴스 스캐너→데이터 분석, 어닝 yfinance 직접 조회 |
-| v11~13 | 2026-02-08 | 방향 보정(adj_score), 트래픽 라이트 12패턴 확장 |
-| v8~10 | 2026-02-07~08 | Gemini AI 리스크 검증, 소거법 전환, NTM EPS 전환 |
-| v1~7 | 2026-01~02 | 초기 구현, A/B 테스팅, 기술적 필터, Value-Momentum Hybrid |
+| 버전 | 날짜 | 주요 변경 |
+|------|------|-----------|
+| **v58b** | **2026-03-20** | Top7 탐색으로 3종목 보장 강화, min_seg<-2% 순위전 제외 |
+| **v58** | **2026-03-16** | w_gap Top3/Top15 전략: 진입 w_gap Top3 + min_seg≥0%, 이탈 Top15 |
+| **v55b** | **2026-03-14** | eps_quality 연속 함수: min_seg 기반 선형 보간 (cliff effect 제거) |
+| **v55** | **2026-03-14** | eps_quality 도입: adj_gap에 EPS 추세 품질 반영 |
+| **v52** | **2026-03-12** | adj_gap 절대값 전략 전환: z-score composite → adj_gap 직접 정렬 |
+| v45 | 2026-02-28 | v3 전용: v2 코드 제거 (-471줄) |
+| v44 | 2026-02-26 | Dynamic Universe + 원자재 제외 + OP<5% 필터 |
+| v31 | 2026-02-19 | VIX Layer 2 + Concordance + L3 동결 |
+| v22 | 2026-02-12 | 매출 필수화 + 섹터 분산 제거 |
+| v21 | 2026-02-12 | Composite Score + AI 프롬프트 구조화 |
+| v20 | 2026-02-11 | Simple & Clear 리팩토링: Top 30 통일, 리스크 철학 확립 |
+| v19 | 2026-02-10 | Safety & Trend Fusion: MA60+3일 검증 |
+| v18 | 2026-02-09 | adj_gap 도입 |
+| v8~10 | 2026-02-07~08 | Gemini AI + NTM EPS 전환 |
+| v1~7 | 2026-01~02 | 초기 구현, A/B 테스팅 |
+
+### v58b 백테스트 근거 (21일, 2/10~3/12)
+- 16개 시작일 평균: wTop3/wTop15 = **-0.5%** (모든 조합 중 0에 가장 가까움)
+- Top3 >> Top5, 좁은 이탈선 >> 넓은 이탈선 (일관)
+- 21일 데이터 한계: 확정 판단 불가, 데이터 축적 후 재검증 필요
