@@ -3259,8 +3259,11 @@ def _get_system_performance():
 def _get_alpha_signals(tickers):
     """선택 종목의 추가 알파 시그널 수집 (어닝 서프/쇼크, 공매도, 경영진 매도)"""
     import yfinance as yf
+    import time as _time
     results = {}
-    for tk in tickers:
+    for i, tk in enumerate(tickers):
+        if i > 0:
+            _time.sleep(2)  # rate limit 회피
         sig = {'earnings_surp': None, 'short_pct': 0, 'short_mom': 0, 'insider_sell': None}
         try:
             stock = yf.Ticker(tk)
@@ -3489,6 +3492,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
 
     # ━━ 알파 시그널 수집 ━━
     try:
+        import time as _time
+        _time.sleep(10)  # yfinance rate limit 회피 (메인 스크리닝 직후)
         alpha_signals = _get_alpha_signals([s['ticker'] for s in selected])
         log(f"알파 시그널: {', '.join(f'{tk}({list(v.keys())})' for tk, v in alpha_signals.items() if any(v.values()))}")
     except Exception as e:
@@ -3597,9 +3602,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('괴리: 음수 클수록 주가 저평가')
-    lines.append('매수: 상위 3종목 (최대 3종목)')
-    lines.append('매도: 15위 밖 · 실적하락 · -10%')
+    lines.append('매수: 상위 3종목')
+    lines.append('매도: 15위 밖 or 실적하락 or -10%')
 
     return '\n'.join(lines)
 
@@ -3924,11 +3928,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 상위 3종목 (최대 3종목)')
-    lines.append('매도: 15위 밖 · 실적하락 · -10%')
+    lines.append('매수: 상위 3종목')
+    lines.append('매도: 15위 밖 or 실적하락 or -10%')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
-    lines.append('괴리: 음수 클수록 주가 저평가')
-    lines.append('순위: 주가 저평가 순 (3일 평균)')
 
     return '\n'.join(lines)
 
