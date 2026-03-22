@@ -713,9 +713,19 @@ def fetch_revenue_growth(df, today_str):
     import time as _time
 
     def _fetch_one(ticker):
-        """단일 종목 .info 수집 (스레드 워커)"""
+        """단일 종목 .info + earnings_history 수집 (스레드 워커)"""
         try:
-            info = yf.Ticker(ticker).info
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            # earnings_history도 함께 수집 (alpha signal용, 별도 호출 시 rate limit 회피)
+            try:
+                eh = stock.earnings_history
+                if eh is not None and len(eh) > 0:
+                    surps = eh['surprisePercent'].dropna().tolist()
+                    if surps:
+                        info['_earnings_surp'] = surps[-1]  # 최근 분기 서프라이즈
+            except Exception:
+                pass
             return ticker, info
         except Exception:
             return ticker, None
@@ -3257,46 +3267,31 @@ def _get_system_performance():
 
 
 def _get_alpha_signals(tickers, info_cache=None):
-    """선택 종목의 추가 알파 시그널 수집 (어닝 서프/쇼크, 공매도)
+    """선택 종목의 추가 알파 시그널 (어닝 서프/쇼크, 공매도)
 
     info_cache: fetch_revenue_growth에서 이미 수집한 {ticker: info_dict}
-                공매도 데이터는 여기서 재사용 (추가 HTTP 호출 없음)
-    earnings_history만 새로 수집 (info_cache에 없는 데이터)
+                공매도 + 어닝 서프라이즈 모두 info_cache에서 읽음 (추가 HTTP 호출 없음)
     """
-    import yfinance as yf
-    import time as _time
     if info_cache is None:
         info_cache = {}
     results = {}
-    for i, tk in enumerate(tickers):
-        if i > 0:
-            _time.sleep(2)  # rate limit 회피
+    for tk in tickers:
         sig = {'earnings_surp': None, 'short_pct': 0, 'short_mom': 0}
+        info = info_cache.get(tk) or {}
         try:
-            # 공매도: info_cache 재사용 (추가 호출 없음)
-            info = info_cache.get(tk) or {}
-            try:
-                short_pct = info.get('shortPercentOfFloat', 0) or 0
-                short_now = info.get('sharesShort', 0) or 0
-                short_prior = info.get('sharesShortPriorMonth', 0) or 0
-                sig['short_pct'] = short_pct * 100
-                if short_prior > 0:
-                    sig['short_mom'] = (short_now - short_prior) / short_prior * 100
-            except Exception:
-                pass
-
-            # 어닝 서프라이즈: earnings_history만 새로 수집
-            try:
-                eh = yf.Ticker(tk).earnings_history
-                if eh is not None and len(eh) > 0:
-                    surps = eh['surprisePercent'].dropna().tolist()
-                    if surps:
-                        sig['earnings_surp'] = surps[-1]
-            except Exception:
-                pass
-
-        except Exception as e:
-            log(f"알파 시그널 {tk} 수집 오류: {e}", level="WARN")
+            # 공매도
+            short_pct = info.get('shortPercentOfFloat', 0) or 0
+            short_now = info.get('sharesShort', 0) or 0
+            short_prior = info.get('sharesShortPriorMonth', 0) or 0
+            sig['short_pct'] = short_pct * 100
+            if short_prior > 0:
+                sig['short_mom'] = (short_now - short_prior) / short_prior * 100
+        except Exception:
+            pass
+        # 어닝 서프라이즈 (_fetch_one에서 캐시한 값)
+        surp = info.get('_earnings_surp')
+        if surp is not None:
+            sig['earnings_surp'] = surp
         results[tk] = sig
     return results
 
@@ -4254,10 +4249,8 @@ def main():
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
-        # 알파 시그널 수집 (Top 20 대상, Signal + Watchlist 공유)
+        # 알파 시그널 (Top 20, info_cache에서 추출 — 추가 HTTP 호출 없음)
         try:
-            import time as _time
-            _time.sleep(5)  # yfinance rate limit 회피 (earnings_history만 호출)
             watchlist_tickers = [t for t in today_tickers[:20]]
             alpha_signals = _get_alpha_signals(watchlist_tickers, info_cache=info_cache)
             log(f"알파 시그널: {', '.join(f'{tk}' for tk, v in alpha_signals.items() if v.get('earnings_surp') and (v['earnings_surp'] > 0.3 or v['earnings_surp'] < 0))}")
