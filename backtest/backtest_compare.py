@@ -14,7 +14,8 @@ Usage:
 
 검증 결과 (25거래일, 2026-02-12~03-20):
   - 트레일링 스탑: 현행보다 MDD 악화 (휘핑 문제) → 채택 안 함
-  - 역변동성(5일): MDD -13.9%→-10.1%, 수익 +12.5%→+14.7% → 60거래일 후 적용 예정
+  - 역변동성(5일): MDD -13.9%→-10.1%, 수익 +12.5%→+14.7% → 적용 완료
+  - VIX 국면별 포지션: 추가 검증 중
 """
 import math
 import sqlite3
@@ -107,10 +108,24 @@ def load_data():
         all_prices[d] = {r[0]: r[1] for r in rows}
 
     conn.close()
+
+    # VIX 데이터 로드 (yfinance)
+    vix_by_date = {}
+    try:
+        import yfinance as yf
+        vix_df = yf.download('^VIX', start=all_dates[0], end=all_dates[-1],
+                             progress=False)
+        for _, row in vix_df.iterrows():
+            d = str(row.name.date()) if hasattr(row.name, 'date') else str(row.name)[:10]
+            c = float(row['Close'].iloc[0]) if hasattr(row['Close'], 'iloc') else float(row['Close'])
+            vix_by_date[d] = c
+    except Exception as e:
+        print(f'VIX 로드 실패: {e}')
+
     return {
         'all_dates': all_dates, 'gap_dates': gap_dates,
         'gap_by_date': gap_by_date, 'daily_data': daily_data,
-        'all_prices': all_prices,
+        'all_prices': all_prices, 'vix_by_date': vix_by_date,
     }
 
 
@@ -155,6 +170,8 @@ def run_backtest(db, config):
         max_positions: int   — 최대 보유 종목 수 (default 3)
         sizing: str          — 'equal' (동일비중) or 'inverse_vol' (역변동성)
         vol_lookback: int    — 변동성 계산 기간 (default 5)
+        vix_regime: bool     — VIX 국면별 포지션 수 조절 (default False)
+        vix_thresholds: list — [안정/경계, 경계/높음] VIX 임계값 (default [20, 25])
 
     Returns:
         (daily_returns, trade_log, portfolio)
@@ -174,6 +191,12 @@ def run_backtest(db, config):
     max_pos = config.get('max_positions', 3)
     sizing = config.get('sizing', 'equal')
     vol_lookback = config.get('vol_lookback', 5)
+    vix_regime = config.get('vix_regime', False)
+    vix_thresholds = config.get('vix_thresholds', [20, 25])
+    vix_by_date = db.get('vix_by_date', {})
+    # VIX 노출 조절: 종목 수 유지, 총 투자 비율만 축소
+    vix_exposure = config.get('vix_exposure', False)
+    vix_exp_levels = config.get('vix_exp_levels', [1.0, 0.7, 0.4])  # [안정, 경계, 높음]
 
     start_idx = 2  # 3일 검증 시작
     portfolio = {}  # {ticker: {entry_date, entry_price, peak_price}}
@@ -253,8 +276,36 @@ def run_backtest(db, config):
             })
             del portfolio[tk]
 
+        # ── VIX 국면별 포지션 수 결정 ──
+        if vix_regime and date in vix_by_date:
+            vix = vix_by_date[date]
+            if vix >= vix_thresholds[1]:    # 높음/위기
+                cur_max = 1
+            elif vix >= vix_thresholds[0]:  # 경계
+                cur_max = 2
+            else:                           # 안정
+                cur_max = max_pos
+        else:
+            cur_max = max_pos
+
+        # VIX 상승으로 초과 포지션 → 순위 낮은 것부터 강제 이탈
+        if vix_regime and len(portfolio) > cur_max:
+            ranked_holds = sorted(portfolio.keys(),
+                                  key=lambda tk: wgap_rank.get(tk, 999),
+                                  reverse=True)
+            while len(portfolio) > cur_max:
+                tk = ranked_holds.pop(0)
+                cur_price = prices.get(tk, portfolio[tk]['entry_price'])
+                ret = (cur_price - portfolio[tk]['entry_price']) / portfolio[tk]['entry_price'] * 100
+                trade_log.append({
+                    'ticker': tk, 'entry_date': portfolio[tk]['entry_date'],
+                    'exit_date': date, 'entry_price': portfolio[tk]['entry_price'],
+                    'exit_price': cur_price, 'return': ret, 'reason': 'VIX축소',
+                })
+                del portfolio[tk]
+
         # ── 진입 ──
-        slots = max_pos - len(portfolio)
+        slots = cur_max - len(portfolio)
         if slots > 0:
             candidates = []
             for tk, wg in eligible[:30]:
@@ -274,6 +325,18 @@ def run_backtest(db, config):
                         'peak_price': cur_price,
                     }
 
+        # ── VIX 노출 비율 결정 ──
+        if vix_exposure and date in vix_by_date:
+            vix = vix_by_date[date]
+            if vix >= vix_thresholds[1]:
+                exposure = vix_exp_levels[2]    # 높음
+            elif vix >= vix_thresholds[0]:
+                exposure = vix_exp_levels[1]    # 경계
+            else:
+                exposure = vix_exp_levels[0]    # 안정
+        else:
+            exposure = 1.0
+
         # ── 일간 수익률 (비중 방식에 따라) ──
         if portfolio:
             tk_rets = {}
@@ -287,10 +350,10 @@ def run_backtest(db, config):
                 daily_returns.append(0)
             elif sizing == 'inverse_vol' and len(tk_rets) > 1:
                 daily_returns.append(
-                    _calc_inverse_vol_return(tk_rets, price_history, vol_lookback)
+                    _calc_inverse_vol_return(tk_rets, price_history, vol_lookback) * exposure
                 )
             else:
-                daily_returns.append(sum(tk_rets.values()) / len(tk_rets))
+                daily_returns.append(sum(tk_rets.values()) / len(tk_rets) * exposure)
         else:
             daily_returns.append(0)
 
@@ -413,19 +476,90 @@ PRESETS = {
             'sizing': 'inverse_vol', 'vol_lookback': 20,
         },
     ],
+    # === VIX 국면별 포지션 비교 ===
+    'vix_regime': [
+        {
+            'label': '현행(항상3종목)',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'trailing_stop': None,
+            'sizing': 'inverse_vol', 'vol_lookback': 5,
+        },
+        {
+            'label': 'VIX국면(20/25)',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'trailing_stop': None,
+            'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'vix_regime': True, 'vix_thresholds': [20, 25],
+        },
+        {
+            'label': 'VIX국면(22/28)',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'trailing_stop': None,
+            'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'vix_regime': True, 'vix_thresholds': [22, 28],
+        },
+        {
+            'label': 'VIX국면(18/23)',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'trailing_stop': None,
+            'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'vix_regime': True, 'vix_thresholds': [18, 23],
+        },
+    ],
+    # === VIX 노출 비율 비교 (종목 수 유지, 투자 비율만 축소) ===
+    'vix_exposure': [
+        {
+            'label': '역변(VIX무시)',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'trailing_stop': None,
+            'sizing': 'inverse_vol', 'vol_lookback': 5,
+        },
+        {
+            'label': '역변+노출(100/70/40)',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'trailing_stop': None,
+            'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'vix_exposure': True, 'vix_thresholds': [20, 25],
+            'vix_exp_levels': [1.0, 0.7, 0.4],
+        },
+        {
+            'label': '역변+노출(100/80/50)',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'trailing_stop': None,
+            'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'vix_exposure': True, 'vix_thresholds': [20, 25],
+            'vix_exp_levels': [1.0, 0.8, 0.5],
+        },
+        {
+            'label': '역변+노출(100/60/30)',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'trailing_stop': None,
+            'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'vix_exposure': True, 'vix_thresholds': [20, 25],
+            'vix_exp_levels': [1.0, 0.6, 0.3],
+        },
+    ],
     # === 종합 최적 조합 ===
     'best': [
         {
-            'label': '현행 전략',
+            'label': '원래(동일비중)',
             'top_n': 3, 'exit_rank': 15,
             'fixed_stop': -10, 'trailing_stop': None,
             'sizing': 'equal',
         },
         {
-            'label': '개선안(역변5일)',
+            'label': '+역변동성',
             'top_n': 3, 'exit_rank': 15,
             'fixed_stop': -10, 'trailing_stop': None,
             'sizing': 'inverse_vol', 'vol_lookback': 5,
+        },
+        {
+            'label': '+역변+VIX노출',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'trailing_stop': None,
+            'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'vix_exposure': True, 'vix_thresholds': [20, 25],
+            'vix_exp_levels': [1.0, 0.7, 0.4],
         },
     ],
 }
