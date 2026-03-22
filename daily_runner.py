@@ -3264,7 +3264,7 @@ def _get_alpha_signals(tickers):
     for i, tk in enumerate(tickers):
         if i > 0:
             _time.sleep(2)  # rate limit 회피
-        sig = {'earnings_surp': None, 'short_pct': 0, 'short_mom': 0, 'insider_sell': None}
+        sig = {'earnings_surp': None, 'short_pct': 0, 'short_mom': 0}
         try:
             stock = yf.Ticker(tk)
             info = stock.info or {}
@@ -3290,72 +3290,7 @@ def _get_alpha_signals(tickers):
             except Exception:
                 pass
 
-            # 3. 경영진 대량 매도 (최근 90일, C-suite Sale > $1M, Stock Award 14일 내 제외)
-            try:
-                it = stock.insider_transactions
-                if it is not None and len(it) > 0:
-                    from datetime import datetime as _dt, timedelta as _td
-                    cutoff = _dt.now() - _td(days=90)
-                    award_dates = []
-                    raw_sales = []
-                    for _, row in it.iterrows():
-                        text = str(row.get('Text', ''))
-                        trans = str(row.get('Transaction', ''))
-                        pos = str(row.get('Position', ''))
-                        val = row.get('Value', 0) or 0
-                        dt = row.get('Start Date', None)
-
-                        is_sale = 'Sale' in trans or 'Sale at price' in text
-                        is_award = ('Stock Award' in trans or 'Grant' in trans
-                                    or 'Stock Award' in text or 'Grant' in text)
-                        is_exercise = 'Exercise' in trans or 'Exercise' in text
-
-                        if is_award and dt is not None:
-                            award_dates.append(dt)
-
-                        is_csuite = any(t in pos for t in
-                                        ['Chief', 'CEO', 'CFO', 'COO', 'CTO', 'Director', 'Officer'])
-                        if is_sale and not is_exercise and is_csuite and val > 0 and dt is not None:
-                            try:
-                                if dt >= cutoff:
-                                    raw_sales.append({'pos': pos, 'value': val, 'date': dt})
-                            except Exception:
-                                raw_sales.append({'pos': pos, 'value': val, 'date': dt})
-
-                    # 각 Sale별로: 14일 이내 Stock Award 있으면 루틴 → 제외
-                    genuine_sales = []
-                    for sale in raw_sales:
-                        is_routine = False
-                        for ad in award_dates:
-                            try:
-                                if abs((sale['date'] - ad).days) <= 14:
-                                    is_routine = True
-                                    break
-                            except Exception:
-                                pass
-                        if not is_routine:
-                            genuine_sales.append(sale)
-
-                    total_genuine = sum(s['value'] for s in genuine_sales)
-                    if total_genuine >= 1_000_000:
-                        sellers = set()
-                        for s in genuine_sales:
-                            p = s['pos']
-                            if 'Chief Executive' in p:
-                                sellers.add('CEO')
-                            elif 'Chief Financial' in p:
-                                sellers.add('CFO')
-                            elif 'Chief Operating' in p:
-                                sellers.add('COO')
-                            elif 'Chief Technology' in p:
-                                sellers.add('CTO')
-                            elif 'Director' in p:
-                                sellers.add('이사')
-                            else:
-                                sellers.add('임원')
-                        sig['insider_sell'] = {'total': total_genuine, 'sellers': sellers}
-            except Exception:
-                pass
+            # 3. 경영진 매도 — 제거됨 (10b5-1 사전계획 매도 구분 불가, 불안감만 자극)
 
         except Exception as e:
             log(f"알파 시그널 {tk} 수집 오류 (1차): {e}", level="WARN")
@@ -3555,17 +3490,14 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         rank_parts = [f'순위 {rank_str}']
         if rev_up or rev_down:
             rank_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
-        lines.append(' · '.join(rank_parts))
-
-        # L2.5: 알파 시그널 (어닝 서프/쇼크, 공매도, 경영진 매도)
+        # 알파 시그널 (어닝 서프/쇼크, 공매도)을 같은 줄에
         asig = alpha_signals.get(ticker, {})
-        alpha_parts = []
         surp = asig.get('earnings_surp')
         if surp is not None:
             if surp > 0.3:
-                alpha_parts.append(f'어닝 서프 +{surp*100:.0f}%')
+                rank_parts.append(f'어닝 서프 +{surp*100:.0f}%')
             elif surp < 0:
-                alpha_parts.append(f'⚠️ 어닝 미스 {surp*100:.0f}%')
+                rank_parts.append(f'⚠️ 어닝 미스 {surp*100:.0f}%')
         sp = asig.get('short_pct', 0)
         sm = asig.get('short_mom', 0)
         if sp >= 8:
@@ -3574,14 +3506,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                 short_str += '(숏커버 중)'
             elif sm >= 20:
                 short_str += '(급증)'
-            alpha_parts.append(short_str)
-        ins = asig.get('insider_sell')
-        if ins:
-            sellers_str = '·'.join(sorted(ins['sellers']))
-            total_m = ins['total'] / 1_000_000
-            alpha_parts.append(f'{sellers_str} 매도 ${total_m:.0f}M')
-        if alpha_parts:
-            lines.append(' · '.join(alpha_parts))
+            rank_parts.append(short_str)
+        lines.append(' · '.join(rank_parts))
 
         # L3: 이야기 (AI 내러티브)
         narrative = narratives.get(ticker, '')
@@ -3916,7 +3842,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                 rank_str = f'{r2_s}→{r1_s}→{r0}위'
         else:
             rank_str = f'-→-→{rank}위'
-        lines.append(f'의견 ↑{rev_up}↓{rev_down} · 순위 {rank_str}')
+        lines.append(f'순위 {rank_str} · 의견 ↑{rev_up}↓{rev_down}')
 
         # 점선 구분선
         if rank < num_stocks:
