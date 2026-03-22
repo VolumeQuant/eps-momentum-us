@@ -3406,8 +3406,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     try:
         perf = _get_system_performance()
         if perf and perf['n_days'] >= 5:
-            lines.append(f'📊 시스템 {perf["n_days"]}일 수익률 {perf["sys_cum"]:+.1f}%'
-                         f' (같은 기간 미국시장 {perf["spy_cum"]:+.1f}%)')
+            lines.append('')
+            lines.append(f'📈 시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)')
+            lines.append(f'    같은 기간 S&P500은 {perf["spy_cum"]:+.1f}%')
     except Exception:
         pass
 
@@ -3542,7 +3543,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         alpha_parts = []
         surp = asig.get('earnings_surp')
         if surp is not None:
-            if surp > 0.5:
+            if surp > 0:
                 alpha_parts.append(f'어닝 서프 +{surp*100:.0f}%')
             elif surp < 0:
                 alpha_parts.append(f'⚠️ 어닝 미스 {surp*100:.0f}%')
