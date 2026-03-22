@@ -3155,7 +3155,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('📌 종목별 근거')
+    lines.append('📌 <b>종목별 근거</b>')
     lines.append('━━━━━━━━━━━━━━━')
 
     for i, s in enumerate(selected):
@@ -3557,7 +3557,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     # ── 범례 ──
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('📌 운영 규칙')
+    lines.append('📌 <b>운영 규칙</b>')
     lines.append('매수: 상위 3종목 (최대 3종목)')
     lines.append('매도: 15위 밖 · 실적하락 · -10%')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
