@@ -3272,7 +3272,7 @@ def _get_alpha_signals(tickers):
                 if eh is not None and len(eh) > 0:
                     surps = eh['surprisePercent'].dropna().tolist()
                     if surps:
-                        sig['earnings_surp'] = surps[0]
+                        sig['earnings_surp'] = surps[-1]
             except Exception:
                 pass
 
@@ -3354,8 +3354,8 @@ def _get_alpha_signals(tickers):
             except Exception:
                 pass
 
-        except Exception:
-            pass
+        except Exception as e:
+            log(f"알파 시그널 {tk} 수집 오류: {e}", level="WARN")
         results[tk] = sig
     return results
 
@@ -3490,7 +3490,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 알파 시그널 수집 ━━
     try:
         alpha_signals = _get_alpha_signals([s['ticker'] for s in selected])
-    except Exception:
+        log(f"알파 시그널: {', '.join(f'{tk}({list(v.keys())})' for tk, v in alpha_signals.items() if any(v.values()))}")
+    except Exception as e:
+        log(f"알파 시그널 수집 실패: {e}", level="WARN")
         alpha_signals = {}
 
     # ━━ 섹션 3: 종목별 근거 ━━
