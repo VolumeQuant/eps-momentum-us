@@ -11,10 +11,11 @@ eps_chg_weighted = Σ(weight × (ntm_cur - ntm_period) / |ntm_period| × 100)
 """
 import sqlite3
 import sys
+from pathlib import Path
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-DB_PATH = 'eps_momentum_data.db'
+DB_PATH = Path(__file__).parent.parent / 'eps_momentum_data.db'
 
 
 def compute_eps_chg_weighted(ntm_cur, ntm_7d, ntm_30d, ntm_60d, ntm_90d):

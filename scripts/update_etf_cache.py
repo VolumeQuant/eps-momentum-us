@@ -74,7 +74,7 @@ def main():
             failed.append(ticker)
             print(f'  {ticker:6s} FAIL {str(e)[:50]}')
 
-    out_path = Path(__file__).parent / 'etf_holdings_cache_v2.json'
+    out_path = Path(__file__).parent.parent / 'etf_holdings_cache_v2.json'
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(cache, f, indent=2, ensure_ascii=False)
 

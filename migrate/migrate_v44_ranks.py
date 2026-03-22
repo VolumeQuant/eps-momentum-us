@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / 'eps_momentum_data.db'
-CACHE_PATH = Path(__file__).parent / 'ticker_info_cache.json'
+DB_PATH = Path(__file__).parent.parent / 'eps_momentum_data.db'
+CACHE_PATH = Path(__file__).parent.parent / 'ticker_info_cache.json'
 
 COMMODITY_INDUSTRIES = {
     '금', '귀금속', '산업금속', '구리', '철강', '알루미늄',

@@ -16,7 +16,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / 'eps_momentum_data.db'
+DB_PATH = Path(__file__).parent.parent / 'eps_momentum_data.db'
 PENALTY = 50
 
 

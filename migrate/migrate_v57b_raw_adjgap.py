@@ -8,10 +8,11 @@ part2_rank = composite_rank 상위 30개 그대로 재할당.
 """
 import sqlite3
 import sys
+from pathlib import Path
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-DB_PATH = 'eps_momentum_data.db'
+DB_PATH = Path(__file__).parent.parent / 'eps_momentum_data.db'
 
 
 def main():

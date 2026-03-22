@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime
 
 sys.stdout.reconfigure(encoding='utf-8')
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from daily_runner import (
     load_config, DB_PATH,
@@ -75,7 +75,7 @@ def load_from_db(target_date):
     df['seg4'] = [t[5] for t in trends]
 
     # ticker_info_cache
-    cache_path = Path(__file__).parent / 'ticker_info_cache.json'
+    cache_path = Path(__file__).parent.parent / 'ticker_info_cache.json'
     if cache_path.exists():
         with open(cache_path, 'r', encoding='utf-8') as f:
             cache = json.load(f)

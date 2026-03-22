@@ -19,10 +19,11 @@ min_seg = min(seg1, seg2, seg3, seg4)
 """
 import sqlite3
 import sys
+from pathlib import Path
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-DB_PATH = 'eps_momentum_data.db'
+DB_PATH = Path(__file__).parent.parent / 'eps_momentum_data.db'
 
 
 def compute_segs(ntm_cur, ntm_7d, ntm_30d, ntm_60d, ntm_90d):

@@ -8,10 +8,11 @@ composite_rank는 변경 없음 (당일 adj_gap 순위 유지).
 """
 import sqlite3
 import sys
+from pathlib import Path
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-DB_PATH = 'eps_momentum_data.db'
+DB_PATH = Path(__file__).parent.parent / 'eps_momentum_data.db'
 
 
 def main():

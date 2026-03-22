@@ -8,10 +8,11 @@ eligible 판단: 기존 composite_rank IS NOT NULL (필터 조건 변경 없음)
 """
 import sqlite3
 import sys
+from pathlib import Path
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-DB_PATH = 'eps_momentum_data.db'
+DB_PATH = Path(__file__).parent.parent / 'eps_momentum_data.db'
 
 
 def main():
