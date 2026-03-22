@@ -3315,7 +3315,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                           weighted_ranks=None, filter_count=None,
                           status_map=None, eps_screened=None, universe_size=None,
                           exited_tickers=None, risk_status=None,
-                          score_100_map=None):
+                          score_100_map=None, alpha_signals=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -3437,14 +3437,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('→ 원자재·저마진 업종 제외')
     lines.append(f'→ 실적은 좋아지는데 주가가 덜 오른 상위 {len(selected)}종목')
 
-    # ━━ 알파 시그널 수집 ━━
-    try:
-        import time as _time
-        _time.sleep(30)  # yfinance rate limit 회피 (메인 스크리닝 직후)
-        alpha_signals = _get_alpha_signals([s['ticker'] for s in selected])
-        log(f"알파 시그널: {', '.join(f'{tk}({list(v.keys())})' for tk, v in alpha_signals.items() if any(v.values()))}")
-    except Exception as e:
-        log(f"알파 시그널 수집 실패: {e}", level="WARN")
+    if alpha_signals is None:
         alpha_signals = {}
 
     # ━━ 섹션 3: 종목별 근거 ━━
@@ -3710,7 +3703,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
 
 
 def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers, biz_day,
-                             weighted_ranks=None, score_100_map=None):
+                             weighted_ranks=None, score_100_map=None, alpha_signals=None):
     """v3 Message 3: Watchlist — 상세 모니터링/검증
 
     종목당 4줄: 이름·업종 / EPS추이(아이콘+설명) / EPS·매출 / 의견+순위
@@ -3842,7 +3835,25 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                 rank_str = f'{r2_s}→{r1_s}→{r0}위'
         else:
             rank_str = f'-→-→{rank}위'
-        lines.append(f'순위 {rank_str} · 의견 ↑{rev_up}↓{rev_down}')
+        rank_parts = [f'순위 {rank_str}', f'의견 ↑{rev_up}↓{rev_down}']
+        if alpha_signals:
+            asig = alpha_signals.get(ticker, {})
+            surp = asig.get('earnings_surp')
+            if surp is not None:
+                if surp > 0.3:
+                    rank_parts.append(f'어닝 서프 +{surp*100:.0f}%')
+                elif surp < 0:
+                    rank_parts.append(f'⚠️ 어닝 미스 {surp*100:.0f}%')
+            sp = asig.get('short_pct', 0)
+            sm = asig.get('short_mom', 0)
+            if sp >= 8:
+                short_str = f'공매도 {sp:.1f}%'
+                if sm <= -20:
+                    short_str += '(숏커버 중)'
+                elif sm >= 20:
+                    short_str += '(급증)'
+                rank_parts.append(short_str)
+        lines.append(' · '.join(rank_parts))
 
         # 점선 구분선
         if rank < num_stocks:
@@ -4252,6 +4263,17 @@ def main():
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
+        # 알파 시그널 수집 (Top 20 대상, Signal + Watchlist 공유)
+        try:
+            import time as _time
+            _time.sleep(30)  # yfinance rate limit 회피 (메인 스크리닝 직후)
+            watchlist_tickers = [t for t in today_tickers[:20]]
+            alpha_signals = _get_alpha_signals(watchlist_tickers)
+            log(f"알파 시그널: {', '.join(f'{tk}' for tk, v in alpha_signals.items() if v.get('earnings_surp') and (v['earnings_surp'] > 0.3 or v['earnings_surp'] < 0))}")
+        except Exception as e:
+            log(f"알파 시그널 수집 실패: {e}", level="WARN")
+            alpha_signals = {}
+
         # 메시지 1: Signal — v57b 진입 조건 충족 종목
         msg_signal = create_signal_message(
             display_top5, earnings_map, exit_reasons, biz_day, ai_content,
@@ -4260,7 +4282,7 @@ def main():
             status_map=status_map, eps_screened=eps_screened,
             universe_size=stats.get('universe'),
             exited_tickers=exited_tickers, risk_status=risk_status,
-            score_100_map=score_100_map,
+            score_100_map=score_100_map, alpha_signals=alpha_signals,
         )
         if msg_signal:
             if send_to_channel:
@@ -4282,7 +4304,8 @@ def main():
         # 메시지 3: Watchlist
         msg_watchlist = create_watchlist_message(
             results_df, status_map, exit_reasons, today_tickers, biz_day,
-            weighted_ranks=weighted_ranks, score_100_map=score_100_map
+            weighted_ranks=weighted_ranks, score_100_map=score_100_map,
+            alpha_signals=alpha_signals
         )
         if msg_watchlist:
             if send_to_channel:
