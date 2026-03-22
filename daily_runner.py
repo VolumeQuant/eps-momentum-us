@@ -825,7 +825,7 @@ def fetch_revenue_growth(df, today_str):
     if updated_ind:
         log(f"Industry 보정: {updated_ind}종목 ('기타' → 실제 업종)")
 
-    return df, earnings_map
+    return df, earnings_map, results  # results = {ticker: info_dict} for alpha signal reuse
 
 
 def get_part2_candidates(df, top_n=None, return_counts=False):
@@ -3256,30 +3256,25 @@ def _get_system_performance():
         return None
 
 
-def _get_alpha_signals(tickers):
-    """선택 종목의 추가 알파 시그널 수집 (어닝 서프/쇼크, 공매도, 경영진 매도)"""
+def _get_alpha_signals(tickers, info_cache=None):
+    """선택 종목의 추가 알파 시그널 수집 (어닝 서프/쇼크, 공매도)
+
+    info_cache: fetch_revenue_growth에서 이미 수집한 {ticker: info_dict}
+                공매도 데이터는 여기서 재사용 (추가 HTTP 호출 없음)
+    earnings_history만 새로 수집 (info_cache에 없는 데이터)
+    """
     import yfinance as yf
     import time as _time
+    if info_cache is None:
+        info_cache = {}
     results = {}
     for i, tk in enumerate(tickers):
         if i > 0:
             _time.sleep(2)  # rate limit 회피
         sig = {'earnings_surp': None, 'short_pct': 0, 'short_mom': 0}
         try:
-            stock = yf.Ticker(tk)
-            info = stock.info or {}
-
-            # 1. 어닝 서프라이즈 (최근 1분기)
-            try:
-                eh = stock.earnings_history
-                if eh is not None and len(eh) > 0:
-                    surps = eh['surprisePercent'].dropna().tolist()
-                    if surps:
-                        sig['earnings_surp'] = surps[-1]
-            except Exception:
-                pass
-
-            # 2. 공매도 비율 + MoM 변화
+            # 공매도: info_cache 재사용 (추가 호출 없음)
+            info = info_cache.get(tk) or {}
             try:
                 short_pct = info.get('shortPercentOfFloat', 0) or 0
                 short_now = info.get('sharesShort', 0) or 0
@@ -3290,22 +3285,18 @@ def _get_alpha_signals(tickers):
             except Exception:
                 pass
 
-            # 3. 경영진 매도 — 제거됨 (10b5-1 사전계획 매도 구분 불가, 불안감만 자극)
-
-        except Exception as e:
-            log(f"알파 시그널 {tk} 수집 오류 (1차): {e}", level="WARN")
-            # 1회 재시도
-            _time.sleep(10)
+            # 어닝 서프라이즈: earnings_history만 새로 수집
             try:
-                stock = yf.Ticker(tk)
-                eh = stock.earnings_history
+                eh = yf.Ticker(tk).earnings_history
                 if eh is not None and len(eh) > 0:
                     surps = eh['surprisePercent'].dropna().tolist()
                     if surps:
                         sig['earnings_surp'] = surps[-1]
-                log(f"알파 시그널 {tk} 재시도 성공")
-            except Exception as e2:
-                log(f"알파 시그널 {tk} 재시도 실패: {e2}", level="WARN")
+            except Exception:
+                pass
+
+        except Exception as e:
+            log(f"알파 시그널 {tk} 수집 오류: {e}", level="WARN")
         results[tk] = sig
     return results
 
@@ -4180,7 +4171,7 @@ def main():
 
     if not results_df.empty:
         # 매출+품질 수집 → rev_growth composite score + 12개 재무지표 DB 저장 (v33)
-        results_df, earnings_map = fetch_revenue_growth(results_df, today_str)
+        results_df, earnings_map, info_cache = fetch_revenue_growth(results_df, today_str)
 
         # 가중순위 기반 Top 30 선정 + DB 저장
         today_tickers = save_part2_ranks(results_df, today_str) or []
@@ -4266,9 +4257,9 @@ def main():
         # 알파 시그널 수집 (Top 20 대상, Signal + Watchlist 공유)
         try:
             import time as _time
-            _time.sleep(30)  # yfinance rate limit 회피 (메인 스크리닝 직후)
+            _time.sleep(5)  # yfinance rate limit 회피 (earnings_history만 호출)
             watchlist_tickers = [t for t in today_tickers[:20]]
-            alpha_signals = _get_alpha_signals(watchlist_tickers)
+            alpha_signals = _get_alpha_signals(watchlist_tickers, info_cache=info_cache)
             log(f"알파 시그널: {', '.join(f'{tk}' for tk, v in alpha_signals.items() if v.get('earnings_surp') and (v['earnings_surp'] > 0.3 or v['earnings_surp'] < 0))}")
         except Exception as e:
             log(f"알파 시그널 수집 실패: {e}", level="WARN")
