@@ -3290,8 +3290,13 @@ def _get_alpha_signals(tickers, info_cache=None):
                 surps = eh['surprisePercent'].dropna().tolist()
                 if surps:
                     sig['earnings_surp'] = surps[-1]
-        except Exception:
-            pass
+                    log(f"  어닝서프 {tk}: {surps[-1]:.1%}")
+                else:
+                    log(f"  어닝서프 {tk}: surprisePercent 비어있음 (cols={list(eh.columns)})")
+            else:
+                log(f"  어닝서프 {tk}: earnings_history {'None' if eh is None else f'빈 DataFrame (len={len(eh)})'}")
+        except Exception as e:
+            log(f"  어닝서프 {tk}: 오류 {e}")
         results[tk] = sig
     return results
 
