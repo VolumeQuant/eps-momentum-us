@@ -3358,7 +3358,19 @@ def _get_alpha_signals(tickers):
                 pass
 
         except Exception as e:
-            log(f"알파 시그널 {tk} 수집 오류: {e}", level="WARN")
+            log(f"알파 시그널 {tk} 수집 오류 (1차): {e}", level="WARN")
+            # 1회 재시도
+            _time.sleep(10)
+            try:
+                stock = yf.Ticker(tk)
+                eh = stock.earnings_history
+                if eh is not None and len(eh) > 0:
+                    surps = eh['surprisePercent'].dropna().tolist()
+                    if surps:
+                        sig['earnings_surp'] = surps[-1]
+                log(f"알파 시그널 {tk} 재시도 성공")
+            except Exception as e2:
+                log(f"알파 시그널 {tk} 재시도 실패: {e2}", level="WARN")
         results[tk] = sig
     return results
 
@@ -3493,7 +3505,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 알파 시그널 수집 ━━
     try:
         import time as _time
-        _time.sleep(10)  # yfinance rate limit 회피 (메인 스크리닝 직후)
+        _time.sleep(30)  # yfinance rate limit 회피 (메인 스크리닝 직후)
         alpha_signals = _get_alpha_signals([s['ticker'] for s in selected])
         log(f"알파 시그널: {', '.join(f'{tk}({list(v.keys())})' for tk, v in alpha_signals.items() if any(v.values()))}")
     except Exception as e:
@@ -3567,7 +3579,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         if ins:
             sellers_str = '·'.join(sorted(ins['sellers']))
             total_m = ins['total'] / 1_000_000
-            alpha_parts.append(f'⚠️ {sellers_str} 매도 ${total_m:.0f}M')
+            alpha_parts.append(f'{sellers_str} 매도 ${total_m:.0f}M')
         if alpha_parts:
             lines.append(' · '.join(alpha_parts))
 
