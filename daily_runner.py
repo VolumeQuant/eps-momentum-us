@@ -3069,6 +3069,297 @@ def _build_score_100_map(today_str=None):
     return result
 
 
+def _get_system_performance():
+    """시스템 누적 성과 계산 (DB 데이터 기반, 역변동성 가중 복리)"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        all_dates = [r[0] for r in c.execute(
+            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date'
+        ).fetchall()]
+        if len(all_dates) < 3:
+            conn.close()
+            return None
+
+        # 전체 가격 로드
+        all_prices = {}
+        for d in all_dates:
+            rows = c.execute('SELECT ticker, price FROM ntm_screening WHERE date=?', (d,)).fetchall()
+            all_prices[d] = {r[0]: r[1] for r in rows}
+
+        # 일별 데이터 로드
+        daily_data = {}
+        for d in all_dates:
+            rows = c.execute('''
+                SELECT ticker, price, part2_rank, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d
+                FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL
+            ''', (d,)).fetchall()
+            daily_data[d] = {
+                r[0]: {'price': r[1], 'part2_rank': r[2],
+                       'nc': r[3], 'n7': r[4], 'n30': r[5], 'n60': r[6], 'n90': r[7]}
+                for r in rows
+            }
+
+        def _min_seg(nc, n7, n30, n60, n90):
+            segs = []
+            for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
+                if b and abs(b) > 0.01:
+                    segs.append((a - b) / abs(b) * 100)
+                else:
+                    segs.append(0)
+            return min(segs)
+
+        def _w_gap(date_str):
+            di = all_dates.index(date_str)
+            d0 = all_dates[di]
+            d1 = all_dates[di - 1] if di >= 1 else None
+            d2 = all_dates[di - 2] if di >= 2 else None
+            gaps = {}
+            for d in [d0, d1, d2]:
+                if d:
+                    rows = c.execute(
+                        'SELECT ticker, adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL', (d,)
+                    ).fetchall()
+                    gaps[d] = {r[0]: r[1] for r in rows}
+            result = {}
+            tks = set()
+            for d in [d0, d1, d2]:
+                if d and d in gaps:
+                    tks.update(gaps[d].keys())
+            wts = [0.5, 0.3, 0.2]
+            for tk in tks:
+                wg = gaps.get(d0, {}).get(tk, 0) * wts[0]
+                if d1:
+                    wg += gaps.get(d1, {}).get(tk, 0) * wts[1]
+                if d2:
+                    wg += gaps.get(d2, {}).get(tk, 0) * wts[2]
+                result[tk] = wg
+            return result
+
+        # SPY 가격
+        try:
+            import yfinance as yf
+            spy_df = yf.download('SPY', start=all_dates[0], end=all_dates[-1],
+                                 auto_adjust=True, progress=False)
+            spy_prices = {}
+            for idx, row in spy_df.iterrows():
+                ds = idx.strftime('%Y-%m-%d')
+                spy_prices[ds] = float(row.iloc[3]) if len(row) > 3 else float(row.iloc[0])
+        except Exception:
+            spy_prices = {}
+
+        # 백테스트 실행
+        start_idx = 2
+        portfolio = {}
+        sys_nav = 1.0
+        spy_nav = 1.0
+        wins = 0
+        losses = 0
+
+        for i in range(start_idx, len(all_dates)):
+            date = all_dates[i]
+            prev_date = all_dates[i - 1]
+            data = daily_data.get(date, {})
+            prices = all_prices.get(date, {})
+            prev_prices = all_prices.get(prev_date, {})
+
+            w_gap = _w_gap(date)
+            ticker_ms = {}
+            for tk, info in data.items():
+                ticker_ms[tk] = _min_seg(info['nc'], info['n7'], info['n30'], info['n60'], info['n90'])
+
+            eligible = [(tk, w_gap.get(tk, 0)) for tk in data if ticker_ms.get(tk, 0) >= -2]
+            eligible.sort(key=lambda x: x[1])
+            wgap_rank = {tk: r + 1 for r, (tk, _) in enumerate(eligible)}
+
+            # 이탈
+            for tk in list(portfolio.keys()):
+                ep = portfolio[tk]['entry_price']
+                cp = prices.get(tk)
+                if cp is None:
+                    del portfolio[tk]; continue
+                rk = wgap_rank.get(tk)
+                ms = ticker_ms.get(tk, 0)
+                ret = (cp - ep) / ep * 100
+                if (rk is None or rk > 15) or ms < -2 or ret <= -10:
+                    if ret > 0:
+                        wins += 1
+                    else:
+                        losses += 1
+                    del portfolio[tk]
+
+            # 진입
+            slots = 3 - len(portfolio)
+            if slots > 0:
+                cands = [tk for tk, _ in eligible[:30]
+                         if tk not in portfolio and wgap_rank.get(tk, 999) <= 3
+                         and ticker_ms.get(tk, -999) >= 0]
+                for tk in cands[:slots]:
+                    cp = prices.get(tk)
+                    if cp:
+                        portfolio[tk] = {'entry_price': cp}
+
+            # 역변동성 가중 수익률
+            day_ret = 0
+            if portfolio:
+                vols = {}
+                for tk in portfolio:
+                    pp = []
+                    for j in range(max(0, i - 5), i + 1):
+                        p = all_prices.get(all_dates[j], {}).get(tk)
+                        if p:
+                            pp.append(p)
+                    if len(pp) >= 3:
+                        rets = [(pp[k] - pp[k-1]) / pp[k-1] for k in range(1, len(pp))]
+                        if len(rets) >= 2:
+                            mean = sum(rets) / len(rets)
+                            var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+                            vols[tk] = max(math.sqrt(var) if var > 0 else 0.01, 0.001)
+                        else:
+                            vols[tk] = 0.01
+                    else:
+                        vols[tk] = 0.01
+
+                inv = {tk: 1.0 / v for tk, v in vols.items()}
+                total = sum(inv.values())
+                weights = {tk: iv / total for tk, iv in inv.items()}
+
+                for tk, w in weights.items():
+                    cur = prices.get(tk)
+                    prev = prev_prices.get(tk)
+                    if cur and prev and prev > 0:
+                        day_ret += w * (cur - prev) / prev * 100
+
+            spy_ret = 0
+            sc = spy_prices.get(date)
+            sp = spy_prices.get(prev_date)
+            if sc and sp and sp > 0:
+                spy_ret = (sc - sp) / sp * 100
+
+            sys_nav *= (1 + day_ret / 100)
+            spy_nav *= (1 + spy_ret / 100)
+
+        conn.close()
+        n_days = len(all_dates) - start_idx
+        return {
+            'sys_cum': (sys_nav - 1) * 100,
+            'spy_cum': (spy_nav - 1) * 100,
+            'alpha': (sys_nav - 1) * 100 - (spy_nav - 1) * 100,
+            'n_days': n_days,
+            'start_date': all_dates[start_idx],
+            'end_date': all_dates[-1],
+            'wins': wins,
+            'losses': losses,
+        }
+    except Exception as e:
+        log(f"시스템 성과 계산 실패: {e}", level="WARN")
+        return None
+
+
+def _get_alpha_signals(tickers):
+    """선택 종목의 추가 알파 시그널 수집 (어닝 서프/쇼크, 공매도, 경영진 매도)"""
+    import yfinance as yf
+    results = {}
+    for tk in tickers:
+        sig = {'earnings_surp': None, 'short_pct': 0, 'short_mom': 0, 'insider_sell': None}
+        try:
+            stock = yf.Ticker(tk)
+            info = stock.info or {}
+
+            # 1. 어닝 서프라이즈 (최근 1분기)
+            try:
+                eh = stock.earnings_history
+                if eh is not None and len(eh) > 0:
+                    surps = eh['surprisePercent'].dropna().tolist()
+                    if surps:
+                        sig['earnings_surp'] = surps[0]
+            except Exception:
+                pass
+
+            # 2. 공매도 비율 + MoM 변화
+            try:
+                short_pct = info.get('shortPercentOfFloat', 0) or 0
+                short_now = info.get('sharesShort', 0) or 0
+                short_prior = info.get('sharesShortPriorMonth', 0) or 0
+                sig['short_pct'] = short_pct * 100
+                if short_prior > 0:
+                    sig['short_mom'] = (short_now - short_prior) / short_prior * 100
+            except Exception:
+                pass
+
+            # 3. 경영진 대량 매도 (최근 90일, C-suite Sale > $1M, Stock Award 14일 내 제외)
+            try:
+                it = stock.insider_transactions
+                if it is not None and len(it) > 0:
+                    from datetime import datetime as _dt, timedelta as _td
+                    cutoff = _dt.now() - _td(days=90)
+                    award_dates = []
+                    raw_sales = []
+                    for _, row in it.iterrows():
+                        text = str(row.get('Text', ''))
+                        trans = str(row.get('Transaction', ''))
+                        pos = str(row.get('Position', ''))
+                        val = row.get('Value', 0) or 0
+                        dt = row.get('Start Date', None)
+
+                        is_sale = 'Sale' in trans or 'Sale at price' in text
+                        is_award = ('Stock Award' in trans or 'Grant' in trans
+                                    or 'Stock Award' in text or 'Grant' in text)
+                        is_exercise = 'Exercise' in trans or 'Exercise' in text
+
+                        if is_award and dt is not None:
+                            award_dates.append(dt)
+
+                        is_csuite = any(t in pos for t in
+                                        ['Chief', 'CEO', 'CFO', 'COO', 'CTO', 'Director', 'Officer'])
+                        if is_sale and not is_exercise and is_csuite and val > 0 and dt is not None:
+                            try:
+                                if dt >= cutoff:
+                                    raw_sales.append({'pos': pos, 'value': val, 'date': dt})
+                            except Exception:
+                                raw_sales.append({'pos': pos, 'value': val, 'date': dt})
+
+                    # 각 Sale별로: 14일 이내 Stock Award 있으면 루틴 → 제외
+                    genuine_sales = []
+                    for sale in raw_sales:
+                        is_routine = False
+                        for ad in award_dates:
+                            try:
+                                if abs((sale['date'] - ad).days) <= 14:
+                                    is_routine = True
+                                    break
+                            except Exception:
+                                pass
+                        if not is_routine:
+                            genuine_sales.append(sale)
+
+                    total_genuine = sum(s['value'] for s in genuine_sales)
+                    if total_genuine >= 1_000_000:
+                        sellers = set()
+                        for s in genuine_sales:
+                            p = s['pos']
+                            if 'Chief Executive' in p:
+                                sellers.add('CEO')
+                            elif 'Chief Financial' in p:
+                                sellers.add('CFO')
+                            elif 'Chief Operating' in p:
+                                sellers.add('COO')
+                            elif 'Chief Technology' in p:
+                                sellers.add('CTO')
+                            elif 'Director' in p:
+                                sellers.add('이사')
+                            else:
+                                sellers.add('임원')
+                        sig['insider_sell'] = {'total': total_genuine, 'sellers': sellers}
+            except Exception:
+                pass
+
+        except Exception:
+            pass
+        results[tk] = sig
+    return results
+
+
 def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_content,
                           portfolio_mode, final_action,
                           weighted_ranks=None, filter_count=None,
@@ -3110,6 +3401,15 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append(f'📡 <b>AI 종목 브리핑 US</b> · {biz_str}({weekday})')
     lines.append('월가 애널리스트의 이익 전망 변화를 추적해')
     lines.append('유망 종목을 매일 선별해 드립니다.')
+
+    # ━━ 시스템 성과 ━━
+    try:
+        perf = _get_system_performance()
+        if perf and perf['n_days'] >= 5:
+            lines.append(f'📊 시스템 {perf["n_days"]}일 수익률 {perf["sys_cum"]:+.1f}%'
+                         f' (같은 기간 미국시장 {perf["spy_cum"]:+.1f}%)')
+    except Exception:
+        pass
 
     # ━━ 섹션 1: 결론 먼저 ━━
     lines.append('')
@@ -3186,6 +3486,12 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('→ 원자재·저마진 업종 제외')
     lines.append(f'→ 실적은 좋아지는데 주가가 덜 오른 상위 {len(selected)}종목')
 
+    # ━━ 알파 시그널 수집 ━━
+    try:
+        alpha_signals = _get_alpha_signals([s['ticker'] for s in selected])
+    except Exception:
+        alpha_signals = {}
+
     # ━━ 섹션 3: 종목별 근거 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
@@ -3230,6 +3536,32 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         if rev_up or rev_down:
             rank_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
         lines.append(' · '.join(rank_parts))
+
+        # L2.5: 알파 시그널 (어닝 서프/쇼크, 공매도, 경영진 매도)
+        asig = alpha_signals.get(ticker, {})
+        alpha_parts = []
+        surp = asig.get('earnings_surp')
+        if surp is not None:
+            if surp > 0.5:
+                alpha_parts.append(f'어닝 서프 +{surp*100:.0f}%')
+            elif surp < 0:
+                alpha_parts.append(f'⚠️ 어닝 미스 {surp*100:.0f}%')
+        sp = asig.get('short_pct', 0)
+        sm = asig.get('short_mom', 0)
+        if sp >= 8:
+            short_str = f'공매도 {sp:.1f}%'
+            if sm <= -20:
+                short_str += '(숏커버 중)'
+            elif sm >= 20:
+                short_str += '(급증)'
+            alpha_parts.append(short_str)
+        ins = asig.get('insider_sell')
+        if ins:
+            sellers_str = '·'.join(sorted(ins['sellers']))
+            total_m = ins['total'] / 1_000_000
+            alpha_parts.append(f'⚠️ {sellers_str} 매도 ${total_m:.0f}M')
+        if alpha_parts:
+            lines.append(' · '.join(alpha_parts))
 
         # L3: 이야기 (AI 내러티브)
         narrative = narratives.get(ticker, '')

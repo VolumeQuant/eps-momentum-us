@@ -40,6 +40,38 @@ def calc_min_seg(nc, n7, n30, n60, n90):
     return min(segs)
 
 
+def calc_pairwise_corr(price_history, tk1, tk2, lookback=20):
+    """두 종목의 최근 N일 일간수익률 상관계수
+
+    상관 제약 진입 필터용. 상관이 높으면 동일 방향 리스크 집중.
+    데이터 부족 시 0.0 반환 (진입 허용).
+    """
+    h1 = price_history.get(tk1, [])
+    h2 = price_history.get(tk2, [])
+    if len(h1) < 3 or len(h2) < 3:
+        return 0.0
+    # 최근 lookback+1 가격 → lookback 수익률
+    p1 = h1[-(lookback + 1):] if len(h1) >= lookback + 1 else h1
+    p2 = h2[-(lookback + 1):] if len(h2) >= lookback + 1 else h2
+    # 공통 길이 맞추기 (뒤에서부터)
+    n = min(len(p1), len(p2))
+    p1 = p1[-n:]
+    p2 = p2[-n:]
+    r1 = [(p1[j] - p1[j - 1]) / p1[j - 1] * 100 for j in range(1, n) if p1[j - 1] > 0]
+    r2 = [(p2[j] - p2[j - 1]) / p2[j - 1] * 100 for j in range(1, n) if p2[j - 1] > 0]
+    if len(r1) < 3 or len(r2) < 3 or len(r1) != len(r2):
+        return 0.0
+    m1 = sum(r1) / len(r1)
+    m2 = sum(r2) / len(r2)
+    cov = sum((a - m1) * (b - m2) for a, b in zip(r1, r2)) / (len(r1) - 1)
+    v1 = sum((a - m1) ** 2 for a in r1) / (len(r1) - 1)
+    v2 = sum((b - m2) ** 2 for b in r2) / (len(r2) - 1)
+    denom = math.sqrt(v1) * math.sqrt(v2)
+    if denom < 1e-12:
+        return 0.0
+    return cov / denom
+
+
 def calc_ticker_vol(price_history, ticker, lookback=10):
     """종목의 최근 N일 일간수익률 표준편차 (일간%, 연환산X)
 
@@ -172,6 +204,10 @@ def run_backtest(db, config):
         vol_lookback: int    — 변동성 계산 기간 (default 5)
         vix_regime: bool     — VIX 국면별 포지션 수 조절 (default False)
         vix_thresholds: list — [안정/경계, 경계/높음] VIX 임계값 (default [20, 25])
+        corr_constraint: bool — 진입 시 기존 보유 종목과 상관 제약 (default False)
+        corr_threshold: float — 상관 임계값 (default 0.65, 이상이면 진입 스킵)
+        portfolio_dd_limit: float — 포트폴리오 전체 드로다운 한도 (e.g. -15, None=미사용)
+        dd_cooldown: int     — DD 한도 도달 후 진입 금지 기간 (거래일, default 5)
 
     Returns:
         (daily_returns, trade_log, portfolio)
@@ -197,11 +233,22 @@ def run_backtest(db, config):
     # VIX 노출 조절: 종목 수 유지, 총 투자 비율만 축소
     vix_exposure = config.get('vix_exposure', False)
     vix_exp_levels = config.get('vix_exp_levels', [1.0, 0.7, 0.4])  # [안정, 경계, 높음]
+    # 상관 제약: 기존 보유 종목과 높은 상관 시 진입 스킵
+    corr_constraint = config.get('corr_constraint', False)
+    corr_threshold = config.get('corr_threshold', 0.65)
+    # 포트폴리오 드로다운 한도
+    portfolio_dd_limit = config.get('portfolio_dd_limit', None)
+    dd_cooldown = config.get('dd_cooldown', 5)
 
     start_idx = 2  # 3일 검증 시작
     portfolio = {}  # {ticker: {entry_date, entry_price, peak_price}}
     trade_log = []
     daily_returns = []
+
+    # 포트폴리오 NAV 추적 (DD 한도용)
+    port_nav = 1.0
+    port_peak_nav = 1.0
+    dd_cooldown_remaining = 0  # 남은 쿨다운 일수
 
     # 변동성 계산용 가격 히스토리
     price_history = defaultdict(list)
@@ -276,6 +323,26 @@ def run_backtest(db, config):
             })
             del portfolio[tk]
 
+        # ── 포트폴리오 드로다운 한도 체크 ──
+        if portfolio_dd_limit is not None and dd_cooldown_remaining <= 0:
+            dd_pct = (port_nav - port_peak_nav) / port_peak_nav * 100 if port_peak_nav > 0 else 0
+            if dd_pct <= portfolio_dd_limit and portfolio:
+                # 전 종목 강제 매도
+                for tk in list(portfolio.keys()):
+                    cur_price = prices.get(tk, portfolio[tk]['entry_price'])
+                    ret = (cur_price - portfolio[tk]['entry_price']) / portfolio[tk]['entry_price'] * 100
+                    trade_log.append({
+                        'ticker': tk, 'entry_date': portfolio[tk]['entry_date'],
+                        'exit_date': date, 'entry_price': portfolio[tk]['entry_price'],
+                        'exit_price': cur_price, 'return': ret, 'reason': 'DD한도',
+                    })
+                    del portfolio[tk]
+                dd_cooldown_remaining = dd_cooldown
+
+        # 쿨다운 차감
+        if dd_cooldown_remaining > 0:
+            dd_cooldown_remaining -= 1
+
         # ── VIX 국면별 포지션 수 결정 ──
         if vix_regime and date in vix_by_date:
             vix = vix_by_date[date]
@@ -305,8 +372,10 @@ def run_backtest(db, config):
                 del portfolio[tk]
 
         # ── 진입 ──
+        # DD 쿨다운 중이면 신규 진입 금지
+        in_dd_cooldown = (portfolio_dd_limit is not None and dd_cooldown_remaining > 0)
         slots = cur_max - len(portfolio)
-        if slots > 0:
+        if slots > 0 and not in_dd_cooldown:
             candidates = []
             for tk, wg in eligible[:30]:
                 if tk in portfolio:
@@ -316,14 +385,30 @@ def run_backtest(db, config):
                 if ticker_min_seg.get(tk, -999) < min_seg_entry:
                     continue
                 candidates.append(tk)
-            for tk in candidates[:slots]:
+            # 상관 제약 + 슬롯 제한을 함께 적용
+            entered = 0
+            for tk in candidates:
+                if entered >= slots:
+                    break
                 cur_price = prices.get(tk)
-                if cur_price:
-                    portfolio[tk] = {
-                        'entry_date': date,
-                        'entry_price': cur_price,
-                        'peak_price': cur_price,
-                    }
+                if not cur_price:
+                    continue
+                # 상관 제약: 기존 보유 종목과 높은 상관이면 스킵
+                if corr_constraint and portfolio:
+                    skip = False
+                    for held_tk in portfolio:
+                        corr = calc_pairwise_corr(price_history, tk, held_tk)
+                        if corr >= corr_threshold:
+                            skip = True
+                            break
+                    if skip:
+                        continue
+                portfolio[tk] = {
+                    'entry_date': date,
+                    'entry_price': cur_price,
+                    'peak_price': cur_price,
+                }
+                entered += 1
 
         # ── VIX 노출 비율 결정 ──
         if vix_exposure and date in vix_by_date:
@@ -356,6 +441,12 @@ def run_backtest(db, config):
                 daily_returns.append(sum(tk_rets.values()) / len(tk_rets) * exposure)
         else:
             daily_returns.append(0)
+
+        # ── 포트폴리오 NAV 갱신 (DD 한도 추적용) ──
+        if portfolio_dd_limit is not None:
+            port_nav *= (1 + daily_returns[-1] / 100)
+            if port_nav > port_peak_nav:
+                port_peak_nav = port_nav
 
     return daily_returns, trade_log, portfolio
 
@@ -539,6 +630,52 @@ PRESETS = {
             'vix_exp_levels': [1.0, 0.6, 0.3],
         },
     ],
+    # === 상관 제약 비교 ===
+    'correlation': [
+        {
+            'label': '현행(상관무시)',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'sizing': 'inverse_vol', 'vol_lookback': 5,
+        },
+        {
+            'label': '상관<0.65제약',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'corr_constraint': True, 'corr_threshold': 0.65,
+        },
+        {
+            'label': '상관<0.5제약',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'corr_constraint': True, 'corr_threshold': 0.5,
+        },
+    ],
+    # === 포트폴리오 드로다운 한도 비교 ===
+    'portfolio_dd': [
+        {
+            'label': '현행(DD무제한)',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'sizing': 'inverse_vol', 'vol_lookback': 5,
+        },
+        {
+            'label': 'DD-15%한도',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'portfolio_dd_limit': -15, 'dd_cooldown': 5,
+        },
+        {
+            'label': 'DD-10%한도',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'portfolio_dd_limit': -10, 'dd_cooldown': 5,
+        },
+        {
+            'label': 'DD-20%한도',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'portfolio_dd_limit': -20, 'dd_cooldown': 3,
+        },
+    ],
     # === 종합 최적 조합 ===
     'best': [
         {
@@ -560,6 +697,13 @@ PRESETS = {
             'sizing': 'inverse_vol', 'vol_lookback': 5,
             'vix_exposure': True, 'vix_thresholds': [20, 25],
             'vix_exp_levels': [1.0, 0.7, 0.4],
+        },
+        {
+            'label': '+역변+상관+DD15',
+            'top_n': 3, 'exit_rank': 15,
+            'fixed_stop': -10, 'sizing': 'inverse_vol', 'vol_lookback': 5,
+            'corr_constraint': True, 'corr_threshold': 0.65,
+            'portfolio_dd_limit': -15, 'dd_cooldown': 5,
         },
     ],
 }

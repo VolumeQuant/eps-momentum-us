@@ -152,13 +152,18 @@ def trade_stats(trade_log):
         return {
             'total_trades': 0, 'win_rate': 0, 'avg_return': 0,
             'avg_win': 0, 'avg_loss': 0, 'profit_loss_ratio': 0,
-            'expectancy': 0, 'max_consecutive_loss': 0,
+            'profit_factor': 0, 'expectancy': 0, 'max_consecutive_loss': 0,
             'max_consecutive_win': 0, 'avg_hold_days': 0,
         }
 
     returns = [t['return'] for t in trade_log]
     wins = [r for r in returns if r > 0]
     losses = [r for r in returns if r <= 0]
+
+    # Profit Factor: 총 이익 / 총 손실
+    gross_profit = sum(wins) if wins else 0
+    gross_loss = abs(sum(losses)) if losses else 0
+    pf = gross_profit / gross_loss if gross_loss > 0 else float('inf')
 
     win_rate = len(wins) / len(returns) if returns else 0
     avg_win = sum(wins) / len(wins) if wins else 0
@@ -194,6 +199,9 @@ def trade_stats(trade_log):
                 pass
     avg_hold = sum(hold_days) / len(hold_days) if hold_days else 0
 
+    # 켈리 비율: f = W - (1-W)/R
+    kelly = win_rate - (1 - win_rate) / pl_ratio if pl_ratio > 0 else 0
+
     return {
         'total_trades': len(returns),
         'win_rate': win_rate,
@@ -201,11 +209,44 @@ def trade_stats(trade_log):
         'avg_win': avg_win,
         'avg_loss': avg_loss,
         'profit_loss_ratio': pl_ratio,
+        'profit_factor': pf,
         'expectancy': expectancy,
         'max_consecutive_loss': max_con_loss,
         'max_consecutive_win': max_con_win,
         'avg_hold_days': avg_hold,
+        'kelly_fraction': kelly,
     }
+
+
+def monthly_win_rate(daily_rets):
+    """월별 승률 — 일별 수익률을 달력 월 기준으로 합산 후 양수 월 비율 계산.
+    Returns: (winning_months, total_months, win_rate_pct)
+    주의: daily_rets 리스트에 대응하는 날짜 정보가 없으므로,
+          거래일 252일/년 기준으로 약 21일을 1개월로 취급.
+    """
+    if not daily_rets:
+        return (0, 0, 0.0)
+    days_per_month = 21
+    monthly_sums = []
+    for i in range(0, len(daily_rets), days_per_month):
+        chunk = daily_rets[i:i + days_per_month]
+        if len(chunk) >= 5:  # 최소 5일은 있어야 유효 월
+            monthly_sums.append(sum(chunk))
+    total_months = len(monthly_sums)
+    if total_months == 0:
+        return (0, 0, 0.0)
+    winning_months = sum(1 for s in monthly_sums if s > 0)
+    win_rate_pct = winning_months / total_months * 100
+    return (winning_months, total_months, win_rate_pct)
+
+
+def turnover(trade_log, total_days):
+    """연환산 회전율 — 완료 거래 수 / 총 거래일 × 252
+    trade_log: list[dict], total_days: 백테스트 총 거래일수
+    """
+    if not trade_log or total_days <= 0:
+        return 0.0
+    return len(trade_log) / total_days * 252
 
 
 # ── 종합 리포트 ──
@@ -258,11 +299,26 @@ def report(daily_rets, trade_log=None, label='전략', rf_annual=4.5):
         print(f'  평균 이익 (승)    +{ts["avg_win"]:.2f}%')
         print(f'  평균 손실 (패)    -{ts["avg_loss"]:.2f}%')
         print(f'  손익비            {ts["profit_loss_ratio"]:.2f}')
+        pf = ts["profit_factor"]
+        pf_str = f'{pf:.2f}' if pf != float('inf') else '∞'
+        print(f'  프로핏 팩터       {pf_str}')
         print(f'  기대값            {ts["expectancy"]:+.2f}%')
         print(f'  최대 연승         {ts["max_consecutive_win"]}연승')
         print(f'  최대 연패         {ts["max_consecutive_loss"]}연패')
         if ts['avg_hold_days'] > 0:
             print(f'  평균 보유일       {ts["avg_hold_days"]:.0f}일')
+        print(f'  켈리 비율         {ts["kelly_fraction"]:.1%}')
+
+        # 연환산 회전율
+        to = turnover(trade_log, n)
+        print(f'  연환산 회전율     {to:.1f}회')
+
+    # 월별 승률
+    wm, tm, wr_pct = monthly_win_rate(daily_rets)
+    if tm >= 2:
+        print()
+        print(f'  ── 월별 ──')
+        print(f'  월별 승률         {wm}/{tm}개월 ({wr_pct:.1f}%)')
 
     print(f'{"="*50}')
 
@@ -272,13 +328,13 @@ def compare(results, rf_annual=4.5):
 
     results: list of (label, daily_rets, trade_log_or_None)
     """
-    print(f'\n{"="*80}')
+    print(f'\n{"="*88}')
     print(f'  전략 비교')
-    print(f'{"="*80}')
+    print(f'{"="*88}')
 
-    header = f'{"전략":<16} {"CAGR":>7} {"MDD":>7} {"변동성":>7} {"샤프":>6} {"소르티노":>8} {"칼마":>6} {"승률":>6} {"손익비":>6}'
+    header = f'{"전략":<16} {"CAGR":>7} {"MDD":>7} {"변동성":>7} {"샤프":>6} {"소르티노":>8} {"칼마":>6} {"승률":>6} {"손익비":>6} {"PF":>6}'
     print(header)
-    print('-' * 80)
+    print('-' * 88)
 
     for label, daily_rets, tlog in results:
         ca = cagr(daily_rets)
@@ -292,13 +348,16 @@ def compare(results, rf_annual=4.5):
             ts = trade_stats(tlog)
             wr = f'{ts["win_rate"]:.0%}'
             plr = f'{ts["profit_loss_ratio"]:.1f}'
+            pf = ts["profit_factor"]
+            pf_str = f'{pf:.1f}' if pf != float('inf') else '∞'
         else:
             wr = '-'
             plr = '-'
+            pf_str = '-'
 
-        print(f'{label:<16} {ca:>+6.1f}% {mdd:>+6.1f}% {vol:>6.1f}% {sh:>6.2f} {so:>8.2f} {cal:>6.2f} {wr:>6} {plr:>6}')
+        print(f'{label:<16} {ca:>+6.1f}% {mdd:>+6.1f}% {vol:>6.1f}% {sh:>6.2f} {so:>8.2f} {cal:>6.2f} {wr:>6} {plr:>6} {pf_str:>6}')
 
-    print(f'{"="*80}')
+    print(f'{"="*88}')
 
 
 if __name__ == '__main__':
