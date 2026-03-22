@@ -569,12 +569,9 @@ eps-momentum-us/
 │   └── test-private-only.yml  # 수동 테스트 (개인봇만, DB 미커밋)
 │
 ├── eps_momentum_short.py      # Short 후보 스크리닝 (Long 전략의 역방향, 관찰용)
-├── eps_momentum_kr.py         # 한국 시장 EPS 모멘텀 스크리닝 (리서치 단계)
 │
 ├── eps_momentum_data.db       # SQLite DB - US (자동 생성)
-├── eps_momentum_kr.db         # SQLite DB - KR (자동 생성)
 ├── ticker_info_cache.json     # US 종목 이름/업종 캐시 (자동 생성)
-├── ticker_info_cache_kr.json  # KR 종목 이름/업종 캐시 (자동 생성)
 └── etf_holdings_cache_v2.json # ETF 전체 홀딩 캐시 (자동 생성)
 ```
 
