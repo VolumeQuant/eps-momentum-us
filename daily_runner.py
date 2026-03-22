@@ -712,10 +712,36 @@ def fetch_revenue_growth(df, today_str):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import time as _time
 
+    # 전날 Top 30 종목 로드 — 이 종목만 earnings_history 추가 수집
+    _eh_priority = set()
+    try:
+        conn_tmp = sqlite3.connect(DB_PATH)
+        rows = conn_tmp.execute(
+            "SELECT ticker FROM ntm_screening WHERE part2_rank IS NOT NULL AND date = (SELECT MAX(date) FROM ntm_screening WHERE date < ? AND part2_rank IS NOT NULL)",
+            (today_str,)
+        ).fetchall()
+        _eh_priority = {r[0] for r in rows}
+        conn_tmp.close()
+        if _eh_priority:
+            log(f"어닝서프 우선 수집 대상: {len(_eh_priority)}종목 (전일 Top30)")
+    except Exception:
+        pass
+
     def _fetch_one(ticker):
-        """단일 종목 .info 수집 (스레드 워커)"""
+        """단일 종목 .info 수집 (+ 우선 종목은 earnings_history도)"""
         try:
-            info = yf.Ticker(ticker).info
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            # 우선 종목만 earnings_history 추가 수집 (전체 ~30종목뿐, rate limit 영향 미미)
+            if ticker in _eh_priority:
+                try:
+                    eh = stock.earnings_history
+                    if eh is not None and len(eh) > 0:
+                        surps = eh['surprisePercent'].dropna().tolist()
+                        if surps:
+                            info['_earnings_surp'] = surps[-1]
+                except Exception:
+                    pass
             return ticker, info
         except Exception:
             return ticker, None
@@ -3260,17 +3286,13 @@ def _get_alpha_signals(tickers, info_cache=None):
     """선택 종목의 추가 알파 시그널 (어닝 서프/쇼크, 공매도)
 
     info_cache: fetch_revenue_growth에서 이미 수집한 {ticker: info_dict}
-                공매도는 info_cache에서 재사용 (추가 호출 없음)
-                earnings_history는 Top 20만 새로 수집 (~20 HTTP 호출)
+                공매도 + 어닝 서프라이즈 모두 info_cache에서 읽음 (추가 HTTP 호출 없음)
+                어닝 서프는 전날 Top30 우선 종목에 대해서만 _fetch_one에서 수집됨
     """
-    import yfinance as yf
-    import time as _time
     if info_cache is None:
         info_cache = {}
     results = {}
-    for i, tk in enumerate(tickers):
-        if i > 0:
-            _time.sleep(1)  # rate limit 회피 (20종목만이라 1초면 충분)
+    for tk in tickers:
         sig = {'earnings_surp': None, 'short_pct': 0, 'short_mom': 0}
         info = info_cache.get(tk) or {}
         try:
@@ -3283,20 +3305,10 @@ def _get_alpha_signals(tickers, info_cache=None):
                 sig['short_mom'] = (short_now - short_prior) / short_prior * 100
         except Exception:
             pass
-        # 어닝 서프라이즈: Top 20만 개별 수집
-        try:
-            eh = yf.Ticker(tk).earnings_history
-            if eh is not None and len(eh) > 0:
-                surps = eh['surprisePercent'].dropna().tolist()
-                if surps:
-                    sig['earnings_surp'] = surps[-1]
-                    log(f"  어닝서프 {tk}: {surps[-1]:.1%}")
-                else:
-                    log(f"  어닝서프 {tk}: surprisePercent 비어있음 (cols={list(eh.columns)})")
-            else:
-                log(f"  어닝서프 {tk}: earnings_history {'None' if eh is None else f'빈 DataFrame (len={len(eh)})'}")
-        except Exception as e:
-            log(f"  어닝서프 {tk}: 오류 {e}")
+        # 어닝 서프라이즈: info_cache에서 읽기 (fetch_revenue_growth에서 우선 종목만 수집됨)
+        surp = info.get('_earnings_surp')
+        if surp is not None:
+            sig['earnings_surp'] = surp
         results[tk] = sig
     return results
 
@@ -4254,10 +4266,8 @@ def main():
         ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
                                      market_lines=market_lines)
 
-        # 알파 시그널 (Top 20 대상, 공매도=cache, 어닝서프=개별수집)
+        # 알파 시그널 (Top 20, 전부 info_cache에서 — 추가 HTTP 호출 없음)
         try:
-            import time as _time
-            _time.sleep(10)  # 메인 스크리닝 후 rate limit 회복 대기
             watchlist_tickers = [t for t in today_tickers[:20]]
             alpha_signals = _get_alpha_signals(watchlist_tickers, info_cache=info_cache)
             log(f"알파 시그널: {', '.join(f'{tk}' for tk, v in alpha_signals.items() if v.get('earnings_surp') and (v['earnings_surp'] > 0.3 or v['earnings_surp'] < 0))}")
