@@ -4436,8 +4436,8 @@
     "industry": "엔터"
   },
   "LNG": {
-    "shortName": "LNG",
-    "industry": "기타"
+    "shortName": "Cheniere Energy, Inc.",
+    "industry": "석유미드스트림"
   },
   "LPL": {
     "shortName": "LPL",
@@ -4468,12 +4468,12 @@
     "industry": "기타"
   },
   "MGA": {
-    "shortName": "MGA",
-    "industry": "기타"
+    "shortName": "Magna International, Inc.",
+    "industry": "자동차부품"
   },
   "MGY": {
-    "shortName": "MGY",
-    "industry": "기타"
+    "shortName": "Magnolia Oil & Gas Corporation",
+    "industry": "석유가스"
   },
   "MHK": {
     "shortName": "MHK",
@@ -4496,7 +4496,7 @@
     "industry": "기타"
   },
   "MOD": {
-    "shortName": "MOD",
+    "shortName": "Modine Manufacturing Company",
     "industry": "자동차부품"
   },
   "MPLX": {
@@ -4516,24 +4516,24 @@
     "industry": "기타"
   },
   "MUFG": {
-    "shortName": "MUFG",
-    "industry": "기타"
+    "shortName": "Mitsubishi UFJ Financial Group,",
+    "industry": "대형은행"
   },
   "NBIS": {
     "shortName": "NBIS",
     "industry": "기타"
   },
   "NE": {
-    "shortName": "NE",
-    "industry": "기타"
+    "shortName": "Noble Corporation plc A",
+    "industry": "Oil & Gas Drilling"
   },
   "NGD": {
     "shortName": "NGD",
     "industry": "금"
   },
   "NGG": {
-    "shortName": "NGG",
-    "industry": "기타"
+    "shortName": "National Grid Transco, PLC Nati",
+    "industry": "전력"
   },
   "NMR": {
     "shortName": "NMR",
@@ -4544,12 +4544,12 @@
     "industry": "기타"
   },
   "NPO": {
-    "shortName": "NPO",
-    "industry": "기타"
+    "shortName": "Enpro Inc.",
+    "industry": "산업기계"
   },
   "NTR": {
-    "shortName": "NTR",
-    "industry": "기타"
+    "shortName": "Nutrien Ltd.",
+    "industry": "농업"
   },
   "NTRA": {
     "shortName": "NTRA",
@@ -4564,7 +4564,7 @@
     "industry": "기타"
   },
   "NVMI": {
-    "shortName": "NVMI",
+    "shortName": "Nova Ltd.",
     "industry": "반도체장비"
   },
   "NVS": {
@@ -4608,16 +4608,16 @@
     "industry": "기타"
   },
   "PACS": {
-    "shortName": "PACS",
-    "industry": "기타"
+    "shortName": "PACS Group, Inc.",
+    "industry": "의료시설"
   },
   "PBA": {
     "shortName": "PBA",
     "industry": "기타"
   },
   "PBR": {
-    "shortName": "PBR",
-    "industry": "기타"
+    "shortName": "Petroleo Brasileiro S.A. Petrob",
+    "industry": "석유종합"
   },
   "PCVX": {
     "shortName": "PCVX",
@@ -4636,28 +4636,28 @@
     "industry": "기타"
   },
   "PLXS": {
-    "shortName": "PLXS",
-    "industry": "기타"
+    "shortName": "Plexus Corp.",
+    "industry": "전자부품"
   },
   "POWL": {
-    "shortName": "POWL",
-    "industry": "기타"
+    "shortName": "Powell Industries, Inc.",
+    "industry": "전기장비"
   },
   "PRAX": {
     "shortName": "PRAX",
     "industry": "기타"
   },
   "PRIM": {
-    "shortName": "PRIM",
-    "industry": "기타"
+    "shortName": "Primoris Services Corporation",
+    "industry": "건설"
   },
   "PRMB": {
     "shortName": "PRMB",
     "industry": "기타"
   },
   "PTGX": {
-    "shortName": "PTGX",
-    "industry": "기타"
+    "shortName": "Protagonist Therapeutics, Inc.",
+    "industry": "바이오"
   },
   "PUK": {
     "shortName": "PUK",
@@ -4700,7 +4700,7 @@
     "industry": "기타"
   },
   "RIO": {
-    "shortName": "RIO",
+    "shortName": "Rio Tinto Plc",
     "industry": "산업금속"
   },
   "RIOT": {
@@ -4740,8 +4740,8 @@
     "industry": "기타"
   },
   "RY": {
-    "shortName": "RY",
-    "industry": "기타"
+    "shortName": "Royal Bank Of Canada",
+    "industry": "대형은행"
   },
   "RYAAY": {
     "shortName": "RYAAY",
@@ -4764,7 +4764,7 @@
     "industry": "기타"
   },
   "SCCO": {
-    "shortName": "SCCO",
+    "shortName": "Southern Copper Corporation",
     "industry": "구리"
   },
   "SEE": {
@@ -4776,16 +4776,16 @@
     "industry": "기타"
   },
   "SHEL": {
-    "shortName": "SHEL",
-    "industry": "기타"
+    "shortName": "Shell PLC",
+    "industry": "석유종합"
   },
   "SITE": {
-    "shortName": "SITE",
-    "industry": "기타"
+    "shortName": "SiteOne Landscape Supply, Inc.",
+    "industry": "산업유통"
   },
   "SITM": {
-    "shortName": "SITM",
-    "industry": "기타"
+    "shortName": "SiTime Corporation",
+    "industry": "반도체"
   },
   "SKY": {
     "shortName": "SKY",
@@ -4800,8 +4800,8 @@
     "industry": "기타"
   },
   "SMTC": {
-    "shortName": "SMTC",
-    "industry": "기타"
+    "shortName": "Semtech Corporation",
+    "industry": "반도체"
   },
   "SN": {
     "shortName": "SN",
@@ -4816,16 +4816,16 @@
     "industry": "기타"
   },
   "SOBO": {
-    "shortName": "SOBO",
-    "industry": "기타"
+    "shortName": "South Bow Corporation",
+    "industry": "석유미드스트림"
   },
   "SOLS": {
     "shortName": "SOLS",
     "industry": "기타"
   },
   "SQM": {
-    "shortName": "SQM",
-    "industry": "기타"
+    "shortName": "Sociedad Quimica y Minera S.A.",
+    "industry": "특수화학"
   },
   "SSL": {
     "shortName": "SSL",
@@ -4836,36 +4836,36 @@
     "industry": "금"
   },
   "STM": {
-    "shortName": "STM",
-    "industry": "기타"
+    "shortName": "STMicroelectronics N.V.",
+    "industry": "반도체"
   },
   "SU": {
-    "shortName": "SU",
-    "industry": "기타"
+    "shortName": "Suncor Energy  Inc.",
+    "industry": "석유종합"
   },
   "SUI": {
     "shortName": "SUI",
     "industry": "기타"
   },
   "SUN": {
-    "shortName": "SUN",
-    "industry": "기타"
+    "shortName": "Sunoco LP",
+    "industry": "석유정제"
   },
   "TAK": {
     "shortName": "TAK",
     "industry": "기타"
   },
   "TD": {
-    "shortName": "TD",
-    "industry": "기타"
+    "shortName": "Toronto Dominion Bank (The)",
+    "industry": "대형은행"
   },
   "TDS": {
     "shortName": "TDS",
     "industry": "기타"
   },
   "TECK": {
-    "shortName": "TECK",
-    "industry": "기타"
+    "shortName": "Teck Resources Ltd",
+    "industry": "산업금속"
   },
   "TEVA": {
     "shortName": "TEVA",
@@ -4884,8 +4884,8 @@
     "industry": "기타"
   },
   "TIMB": {
-    "shortName": "TIMB",
-    "industry": "기타"
+    "shortName": "TIM S.A.",
+    "industry": "통신"
   },
   "TKC": {
     "shortName": "TKC",
@@ -4908,15 +4908,15 @@
     "industry": "기타"
   },
   "TS": {
-    "shortName": "TS",
-    "industry": "기타"
+    "shortName": "Tenaris S.A.",
+    "industry": "석유장비"
   },
   "TSEM": {
-    "shortName": "TSEM",
+    "shortName": "Tower Semiconductor Ltd.",
     "industry": "반도체"
   },
   "TSM": {
-    "shortName": "TSM",
+    "shortName": "Taiwan Semiconductor Manufactur",
     "industry": "반도체"
   },
   "TTE": {
@@ -4928,8 +4928,8 @@
     "industry": "기타"
   },
   "TW": {
-    "shortName": "TW",
-    "industry": "기타"
+    "shortName": "Tradeweb Markets Inc.",
+    "industry": "자본시장"
   },
   "TX": {
     "shortName": "TX",
@@ -4944,8 +4944,8 @@
     "industry": "기타"
   },
   "UI": {
-    "shortName": "UI",
-    "industry": "기타"
+    "shortName": "Ubiquiti Inc.",
+    "industry": "통신장비"
   },
   "UL": {
     "shortName": "UL",
@@ -4968,31 +4968,31 @@
     "industry": "기타"
   },
   "VICR": {
-    "shortName": "VICR",
-    "industry": "기타"
+    "shortName": "Vicor Corporation",
+    "industry": "전자부품"
   },
   "VIK": {
-    "shortName": "VIK",
-    "industry": "기타"
+    "shortName": "Viking Holdings Ltd",
+    "industry": "여행"
   },
   "VIRT": {
-    "shortName": "VIRT",
+    "shortName": "Virtu Financial, Inc.",
     "industry": "자본시장"
   },
   "VIST": {
-    "shortName": "VIST",
-    "industry": "기타"
+    "shortName": "Vista Energy S.A.B. de C.V.",
+    "industry": "석유가스"
   },
   "VIV": {
-    "shortName": "VIV",
-    "industry": "기타"
+    "shortName": "Telefonica Brasil S.A.",
+    "industry": "통신"
   },
   "VOD": {
     "shortName": "VOD",
     "industry": "기타"
   },
   "VRT": {
-    "shortName": "VRT",
+    "shortName": "Vertiv Holdings, LLC",
     "industry": "전기장비"
   },
   "VSAT": {
@@ -5020,11 +5020,11 @@
     "industry": "기타"
   },
   "XP": {
-    "shortName": "XP",
-    "industry": "기타"
+    "shortName": "XP Inc.",
+    "industry": "자본시장"
   },
   "YOU": {
-    "shortName": "YOU",
+    "shortName": "Clear Secure, Inc.",
     "industry": "소프트웨어"
   },
   "YPF": {
@@ -5032,20 +5032,20 @@
     "industry": "기타"
   },
   "YUMC": {
-    "shortName": "YUMC",
-    "industry": "기타"
+    "shortName": "Yum China Holdings, Inc.",
+    "industry": "외식"
   },
   "ZTO": {
-    "shortName": "ZTO",
-    "industry": "기타"
+    "shortName": "ZTO Express (Cayman) Inc.",
+    "industry": "물류"
   },
   "ZWS": {
     "shortName": "ZWS",
     "industry": "기타"
   },
   "VALE": {
-    "shortName": "VALE",
-    "industry": "기타"
+    "shortName": "VALE S.A.",
+    "industry": "산업금속"
   },
   "BRK-A": {
     "shortName": "BRK-A",
@@ -5108,8 +5108,8 @@
     "industry": "기타"
   },
   "HESM": {
-    "shortName": "HESM",
-    "industry": "기타"
+    "shortName": "Hess Midstream LP",
+    "industry": "석유미드스트림"
   },
   "MCY": {
     "shortName": "MCY",
@@ -5136,8 +5136,8 @@
     "industry": "기타"
   },
   "CRC": {
-    "shortName": "CRC",
-    "industry": "기타"
+    "shortName": "California Resources Corporatio",
+    "industry": "석유가스"
   },
   "FPS": {
     "shortName": "FPS",
@@ -5164,20 +5164,20 @@
     "industry": "기타"
   },
   "SM": {
-    "shortName": "SM",
-    "industry": "기타"
+    "shortName": "SM Energy Company",
+    "industry": "석유가스"
   },
   "TMDX": {
     "shortName": "TMDX",
     "industry": "기타"
   },
   "CGON": {
-    "shortName": "CGON",
-    "industry": "기타"
+    "shortName": "CG Oncology, Inc.",
+    "industry": "바이오"
   },
   "CRCL": {
-    "shortName": "CRCL",
-    "industry": "기타"
+    "shortName": "Circle Internet Group, Inc.",
+    "industry": "자본시장"
   },
   "INGM": {
     "shortName": "INGM",
@@ -5212,8 +5212,8 @@
     "industry": "기타"
   },
   "CMCM": {
-    "shortName": "CMCM",
-    "industry": "기타"
+    "shortName": "Cheetah Mobile Inc.",
+    "industry": "인터넷"
   },
   "CWST": {
     "shortName": "CWST",
@@ -5224,8 +5224,8 @@
     "industry": "기타"
   },
   "SRRK": {
-    "shortName": "SRRK",
-    "industry": "기타"
+    "shortName": "Scholar Rock Holding Corporatio",
+    "industry": "바이오"
   },
   "ROKU": {
     "shortName": "ROKU",
@@ -5268,8 +5268,8 @@
     "industry": "기타"
   },
   "NIO": {
-    "shortName": "NIO",
-    "industry": "기타"
+    "shortName": "NIO Inc.",
+    "industry": "자동차"
   },
   "SUZ": {
     "shortName": "SUZ",
@@ -5309,6 +5309,18 @@
   },
   "CRK": {
     "shortName": "CRK",
+    "industry": "기타"
+  },
+  "KGS": {
+    "shortName": "Kodiak Gas Services, Inc.",
+    "industry": "석유장비"
+  },
+  "MT": {
+    "shortName": "Arcelor Mittal NY Registry Shar",
+    "industry": "철강"
+  },
+  "RSI": {
+    "shortName": "RSI",
     "industry": "기타"
   }
 }
