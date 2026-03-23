@@ -340,8 +340,10 @@ def run_ntm_collection(config):
     except Exception as e:
         log(f"동적 수집 실패 (기본 유니버스로 진행): {e}", "WARN")
 
-    all_tickers = sorted(base_tickers)
-    log(f"유니버스: {len(all_tickers)}개 종목")
+    # 시장 지수도 함께 다운로드 (별도 호출 시 rate limit 위험)
+    _INDEX_SYMBOLS = ['^GSPC', '^IXIC', '^DJI', '^RUT']
+    all_tickers = sorted(base_tickers) + _INDEX_SYMBOLS
+    log(f"유니버스: {len(base_tickers)}개 종목 + 지수 {len(_INDEX_SYMBOLS)}개")
 
     # Step 1: 종목 정보 캐시 로드
     cache_path = PROJECT_ROOT / 'ticker_info_cache.json'
@@ -387,7 +389,8 @@ def run_ntm_collection(config):
             all_tickers = [t for t in all_tickers if t not in ma120_skip]
             log(f"MA120 사전 필터: 동적 종목 {len(ma120_skip)}개 제외 → {len(all_tickers)}개 수집")
 
-    # Step 3: EPS 데이터 병렬 수집 (10스레드)
+    # Step 3: EPS 데이터 병렬 수집 (지수 심볼 제외)
+    eps_tickers = [t for t in all_tickers if not t.startswith('^')]
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def _prefetch_eps(ticker):
@@ -411,12 +414,12 @@ def run_ntm_collection(config):
         except Exception as e:
             return ticker, {'error': str(e)}
 
-    log(f"NTM EPS 병렬 수집 중 (5스레드, {len(all_tickers)}종목)...")
+    log(f"NTM EPS 병렬 수집 중 (5스레드, {len(eps_tickers)}종목)...")
     _t_eps = __import__('time').time()
     _prefetched = {}
     BATCH_SIZE = 50
-    for batch_start in range(0, len(all_tickers), BATCH_SIZE):
-        batch = all_tickers[batch_start:batch_start + BATCH_SIZE]
+    for batch_start in range(0, len(eps_tickers), BATCH_SIZE):
+        batch = eps_tickers[batch_start:batch_start + BATCH_SIZE]
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = {executor.submit(_prefetch_eps, t): t for t in batch}
             for future in as_completed(futures):
@@ -424,8 +427,8 @@ def run_ntm_collection(config):
                 _prefetched[result[0]] = result[1]
         done_count = batch_start + len(batch)
         if done_count % 200 < BATCH_SIZE:
-            log(f"  수집: {done_count}/{len(all_tickers)}")
-        if batch_start + BATCH_SIZE < len(all_tickers):
+            log(f"  수집: {done_count}/{len(eps_tickers)}")
+        if batch_start + BATCH_SIZE < len(eps_tickers):
             __import__('time').sleep(0.5)
     # 에러 종목 1회 재시도 (rate limit 해소 후)
     error_tickers = [t for t, d in _prefetched.items() if 'error' in d]
@@ -456,9 +459,9 @@ def run_ntm_collection(config):
     errors = []
     cache_updated = False
 
-    for i, ticker in enumerate(all_tickers):
+    for i, ticker in enumerate(eps_tickers):
         if (i + 1) % 200 == 0:
-            log(f"  처리: {i+1}/{len(all_tickers)} (메인: {len(results)}, 턴어라운드: {len(turnaround)})")
+            log(f"  처리: {i+1}/{len(eps_tickers)} (메인: {len(results)}, 턴어라운드: {len(turnaround)})")
             conn.commit()
 
         data = _prefetched.get(ticker, {})
@@ -692,7 +695,7 @@ def run_ntm_collection(config):
 
     # 통계
     stats = {
-        'universe': len(all_tickers),
+        'universe': len(eps_tickers),
         'main_count': len(results),
         'turnaround_count': len(turnaround),
         'no_data_count': len(no_data),
@@ -846,15 +849,41 @@ def fetch_revenue_growth(df, today_str):
     df['operating_margin'] = df['ticker'].map(om_map)
     df['gross_margin'] = df['ticker'].map(gm_map)
 
-    # industry 보정: '기타'인 동적 유니버스 종목 → .info에서 실제 industry 업데이트 (v44)
+    # industry + shortName 보정: 플레이스홀더('기타'/티커) → .info 실제 값으로 갱신
     from eps_momentum_system import INDUSTRY_MAP
+    cache_path = PROJECT_ROOT / 'ticker_info_cache.json'
+    ticker_cache = {}
+    if cache_path.exists():
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                ticker_cache = json.load(f)
+        except Exception:
+            pass
     ind_map = {}
     updated_ind = 0
+    cache_dirty = False
     for t in tickers:
         info = results.get(t)
-        if info and info.get('industry'):
+        if not info:
+            continue
+        if info.get('industry'):
             kr_ind = INDUSTRY_MAP.get(info['industry'], info['industry'])
             ind_map[t] = kr_ind
+        # 캐시에 플레이스홀더(shortName==티커)면 .info에서 갱신
+        cached = ticker_cache.get(t, {})
+        real_name = info.get('shortName') or info.get('longName')
+        if real_name and cached.get('shortName') == t and real_name != t:
+            cached['shortName'] = real_name
+            cache_dirty = True
+        if info.get('industry') and cached.get('industry') in ('기타', None):
+            cached['industry'] = INDUSTRY_MAP.get(info['industry'], info['industry'])
+            cache_dirty = True
+        if cache_dirty or t not in ticker_cache:
+            ticker_cache[t] = cached if cached else {'shortName': real_name or t, 'industry': ind_map.get(t, '기타')}
+    if cache_dirty:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(ticker_cache, f, ensure_ascii=False, indent=2)
+        log(f"종목 캐시 갱신: 플레이스홀더 보정 완료")
     # '기타'인 종목만 업데이트
     for idx, row in df.iterrows():
         if row.get('industry') == '기타' and row['ticker'] in ind_map:
@@ -1970,31 +1999,41 @@ def get_market_risk_status():
     }
 
 
-def get_market_context():
-    """미국 시장 지수 컨텍스트"""
-    try:
-        import yfinance as yf
-        lines = []
-        for symbol, name in [("^GSPC", "S&P 500"), ("^IXIC", "나스닥"), ("^DJI", "다우"), ("^RUT", "러셀2000")]:
-            try:
-                hist = yf.Ticker(symbol).history(period='5d')
-                if len(hist) >= 2:
-                    close = hist['Close'].iloc[-1]
-                    prev = hist['Close'].iloc[-2]
-                    chg = (close / prev - 1) * 100
-                    icon = "🟢" if chg > 0.5 else ("🔴" if chg < -0.5 else "🟡")
-                    lines.append(f"{icon} {name}  {close:,.0f} ({chg:+.2f}%)")
-                else:
-                    log(f"시장 지수 {symbol}: 데이터 부족 ({len(hist)}행)", "WARN")
-            except Exception as e:
-                log(f"시장 지수 {symbol} 수집 실패: {e}", "WARN")
-                continue
-        if not lines:
-            log("시장 지수: 전부 수집 실패", "WARN")
-        return lines
-    except Exception as e:
-        log(f"시장 지수 모듈 오류: {e}", "WARN")
-        return []
+def get_market_context(hist_all=None):
+    """미국 시장 지수 컨텍스트 — hist_all에서 추출 (추가 HTTP 호출 없음)"""
+    lines = []
+    for symbol, name in [("^GSPC", "S&P 500"), ("^IXIC", "나스닥"), ("^DJI", "다우"), ("^RUT", "러셀2000")]:
+        try:
+            # hist_all에서 지수 데이터 추출 (yf.download에 포함)
+            if hist_all is not None and 'Close' in hist_all.columns.get_level_values(0):
+                try:
+                    col = hist_all['Close'][symbol].dropna()
+                    if len(col) >= 2:
+                        close = float(col.iloc[-1])
+                        prev = float(col.iloc[-2])
+                        chg = (close / prev - 1) * 100
+                        icon = "🟢" if chg > 0.5 else ("🔴" if chg < -0.5 else "🟡")
+                        lines.append(f"{icon} {name}  {close:,.0f} ({chg:+.2f}%)")
+                        continue
+                except (KeyError, TypeError):
+                    pass
+            # fallback: 개별 호출
+            import yfinance as yf
+            hist = yf.Ticker(symbol).history(period='5d')
+            if len(hist) >= 2:
+                close = hist['Close'].iloc[-1]
+                prev = hist['Close'].iloc[-2]
+                chg = (close / prev - 1) * 100
+                icon = "🟢" if chg > 0.5 else ("🔴" if chg < -0.5 else "🟡")
+                lines.append(f"{icon} {name}  {close:,.0f} ({chg:+.2f}%)")
+            else:
+                log(f"시장 지수 {symbol}: 데이터 부족", "WARN")
+        except Exception as e:
+            log(f"시장 지수 {symbol} 수집 실패: {e}", "WARN")
+            continue
+    if not lines:
+        log("시장 지수: 전부 수집 실패", "WARN")
+    return lines
 
 
 # ============================================================
@@ -4216,8 +4255,8 @@ def main():
     today_tickers = []
     earnings_map = {}
 
-    # 2.5. 시장 지수 수집 (yfinance rate limit 전에 먼저)
-    market_lines = get_market_context()
+    # 2.5. 시장 지수 — hist_all에서 추출 (추가 yfinance 호출 없음, rate limit 안전)
+    market_lines = get_market_context(hist_all=hist_all)
     if market_lines:
         log(f"시장 지수: {len(market_lines)}개")
 
