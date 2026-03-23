@@ -26,8 +26,12 @@ try:
 except ImportError:
     HAS_PYTZ = False
 import math
+import socket
 import warnings
 warnings.filterwarnings('ignore')
+
+# yfinance 등 외부 HTTP 호출 전역 timeout (초) — GA hang 방지
+socket.setdefaulttimeout(60)
 
 # Windows에서 UTF-8 인코딩 강제 적용 (이모지 지원)
 if sys.platform == 'win32':
@@ -235,7 +239,9 @@ def fetch_dynamic_tickers(min_mcap=5_000_000_000):
 
     tickers = set()
     skipped = 0
-    for exchange in ['NASDAQ', 'NYSE', 'AMEX']:
+    for ex_idx, exchange in enumerate(['NASDAQ', 'NYSE', 'AMEX']):
+        if ex_idx > 0:
+            __import__('time').sleep(1)  # 거래소 간 rate limit 방지
         offset = 0
         total = None
         while True:
@@ -348,14 +354,20 @@ def run_ntm_collection(config):
         except Exception:
             ticker_cache = {}
 
-    # Step 2: 가격 데이터 일괄 다운로드
+    # Step 2: 가격 데이터 일괄 다운로드 (retry 1회)
     log("가격 데이터 일괄 다운로드 중...")
     hist_all = None
-    try:
-        hist_all = yf.download(all_tickers, period='1y', threads=True, progress=False)
-        log("가격 다운로드 완료")
-    except Exception as e:
-        log(f"일괄 다운로드 실패: {e}, 개별 다운로드로 전환", "WARN")
+    for _dl_attempt in range(2):
+        try:
+            hist_all = yf.download(all_tickers, period='1y', threads=True, progress=False)
+            log("가격 다운로드 완료")
+            break
+        except Exception as e:
+            if _dl_attempt == 0:
+                log(f"일괄 다운로드 실패 (10초 후 재시도): {e}", "WARN")
+                __import__('time').sleep(10)
+            else:
+                log(f"일괄 다운로드 재시도 실패: {e}, 개별 다운로드로 전환", "WARN")
 
     # Step 2.5: 동적 신규 종목 MA120 사전 필터
     # price < MA120인 동적 종목은 Top 30 진입 불가 → EPS 수집 생략
@@ -694,7 +706,7 @@ def run_ntm_collection(config):
     log(f"수집 완료: 메인 {len(results)}, 턴어라운드 {len(turnaround)}, "
         f"데이터없음 {len(no_data)}, 에러 {len(errors)}")
 
-    return results_df, turnaround_df, stats, today_str
+    return results_df, turnaround_df, stats, today_str, hist_all
 
 
 # ============================================================
@@ -2317,7 +2329,8 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 
 
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
-                        earnings_map=None, risk_status=None, score_100_map=None):
+                        earnings_map=None, risk_status=None, score_100_map=None,
+                        hist_all=None):
     """Signal 메시지용 종목 선정 (v58: w_gap 순위 Top3 + min_seg ≥ 0%, 최대 3종목)
 
     part2_rank(w_gap 기반) 상위 3종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
@@ -2408,10 +2421,20 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             selected[0]['weight'] = 100
         else:
             try:
-                import yfinance as yf
                 tickers_list = [s['ticker'] for s in selected]
-                hist = yf.download(tickers_list, period='15d', threads=True, progress=False)
-                close = hist['Close'] if len(tickers_list) > 1 else hist[['Close']].rename(columns={'Close': tickers_list[0]})
+                # hist_all(1년치)에서 최근 15일 슬라이싱 — 추가 HTTP 호출 불필요
+                if hist_all is not None and 'Close' in hist_all.columns.get_level_values(0):
+                    try:
+                        close_all = hist_all['Close']
+                        close = close_all[tickers_list].dropna(how='all').tail(15)
+                    except (KeyError, TypeError):
+                        close = None
+                else:
+                    close = None
+                if close is None or close.empty:
+                    import yfinance as yf
+                    hist = yf.download(tickers_list, period='15d', threads=True, progress=False)
+                    close = hist['Close'] if len(tickers_list) > 1 else hist[['Close']].rename(columns={'Close': tickers_list[0]})
                 inv_vols = {}
                 for tk in tickers_list:
                     col = close[tk].dropna() if tk in close.columns else None
@@ -2783,6 +2806,33 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
         log(f"AI: Gemini 초기화 실패: {e}", "WARN")
         return result
 
+    def _gemini_call(prompt, temperature=0.2, label=""):
+        """Gemini 호출 래퍼 — timeout 60초 + 1회 retry"""
+        import time as _time
+        for _attempt in range(2):
+            try:
+                old_timeout = socket.getdefaulttimeout()
+                socket.setdefaulttimeout(60)
+                try:
+                    resp = client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            tools=[grounding_tool],
+                            temperature=temperature,
+                        ),
+                    )
+                finally:
+                    socket.setdefaulttimeout(old_timeout)
+                return resp
+            except Exception as e:
+                if _attempt == 0:
+                    log(f"AI: {label} 실패 (15초 후 재시도): {e}", "WARN")
+                    _time.sleep(15)
+                else:
+                    raise
+        return None
+
     def extract_text(resp):
         try:
             if resp.text:
@@ -2841,15 +2891,8 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 - 한국어, ~입니다 체. 번역투 금지. 자연스럽게.
 - 인사말/서두/맺음말 없이 바로 시작."""
 
-        resp = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=market_prompt,
-            config=types.GenerateContentConfig(
-                tools=[grounding_tool],
-                temperature=0.2,
-            ),
-        )
-        text = extract_text(resp)
+        resp = _gemini_call(market_prompt, temperature=0.2, label="시장요약")
+        text = extract_text(resp) if resp else None
         if text:
             # 마크다운 제거
             text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
@@ -2932,15 +2975,8 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 - 한국어, ~입니다 체.
 - 서두/인사말/맺음말 금지. 첫 종목부터 바로 시작."""
 
-            resp = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=stock_prompt,
-                config=types.GenerateContentConfig(
-                    tools=[grounding_tool],
-                    temperature=0.3,
-                ),
-            )
-            text = extract_text(resp)
+            resp = _gemini_call(stock_prompt, temperature=0.3, label="종목내러티브")
+            text = extract_text(resp) if resp else None
             if text:
                 # 마크다운 볼드 제거
                 text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
@@ -3344,7 +3380,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                           weighted_ranks=None, filter_count=None,
                           status_map=None, eps_screened=None, universe_size=None,
                           exited_tickers=None, risk_status=None,
-                          score_100_map=None, alpha_signals=None):
+                          score_100_map=None, alpha_signals=None,
+                          hist_all=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -3403,11 +3440,20 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
-        import yfinance as yf
         tickers_list = [s['ticker'] for s in selected]
-        hist = yf.download(tickers_list, period='120d', threads=True, progress=False)
-        if 'Close' in hist.columns.get_level_values(0):
-            close = hist['Close'].dropna(how='all')
+        # hist_all(1년치)에서 슬라이싱 — 추가 HTTP 호출 불필요
+        close = None
+        if hist_all is not None and 'Close' in hist_all.columns.get_level_values(0):
+            try:
+                close = hist_all['Close'][tickers_list].dropna(how='all')
+            except (KeyError, TypeError):
+                pass
+        if close is None:
+            import yfinance as yf
+            hist = yf.download(tickers_list, period='120d', threads=True, progress=False)
+            if 'Close' in hist.columns.get_level_values(0):
+                close = hist['Close'].dropna(how='all')
+        if close is not None and not close.empty:
             returns = close.pct_change().tail(90)
             corr_mat = returns.corr()
             high_corr_pairs = []
@@ -4157,7 +4203,7 @@ def main():
     log("=" * 60)
     log("NTM EPS 데이터 수집 시작")
     log("=" * 60)
-    results_df, turnaround_df, stats, today_str = run_ntm_collection(config)
+    results_df, turnaround_df, stats, today_str, hist_all = run_ntm_collection(config)
 
     # 2. Part 2 rank 저장 + 3일 교집합 + 어제 대비 변동
     import pandas as pd
@@ -4242,7 +4288,7 @@ def main():
         # 디스플레이용 종목 선정 (v57b: adj_gap ≤ -4% + min_seg ≥ 1%, 최대 3종목)
         display_top5 = select_display_top5(
             results_df, status_map, weighted_ranks, earnings_map, risk_status,
-            score_100_map=score_100_map
+            score_100_map=score_100_map, hist_all=hist_all
         )
 
         # 이탈 종목 사유 분류
@@ -4280,6 +4326,7 @@ def main():
             universe_size=stats.get('universe'),
             exited_tickers=exited_tickers, risk_status=risk_status,
             score_100_map=score_100_map, alpha_signals=alpha_signals,
+            hist_all=hist_all,
         )
         if msg_signal:
             if send_to_channel:
