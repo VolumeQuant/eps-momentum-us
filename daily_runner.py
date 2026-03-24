@@ -2425,8 +2425,8 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
         t = row['ticker']
         p2r = p2r_map.get(t, 999)
 
-        # Top10까지만 탐색 — 5종목 못 채우면 그만큼만 추천
-        if p2r > 10:
+        # Top3만 진입 — 슬롯 5개는 여러 날에 걸쳐 누적
+        if p2r > 3:
             break
 
         # v58 진입 조건: min_seg ≥ 0% (소수점 1자리 반올림 기준)
