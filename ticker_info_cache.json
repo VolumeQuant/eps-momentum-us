@@ -4572,8 +4572,8 @@
     "industry": "기타"
   },
   "OMAB": {
-    "shortName": "OMAB",
-    "industry": "기타"
+    "shortName": "Grupo Aeroportuario del Centro ",
+    "industry": "Airports & Air Services"
   },
   "ONC": {
     "shortName": "ONC",
@@ -4600,8 +4600,8 @@
     "industry": "기타"
   },
   "PAAS": {
-    "shortName": "PAAS",
-    "industry": "기타"
+    "shortName": "Pan American Silver Corp.",
+    "industry": "금"
   },
   "PAC": {
     "shortName": "PAC",
@@ -4804,12 +4804,12 @@
     "industry": "반도체"
   },
   "SN": {
-    "shortName": "SN",
-    "industry": "기타"
+    "shortName": "SharkNinja, Inc.",
+    "industry": "가구가전"
   },
   "SNEX": {
-    "shortName": "SNEX",
-    "industry": "기타"
+    "shortName": "StoneX Group Inc.",
+    "industry": "자본시장"
   },
   "SNN": {
     "shortName": "SNN",
@@ -5304,8 +5304,8 @@
     "industry": "기타"
   },
   "TGS": {
-    "shortName": "TGS",
-    "industry": "기타"
+    "shortName": "Transportadora de Gas del Sur S",
+    "industry": "석유종합"
   },
   "CRK": {
     "shortName": "CRK",
@@ -5322,5 +5322,13 @@
   "RSI": {
     "shortName": "RSI",
     "industry": "기타"
+  },
+  "FUBO": {
+    "shortName": "FUBO",
+    "industry": "기타"
+  },
+  "HCC": {
+    "shortName": "Warrior Met Coal, Inc.",
+    "industry": "Coking Coal"
   }
 }
