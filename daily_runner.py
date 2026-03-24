@@ -2370,10 +2370,10 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         earnings_map=None, risk_status=None, score_100_map=None,
                         hist_all=None):
-    """Signal 메시지용 종목 선정 (v58: w_gap 순위 Top3 + min_seg ≥ 0%, 최대 3종목)
+    """Signal 메시지용 종목 선정 (v70: w_gap 순위 Top3 + min_seg ≥ 0%, 최대 5종목)
 
     part2_rank(w_gap 기반) 상위 3종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
-    이탈선: part2_rank > 15.
+    이탈선: part2_rank > 15. 최대 5슬롯.
     """
     if earnings_map is None:
         earnings_map = {}
@@ -2416,16 +2416,17 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                  for _, row in candidates.head(7).iterrows()]
     log(f"w_gap 순위 상위 7: {top_debug}")
 
-    # v58b: part2_rank 순서대로 3종목 채울 때까지 탐색 (Top7 상한)
+    # v70: part2_rank 순서대로 5종목 채울 때까지 탐색 (Top7 상한)
+    MAX_SLOTS = 5
     selected = []
     for _, row in candidates.iterrows():
-        if len(selected) >= 3:
+        if len(selected) >= MAX_SLOTS:
             break
         t = row['ticker']
         p2r = p2r_map.get(t, 999)
 
-        # Top7까지만 탐색 — 3종목 못 채우면 그만큼만 추천
-        if p2r > 7:
+        # Top10까지만 탐색 — 5종목 못 채우면 그만큼만 추천
+        if p2r > 10:
             break
 
         # v58 진입 조건: min_seg ≥ 0% (소수점 1자리 반올림 기준)
@@ -2586,7 +2587,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
     # ── 신규 진입 후보 (✅ + 리스크 필터) ──
     verified_tickers = {t for t, s in status_map.items() if s == '✅'} if status_map else set()
 
-    max_stocks = 3  # v58: 최대 3종목 (미사용 함수)
+    max_stocks = 5  # v70: 최대 5종목 (미사용 함수)
     vacancies = max(0, max_stocks - len(hold_entries))
 
     new_entries = []
@@ -3316,7 +3317,7 @@ def _get_system_performance():
                     del portfolio[tk]
 
             # 진입
-            slots = 3 - len(portfolio)
+            slots = 5 - len(portfolio)
             if slots > 0:
                 cands = [tk for tk, _ in eligible[:30]
                          if tk not in portfolio and wgap_rank.get(tk, 999) <= 3
@@ -3631,7 +3632,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 상위 3종목')
+    lines.append('매수: 상위 5종목')
     lines.append('매도: 15위 밖 or 실적하락 or -10%')
 
     return '\n'.join(lines)
@@ -3959,7 +3960,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 상위 3종목')
+    lines.append('매수: 상위 5종목')
     lines.append('매도: 15위 밖 or 실적하락 or -10%')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
