@@ -3632,7 +3632,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 상위 5종목')
+    lines.append('매수: 상위 3종목, 최대 5종목 보유')
     lines.append('매도: 15위 밖 or 실적하락 or -10%')
 
     return '\n'.join(lines)
@@ -3960,7 +3960,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 상위 5종목')
+    lines.append('매수: 상위 3종목, 최대 5종목 보유')
     lines.append('매도: 15위 밖 or 실적하락 or -10%')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
