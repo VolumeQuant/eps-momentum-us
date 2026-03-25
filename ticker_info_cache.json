@@ -4452,8 +4452,8 @@
     "industry": "기타"
   },
   "MATX": {
-    "shortName": "MATX",
-    "industry": "기타"
+    "shortName": "Matson, Inc.",
+    "industry": "해운"
   },
   "MDLN": {
     "shortName": "MDLN",
@@ -4588,7 +4588,7 @@
     "industry": "금"
   },
   "ORLA": {
-    "shortName": "ORLA",
+    "shortName": "Orla Mining Ltd.",
     "industry": "금"
   },
   "OS": {
@@ -4604,8 +4604,8 @@
     "industry": "금"
   },
   "PAC": {
-    "shortName": "PAC",
-    "industry": "기타"
+    "shortName": "Grupo Aeroportuario Del Pacific",
+    "industry": "Airports & Air Services"
   },
   "PACS": {
     "shortName": "PACS Group, Inc.",
@@ -4728,8 +4728,8 @@
     "industry": "기타"
   },
   "RTO": {
-    "shortName": "RTO",
-    "industry": "기타"
+    "shortName": "Rentokil Initial plc",
+    "industry": "비즈니스서비스"
   },
   "RUSHA": {
     "shortName": "RUSHA",
@@ -4772,8 +4772,8 @@
     "industry": "기타"
   },
   "SFD": {
-    "shortName": "SFD",
-    "industry": "기타"
+    "shortName": "Smithfield Foods, Inc.",
+    "industry": "식품"
   },
   "SHEL": {
     "shortName": "Shell PLC",
@@ -4832,7 +4832,7 @@
     "industry": "기타"
   },
   "SSRM": {
-    "shortName": "SSRM",
+    "shortName": "SSR Mining Inc.",
     "industry": "금"
   },
   "STM": {
@@ -4932,8 +4932,8 @@
     "industry": "자본시장"
   },
   "TX": {
-    "shortName": "TX",
-    "industry": "기타"
+    "shortName": "Ternium S.A. Ternium S.A.",
+    "industry": "철강"
   },
   "UEC": {
     "shortName": "UEC",
@@ -5052,8 +5052,8 @@
     "industry": "기타"
   },
   "CELC": {
-    "shortName": "CELC",
-    "industry": "기타"
+    "shortName": "Celcuity Inc.",
+    "industry": "바이오"
   },
   "CHYM": {
     "shortName": "CHYM",
@@ -5330,5 +5330,13 @@
   "HCC": {
     "shortName": "Warrior Met Coal, Inc.",
     "industry": "Coking Coal"
+  },
+  "LAUR": {
+    "shortName": "Laureate Education, Inc.",
+    "industry": "교육"
+  },
+  "SMMT": {
+    "shortName": "SMMT",
+    "industry": "기타"
   }
 }
