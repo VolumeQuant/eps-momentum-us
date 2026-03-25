@@ -3751,12 +3751,12 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         # 개별 근거 (수치 + 퍼센타일)
         if hy_data:
             hy_pct = hy_data.get('hy_percentile', 50)
-            lines.append(f'  회사채 금리차(HY) {hy_data["hy_spread"]:.2f}% (상위 {100 - hy_pct:.0f}%)')
+            lines.append(f'  회사채 금리차(HY): {hy_data["hy_spread"]:.2f}% (상위 {100 - hy_pct:.0f}%)')
 
         if vix_data:
             vix_cur = vix_data.get('vix_current', 0)
             vix_pct = vix_data.get('vix_percentile', 0)
-            lines.append(f'  변동성지수(VIX) {vix_cur:.1f} (상위 {100 - vix_pct:.0f}%)')
+            lines.append(f'  변동성지수(VIX): {vix_cur:.1f} (상위 {100 - vix_pct:.0f}%)')
 
         # 조합 과거 수익률
         lines.append(f'  → 이 구간 과거 S&P500 연평균 {combined_ret:+.1f}%')
