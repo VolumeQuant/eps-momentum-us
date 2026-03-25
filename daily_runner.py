@@ -3759,7 +3759,7 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
             lines.append(f'  변동성지수(VIX) {vix_cur:.1f} · 상위 {100 - vix_pct:.0f}%')
 
         # 조합 과거 수익률
-        lines.append(f'  → 이 구간 과거 S&P 연평균 +{combined_ret:.1f}%')
+        lines.append(f'  → 이 구간 과거 S&P500 연평균 {combined_ret:+.1f}%')
     elif not hy_data and not vix_data:
         lines.append('')
         lines.append('🏦 <b>신용·변동성</b>')
