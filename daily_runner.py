@@ -3505,12 +3505,15 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                         if c >= 0.65:
                             high_corr_pairs.append((t1, t2, c))
             if high_corr_pairs:
-                # 페어를 그룹으로 묶기 (SNDK·MU, SNDK·STX → SNDK·MU·STX)
+                # 페어를 연결 성분(connected component)으로 그룹핑 (BFS)
                 from collections import defaultdict
                 adj = defaultdict(set)
-                for t1, t2, _ in high_corr_pairs:
+                pair_corr = {}
+                for t1, t2, c in high_corr_pairs:
                     adj[t1].add(t2)
                     adj[t2].add(t1)
+                    pair_corr[(t1, t2)] = c
+                    pair_corr[(t2, t1)] = c
                 visited = set()
                 groups = []
                 for t in tickers_list:
@@ -3523,15 +3526,21 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                                 visited.add(node)
                                 group.append(node)
                                 stack.extend(adj[node] - visited)
-                        # 원래 순위 순서 유지
                         group.sort(key=lambda x: tickers_list.index(x))
                         groups.append(group)
                 if groups:
                     for g in groups:
+                        # 유사도: 2종목=정확한 값, 3종목+=그룹 내 평균
+                        corrs = [pair_corr[(g[i], g[j])]
+                                 for i in range(len(g)) for j in range(i+1, len(g))
+                                 if (g[i], g[j]) in pair_corr]
+                        pct = int(round(sum(corrs) / len(corrs) * 100)) if corrs else 0
                         if len(g) >= 3:
-                            lines.append(f'⚠️ {"·".join(g)} 주가 상관관계 높음 — 1~2개 선택 권장')
+                            lines.append(f'⚠️ {"·".join(g)} 유사도 {pct}%')
+                            lines.append(f'    택1~2 권장')
                         else:
-                            lines.append(f'ℹ️ {"·".join(g)} 주가 상관관계 높음')
+                            lines.append(f'ℹ️ {"·".join(g)} 유사도 {pct}%')
+                            lines.append(f'    택1 권장')
     except Exception as e:
         log(f"상관관계 계산 실패: {e}", level="WARN")
 
