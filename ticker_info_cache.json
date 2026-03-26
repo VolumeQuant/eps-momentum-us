@@ -5338,5 +5338,13 @@
   "SMMT": {
     "shortName": "SMMT",
     "industry": "기타"
+  },
+  "MDGL": {
+    "shortName": "Madrigal Pharmaceuticals, Inc.",
+    "industry": "바이오"
+  },
+  "NXE": {
+    "shortName": "NXE",
+    "industry": "기타"
   }
 }
