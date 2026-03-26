@@ -3536,11 +3536,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                                  if (g[i], g[j]) in pair_corr]
                         pct = int(round(sum(corrs) / len(corrs) * 100)) if corrs else 0
                         if len(g) >= 3:
-                            lines.append(f'⚠️ {"·".join(g)} 유사도 {pct}%')
-                            lines.append(f'    택1~2 권장')
+                            lines.append(f'🔗 {"·".join(g)} 유사도 {pct}%')
+                            lines.append(f'  → 택1~2 권장')
                         else:
-                            lines.append(f'ℹ️ {"·".join(g)} 유사도 {pct}%')
-                            lines.append(f'    택1 권장')
+                            lines.append(f'🔗 {"·".join(g)} 유사도 {pct}%')
+                            lines.append(f'  → 택1 권장')
     except Exception as e:
         log(f"상관관계 계산 실패: {e}", level="WARN")
 
