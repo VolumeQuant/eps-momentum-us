@@ -3484,15 +3484,12 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('')
     lines.append('📋 선정 과정')
     uni = universe_size or 959
-    if eps_screened and filter_count:
-        lines.append(f'S&P·나스닥·MidCap {uni}종목')
-        lines.append(f'→ EPS 상향 {eps_screened}종목')
-        lines.append(f'→ 매출·애널리스트·마진 필터 → {filter_count}종목')
-    else:
-        lines.append(f'S&P·나스닥·MidCap {uni}종목')
-        lines.append(f'→ EPS 상향 {filter_count}종목' if filter_count else '→ EPS 상향 스크리닝')
-    lines.append('→ 원자재·저마진 업종 제외')
-    lines.append(f'→ 실적은 좋아지는데 주가가 덜 오른 상위 {len(selected)}종목')
+    lines.append(f'미국 대형·중형주 {uni}종목')
+    if eps_screened:
+        lines.append(f'→ 애널리스트 이익 전망 상향 {eps_screened}종목')
+    if filter_count:
+        lines.append(f'→ 매출·마진·업종 품질 필터 {filter_count}종목')
+    lines.append(f'→ 3일 연속 상위 유지 {len(selected)}종목 선정')
 
     if alpha_signals is None:
         alpha_signals = {}
