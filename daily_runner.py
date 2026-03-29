@@ -1205,9 +1205,19 @@ def save_part2_ranks(results_df, today_str):
     return top30_tickers
 
 
-def _compute_w_gap_map(cursor, today_str, tickers):
-    """w_gap(3일 가중 adj_gap) 계산 — T0×0.5 + T1×0.3 + T2×0.2
+def _apply_conviction(adj_gap, rev_up, num_analysts):
+    """adj_gap에 애널리스트 합의 배율 적용 (v71)
+    배율 = 1 + rev_up / num_analysts (범위 1.0~2.0)
+    """
+    if num_analysts and num_analysts > 0 and rev_up is not None:
+        return adj_gap * (1 + rev_up / num_analysts)
+    return adj_gap
 
+
+def _compute_w_gap_map(cursor, today_str, tickers):
+    """w_gap(3일 가중 conviction adj_gap) 계산 — T0×0.5 + T1×0.3 + T2×0.2
+
+    v71: adj_gap × (1 + rev_up30/num_analysts) conviction 배율 적용
     Returns: {ticker: float(w_gap)}
     """
     dates = _get_recent_dates(cursor, 'composite_rank', today_str, 3)
@@ -1216,10 +1226,10 @@ def _compute_w_gap_map(cursor, today_str, tickers):
     gap_by_date = {}
     for d in dates:
         rows = cursor.execute(
-            'SELECT ticker, adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
+            'SELECT ticker, adj_gap, rev_up30, num_analysts FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
             (d,)
         ).fetchall()
-        gap_by_date[d] = {r[0]: r[1] for r in rows}
+        gap_by_date[d] = {r[0]: _apply_conviction(r[1], r[2], r[3]) for r in rows}
 
     weights = [0.2, 0.3, 0.5]  # T-2, T-1, T0 (오래된순)
     if len(dates) == 2:
@@ -3109,9 +3119,9 @@ def _build_top5_streak(today_str=None):
 
 
 def _build_score_100_map(today_str=None):
-    """w_gap(3일 가중 adj_gap) 맵 (v58). 음수=저평가, 양수=고평가.
+    """w_gap(3일 가중 conviction adj_gap) 맵 (v71). 음수=저평가, 양수=고평가.
 
-    v58: 3일 가중평균(w_gap) = T0×0.5 + T1×0.3 + T2×0.2
+    v71: adj_gap × (1 + rev_up30/num_analysts) conviction 배율 적용
     Returns: {ticker: float(w_gap %)}
     """
     conn = sqlite3.connect(DB_PATH)
@@ -3124,10 +3134,10 @@ def _build_score_100_map(today_str=None):
     gap_by_date = {}
     for d in dates:
         rows = cursor.execute(
-            'SELECT ticker, adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
+            'SELECT ticker, adj_gap, rev_up30, num_analysts FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
             (d,)
         ).fetchall()
-        gap_by_date[d] = {r[0]: r[1] for r in rows}
+        gap_by_date[d] = {r[0]: _apply_conviction(r[1], r[2], r[3]) for r in rows}
 
     weights = [0.2, 0.3, 0.5]
     if len(dates) == 2:
@@ -3147,8 +3157,21 @@ def _build_score_100_map(today_str=None):
             wg += gap_by_date.get(d, {}).get(tk, 0) * weights[i]
         result[tk] = wg
 
+    # 퍼센타일 기반 점수 (하드필터 통과 eligible 기준, 0~99)
+    # part2_rank가 있는 종목만으로 점수 계산 (전체 대비하면 Top 20이 다 98~100으로 뭉침)
+    eligible_tks = [r[0] for r in cursor.execute(
+        'SELECT DISTINCT ticker FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
+        (dates[-1],)
+    ).fetchall()]
+    eligible_set = set(eligible_tks)
+    scored_tks = sorted([tk for tk in result if tk in eligible_set], key=lambda t: result[t])
+    total = len(scored_tks)
+    score_map = {}
+    for rank_0, tk in enumerate(scored_tks):
+        score_map[tk] = round((1 - rank_0 / total) * 100) if total > 0 else 0
+
     conn.close()
-    return result
+    return result, score_map
 
 
 def _get_system_performance():
@@ -3192,6 +3215,7 @@ def _get_system_performance():
             return min(segs)
 
         def _w_gap(date_str):
+            """v71: adj_gap × conviction 배율 적용 후 3일 가중"""
             di = all_dates.index(date_str)
             d0 = all_dates[di]
             d1 = all_dates[di - 1] if di >= 1 else None
@@ -3200,9 +3224,9 @@ def _get_system_performance():
             for d in [d0, d1, d2]:
                 if d:
                     rows = c.execute(
-                        'SELECT ticker, adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL', (d,)
+                        'SELECT ticker, adj_gap, rev_up30, num_analysts FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL', (d,)
                     ).fetchall()
-                    gaps[d] = {r[0]: r[1] for r in rows}
+                    gaps[d] = {r[0]: _apply_conviction(r[1], r[2], r[3]) for r in rows}
             result = {}
             tks = set()
             for d in [d0, d1, d2]:
@@ -3353,7 +3377,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                           weighted_ranks=None, filter_count=None,
                           status_map=None, eps_screened=None, universe_size=None,
                           exited_tickers=None, risk_status=None,
-                          score_100_map=None, alpha_signals=None,
+                          score_100_map=None, score_display_map=None, alpha_signals=None,
                           hist_all=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
@@ -3507,14 +3531,14 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         rev = _safe_float(s.get('rev_growth'))
         earnings_tag = s.get('earnings_note', '')
 
-        # L0: 이름·업종·괴리
+        # L0: 이름·업종·점수
         display_name = _clean_company_name(s["name"], ticker)
         industry = s.get('industry', '')
         ind_str = f' · {industry}' if industry else ''
-        gap_str = ''
-        if score_100_map and ticker in score_100_map:
-            gap_str = f' · 괴리 {score_100_map[ticker]:+.1f}%'
-        lines.append(f'<b>{i+1}. {display_name}({ticker}){ind_str}{gap_str}</b>{earnings_tag}')
+        score_str = ''
+        if score_display_map and ticker in score_display_map:
+            score_str = f' · {score_display_map[ticker]}점'
+        lines.append(f'<b>{i+1}. {display_name}({ticker}){ind_str}{score_str}</b>{earnings_tag}')
 
         # L1: 증거 (EPS 전망 · 매출성장)
         growth_parts = []
@@ -3743,7 +3767,8 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
 
 
 def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers, biz_day,
-                             weighted_ranks=None, score_100_map=None, alpha_signals=None):
+                             weighted_ranks=None, score_100_map=None, score_display_map=None,
+                             alpha_signals=None):
     """v3 Message 3: Watchlist — 상세 모니터링/검증
 
     종목당 4줄: 이름·업종 / EPS추이(아이콘+설명) / EPS·매출 / 의견+순위
@@ -3850,14 +3875,14 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         elif lights:
             lines.append(f'EPS추이 {lights}')
 
-        # L2: EPS 전망 · 매출성장 · 괴리
+        # L2: EPS 전망 · 매출성장 · 점수
         growth_parts = []
         if eps_90d is not None and pd.notna(eps_90d):
             growth_parts.append(f'EPS 전망 {int(round(eps_90d)):+d}%')
         if rev_g is not None and pd.notna(rev_g):
             growth_parts.append(f'매출성장 {int(round(rev_g * 100)):+d}%')
-        if score_100_map and ticker in score_100_map:
-            growth_parts.append(f'괴리 {score_100_map[ticker]:+.1f}%')
+        if score_display_map and ticker in score_display_map:
+            growth_parts.append(f'{score_display_map[ticker]}점')
         lines.append(' · '.join(growth_parts))
 
         # L3: 의견 + 순위
@@ -4263,8 +4288,8 @@ def main():
         final_action = risk_status.get('final_action', '') if risk_status else ''
         portfolio_mode = risk_status.get('portfolio_mode', 'normal') if risk_status else 'normal'
 
-        # 괴리율 맵 (v57b: 당일 raw adj_gap)
-        score_100_map = _build_score_100_map(today_str)
+        # conviction w_gap 맵(순위용) + 퍼센타일 점수 맵(표시용)
+        score_100_map, score_display_map = _build_score_100_map(today_str)
 
         # 디스플레이용 종목 선정 (v57b: adj_gap ≤ -4% + min_seg ≥ 1%, 최대 3종목)
         display_top5 = select_display_top5(
@@ -4306,8 +4331,8 @@ def main():
             status_map=status_map, eps_screened=eps_screened,
             universe_size=stats.get('universe'),
             exited_tickers=exited_tickers, risk_status=risk_status,
-            score_100_map=score_100_map, alpha_signals=alpha_signals,
-            hist_all=hist_all,
+            score_100_map=score_100_map, score_display_map=score_display_map,
+            alpha_signals=alpha_signals, hist_all=hist_all,
         )
         if msg_signal:
             if send_to_channel:
@@ -4330,7 +4355,7 @@ def main():
         msg_watchlist = create_watchlist_message(
             results_df, status_map, exit_reasons, today_tickers, biz_day,
             weighted_ranks=weighted_ranks, score_100_map=score_100_map,
-            alpha_signals=alpha_signals
+            score_display_map=score_display_map, alpha_signals=alpha_signals
         )
         if msg_watchlist:
             if send_to_channel:
