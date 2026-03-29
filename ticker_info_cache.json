@@ -4756,8 +4756,8 @@
     "industry": "기타"
   },
   "SBS": {
-    "shortName": "SBS",
-    "industry": "기타"
+    "shortName": "Companhia de saneamento Basico ",
+    "industry": "수도"
   },
   "SBSW": {
     "shortName": "SBSW",
@@ -4768,8 +4768,8 @@
     "industry": "구리"
   },
   "SEE": {
-    "shortName": "SEE",
-    "industry": "기타"
+    "shortName": "Sealed Air Corporation",
+    "industry": "포장재"
   },
   "SFD": {
     "shortName": "Smithfield Foods, Inc.",
@@ -4880,8 +4880,8 @@
     "industry": "귀금속"
   },
   "TIGO": {
-    "shortName": "TIGO",
-    "industry": "기타"
+    "shortName": "Millicom International Cellular",
+    "industry": "통신"
   },
   "TIMB": {
     "shortName": "TIM S.A.",
@@ -5012,7 +5012,7 @@
     "industry": "기타"
   },
   "WPM": {
-    "shortName": "WPM",
+    "shortName": "Wheaton Precious Metals Corp",
     "industry": "금"
   },
   "WULF": {
@@ -5345,6 +5345,18 @@
   },
   "NXE": {
     "shortName": "NXE",
+    "industry": "기타"
+  },
+  "ADV": {
+    "shortName": "ADV",
+    "industry": "기타"
+  },
+  "MEOH": {
+    "shortName": "MEOH",
+    "industry": "기타"
+  },
+  "VFS": {
+    "shortName": "VFS",
     "industry": "기타"
   }
 }
