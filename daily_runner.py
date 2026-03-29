@@ -2454,59 +2454,13 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             entry = _build_portfolio_entry(row, status_map, earnings_map)
             selected.append(entry)
 
-    # 역변동성(5일) 비중 — 변동성 큰 종목에 적게, 작은 종목에 많이
+    # 균등비중 (v71: 역변동성→균등 전환, 28일 검증 균등 +19.7% > 역변동성 +10.9%)
     n = len(selected)
     if n > 0:
-        if n == 1:
-            selected[0]['weight'] = 100
-        else:
-            try:
-                tickers_list = [s['ticker'] for s in selected]
-                # hist_all(1년치)에서 최근 15일 슬라이싱 — 추가 HTTP 호출 불필요
-                if hist_all is not None and 'Close' in hist_all.columns.get_level_values(0):
-                    try:
-                        close_all = hist_all['Close']
-                        close = close_all[tickers_list].dropna(how='all').tail(15)
-                    except (KeyError, TypeError):
-                        close = None
-                else:
-                    close = None
-                if close is None or close.empty:
-                    import yfinance as yf
-                    hist = yf.download(tickers_list, period='15d', threads=True, progress=False)
-                    close = hist['Close'] if len(tickers_list) > 1 else hist[['Close']].rename(columns={'Close': tickers_list[0]})
-                inv_vols = {}
-                for tk in tickers_list:
-                    col = close[tk].dropna() if tk in close.columns else None
-                    if col is not None and len(col) >= 4:
-                        rets = col.pct_change().dropna().tail(5)
-                        vol = float(rets.std()) if len(rets) >= 2 else None
-                        if vol and vol > 0:
-                            inv_vols[tk] = 1.0 / vol
-                if inv_vols and len(inv_vols) == n:
-                    total = sum(inv_vols.values())
-                    raw_weights = {tk: inv_vols[tk] / total * 100 for tk in tickers_list}
-                    # 정수 반올림 (합계 100% 보정)
-                    int_weights = {tk: int(round(w)) for tk, w in raw_weights.items()}
-                    diff = 100 - sum(int_weights.values())
-                    if diff != 0:
-                        # 잔여분은 비중 가장 큰 종목에 배분
-                        max_tk = max(int_weights, key=int_weights.get)
-                        int_weights[max_tk] += diff
-                    for s in selected:
-                        s['weight'] = int_weights[s['ticker']]
-                    log(f"역변동성 비중: " + ", ".join(f"{tk}(vol={1/inv_vols[tk]:.3f},w={int_weights[tk]}%)" for tk in tickers_list))
-                else:
-                    raise ValueError(f"vol 계산 불가: {len(inv_vols)}/{n}")
-            except Exception as e:
-                log(f"역변동성 계산 실패, 동일비중 fallback: {e}", level="WARN")
-                base = 100 // n
-                remainder = 100 - base * n
-                weights = [base] * n
-                for i in range(remainder):
-                    weights[i] += 1
-                for i, s in enumerate(selected):
-                    s['weight'] = weights[i]
+        base = 100 // n
+        remainder = 100 - base * n
+        for i, s in enumerate(selected):
+            s['weight'] = base + (1 if i < remainder else 0)
 
     log(f"디스플레이 {n}종목: " + ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
@@ -3327,32 +3281,11 @@ def _get_system_performance():
                     if cp:
                         portfolio[tk] = {'entry_price': cp}
 
-            # 역변동성 가중 수익률
+            # 균등비중 수익률 (v71: 역변동성→균등 전환)
             day_ret = 0
             if portfolio:
-                vols = {}
+                w = 1.0 / len(portfolio)
                 for tk in portfolio:
-                    pp = []
-                    for j in range(max(0, i - 5), i + 1):
-                        p = all_prices.get(all_dates[j], {}).get(tk)
-                        if p:
-                            pp.append(p)
-                    if len(pp) >= 3:
-                        rets = [(pp[k] - pp[k-1]) / pp[k-1] for k in range(1, len(pp))]
-                        if len(rets) >= 2:
-                            mean = sum(rets) / len(rets)
-                            var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
-                            vols[tk] = max(math.sqrt(var) if var > 0 else 0.01, 0.001)
-                        else:
-                            vols[tk] = 0.01
-                    else:
-                        vols[tk] = 0.01
-
-                inv = {tk: 1.0 / v for tk, v in vols.items()}
-                total = sum(inv.values())
-                weights = {tk: iv / total for tk, iv in inv.items()}
-
-                for tk, w in weights.items():
                     cur = prices.get(tk)
                     prev = prev_prices.get(tk)
                     if cur and prev and prev > 0:
@@ -3476,7 +3409,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     for idx, s in enumerate(selected):
         name = _clean_company_name(s['name'], s['ticker'])
         w = s.get('weight', 0)
-        lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b> · 비중 {w}%')
+        lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
@@ -3544,7 +3477,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     except Exception as e:
         log(f"상관관계 계산 실패: {e}", level="WARN")
 
-    lines.append('💡 변동성 낮은 종목에 더 많이 배분')
+    # v71: 역변동성 비중 문구 삭제 (균등비중 전환)
 
     # ━━ 섹션 2: 선정 과정 ━━
     verified_count = sum(1 for v in (status_map or {}).values() if v == '✅')
