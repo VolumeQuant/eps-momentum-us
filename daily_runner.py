@@ -1205,13 +1205,22 @@ def save_part2_ranks(results_df, today_str):
     return top30_tickers
 
 
-def _apply_conviction(adj_gap, rev_up, num_analysts):
+def _apply_conviction(adj_gap, rev_up, num_analysts, ntm_current=None, ntm_90d=None):
     """adj_gap에 애널리스트 합의 배율 적용 (v71)
-    배율 = 1 + rev_up / num_analysts (범위 1.0~2.0)
+
+    conviction = max(rev_up30/num_analysts, eps_floor)
+    - rev_up30/num_analysts: 최근 30일 상향 비율 (0.0~1.0)
+    - eps_floor: min(|EPS변화율|/100, 1.0) — 30일 창 밖 대규모 상향 보완
+    배율 = 1 + conviction (범위 1.0~2.0)
     """
+    ratio = 0
     if num_analysts and num_analysts > 0 and rev_up is not None:
-        return adj_gap * (1 + rev_up / num_analysts)
-    return adj_gap
+        ratio = rev_up / num_analysts
+    eps_floor = 0
+    if ntm_current is not None and ntm_90d is not None and ntm_90d and abs(ntm_90d) > 0.01:
+        eps_floor = min(abs((ntm_current - ntm_90d) / ntm_90d), 1.0)
+    conviction = max(ratio, eps_floor)
+    return adj_gap * (1 + conviction)
 
 
 def _compute_w_gap_map(cursor, today_str, tickers):
@@ -1226,10 +1235,11 @@ def _compute_w_gap_map(cursor, today_str, tickers):
     gap_by_date = {}
     for d in dates:
         rows = cursor.execute(
-            'SELECT ticker, adj_gap, rev_up30, num_analysts FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
+            'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
+            'FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
             (d,)
         ).fetchall()
-        gap_by_date[d] = {r[0]: _apply_conviction(r[1], r[2], r[3]) for r in rows}
+        gap_by_date[d] = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
 
     weights = [0.2, 0.3, 0.5]  # T-2, T-1, T0 (오래된순)
     if len(dates) == 2:
@@ -3134,10 +3144,11 @@ def _build_score_100_map(today_str=None):
     gap_by_date = {}
     for d in dates:
         rows = cursor.execute(
-            'SELECT ticker, adj_gap, rev_up30, num_analysts FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
+            'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
+            'FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
             (d,)
         ).fetchall()
-        gap_by_date[d] = {r[0]: _apply_conviction(r[1], r[2], r[3]) for r in rows}
+        gap_by_date[d] = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
 
     weights = [0.2, 0.3, 0.5]
     if len(dates) == 2:
@@ -3224,9 +3235,10 @@ def _get_system_performance():
             for d in [d0, d1, d2]:
                 if d:
                     rows = c.execute(
-                        'SELECT ticker, adj_gap, rev_up30, num_analysts FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL', (d,)
+                        'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
+                        'FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL', (d,)
                     ).fetchall()
-                    gaps[d] = {r[0]: _apply_conviction(r[1], r[2], r[3]) for r in rows}
+                    gaps[d] = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
             result = {}
             tks = set()
             for d in [d0, d1, d2]:
