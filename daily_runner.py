@@ -3168,18 +3168,23 @@ def _build_score_100_map(today_str=None):
             wg += gap_by_date.get(d, {}).get(tk, 0) * weights[i]
         result[tk] = wg
 
-    # 퍼센타일 기반 점수 (하드필터 통과 eligible 기준, 0~99)
-    # part2_rank가 있는 종목만으로 점수 계산 (전체 대비하면 Top 20이 다 98~100으로 뭉침)
+    # z-score 기반 점수 (평균=65, 1std=15, 범위 30~100)
+    # conviction w_gap의 크기 차이가 점수에 반영됨 (MU -144.9 vs SNDK -50.3 → 100 vs 77)
+    import numpy as np
     eligible_tks = [r[0] for r in cursor.execute(
         'SELECT DISTINCT ticker FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
         (dates[-1],)
     ).fetchall()]
-    eligible_set = set(eligible_tks)
-    scored_tks = sorted([tk for tk in result if tk in eligible_set], key=lambda t: result[t])
-    total = len(scored_tks)
+    eligible_vals = [result[tk] for tk in eligible_tks if tk in result]
     score_map = {}
-    for rank_0, tk in enumerate(scored_tks):
-        score_map[tk] = round((1 - rank_0 / total) * 100) if total > 0 else 0
+    if len(eligible_vals) >= 2:
+        mean_v = np.mean(eligible_vals)
+        std_v = np.std(eligible_vals)
+        if std_v > 0:
+            for tk in eligible_tks:
+                if tk in result:
+                    z = (result[tk] - mean_v) / std_v  # 음수 클수록 z 음수
+                    score_map[tk] = int(round(min(100, max(30, 65 + (-z) * 15))))
 
     conn.close()
     return result, score_map
