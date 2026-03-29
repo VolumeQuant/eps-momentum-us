@@ -80,7 +80,7 @@
 > **v58c**: 2026-03-17 집 PC — Signal/이탈 일관성 버그 4건 수정: (1) select_display_top5() 유니버스 불일치(adj_gap top30→eligible 전체+w_gap 정렬, save_part2_ranks와 동일 파이프라인) (2) min_seg<-2% 이탈 사유 '필터탈락'→'추세둔화' 라벨 (3) 이탈 감지 Top30→Top20 비교(Watchlist 기준 통일) (4) 이탈 라벨 '괴리↑'→'주가선반영'(의미 명확화). Watchlist 추세둔화 섹션 죽은코드 제거
 > **v68**: 2026-03-20 — 톤 통일: 전체 메시지 ~해요/~예요 체 → ~입니다 체 (Gemini 프롬프트 포함 12곳)
 > **v70**: 2026-03-24 — 슬롯 3→5 확장 + API 안정성 강화. 진입 Top3 유지, 최대 5종목 보유(shrinkage 논리). socket timeout 60초, yf.download retry, hist_all 재사용(시장지수+역변동성+상관관계), NASDAQ API sleep, Gemini timeout+retry. 종목명 캐시 자동 보정. 스케줄: UTC 21:15 = KST 06:15
-> **v71**: 2026-03-26 — HY×VIX RETURN_MATRIX 교정(6,593거래일 검증). 역변동성→균등비중 전환(균등 +19.7% > 역변동성 +10.9%). 상관관계 🔗 유사도% + BFS 그룹핑. S&P500 명시, HY/VIX 괄호+콜론. portfolio_mode `normal` 확정
+> **v71**: 2026-03-30 — HY×VIX RETURN_MATRIX 교정(6,593거래일 검증). 역변동성→균등비중 전환(균등 +19.7% > 역변동성 +10.9%). 상관관계 🔗 유사도% + BFS 그룹핑. S&P500 명시, HY/VIX 괄호+콜론. portfolio_mode `normal` 확정. 선정과정 고객친화 개선(한국 스타일 통일: 미국 대형·중형주→상향→필터→Top20 모니터링→3일 연속 선정). Signal 비중 표시/문구 삭제
 
 ---
 
