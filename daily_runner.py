@@ -3489,6 +3489,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'→ 애널리스트 이익 전망 상향 {eps_screened}종목')
     if filter_count:
         lines.append(f'→ 매출·마진·업종 품질 필터 {filter_count}종목')
+    lines.append(f'→ 저평가 상위 20종목 매일 모니터링')
     lines.append(f'→ 3일 연속 상위 유지 {len(selected)}종목 선정')
 
     if alpha_signals is None:
