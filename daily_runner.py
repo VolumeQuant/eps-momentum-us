@@ -1250,7 +1250,7 @@ def _compute_w_gap_map(cursor, today_str, tickers):
     for d in dates:
         rows = cursor.execute(
             'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
-            'FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
+            'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
             (d,)
         ).fetchall()
         conv_gaps = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
@@ -3190,7 +3190,7 @@ def _build_score_100_map(today_str=None):
     for d in dates:
         rows = cursor.execute(
             'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
-            'FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
+            'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
             (d,)
         ).fetchall()
         conv_gaps = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
@@ -3286,7 +3286,7 @@ def _get_system_performance():
                 if d:
                     rows = c.execute(
                         'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
-                        'FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL', (d,)
+                        'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL', (d,)
                     ).fetchall()
                     conv = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
                     vals = list(conv.values())
