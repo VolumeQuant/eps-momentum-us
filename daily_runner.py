@@ -1168,8 +1168,18 @@ def save_part2_ranks(results_df, today_str):
         return min(segs) if segs else 0
     all_candidates = all_candidates[all_candidates.apply(_calc_min_seg, axis=1) >= -2].copy()
 
-    # 1. 오늘의 composite 순위 (1~N, 당일 adj_gap 오름차순)
+    # 1. 오늘의 composite 순위 (1~N, 당일 conviction adj_gap 오름차순, v71)
     all_candidates = all_candidates.reset_index(drop=True)
+    # conviction 적용: adj_gap × (1 + max(rev_up/N, eps_floor))
+    def _conv_gap(row):
+        ag = float(row.get('adj_gap') or 0)
+        up = float(row.get('rev_up30') or 0)
+        na = float(row.get('num_analysts') or 0)
+        nc = float(row.get('ntm_current') or 0)
+        n90 = float(row.get('ntm_90d') or 0)
+        return _apply_conviction(ag, up, na, nc, n90)
+    all_candidates['_conv_gap'] = all_candidates.apply(_conv_gap, axis=1)
+    all_candidates = all_candidates.sort_values('_conv_gap', ascending=True).reset_index(drop=True)
     composite_ranks = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_candidates.iterrows())}
 
     conn = sqlite3.connect(DB_PATH)
@@ -1368,15 +1378,14 @@ def get_rank_history(today_tickers, today_str=None):
 
 
 def compute_weighted_ranks(today_tickers, today_str=None):
-    """3일 순위 궤적 — composite_rank 기반 (Watchlist 표시용)
+    """3일 순위 궤적 — part2_rank(conviction w_gap) 기반 (v71)
     T0 × 0.5 + T1 × 0.3 + T2 × 0.2
-    v58: 매매 판단은 part2_rank(w_gap 기반), 이 함수는 composite_rank 궤적 표시 전용
     Returns: {ticker: {'weighted': float, 'r0': int, 'r1': int, 'r2': int}}
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    dates = sorted(_get_recent_dates(cursor, 'composite_rank', today_str, 3))
+    dates = sorted(_get_recent_dates(cursor, 'part2_rank', today_str, 3))
 
     if not dates:
         conn.close()
@@ -1387,7 +1396,7 @@ def compute_weighted_ranks(today_tickers, today_str=None):
     rank_by_date = {}
     for d in dates:
         cursor.execute(
-            'SELECT ticker, composite_rank FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
+            'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
             (d,)
         )
         rank_by_date[d] = {r[0]: r[1] for r in cursor.fetchall()}
@@ -2654,9 +2663,10 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
 def classify_exit_reasons(exited_tickers, results_df):
     """이탈 종목 사유 분류 — 필터탈락(구체 사유) vs 순위밀림
 
-    Returns: [(ticker, cur_composite_rank or None, reason)]
-    - composite_rank 있으면 → '순위밀림'
-    - composite_rank 없으면 → '필터탈락: 구체사유'
+    Returns: [(ticker, cur_rank or None, reason)]
+    - part2_rank 있으면 → '순위밀림' (conviction w_gap 기준)
+    - part2_rank 없지만 composite_rank 있으면 → Top30 밖 밀림
+    - 둘 다 없으면 → '필터탈락: 구체사유'
     """
     import pandas as pd
     import numpy as np
@@ -2664,15 +2674,19 @@ def classify_exit_reasons(exited_tickers, results_df):
     if not exited_tickers or results_df is None or results_df.empty:
         return result
 
-    # 오늘 composite_rank (DB에서 조회 — save_part2_ranks가 DB에만 저장)
+    # 오늘 순위 (conviction 기반 part2_rank + eligible 체크용 composite_rank)
     composite_map = {}
+    part2_map = {}
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
-        'SELECT ticker, composite_rank FROM ntm_screening WHERE date=(SELECT MAX(date) FROM ntm_screening WHERE composite_rank IS NOT NULL) AND composite_rank IS NOT NULL'
+        'SELECT ticker, composite_rank, part2_rank FROM ntm_screening WHERE date=(SELECT MAX(date) FROM ntm_screening WHERE composite_rank IS NOT NULL)'
     )
-    for t, cr in cursor.fetchall():
-        composite_map[t] = int(cr)
+    for t, cr, pr in cursor.fetchall():
+        if cr is not None:
+            composite_map[t] = int(cr)
+        if pr is not None:
+            part2_map[t] = int(pr)
     conn.close()
 
     # adj_gap 맵 (괴리율 참조)
@@ -2693,7 +2707,8 @@ def classify_exit_reasons(exited_tickers, results_df):
             full_data[t] = row
 
     for t in sorted(exited_tickers, key=lambda x: exited_tickers[x]):
-        cur_rank = composite_map.get(t)
+        cur_rank = part2_map.get(t)  # conviction 기반 순위
+        is_eligible = t in composite_map  # 하드필터 통과 여부
         ag = adj_gap_map.get(t)
         # min_seg < -2% 체크 (save_part2_ranks에서 순위 부여 전 제거된 종목)
         row_data = full_data.get(t)
@@ -2705,7 +2720,7 @@ def classify_exit_reasons(exited_tickers, results_df):
                 continue
         if ag is not None and ag > 5.0:
             reason = '주가선반영'
-        elif cur_rank is not None:
+        elif is_eligible:
             reason = '순위밀림'
         else:
             # 어떤 필터에 걸렸는지 특정
