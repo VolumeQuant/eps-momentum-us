@@ -2458,6 +2458,12 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
         if p2r > 3:
             break
 
+        # v71: 3일 검증(✅) 필수 — 🆕/⏳ 종목은 Signal에서 제외
+        status = status_map.get(t, '🆕')
+        if status != '✅':
+            log(f"  ⏳ 디스플레이 제외 {t}: 검증 미완료 ({status})")
+            continue
+
         # v58 진입 조건: min_seg ≥ 0% (소수점 1자리 반올림 기준)
         segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
         min_seg = min(segs) if segs else 0
