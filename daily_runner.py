@@ -1261,7 +1261,7 @@ def _compute_w_gap_map(cursor, today_str, tickers):
             std_v = np.std(vals)
             if std_v > 0:
                 score_by_date[d] = {
-                    tk: int(round(min(100, max(30, 65 + (-(v - mean_v) / std_v) * 15))))
+                    tk: min(100.0, max(30.0, 65 + (-(v - mean_v) / std_v) * 15))
                     for tk, v in conv_gaps.items()
                 }
             else:
@@ -3200,7 +3200,7 @@ def _build_score_100_map(today_str=None):
             std_v = np.std(vals)
             if std_v > 0:
                 score_by_date[d] = {
-                    tk: int(round(min(100, max(30, 65 + (-(v - mean_v) / std_v) * 15))))
+                    tk: min(100.0, max(30.0, 65 + (-(v - mean_v) / std_v) * 15))
                     for tk, v in conv_gaps.items()
                 }
             else:
@@ -3226,8 +3226,8 @@ def _build_score_100_map(today_str=None):
             ws += score_by_date.get(d, {}).get(tk, MISSING_PENALTY) * weights[i]
         w_score_map[tk] = ws
 
-    # 표시용도 3일 가중 점수 사용 (당일 점수와 순위 불일치 방지)
-    score_display_map = {tk: round(ws) for tk, ws in w_score_map.items()}
+    # 표시용도 3일 가중 점수 사용 (당일 점수와 순위 불일치 방지, 소수점 1자리)
+    score_display_map = {tk: round(ws, 1) for tk, ws in w_score_map.items()}
 
     conn.close()
     return w_score_map, score_display_map
@@ -3293,7 +3293,7 @@ def _get_system_performance():
                     if len(vals) >= 2:
                         mv, sv = sum(vals)/len(vals), (sum((v-sum(vals)/len(vals))**2 for v in vals)/len(vals))**0.5
                         if sv > 0:
-                            score_by_d[d] = {tk: min(100, max(30, round(65 + (-(v - mv) / sv) * 15))) for tk, v in conv.items()}
+                            score_by_d[d] = {tk: min(100.0, max(30.0, 65 + (-(v - mv) / sv) * 15)) for tk, v in conv.items()}
                         else:
                             score_by_d[d] = {tk: 65 for tk in conv}
                     else:
