@@ -1196,7 +1196,7 @@ def save_part2_ranks(results_df, today_str):
     # 2. w_gap(3일 가중 adj_gap) 기준 Top 30 → part2_rank (v58)
     eligible_tickers = list(composite_ranks.keys())
     wgap_map = _compute_w_gap_map(cursor, today_str, eligible_tickers)
-    sorted_by_wgap = sorted(eligible_tickers, key=lambda tk: wgap_map.get(tk, 0))
+    sorted_by_wgap = sorted(eligible_tickers, key=lambda tk: wgap_map.get(tk, 0), reverse=True)
     top30 = sorted_by_wgap[:30]
 
     # part2_rank 저장 (Top 30만)
@@ -1242,14 +1242,32 @@ def _compute_w_gap_map(cursor, today_str, tickers):
     dates = _get_recent_dates(cursor, 'composite_rank', today_str, 3)
     dates = sorted(dates)  # 오래된 순
 
-    gap_by_date = {}
+    # 일별 conviction adj_gap → z-score(30~100) 변환 후 3일 가중 (v71)
+    import numpy as np
+    MISSING_PENALTY = 30  # 빈 날 = eligible 최하위 (기존 PENALTY=50 등가)
+
+    score_by_date = {}
     for d in dates:
         rows = cursor.execute(
             'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
             'FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
             (d,)
         ).fetchall()
-        gap_by_date[d] = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
+        conv_gaps = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
+        # z-score → 30~100 변환 (eligible 내 상대 위치)
+        vals = list(conv_gaps.values())
+        if len(vals) >= 2:
+            mean_v = np.mean(vals)
+            std_v = np.std(vals)
+            if std_v > 0:
+                score_by_date[d] = {
+                    tk: int(round(min(100, max(30, 65 + (-(v - mean_v) / std_v) * 15))))
+                    for tk, v in conv_gaps.items()
+                }
+            else:
+                score_by_date[d] = {tk: 65 for tk in conv_gaps}
+        else:
+            score_by_date[d] = {tk: 65 for tk in conv_gaps}
 
     weights = [0.2, 0.3, 0.5]  # T-2, T-1, T0 (오래된순)
     if len(dates) == 2:
@@ -1261,7 +1279,7 @@ def _compute_w_gap_map(cursor, today_str, tickers):
     for tk in tickers:
         wg = 0
         for i, d in enumerate(dates):
-            wg += gap_by_date.get(d, {}).get(tk, 0) * weights[i]
+            wg += score_by_date.get(d, {}).get(tk, MISSING_PENALTY) * weights[i]
         result[tk] = wg
     return result
 
@@ -2433,7 +2451,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     candidates = all_eligible.copy()
     if score_100_map:
         candidates['_wgap'] = candidates['ticker'].map(lambda t: score_100_map.get(t, 0))
-        candidates = candidates.sort_values('_wgap', ascending=True).reset_index(drop=True)
+        candidates = candidates.sort_values('_wgap', ascending=False).reset_index(drop=True)
     else:
         candidates = candidates.sort_values('adj_gap', ascending=True).reset_index(drop=True)
 
@@ -3150,26 +3168,45 @@ def _build_top5_streak(today_str=None):
 
 
 def _build_score_100_map(today_str=None):
-    """w_gap(3일 가중 conviction adj_gap) 맵 (v71). 음수=저평가, 양수=고평가.
+    """3일 가중 점수 맵 (v71). 일별 z-score(30~100) → 3일 가중평균.
 
-    v71: adj_gap × (1 + rev_up30/num_analysts) conviction 배율 적용
-    Returns: {ticker: float(w_gap %)}
+    v71: conviction adj_gap → 일별 z-score 변환 → 가중평균
+    빈 날 = 30점 (eligible 최하위, PENALTY 등가)
+    Returns: (w_score_map, score_display_map)
+      - w_score_map: 3일 가중 점수 (높을수록 좋음, 순위/정렬용)
+      - score_display_map: 당일 z-score (표시용)
     """
+    import numpy as np
+    MISSING_PENALTY = 30
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     dates = sorted(_get_recent_dates(cursor, 'composite_rank', today_str, 3))
     if not dates:
         conn.close()
-        return {}
+        return {}, {}
 
-    gap_by_date = {}
+    score_by_date = {}
     for d in dates:
         rows = cursor.execute(
             'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
             'FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL',
             (d,)
         ).fetchall()
-        gap_by_date[d] = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
+        conv_gaps = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
+        vals = list(conv_gaps.values())
+        if len(vals) >= 2:
+            mean_v = np.mean(vals)
+            std_v = np.std(vals)
+            if std_v > 0:
+                score_by_date[d] = {
+                    tk: int(round(min(100, max(30, 65 + (-(v - mean_v) / std_v) * 15))))
+                    for tk, v in conv_gaps.items()
+                }
+            else:
+                score_by_date[d] = {tk: 65 for tk in conv_gaps}
+        else:
+            score_by_date[d] = {tk: 65 for tk in conv_gaps}
 
     weights = [0.2, 0.3, 0.5]
     if len(dates) == 2:
@@ -3179,35 +3216,21 @@ def _build_score_100_map(today_str=None):
 
     all_tickers = set()
     for d in dates:
-        all_tickers.update(gap_by_date.get(d, {}).keys())
+        all_tickers.update(score_by_date.get(d, {}).keys())
 
-    result = {}
+    # 3일 가중 점수 (순위/정렬용)
+    w_score_map = {}
     for tk in all_tickers:
-        wg = 0
+        ws = 0
         for i, d in enumerate(dates):
-            wg += gap_by_date.get(d, {}).get(tk, 0) * weights[i]
-        result[tk] = wg
+            ws += score_by_date.get(d, {}).get(tk, MISSING_PENALTY) * weights[i]
+        w_score_map[tk] = ws
 
-    # z-score 기반 점수 (평균=65, 1std=15, 범위 30~100)
-    # conviction w_gap의 크기 차이가 점수에 반영됨 (MU -144.9 vs SNDK -50.3 → 100 vs 77)
-    import numpy as np
-    eligible_tks = [r[0] for r in cursor.execute(
-        'SELECT DISTINCT ticker FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
-        (dates[-1],)
-    ).fetchall()]
-    eligible_vals = [result[tk] for tk in eligible_tks if tk in result]
-    score_map = {}
-    if len(eligible_vals) >= 2:
-        mean_v = np.mean(eligible_vals)
-        std_v = np.std(eligible_vals)
-        if std_v > 0:
-            for tk in eligible_tks:
-                if tk in result:
-                    z = (result[tk] - mean_v) / std_v  # 음수 클수록 z 음수
-                    score_map[tk] = int(round(min(100, max(30, 65 + (-z) * 15))))
+    # 당일 z-score (표시용)
+    score_display_map = score_by_date.get(dates[-1], {})
 
     conn.close()
-    return result, score_map
+    return w_score_map, score_display_map
 
 
 def _get_system_performance():
@@ -3251,31 +3274,42 @@ def _get_system_performance():
             return min(segs)
 
         def _w_gap(date_str):
-            """v71: adj_gap × conviction 배율 적용 후 3일 가중"""
+            """v71: 일별 z-score(30~100) → 3일 가중평균, 빈 날=30점"""
+            MISSING_PENALTY = 30
             di = all_dates.index(date_str)
             d0 = all_dates[di]
             d1 = all_dates[di - 1] if di >= 1 else None
             d2 = all_dates[di - 2] if di >= 2 else None
-            gaps = {}
+            # 일별 conviction adj_gap → z-score 변환
+            score_by_d = {}
             for d in [d0, d1, d2]:
                 if d:
                     rows = c.execute(
                         'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
                         'FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL', (d,)
                     ).fetchall()
-                    gaps[d] = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
+                    conv = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
+                    vals = list(conv.values())
+                    if len(vals) >= 2:
+                        mv, sv = sum(vals)/len(vals), (sum((v-sum(vals)/len(vals))**2 for v in vals)/len(vals))**0.5
+                        if sv > 0:
+                            score_by_d[d] = {tk: min(100, max(30, round(65 + (-(v - mv) / sv) * 15))) for tk, v in conv.items()}
+                        else:
+                            score_by_d[d] = {tk: 65 for tk in conv}
+                    else:
+                        score_by_d[d] = {tk: 65 for tk in conv}
             result = {}
             tks = set()
             for d in [d0, d1, d2]:
-                if d and d in gaps:
-                    tks.update(gaps[d].keys())
+                if d and d in score_by_d:
+                    tks.update(score_by_d[d].keys())
             wts = [0.5, 0.3, 0.2]
             for tk in tks:
-                wg = gaps.get(d0, {}).get(tk, 0) * wts[0]
+                wg = score_by_d.get(d0, {}).get(tk, MISSING_PENALTY) * wts[0]
                 if d1:
-                    wg += gaps.get(d1, {}).get(tk, 0) * wts[1]
+                    wg += score_by_d.get(d1, {}).get(tk, MISSING_PENALTY) * wts[1]
                 if d2:
-                    wg += gaps.get(d2, {}).get(tk, 0) * wts[2]
+                    wg += score_by_d.get(d2, {}).get(tk, MISSING_PENALTY) * wts[2]
                 result[tk] = wg
             return result
 
@@ -3312,7 +3346,7 @@ def _get_system_performance():
                 ticker_ms[tk] = _min_seg(info['nc'], info['n7'], info['n30'], info['n60'], info['n90'])
 
             eligible = [(tk, w_gap.get(tk, 0)) for tk in data if ticker_ms.get(tk, 0) >= -2]
-            eligible.sort(key=lambda x: x[1])
+            eligible.sort(key=lambda x: x[1], reverse=True)  # 점수 높을수록 상위
             wgap_rank = {tk: r + 1 for r, (tk, _) in enumerate(eligible)}
 
             # 이탈
@@ -3834,7 +3868,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         filtered['_adj_gap'] = filtered['ticker'].map(
             lambda t: score_100_map.get(t, 0)
         )
-        filtered = filtered.sort_values('_adj_gap', ascending=True).reset_index(drop=True)
+        filtered = filtered.sort_values('_adj_gap', ascending=False).reset_index(drop=True)
     elif weighted_ranks:
         filtered = filtered.copy()
         filtered['_weighted'] = filtered['ticker'].map(
