@@ -1396,14 +1396,16 @@ def get_rank_history(today_tickers, today_str=None):
 
 
 def compute_weighted_ranks(today_tickers, today_str=None):
-    """3일 순위 궤적 — part2_rank(conviction w_gap) 기반 (v71)
+    """3일 순위 궤적 — composite_rank(당일 conviction 순위) 기반
     T0 × 0.5 + T1 × 0.3 + T2 × 0.2
+    composite_rank = 각 날짜의 당일 conviction adj_gap 순위 (raw)
+    Watchlist 표시 순서는 part2_rank(3일 가중), 여기는 추이 표시용
     Returns: {ticker: {'weighted': float, 'r0': int, 'r1': int, 'r2': int}}
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    dates = sorted(_get_recent_dates(cursor, 'part2_rank', today_str, 3))
+    dates = sorted(_get_recent_dates(cursor, 'composite_rank', today_str, 3))
 
     if not dates:
         conn.close()
@@ -1414,7 +1416,7 @@ def compute_weighted_ranks(today_tickers, today_str=None):
     rank_by_date = {}
     for d in dates:
         cursor.execute(
-            'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
+            'SELECT ticker, composite_rank FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
             (d,)
         )
         rank_by_date[d] = {r[0]: r[1] for r in cursor.fetchall()}
