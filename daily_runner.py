@@ -3862,13 +3862,13 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     else:
         filtered = get_part2_candidates(results_df, top_n=30)
 
-    # w_gap 오름차순 정렬 (v58: 음수가 저평가 = 좋음)
-    if score_100_map:
+    # DB part2_rank 기준 정렬 (save_part2_ranks와 동일 순서 보장)
+    if today_tickers:
+        # today_tickers는 save_part2_ranks가 part2_rank 순으로 반환한 리스트
+        ticker_order = {tk: i for i, tk in enumerate(today_tickers)}
         filtered = filtered.copy()
-        filtered['_adj_gap'] = filtered['ticker'].map(
-            lambda t: score_100_map.get(t, 0)
-        )
-        filtered = filtered.sort_values('_adj_gap', ascending=False).reset_index(drop=True)
+        filtered['_rank_order'] = filtered['ticker'].map(lambda t: ticker_order.get(t, 999))
+        filtered = filtered.sort_values('_rank_order').reset_index(drop=True)
     elif weighted_ranks:
         filtered = filtered.copy()
         filtered['_weighted'] = filtered['ticker'].map(
