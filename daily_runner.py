@@ -1259,10 +1259,6 @@ def _compute_w_gap_map(cursor, today_str, tickers):
 
     result = {}
     for tk in tickers:
-        # v71: 3일 모두 데이터 있는 종목만 w_gap 계산 (없는 날 0 처리는 신규 종목 과대평가 유발)
-        present_days = sum(1 for d in dates if tk in gap_by_date.get(d, {}))
-        if present_days < len(dates):
-            continue  # 3일 미만 데이터 → 순위 부여 안 함
         wg = 0
         for i, d in enumerate(dates):
             wg += gap_by_date.get(d, {}).get(tk, 0) * weights[i]
@@ -3181,16 +3177,12 @@ def _build_score_100_map(today_str=None):
     elif len(dates) == 1:
         weights = [1.0]
 
-    # 3일 모두 데이터 있는 종목만 (v71: 신규 종목 0 처리 방지)
     all_tickers = set()
     for d in dates:
         all_tickers.update(gap_by_date.get(d, {}).keys())
 
     result = {}
     for tk in all_tickers:
-        present_days = sum(1 for d in dates if tk in gap_by_date.get(d, {}))
-        if present_days < len(dates):
-            continue
         wg = 0
         for i, d in enumerate(dates):
             wg += gap_by_date.get(d, {}).get(tk, 0) * weights[i]
@@ -3278,12 +3270,7 @@ def _get_system_performance():
                 if d and d in gaps:
                     tks.update(gaps[d].keys())
             wts = [0.5, 0.3, 0.2]
-            active_dates = [d for d in [d0, d1, d2] if d]
             for tk in tks:
-                # 3일 모두 데이터 있는 종목만
-                present = sum(1 for d in active_dates if tk in gaps.get(d, {}))
-                if present < len(active_dates):
-                    continue
                 wg = gaps.get(d0, {}).get(tk, 0) * wts[0]
                 if d1:
                     wg += gaps.get(d1, {}).get(tk, 0) * wts[1]
