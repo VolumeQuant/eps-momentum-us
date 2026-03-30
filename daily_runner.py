@@ -3226,8 +3226,8 @@ def _build_score_100_map(today_str=None):
             ws += score_by_date.get(d, {}).get(tk, MISSING_PENALTY) * weights[i]
         w_score_map[tk] = ws
 
-    # 당일 z-score (표시용)
-    score_display_map = score_by_date.get(dates[-1], {})
+    # 표시용도 3일 가중 점수 사용 (당일 점수와 순위 불일치 방지)
+    score_display_map = {tk: round(ws) for tk, ws in w_score_map.items()}
 
     conn.close()
     return w_score_map, score_display_map
