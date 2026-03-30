@@ -1799,9 +1799,14 @@ def fetch_vix_data():
             vix_yf = yf.download('^VIX', period='5d', progress=False)
             if not vix_yf.empty:
                 vix_yf.index = vix_yf.index.tz_localize(None)
-                for idx, row in vix_yf.iterrows():
-                    d = idx.normalize()
-                    v = float(row.iloc[3]) if len(row) > 3 else float(row.iloc[0])
+                # Close 컬럼 추출 (MultiIndex 대응)
+                if isinstance(vix_yf.columns, pd.MultiIndex):
+                    close_col = vix_yf['Close']['^VIX']
+                else:
+                    close_col = vix_yf['Close']
+                for d, v in close_col.items():
+                    d = d.normalize()
+                    v = float(v)
                     if d not in df.index and v > 0:
                         df.loc[d] = v
                 df = df.sort_index()
