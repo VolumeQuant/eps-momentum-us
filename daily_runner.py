@@ -1793,6 +1793,21 @@ def fetch_vix_data():
         df['vix'] = pd.to_numeric(df['vix'], errors='coerce')
         df = df.dropna().set_index('date').sort_index()
 
+        # FRED 지연 보완: yfinance ^VIX로 최신 종가 추가
+        try:
+            import yfinance as yf
+            vix_yf = yf.download('^VIX', period='5d', progress=False)
+            if not vix_yf.empty:
+                vix_yf.index = vix_yf.index.tz_localize(None)
+                for idx, row in vix_yf.iterrows():
+                    d = idx.normalize()
+                    v = float(row.iloc[3]) if len(row) > 3 else float(row.iloc[0])
+                    if d not in df.index and v > 0:
+                        df.loc[d] = v
+                df = df.sort_index()
+        except Exception as e:
+            log(f"VIX yfinance 보완 실패 (FRED만 사용): {e}", level="WARN")
+
         if len(df) < 20:
             log("VIX: 데이터 부족", level="WARN")
             return None
