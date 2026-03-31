@@ -4560,8 +4560,8 @@
     "industry": "기타"
   },
   "NUVL": {
-    "shortName": "NUVL",
-    "industry": "기타"
+    "shortName": "Nuvalent, Inc.",
+    "industry": "바이오"
   },
   "NVMI": {
     "shortName": "Nova Ltd.",
@@ -4584,7 +4584,7 @@
     "industry": "기타"
   },
   "OR": {
-    "shortName": "OR",
+    "shortName": "OR Royalties Inc.",
     "industry": "금"
   },
   "ORLA": {
@@ -4876,7 +4876,7 @@
     "industry": "기타"
   },
   "TFPM": {
-    "shortName": "TFPM",
+    "shortName": "Triple Flag Precious Metals Cor",
     "industry": "귀금속"
   },
   "TIGO": {
@@ -5080,8 +5080,8 @@
     "industry": "기타"
   },
   "LTH": {
-    "shortName": "LTH",
-    "industry": "기타"
+    "shortName": "Life Time Group Holdings, Inc.",
+    "industry": "레저"
   },
   "MTH": {
     "shortName": "MTH",
@@ -5357,6 +5357,22 @@
   },
   "VFS": {
     "shortName": "VFS",
+    "industry": "기타"
+  },
+  "APLS": {
+    "shortName": "APLS",
+    "industry": "기타"
+  },
+  "CNTA": {
+    "shortName": "CNTA",
+    "industry": "기타"
+  },
+  "ERAS": {
+    "shortName": "ERAS",
+    "industry": "기타"
+  },
+  "JD": {
+    "shortName": "JD",
     "industry": "기타"
   }
 }
