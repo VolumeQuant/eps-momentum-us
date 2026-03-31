@@ -393,6 +393,20 @@ def run_ntm_collection(config):
     eps_tickers = [t for t in all_tickers if not t.startswith('^')]
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    # 전일 Top 20 로드 — 수집 실패 시 우선 재시도 대상
+    _prev_top20 = set()
+    try:
+        _conn_tmp = sqlite3.connect(DB_PATH)
+        _rows = _conn_tmp.execute(
+            "SELECT ticker FROM ntm_screening WHERE part2_rank <= 20 AND date = "
+            "(SELECT MAX(date) FROM ntm_screening WHERE date < ? AND part2_rank IS NOT NULL)",
+            (today_str,)
+        ).fetchall()
+        _prev_top20 = {r[0] for r in _rows}
+        _conn_tmp.close()
+    except Exception:
+        pass
+
     def _prefetch_eps(ticker):
         """워커: NTM EPS + 애널리스트 수집 (HTTP 1회 — eps_trend만)
         .info는 fetch_revenue_growth()에서 별도 수집하므로 여기서 생략.
@@ -447,6 +461,31 @@ def run_ntm_collection(config):
                 __import__('time').sleep(0.5)
         retry_ok = sum(1 for t in error_tickers if 'error' not in _prefetched[t])
         log(f"  재시도 복구: {retry_ok}/{len(error_tickers)}")
+
+    # 전일 Top 20 우선 재시도 — 에러 또는 데이터없음 모두 대상, 최대 3회
+    if _prev_top20:
+        _top20_failed = [t for t in _prev_top20
+                         if t in _prefetched and ('error' in _prefetched[t] or _prefetched[t].get('ntm') is None)]
+        if _top20_failed:
+            for _retry_round in range(1, 4):
+                __import__('time').sleep(5)
+                _still_bad = []
+                with ThreadPoolExecutor(max_workers=3) as executor:
+                    futures = {executor.submit(_prefetch_eps, t): t for t in _top20_failed}
+                    for future in as_completed(futures):
+                        t, data = future.result()
+                        if 'error' not in data and data.get('ntm') is not None:
+                            _prefetched[t] = data
+                        else:
+                            _still_bad.append(t)
+                if not _still_bad:
+                    log(f"  Top20 우선 재시도 {_retry_round}회차: {len(_top20_failed)}종목 전체 복구")
+                    break
+                _top20_failed = _still_bad
+            else:
+                if _still_bad:
+                    log(f"  Top20 우선 재시도 3회 실패: {','.join(sorted(_still_bad))}", "WARN")
+
     log(f"EPS 수집 완료: {len(_prefetched)}종목, {__import__('time').time() - _t_eps:.0f}초")
 
     # Step 3b: DB 적재 + 스코어링 (순차, SQLite 안전)
@@ -1244,7 +1283,7 @@ def _compute_w_gap_map(cursor, today_str, tickers):
 
     # 일별 conviction adj_gap → z-score(30~100) 변환 후 3일 가중 (v71)
     import numpy as np
-    MISSING_PENALTY = 30  # 빈 날 = eligible 최하위 (기존 PENALTY=50 등가)
+    MISSING_PENALTY = 30  # 빈 날 최종 폴백 (carry-forward 불가 시)
 
     score_by_date = {}
     for d in dates:
@@ -1275,11 +1314,26 @@ def _compute_w_gap_map(cursor, today_str, tickers):
     elif len(dates) == 1:
         weights = [1.0]
 
+    def _carry_forward(tk, date_idx):
+        """빈 날 → 직전 가용 점수 이월, 없으면 MISSING_PENALTY"""
+        for j in range(date_idx - 1, -1, -1):
+            prev = score_by_date.get(dates[j], {}).get(tk)
+            if prev is not None:
+                return prev
+        for j in range(date_idx + 1, len(dates)):
+            nxt = score_by_date.get(dates[j], {}).get(tk)
+            if nxt is not None:
+                return nxt
+        return MISSING_PENALTY
+
     result = {}
     for tk in tickers:
         wg = 0
         for i, d in enumerate(dates):
-            wg += score_by_date.get(d, {}).get(tk, MISSING_PENALTY) * weights[i]
+            score = score_by_date.get(d, {}).get(tk)
+            if score is None:
+                score = _carry_forward(tk, i)
+            wg += score * weights[i]
         result[tk] = wg
     return result
 
@@ -3193,7 +3247,7 @@ def _build_score_100_map(today_str=None):
     """3일 가중 점수 맵 (v71). 일별 z-score(30~100) → 3일 가중평균.
 
     v71: conviction adj_gap → 일별 z-score 변환 → 가중평균
-    빈 날 = 30점 (eligible 최하위, PENALTY 등가)
+    빈 날 → carry-forward (직전 가용 점수 이월), 최종 폴백 30점
     Returns: (w_score_map, score_display_map)
       - w_score_map: 3일 가중 점수 (높을수록 좋음, 순위/정렬용)
       - score_display_map: 당일 z-score (표시용)
@@ -3240,12 +3294,27 @@ def _build_score_100_map(today_str=None):
     for d in dates:
         all_tickers.update(score_by_date.get(d, {}).keys())
 
+    def _carry_forward(tk, date_idx):
+        """빈 날 → 직전 가용 점수 이월, 없으면 MISSING_PENALTY"""
+        for j in range(date_idx - 1, -1, -1):
+            prev = score_by_date.get(dates[j], {}).get(tk)
+            if prev is not None:
+                return prev
+        for j in range(date_idx + 1, len(dates)):
+            nxt = score_by_date.get(dates[j], {}).get(tk)
+            if nxt is not None:
+                return nxt
+        return MISSING_PENALTY
+
     # 3일 가중 점수 (순위/정렬용)
     w_score_map = {}
     for tk in all_tickers:
         ws = 0
         for i, d in enumerate(dates):
-            ws += score_by_date.get(d, {}).get(tk, MISSING_PENALTY) * weights[i]
+            score = score_by_date.get(d, {}).get(tk)
+            if score is None:
+                score = _carry_forward(tk, i)
+            ws += score * weights[i]
         w_score_map[tk] = ws
 
     # 표시용도 3일 가중 점수 사용 (당일 점수와 순위 불일치 방지, 소수점 1자리)
@@ -3296,42 +3365,56 @@ def _get_system_performance():
             return min(segs)
 
         def _w_gap(date_str):
-            """v71: 일별 z-score(30~100) → 3일 가중평균, 빈 날=30점"""
+            """v71: 일별 z-score(30~100) → 3일 가중평균, 빈 날→carry-forward"""
             MISSING_PENALTY = 30
             di = all_dates.index(date_str)
             d0 = all_dates[di]
             d1 = all_dates[di - 1] if di >= 1 else None
             d2 = all_dates[di - 2] if di >= 2 else None
+            ds = [d for d in [d2, d1, d0] if d]  # 오래된 순
             # 일별 conviction adj_gap → z-score 변환
             score_by_d = {}
-            for d in [d0, d1, d2]:
-                if d:
-                    rows = c.execute(
-                        'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
-                        'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL', (d,)
-                    ).fetchall()
-                    conv = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
-                    vals = list(conv.values())
-                    if len(vals) >= 2:
-                        mv, sv = sum(vals)/len(vals), (sum((v-sum(vals)/len(vals))**2 for v in vals)/len(vals))**0.5
-                        if sv > 0:
-                            score_by_d[d] = {tk: min(100.0, max(30.0, 65 + (-(v - mv) / sv) * 15)) for tk, v in conv.items()}
-                        else:
-                            score_by_d[d] = {tk: 65 for tk in conv}
+            for d in ds:
+                rows = c.execute(
+                    'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
+                    'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL', (d,)
+                ).fetchall()
+                conv = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
+                vals = list(conv.values())
+                if len(vals) >= 2:
+                    mv, sv = sum(vals)/len(vals), (sum((v-sum(vals)/len(vals))**2 for v in vals)/len(vals))**0.5
+                    if sv > 0:
+                        score_by_d[d] = {tk: min(100.0, max(30.0, 65 + (-(v - mv) / sv) * 15)) for tk, v in conv.items()}
                     else:
                         score_by_d[d] = {tk: 65 for tk in conv}
+                else:
+                    score_by_d[d] = {tk: 65 for tk in conv}
+
+            def _cf(tk, idx):
+                for j in range(idx - 1, -1, -1):
+                    prev = score_by_d.get(ds[j], {}).get(tk)
+                    if prev is not None:
+                        return prev
+                for j in range(idx + 1, len(ds)):
+                    nxt = score_by_d.get(ds[j], {}).get(tk)
+                    if nxt is not None:
+                        return nxt
+                return MISSING_PENALTY
+
             result = {}
             tks = set()
-            for d in [d0, d1, d2]:
-                if d and d in score_by_d:
+            for d in ds:
+                if d in score_by_d:
                     tks.update(score_by_d[d].keys())
             wts = [0.5, 0.3, 0.2]
             for tk in tks:
-                wg = score_by_d.get(d0, {}).get(tk, MISSING_PENALTY) * wts[0]
-                if d1:
-                    wg += score_by_d.get(d1, {}).get(tk, MISSING_PENALTY) * wts[1]
-                if d2:
-                    wg += score_by_d.get(d2, {}).get(tk, MISSING_PENALTY) * wts[2]
+                wg = 0
+                for i, d in enumerate([d0, d1, d2]):
+                    if d:
+                        score = score_by_d.get(d, {}).get(tk)
+                        if score is None:
+                            score = _cf(tk, ds.index(d) if d in ds else i)
+                        wg += score * wts[i]
                 result[tk] = wg
             return result
 
