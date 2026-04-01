@@ -393,16 +393,21 @@ def run_ntm_collection(config):
     eps_tickers = [t for t in all_tickers if not t.startswith('^')]
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    # 전일 Top 20 로드 — 수집 실패 시 우선 재시도 대상
-    _prev_top20 = set()
+    # 전일 Top 30 로드 — 수집 실패 시 우선 재시도 + carry-forward 대상
+    _prev_top30 = set()
+    _prev_date = None
     try:
         _conn_tmp = sqlite3.connect(DB_PATH)
-        _rows = _conn_tmp.execute(
-            "SELECT ticker FROM ntm_screening WHERE part2_rank <= 20 AND date = "
-            "(SELECT MAX(date) FROM ntm_screening WHERE date < ? AND part2_rank IS NOT NULL)",
+        _prev_date = _conn_tmp.execute(
+            "SELECT MAX(date) FROM ntm_screening WHERE date < ? AND part2_rank IS NOT NULL",
             (today_str,)
-        ).fetchall()
-        _prev_top20 = {r[0] for r in _rows}
+        ).fetchone()[0]
+        if _prev_date:
+            _rows = _conn_tmp.execute(
+                "SELECT ticker FROM ntm_screening WHERE part2_rank <= 30 AND date = ?",
+                (_prev_date,)
+            ).fetchall()
+            _prev_top30 = {r[0] for r in _rows}
         _conn_tmp.close()
     except Exception:
         pass
@@ -428,13 +433,13 @@ def run_ntm_collection(config):
         except Exception as e:
             return ticker, {'error': str(e)}
 
-    log(f"NTM EPS 병렬 수집 중 (5스레드, {len(eps_tickers)}종목)...")
+    log(f"NTM EPS 병렬 수집 중 (3스레드, {len(eps_tickers)}종목)...")
     _t_eps = __import__('time').time()
     _prefetched = {}
-    BATCH_SIZE = 50
+    BATCH_SIZE = 30
     for batch_start in range(0, len(eps_tickers), BATCH_SIZE):
         batch = eps_tickers[batch_start:batch_start + BATCH_SIZE]
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             futures = {executor.submit(_prefetch_eps, t): t for t in batch}
             for future in as_completed(futures):
                 result = future.result()
@@ -443,28 +448,28 @@ def run_ntm_collection(config):
         if done_count % 200 < BATCH_SIZE:
             log(f"  수집: {done_count}/{len(eps_tickers)}")
         if batch_start + BATCH_SIZE < len(eps_tickers):
-            __import__('time').sleep(0.5)
-    # 에러 종목 1회 재시도 (rate limit 해소 후)
+            __import__('time').sleep(1.5)
+    # 에러 종목 재시도 (10초 대기 후, rate limit 해소)
     error_tickers = [t for t, d in _prefetched.items() if 'error' in d]
     if error_tickers:
-        log(f"EPS 재시도: {len(error_tickers)}종목 (3초 대기 후)")
-        __import__('time').sleep(3)
+        log(f"EPS 재시도: {len(error_tickers)}종목 (10초 대기 후)")
+        __import__('time').sleep(10)
         for batch_start in range(0, len(error_tickers), BATCH_SIZE):
             batch = error_tickers[batch_start:batch_start + BATCH_SIZE]
-            with ThreadPoolExecutor(max_workers=5) as executor:
+            with ThreadPoolExecutor(max_workers=3) as executor:
                 futures = {executor.submit(_prefetch_eps, t): t for t in batch}
                 for future in as_completed(futures):
                     t, data = future.result()
                     if 'error' not in data:
                         _prefetched[t] = data
             if batch_start + BATCH_SIZE < len(error_tickers):
-                __import__('time').sleep(0.5)
+                __import__('time').sleep(1.5)
         retry_ok = sum(1 for t in error_tickers if 'error' not in _prefetched[t])
         log(f"  재시도 복구: {retry_ok}/{len(error_tickers)}")
 
     # 전일 Top 20 우선 재시도 — 에러 또는 데이터없음 모두 대상, 최대 3회
-    if _prev_top20:
-        _top20_failed = [t for t in _prev_top20
+    if _prev_top30:
+        _top20_failed = [t for t in _prev_top30
                          if t in _prefetched and ('error' in _prefetched[t] or _prefetched[t].get('ntm') is None)]
         if _top20_failed:
             for _retry_round in range(1, 4):
@@ -705,6 +710,139 @@ def run_ntm_collection(config):
             continue
 
     conn.commit()
+
+    # ── carry-forward: 전일 Top30 수집 실패 종목 → 전일 EPS + 오늘 가격으로 row 삽입 ──
+    _cf_inserted = []
+    if _prev_top30 and _prev_date and hist_all is not None:
+        _processed = {r['ticker'] for r in results} | {r['ticker'] for r in turnaround}
+        _cf_candidates = [t for t in _prev_top30
+                          if t in set(eps_tickers) and t not in _processed]
+        if _cf_candidates:
+            conn_cf = sqlite3.connect(DB_PATH)
+            cur_cf = conn_cf.cursor()
+            for ticker in _cf_candidates:
+                try:
+                    # 1) 전일 DB row 로드
+                    prev = cur_cf.execute(
+                        'SELECT ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, '
+                        'rev_up30, rev_down30, num_analysts, score, adj_score, is_turnaround '
+                        'FROM ntm_screening WHERE date=? AND ticker=?',
+                        (_prev_date, ticker)
+                    ).fetchone()
+                    if not prev or prev[0] is None:
+                        continue
+
+                    ntm = {'current': prev[0], '7d': prev[1], '30d': prev[2],
+                           '60d': prev[3], '90d': prev[4]}
+
+                    # 2) 오늘 가격 (hist_all 배치 다운로드에서)
+                    try:
+                        hist = hist_all['Close'][ticker].dropna()
+                    except (KeyError, TypeError):
+                        continue  # 가격 없으면 skip
+                    if len(hist) < 60:
+                        continue
+
+                    p_now = float(hist.iloc[-1])
+                    ma60_val = float(hist.rolling(window=60).mean().iloc[-1])
+                    ma120_val = float(hist.rolling(window=120).mean().iloc[-1]) if len(hist) >= 120 else None
+
+                    # 3) 스코어 재계산 (전일 EPS 기반)
+                    score, seg1, seg2, seg3, seg4, is_turnaround, adj_score, direction = calculate_ntm_score(ntm)
+                    eps_change_90d = calculate_eps_change_90d(ntm)
+                    trend_lights, trend_desc = get_trend_lights(seg1, seg2, seg3, seg4)
+
+                    # 4) adj_gap 재계산 (전일 EPS + 오늘 가격)
+                    fwd_pe_now = None
+                    fwd_pe_chg = None
+                    adj_gap = None
+                    nc = ntm['current']
+                    if nc > 0:
+                        fwd_pe_now = p_now / nc
+                    hist_dt = hist.index.tz_localize(None) if hist.index.tz else hist.index
+                    prices = {}
+                    for days, key in [(7, '7d'), (30, '30d'), (60, '60d'), (90, '90d')]:
+                        target = today - timedelta(days=days)
+                        idx = (hist_dt - target).map(lambda x: abs(x.days)).argmin()
+                        prices[key] = hist.iloc[idx]
+
+                    weights_pe = {'7d': 0.4, '30d': 0.3, '60d': 0.2, '90d': 0.1}
+                    weighted_sum = 0.0
+                    total_weight = 0.0
+                    for key, w in weights_pe.items():
+                        ntm_val = ntm[key]
+                        if nc > 0 and ntm_val > 0 and prices[key] > 0:
+                            fwd_pe_then = prices[key] / ntm_val
+                            pe_chg_period = (fwd_pe_now - fwd_pe_then) / fwd_pe_then * 100
+                            weighted_sum += w * pe_chg_period
+                            total_weight += w
+                    if total_weight > 0:
+                        fwd_pe_chg = weighted_sum / total_weight
+
+                    if fwd_pe_chg is not None and direction is not None:
+                        dir_factor = max(-0.3, min(0.3, direction / 30))
+                        min_seg = min(seg1 or 0, seg2 or 0, seg3 or 0, seg4 or 0)
+                        eps_q = 1.0 + 0.3 * max(-1, min(1, min_seg / 2))
+                        adj_gap = fwd_pe_chg * (1 + dir_factor) * eps_q
+
+                    if adj_gap is None:
+                        continue  # adj_gap 없으면 순위 의미 없음
+
+                    # 5) DB 삽입
+                    cur_cf.execute('''
+                        INSERT INTO ntm_screening
+                        (date, ticker, rank, score, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, is_turnaround)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(date, ticker) DO UPDATE SET
+                            rank=excluded.rank, score=excluded.score,
+                            ntm_current=excluded.ntm_current, ntm_7d=excluded.ntm_7d,
+                            ntm_30d=excluded.ntm_30d, ntm_60d=excluded.ntm_60d,
+                            ntm_90d=excluded.ntm_90d, is_turnaround=excluded.is_turnaround
+                    ''', (today_str, ticker, 0, score,
+                          ntm['current'], ntm['7d'], ntm['30d'], ntm['60d'], ntm['90d'],
+                          1 if is_turnaround else 0))
+
+                    cur_cf.execute('''
+                        UPDATE ntm_screening
+                        SET adj_score=?, adj_gap=?, price=?, ma60=?, ma120=?,
+                            rev_up30=?, rev_down30=?, num_analysts=?
+                        WHERE date=? AND ticker=?
+                    ''', (adj_score, adj_gap, p_now, ma60_val, ma120_val,
+                          prev[5], prev[6], prev[7],
+                          today_str, ticker))
+
+                    # 6) results 리스트에 추가
+                    if ticker in ticker_cache:
+                        short_name = ticker_cache[ticker]['shortName']
+                        industry_kr = ticker_cache[ticker]['industry']
+                    else:
+                        short_name = ticker
+                        industry_kr = '기타'
+
+                    row = {
+                        'ticker': ticker, 'short_name': short_name, 'industry': industry_kr,
+                        'score': score, 'adj_score': adj_score, 'direction': direction,
+                        'seg1': seg1, 'seg2': seg2, 'seg3': seg3, 'seg4': seg4,
+                        'ntm_cur': ntm['current'], 'ntm_7d': ntm['7d'],
+                        'ntm_30d': ntm['30d'], 'ntm_60d': ntm['60d'], 'ntm_90d': ntm['90d'],
+                        'eps_change_90d': eps_change_90d,
+                        'trend_lights': trend_lights, 'trend_desc': trend_desc,
+                        'price_chg': None, 'price_chg_weighted': None, 'eps_chg_weighted': None,
+                        'fwd_pe': fwd_pe_now, 'fwd_pe_chg': fwd_pe_chg, 'adj_gap': adj_gap,
+                        'is_turnaround': is_turnaround,
+                        'rev_up30': prev[5], 'rev_down30': prev[6], 'num_analysts': prev[7],
+                        'price': p_now, 'ma60': ma60_val, 'ma120': ma120_val,
+                    }
+                    results.append(row)
+                    _cf_inserted.append(ticker)
+                except Exception as e:
+                    log(f"  carry-forward {ticker} 실패: {e}", "WARN")
+                    continue
+
+            conn_cf.commit()
+            conn_cf.close()
+            if _cf_inserted:
+                log(f"carry-forward 삽입: {','.join(sorted(_cf_inserted))} ({len(_cf_inserted)}종목, 전일 EPS + 오늘 가격)")
 
     # 종목 정보 캐시 저장
     if cache_updated:
@@ -1315,15 +1453,12 @@ def _compute_w_gap_map(cursor, today_str, tickers):
         weights = [1.0]
 
     def _carry_forward(tk, date_idx):
-        """빈 날 → 직전 가용 점수 이월, 없으면 MISSING_PENALTY"""
+        """빈 날 → 직전(과거) 가용 점수 이월, 없으면 MISSING_PENALTY.
+        forward ��색 금지 — 신규 종목이 미래 점수를 복사받아 3일 패널티를 우회하는 버그 방지."""
         for j in range(date_idx - 1, -1, -1):
             prev = score_by_date.get(dates[j], {}).get(tk)
             if prev is not None:
                 return prev
-        for j in range(date_idx + 1, len(dates)):
-            nxt = score_by_date.get(dates[j], {}).get(tk)
-            if nxt is not None:
-                return nxt
         return MISSING_PENALTY
 
     result = {}
@@ -3295,15 +3430,12 @@ def _build_score_100_map(today_str=None):
         all_tickers.update(score_by_date.get(d, {}).keys())
 
     def _carry_forward(tk, date_idx):
-        """빈 날 → 직전 가용 점수 이월, 없으면 MISSING_PENALTY"""
+        """빈 날 → 직전(과거) 가용 점수 이월, 없으면 MISSING_PENALTY.
+        forward 탐색 금지 — 신규 종목이 미래 점수를 복사받아 3일 패널티를 우회하는 버그 방지."""
         for j in range(date_idx - 1, -1, -1):
             prev = score_by_date.get(dates[j], {}).get(tk)
             if prev is not None:
                 return prev
-        for j in range(date_idx + 1, len(dates)):
-            nxt = score_by_date.get(dates[j], {}).get(tk)
-            if nxt is not None:
-                return nxt
         return MISSING_PENALTY
 
     # 3일 가중 점수 (순위/정렬용)
@@ -3391,14 +3523,11 @@ def _get_system_performance():
                     score_by_d[d] = {tk: 65 for tk in conv}
 
             def _cf(tk, idx):
+                """backward only — forward 탐색 금지 (신규 종목 3일 패널티 우회 방지)"""
                 for j in range(idx - 1, -1, -1):
                     prev = score_by_d.get(ds[j], {}).get(tk)
                     if prev is not None:
                         return prev
-                for j in range(idx + 1, len(ds)):
-                    nxt = score_by_d.get(ds[j], {}).get(tk)
-                    if nxt is not None:
-                        return nxt
                 return MISSING_PENALTY
 
             result = {}
@@ -3604,7 +3733,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 섹션 1: 결론 먼저 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append(f'🛒 <b>EPS 모멘텀 매수 후보</b>')
+    lines.append(f'📡 <b>EPS 모멘텀 상위 {len(selected)}</b>')
     lines.append('━━━━━━━━━━━━━━━')
     for idx, s in enumerate(selected):
         name = _clean_company_name(s['name'], s['ticker'])
