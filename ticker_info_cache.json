@@ -5374,5 +5374,13 @@
   "JD": {
     "shortName": "JD",
     "industry": "기타"
+  },
+  "LI": {
+    "shortName": "LI",
+    "industry": "기타"
+  },
+  "LYG": {
+    "shortName": "LYG",
+    "industry": "기타"
   }
 }
