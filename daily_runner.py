@@ -1094,14 +1094,16 @@ def verify_info_with_stmt(df, today_str):
         low_rev = df[(df['rev_growth'].notna()) & (df['rev_growth'] < 0.10) & (df['adj_gap'].notna())]
         if len(low_rev) > 0:
             recheck = low_rev.sort_values('adj_gap', ascending=True).head(15)
-            log(f"income_stmt 재검증 시작: rev_growth {len(recheck)}종목")
-            __import__('time').sleep(3)  # .info 대량 호출 직후 rate limit 회피
+            log(f"income_stmt 재검증 시작: rev_growth {len(recheck)}종목 (10초 대기)")
+            __import__('time').sleep(10)  # .info 대량 호출 직후 rate limit 회피
             conn = sqlite3.connect(DB_PATH)
             for ticker in recheck['ticker'].tolist():
                 try:
                     stock = yf.Ticker(ticker)
                     qi = stock.quarterly_income_stmt
                     if qi is None or qi.empty or 'Total Revenue' not in qi.index:
+                        log(f"  스킵: {ticker} (income_stmt 없음)")
+                        __import__('time').sleep(0.5)
                         continue
                     rev = qi.loc['Total Revenue'].dropna().sort_index(ascending=False)
                     if len(rev) < 5:
@@ -1139,8 +1141,8 @@ def verify_info_with_stmt(df, today_str):
         om_fail = pd.concat([low_margin, ultra_low]).drop_duplicates(subset='ticker')
         if len(om_fail) > 0:
             recheck = om_fail.sort_values('adj_gap', ascending=True).head(15)
-            log(f"income_stmt 재검증 시작: OM {len(recheck)}종목")
-            __import__('time').sleep(3)
+            log(f"income_stmt 재검증 시작: OM {len(recheck)}종목 (5초 대기)")
+            __import__('time').sleep(5)
             conn = sqlite3.connect(DB_PATH)
             for ticker in recheck['ticker'].tolist():
                 try:
