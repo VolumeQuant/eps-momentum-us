@@ -4692,8 +4692,8 @@
     "industry": "기타"
   },
   "RHP": {
-    "shortName": "RHP",
-    "industry": "기타"
+    "shortName": "Ryman Hospitality Properties, I",
+    "industry": "리츠호텔"
   },
   "RIG": {
     "shortName": "RIG",
@@ -5381,6 +5381,22 @@
   },
   "LYG": {
     "shortName": "LYG",
+    "industry": "기타"
+  },
+  "FLY": {
+    "shortName": "FLY",
+    "industry": "기타"
+  },
+  "FSLY": {
+    "shortName": "FSLY",
+    "industry": "기타"
+  },
+  "LUNR": {
+    "shortName": "LUNR",
+    "industry": "기타"
+  },
+  "PSO": {
+    "shortName": "PSO",
     "industry": "기타"
   }
 }
