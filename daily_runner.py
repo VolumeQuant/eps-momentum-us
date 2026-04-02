@@ -920,7 +920,8 @@ def fetch_revenue_growth(df, today_str):
         pass
 
     def _fetch_one(ticker):
-        """단일 종목 .info 수집 (+ 우선 종목은 earnings_history도)"""
+        """단일 종목 .info 수집 (+ 우선 종목은 earnings_history도)
+        v71.2: rev_growth/OM 의심 시 quarterly_income_stmt로 즉시 교정"""
         try:
             stock = yf.Ticker(ticker)
             info = stock.info
@@ -932,6 +933,33 @@ def fetch_revenue_growth(df, today_str):
                         surps = eh['surprisePercent'].dropna().tolist()
                         if surps:
                             info['_earnings_surp'] = surps[-1]
+                except Exception:
+                    pass
+            # v71.2: .info rev_growth/OM이 의심스러우면 income_stmt로 즉시 교정
+            rg = info.get('revenueGrowth')
+            om = info.get('operatingMargins')
+            need_verify = (rg is not None and rg < 0.10) or (om is not None and om < 0.05)
+            if need_verify:
+                try:
+                    qi = stock.quarterly_income_stmt
+                    if qi is not None and not qi.empty and 'Total Revenue' in qi.index:
+                        rev = qi.loc['Total Revenue'].dropna().sort_index(ascending=False)
+                        # rev_growth 교정: YoY 비교
+                        if rg is not None and rg < 0.10 and len(rev) >= 5:
+                            recent_q, yoy_q = rev.iloc[0], rev.iloc[4]
+                            if yoy_q > 0 and recent_q > 0:
+                                real_rg = (recent_q - yoy_q) / yoy_q
+                                if real_rg >= 0.10:
+                                    info['revenueGrowth'] = real_rg
+                                    info['_rg_verified'] = True
+                        # OM 교정: 최근 분기 기준
+                        if 'Operating Income' in qi.index and len(rev) > 0:
+                            op_inc = qi.loc['Operating Income'].dropna().sort_index(ascending=False)
+                            if len(op_inc) > 0:
+                                real_om = float(op_inc.iloc[0]) / float(rev.iloc[0])
+                                if om is not None and abs(real_om - om) > 0.01:
+                                    info['operatingMargins'] = real_om
+                                    info['_om_verified'] = True
                 except Exception:
                     pass
             return ticker, info
@@ -972,6 +1000,8 @@ def fetch_revenue_growth(df, today_str):
 
         rg = info.get('revenueGrowth')
         rev_map[t] = rg
+        if info.get('_rg_verified'):
+            log(f"  .info 교정: {t} rev_growth→{rg:.1%}" + (f" OM→{info.get('operatingMargins'):.1%}" if info.get('_om_verified') else ""))
 
         # 어닝 날짜 추출 (.info earningsTimestampEnd → calendar 별도 호출 불필요)
         # 장후(16시 ET 이후) 발표 → 시장 영향은 다음 거래일이므로 +1일
@@ -1072,110 +1102,6 @@ def fetch_revenue_growth(df, today_str):
     return df, earnings_map, results  # results = {ticker: info_dict} for alpha signal reuse
 
 
-def verify_info_with_stmt(df, today_str):
-    """yfinance .info rev_growth/OM 오류를 quarterly_income_stmt로 사전 교정 (v71.2)
-
-    fetch_revenue_growth() 직후, save_part2_ranks() 이전에 1회 실행.
-    1. rev_growth < 10%인 종목 중 adj_gap 상위 15개 → YoY 매출성장 재계산
-    2. OM < 10% & GM < 30% 또는 OM < 5%인 종목 중 adj_gap 상위 15개 → OM 재계산
-    교정 결과를 df + DB에 반영하여 이후 모든 get_part2_candidates() 호출이 정상 작동.
-    """
-    import yfinance as yf
-    import pandas as pd
-
-    if 'rev_growth' not in df.columns or 'adj_gap' not in df.columns:
-        return df
-
-    corrected = 0
-
-    # ── 1. rev_growth 재검증 ──
-    has_rev = df['rev_growth'].notna().sum() >= 10
-    if has_rev:
-        low_rev = df[(df['rev_growth'].notna()) & (df['rev_growth'] < 0.10) & (df['adj_gap'].notna())]
-        if len(low_rev) > 0:
-            recheck = low_rev.sort_values('adj_gap', ascending=True).head(15)
-            log(f"income_stmt 재검증 시작: rev_growth {len(recheck)}종목 (10초 대기)")
-            __import__('time').sleep(10)  # .info 대량 호출 직후 rate limit 회피
-            conn = sqlite3.connect(DB_PATH)
-            for ticker in recheck['ticker'].tolist():
-                try:
-                    stock = yf.Ticker(ticker)
-                    qi = stock.quarterly_income_stmt
-                    if qi is None or qi.empty or 'Total Revenue' not in qi.index:
-                        log(f"  스킵: {ticker} (income_stmt 없음)")
-                        __import__('time').sleep(0.5)
-                        continue
-                    rev = qi.loc['Total Revenue'].dropna().sort_index(ascending=False)
-                    if len(rev) < 5:
-                        continue
-                    recent_q, yoy_q = rev.iloc[0], rev.iloc[4]
-                    if yoy_q > 0 and recent_q > 0:
-                        growth = (recent_q - yoy_q) / yoy_q
-                        if growth >= 0.10:
-                            old_rg = df.loc[df['ticker'] == ticker, 'rev_growth'].iloc[0]
-                            df.loc[df['ticker'] == ticker, 'rev_growth'] = growth
-                            op_margin = None
-                            if 'Operating Income' in qi.index:
-                                op_inc = qi.loc['Operating Income'].dropna().sort_index(ascending=False)
-                                if len(op_inc) > 0:
-                                    op_margin = float(op_inc.iloc[0]) / float(recent_q)
-                                    df.loc[df['ticker'] == ticker, 'operating_margin'] = op_margin
-                            log(f"  복구: {ticker} rev_growth {old_rg:.1%}→{growth:.1%}" +
-                                (f" OM→{op_margin:.1%}" if op_margin else ""))
-                            if op_margin is not None:
-                                conn.execute('UPDATE ntm_screening SET rev_growth=?, operating_margin=? WHERE date=? AND ticker=?', (growth, op_margin, today_str, ticker))
-                            else:
-                                conn.execute('UPDATE ntm_screening SET rev_growth=? WHERE date=? AND ticker=?', (growth, today_str, ticker))
-                            corrected += 1
-                except Exception as e:
-                    log(f"  검증 실패: {ticker} ({e})")
-            conn.commit()
-            conn.close()
-
-    # ── 2. OM 재검증 (rev_growth에서 이미 교정된 종목은 제외) ──
-    if 'operating_margin' in df.columns and 'gross_margin' in df.columns:
-        om = df['operating_margin']
-        gm = df['gross_margin']
-        low_margin = df[om.notna() & gm.notna() & (om < 0.10) & (gm < 0.30) & (df['adj_gap'].notna())]
-        ultra_low = df[om.notna() & (om < 0.05) & (df['adj_gap'].notna())]
-        om_fail = pd.concat([low_margin, ultra_low]).drop_duplicates(subset='ticker')
-        if len(om_fail) > 0:
-            recheck = om_fail.sort_values('adj_gap', ascending=True).head(15)
-            log(f"income_stmt 재검증 시작: OM {len(recheck)}종목 (5초 대기)")
-            __import__('time').sleep(5)
-            conn = sqlite3.connect(DB_PATH)
-            for ticker in recheck['ticker'].tolist():
-                try:
-                    stock = yf.Ticker(ticker)
-                    qi = stock.quarterly_income_stmt
-                    if qi is None or qi.empty:
-                        continue
-                    if 'Total Revenue' not in qi.index or 'Operating Income' not in qi.index:
-                        continue
-                    rev = qi.loc['Total Revenue'].dropna().sort_index(ascending=False)
-                    op_inc = qi.loc['Operating Income'].dropna().sort_index(ascending=False)
-                    if len(rev) == 0 or len(op_inc) == 0:
-                        continue
-                    recent_rev = float(rev.iloc[0])
-                    recent_op = float(op_inc.iloc[0])
-                    if recent_rev > 0:
-                        real_om = recent_op / recent_rev
-                        old_om = df.loc[df['ticker'] == ticker, 'operating_margin'].iloc[0]
-                        df.loc[df['ticker'] == ticker, 'operating_margin'] = real_om
-                        conn.execute('UPDATE ntm_screening SET operating_margin=? WHERE date=? AND ticker=?', (real_om, today_str, ticker))
-                        if abs(real_om - old_om) > 0.005:
-                            log(f"  복구: {ticker} OM {old_om:.1%}→{real_om:.1%}")
-                            corrected += 1
-                except Exception as e:
-                    log(f"  OM 검증 실패: {ticker} ({e})")
-            conn.commit()
-            conn.close()
-
-    if corrected > 0:
-        log(f"income_stmt 재검증 완료: {corrected}건 교정")
-    return df
-
-
 def get_part2_candidates(df, top_n=None, return_counts=False):
     """Part 2 매수 후보 필터링 (공통 함수)
 
@@ -1215,7 +1141,7 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
         filtered = filtered[filtered['rev_growth'].notna()].copy()
 
         # 매출 성장 10% 미만 → 제외 (사이클/기저효과 방지)
-        # 주: .info 오류는 verify_info_with_stmt()에서 파이프라인 단계로 사전 교정 (v71.2)
+        # 주: .info 오류는 _fetch_one()에서 income_stmt로 즉시 교정 (v71.2)
         low_rev = filtered[filtered['rev_growth'] < 0.10]
         if len(low_rev) > 0:
             log(f"매출 성장 부족(<10%) 제외: {', '.join(low_rev['ticker'].tolist())}")
@@ -4642,9 +4568,6 @@ def main():
     if not results_df.empty:
         # 매출+품질 수집 → rev_growth composite score + 12개 재무지표 DB 저장 (v33)
         results_df, earnings_map, info_cache = fetch_revenue_growth(results_df, today_str)
-
-        # yfinance .info 오류 사전 교정 — income_stmt로 rev_growth/OM 재검증 (v71.2)
-        results_df = verify_info_with_stmt(results_df, today_str)
 
         # 가중순위 기반 Top 30 선정 + DB 저장
         today_tickers = save_part2_ranks(results_df, today_str) or []
