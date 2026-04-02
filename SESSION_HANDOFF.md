@@ -4365,3 +4365,30 @@ else:              eps_q = 0.7  # 한 구간이라도 꺾임
 - 내부 용어(w_gap 순위 기준) 제거
 - Top20 이탈 기준선 (기존 Top30)
 - `send_historical_messages.py` 신규: DB 기존 데이터로 과거 날짜 메시지 생성+발송
+
+---
+
+## v71.2: yfinance .info 재무 데이터 오류 방어 (2026-04-03)
+
+### 발단
+- FIX(Comfort Systems USA) 4/2 이탈 사유 "매출↓" — 실제 매출성장 41.7%인데 `.info['revenueGrowth']`가 1% 반환
+- `.info['operatingMargins']`도 16.1% → 7.9%로 오염, `mostRecentQuarter`는 2020-09-30 표시
+- `quarterly_income_stmt`(실제 재무제표)는 정상 — `.info` 요약 딕셔너리만 Yahoo 백엔드에서 깨짐
+
+### 해결: income_stmt 2중 재검증
+1. **rev_growth 재검증**: `_verify_rev_growth_from_stmt()`
+   - `rev_growth < 10%`로 탈락한 종목 중 adj_gap 상위 15개
+   - `quarterly_income_stmt`에서 최근분기 vs 전년동기 YoY 직접 계산
+   - ≥10%면 rev_growth + operating_margin 동시 교정 (DataFrame + DB)
+2. **OM 재검증**: `_verify_op_margin_from_stmt()`
+   - 저마진(OM<10%&GM<30%) 또는 OP극저(<5%) 탈락 종목 중 adj_gap 상위 15개
+   - `quarterly_income_stmt`에서 최근분기 Operating Income / Revenue로 OM 직접 계산
+   - 교정 후 마스크 재계산 → 통과 or 정당한 탈락
+
+### 추가 API 호출
+- 최악의 경우 30건 (rev_growth 15 + OM 15), 실제로는 대부분 < 10건
+- 전체 1,200종목 수집 대비 무시 가능한 수준
+
+### 한계
+- 분기 데이터 5개 미만(IPO 2년 미만) 종목은 스킵
+- `rev.iloc[0]` vs `rev.iloc[4]` 위치 기반 YoY — 회계연도 변경 시 정확히 1년이 아닐 수 있음
