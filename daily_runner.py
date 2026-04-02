@@ -3733,7 +3733,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 섹션 1: 결론 먼저 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append(f'📡 <b>EPS 모멘텀 상위 {len(selected)}</b>')
+    lines.append(f'🛒 <b>EPS 모멘텀 매수 후보</b>')
     lines.append('━━━━━━━━━━━━━━━')
     for idx, s in enumerate(selected):
         name = _clean_company_name(s['name'], s['ticker'])
