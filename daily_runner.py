@@ -1072,6 +1072,73 @@ def fetch_revenue_growth(df, today_str):
     return df, earnings_map, results  # results = {ticker: info_dict} for alpha signal reuse
 
 
+def _verify_rev_growth_from_stmt(tickers):
+    """yfinance .info rev_growth가 의심스러운 종목을 quarterly_income_stmt로 재검증 (v71.2)
+
+    Returns: {ticker: {'rev_growth': float, 'op_margin': float|None}} — rev_growth ≥10%인 종목만
+    """
+    import yfinance as yf
+    rescued = {}
+    for ticker in tickers:
+        try:
+            stock = yf.Ticker(ticker)
+            qi = stock.quarterly_income_stmt
+            if qi is None or qi.empty or 'Total Revenue' not in qi.index:
+                continue
+            rev = qi.loc['Total Revenue'].dropna().sort_index(ascending=False)
+            if len(rev) < 5:
+                continue  # 최소 5분기(YoY 비교에 4+1 필요)
+            # 최근 분기 vs 전년 동기 (index 0 vs index 4)
+            recent_q = rev.iloc[0]
+            yoy_q = rev.iloc[4]
+            if yoy_q > 0 and recent_q > 0:
+                growth = (recent_q - yoy_q) / yoy_q
+                if growth >= 0.10:
+                    # operating_margin도 최근 분기 기준으로 재계산
+                    op_margin = None
+                    if 'Operating Income' in qi.index:
+                        op_inc = qi.loc['Operating Income'].dropna().sort_index(ascending=False)
+                        if len(op_inc) > 0:
+                            op_margin = float(op_inc.iloc[0]) / float(recent_q)
+                    rescued[ticker] = {'rev_growth': growth, 'op_margin': op_margin}
+                    log(f"  income_stmt 검증: {ticker} Q({rev.index[0].strftime('%Y-%m')}) ${recent_q/1e9:.1f}B vs Q({rev.index[4].strftime('%Y-%m')}) ${yoy_q/1e9:.1f}B = {growth:.1%}" +
+                        (f" OM={op_margin:.1%}" if op_margin else ""))
+        except Exception as e:
+            log(f"  income_stmt 검증 실패: {ticker} ({e})")
+    return rescued
+
+
+def _verify_op_margin_from_stmt(tickers):
+    """yfinance .info operatingMargins가 의심스러운 종목을 quarterly_income_stmt로 재검증 (v71.2)
+
+    Returns: {ticker: real_op_margin} — 검증 성공 종목만 반환
+    """
+    import yfinance as yf
+    rescued = {}
+    for ticker in tickers:
+        try:
+            stock = yf.Ticker(ticker)
+            qi = stock.quarterly_income_stmt
+            if qi is None or qi.empty:
+                continue
+            if 'Total Revenue' not in qi.index or 'Operating Income' not in qi.index:
+                continue
+            rev = qi.loc['Total Revenue'].dropna().sort_index(ascending=False)
+            op_inc = qi.loc['Operating Income'].dropna().sort_index(ascending=False)
+            if len(rev) == 0 or len(op_inc) == 0:
+                continue
+            # 최근 분기 기준
+            recent_rev = float(rev.iloc[0])
+            recent_op = float(op_inc.iloc[0])
+            if recent_rev > 0:
+                real_om = recent_op / recent_rev
+                rescued[ticker] = real_om
+                log(f"  OM income_stmt 검증: {ticker} Q({rev.index[0].strftime('%Y-%m')}) OpInc=${recent_op/1e9:.2f}B / Rev=${recent_rev/1e9:.2f}B = OM {real_om:.1%}")
+        except Exception as e:
+            log(f"  OM income_stmt 검증 실패: {ticker} ({e})")
+    return rescued
+
+
 def get_part2_candidates(df, top_n=None, return_counts=False):
     """Part 2 매수 후보 필터링 (공통 함수)
 
@@ -1112,8 +1179,31 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
 
         # 매출 성장 10% 미만 → 제외 (사이클/기저효과 방지)
         low_rev = filtered[filtered['rev_growth'] < 0.10]
+        # yfinance .info 오류 방어: adj_gap 상위 종목은 income_stmt로 재검증 (v71.2)
         if len(low_rev) > 0:
-            log(f"매출 성장 부족(<10%) 제외: {', '.join(low_rev['ticker'].tolist())}")
+            low_rev_sorted = low_rev.sort_values('adj_gap', ascending=True)
+            recheck = low_rev_sorted.head(15)  # adj_gap 상위 15종목만
+            rescued = _verify_rev_growth_from_stmt(recheck['ticker'].tolist())
+            if rescued:
+                conn_fix = sqlite3.connect(DB_PATH)
+                for t, data in rescued.items():
+                    real_rg = data['rev_growth']
+                    real_om = data['op_margin']
+                    filtered.loc[filtered['ticker'] == t, 'rev_growth'] = real_rg
+                    if real_om is not None:
+                        filtered.loc[filtered['ticker'] == t, 'operating_margin'] = real_om
+                    log(f"매출 재검증 복구: {t} (.info {low_rev.loc[low_rev['ticker']==t, 'rev_growth'].iloc[0]:.1%} → income_stmt {real_rg:.1%})" +
+                        (f" OM→{real_om:.1%}" if real_om else ""))
+                    if real_om is not None:
+                        conn_fix.execute('UPDATE ntm_screening SET rev_growth=?, operating_margin=? WHERE date=(SELECT MAX(date) FROM ntm_screening) AND ticker=?', (real_rg, real_om, t))
+                    else:
+                        conn_fix.execute('UPDATE ntm_screening SET rev_growth=? WHERE date=(SELECT MAX(date) FROM ntm_screening) AND ticker=?', (real_rg, t))
+                conn_fix.commit()
+                conn_fix.close()
+                # 재검증 통과 종목은 low_rev에서 제거
+                low_rev = filtered[filtered['rev_growth'] < 0.10]
+            if len(low_rev) > 0:
+                log(f"매출 성장 부족(<10%) 제외: {', '.join(low_rev['ticker'].tolist())}")
         filtered = filtered[filtered['rev_growth'] >= 0.10].copy()
 
     # 애널리스트 품질 필터: 저커버리지 + 하향 과다
@@ -1135,23 +1225,48 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
         filtered = filtered[~(down_ratio > 0.3)].copy()
 
     # 구조적 저마진 필터: OpMargin < 10% AND GrossMargin < 30% → 제외
-    if 'operating_margin' in filtered.columns and 'gross_margin' in filtered.columns:
-        om = filtered['operating_margin']
-        gm = filtered['gross_margin']
-        low_margin = filtered[om.notna() & gm.notna() & (om < 0.10) & (gm < 0.30)]
-        if len(low_margin) > 0:
-            details = [f"{r['ticker']}(OM{r['operating_margin']*100:.0f}%/GM{r['gross_margin']*100:.0f}%)" for _, r in low_margin.iterrows()]
-            log(f"구조적 저마진 제외: {', '.join(details)}")
-        filtered = filtered[~(om.notna() & gm.notna() & (om < 0.10) & (gm < 0.30))].copy()
-
-    # 영업이익률 극저 제외 (v44): OP < 5% — 턴어라운드 초기 종목 과대평가 방지
+    # + 영업이익률 극저 (v44): OP < 5% → 제외
+    # yfinance .info OM 오류 방어: 탈락 종목은 income_stmt로 재검증 (v71.2)
     if 'operating_margin' in filtered.columns:
         om = filtered['operating_margin']
-        ultra_low_op = filtered[om.notna() & (om < 0.05)]
-        if len(ultra_low_op) > 0:
-            details = [f"{r['ticker']}(OM{r['operating_margin']*100:.0f}%)" for _, r in ultra_low_op.iterrows()]
-            log(f"영업이익률 부족(<5%) 제외: {', '.join(details)}")
-        filtered = filtered[~(om.notna() & (om < 0.05))].copy()
+        gm = filtered.get('gross_margin', pd.Series(dtype=float))
+
+        # 두 마진 필터 탈락 후보 수집
+        has_gm = 'gross_margin' in filtered.columns
+        low_margin_mask = om.notna() & gm.notna() & (om < 0.10) & (gm < 0.30) if has_gm else pd.Series(False, index=filtered.index)
+        ultra_low_mask = om.notna() & (om < 0.05)
+        margin_fail_mask = low_margin_mask | ultra_low_mask
+        margin_fail = filtered[margin_fail_mask]
+
+        if len(margin_fail) > 0:
+            # adj_gap 상위 15종목만 income_stmt로 OM 재검증
+            recheck = margin_fail.sort_values('adj_gap', ascending=True).head(15)
+            om_rescued = _verify_op_margin_from_stmt(recheck['ticker'].tolist())
+            if om_rescued:
+                conn_fix = sqlite3.connect(DB_PATH)
+                for t, real_om in om_rescued.items():
+                    old_om = filtered.loc[filtered['ticker'] == t, 'operating_margin'].iloc[0]
+                    filtered.loc[filtered['ticker'] == t, 'operating_margin'] = real_om
+                    log(f"OM 재검증 복구: {t} (.info {old_om:.1%} → income_stmt {real_om:.1%})")
+                    conn_fix.execute('UPDATE ntm_screening SET operating_margin=? WHERE date=(SELECT MAX(date) FROM ntm_screening) AND ticker=?', (real_om, t))
+                conn_fix.commit()
+                conn_fix.close()
+                # 마스크 재계산
+                om = filtered['operating_margin']
+                gm = filtered.get('gross_margin', pd.Series(dtype=float))
+                low_margin_mask = om.notna() & gm.notna() & (om < 0.10) & (gm < 0.30) if has_gm else pd.Series(False, index=filtered.index)
+                ultra_low_mask = om.notna() & (om < 0.05)
+
+            # 로그 출력 + 제외
+            low_margin = filtered[low_margin_mask]
+            if len(low_margin) > 0:
+                details = [f"{r['ticker']}(OM{r['operating_margin']*100:.0f}%/GM{r['gross_margin']*100:.0f}%)" for _, r in low_margin.iterrows()]
+                log(f"구조적 저마진 제외: {', '.join(details)}")
+            ultra_low_op = filtered[ultra_low_mask & ~low_margin_mask]
+            if len(ultra_low_op) > 0:
+                details = [f"{r['ticker']}(OM{r['operating_margin']*100:.0f}%)" for _, r in ultra_low_op.iterrows()]
+                log(f"영업이익률 부족(<5%) 제외: {', '.join(details)}")
+            filtered = filtered[~(low_margin_mask | ultra_low_mask)].copy()
 
     # 원자재/광업 제외 (v44): 금, 귀금속, 구리 등 commodity 가격 패스스루 업종
     if 'industry' in filtered.columns:
