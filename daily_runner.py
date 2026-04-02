@@ -1078,6 +1078,9 @@ def _verify_rev_growth_from_stmt(tickers):
     Returns: {ticker: {'rev_growth': float, 'op_margin': float|None}} — rev_growth ≥10%인 종목만
     """
     import yfinance as yf
+    if not tickers:
+        return {}
+    __import__('time').sleep(3)  # .info 대량 호출 직후 rate limit 회피
     rescued = {}
     for ticker in tickers:
         try:
@@ -1114,6 +1117,9 @@ def _verify_op_margin_from_stmt(tickers):
     Returns: {ticker: real_op_margin} — 검증 성공 종목만 반환
     """
     import yfinance as yf
+    if not tickers:
+        return {}
+    __import__('time').sleep(3)  # rate limit 회피
     rescued = {}
     for ticker in tickers:
         try:
