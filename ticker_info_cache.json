@@ -4460,8 +4460,8 @@
     "industry": "기타"
   },
   "MFC": {
-    "shortName": "MFC",
-    "industry": "기타"
+    "shortName": "Manulife Financial Corporation",
+    "industry": "생명보험"
   },
   "MFG": {
     "shortName": "MFG",
@@ -4668,8 +4668,8 @@
     "industry": "기타"
   },
   "QSR": {
-    "shortName": "QSR",
-    "industry": "기타"
+    "shortName": "Restaurant Brands International",
+    "industry": "외식"
   },
   "QXO": {
     "shortName": "QXO",
@@ -4720,8 +4720,8 @@
     "industry": "기타"
   },
   "RPRX": {
-    "shortName": "RPRX",
-    "industry": "기타"
+    "shortName": "Royalty Pharma plc",
+    "industry": "바이오"
   },
   "RRR": {
     "shortName": "RRR",
@@ -4792,12 +4792,12 @@
     "industry": "기타"
   },
   "SLF": {
-    "shortName": "SLF",
-    "industry": "기타"
+    "shortName": "Sun Life Financial Inc.",
+    "industry": "종합보험"
   },
   "SMFG": {
-    "shortName": "SMFG",
-    "industry": "기타"
+    "shortName": "Sumitomo Mitsui Financial Group",
+    "industry": "대형은행"
   },
   "SMTC": {
     "shortName": "Semtech Corporation",
@@ -5028,8 +5028,8 @@
     "industry": "소프트웨어"
   },
   "YPF": {
-    "shortName": "YPF",
-    "industry": "기타"
+    "shortName": "YPF Sociedad Anonima",
+    "industry": "석유종합"
   },
   "YUMC": {
     "shortName": "Yum China Holdings, Inc.",
@@ -5144,8 +5144,8 @@
     "industry": "기타"
   },
   "GFL": {
-    "shortName": "GFL",
-    "industry": "기타"
+    "shortName": "GFL Environmental Inc. Subordin",
+    "industry": "폐기물"
   },
   "KSPI": {
     "shortName": "KSPI",
@@ -5180,8 +5180,8 @@
     "industry": "자본시장"
   },
   "INGM": {
-    "shortName": "INGM",
-    "industry": "기타"
+    "shortName": "Ingram Micro Holding Corporatio",
+    "industry": "IT서비스"
   },
   "LLYVK": {
     "shortName": "LLYVK",
@@ -5236,8 +5236,8 @@
     "industry": "기타"
   },
   "NET": {
-    "shortName": "NET",
-    "industry": "기타"
+    "shortName": "Cloudflare, Inc.",
+    "industry": "인프라SW"
   },
   "XENE": {
     "shortName": "XENE",
