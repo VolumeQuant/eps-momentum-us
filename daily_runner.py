@@ -2293,7 +2293,7 @@ def get_market_risk_status():
 def get_market_context(hist_all=None):
     """미국 시장 지수 컨텍스트 — hist_all에서 추출 (추가 HTTP 호출 없음)"""
     lines = []
-    for symbol, name in [("^GSPC", "S&P 500"), ("^IXIC", "나스닥"), ("^DJI", "다우"), ("^RUT", "러셀2000")]:
+    for symbol, name in [("^GSPC", "S&P 500"), ("^IXIC", "나스닥"), ("^DJI", "다우"), ("^RUT", "러셀")]:
         try:
             # hist_all에서 지수 데이터 추출 (yf.download에 포함)
             if hist_all is not None and 'Close' in hist_all.columns.get_level_values(0):
