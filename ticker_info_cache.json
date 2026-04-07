@@ -5398,5 +5398,9 @@
   "PSO": {
     "shortName": "PSO",
     "industry": "기타"
+  },
+  "BGC": {
+    "shortName": "BGC Group, Inc.",
+    "industry": "자본시장"
   }
 }
