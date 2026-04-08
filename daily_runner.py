@@ -3280,6 +3280,14 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 - 서두/인사말/맺음말 금지. 첫 종목부터 바로 시작."""
 
             resp = _gemini_call(stock_prompt, temperature=0.3, label="종목내러티브")
+            if resp:
+                try:
+                    log(f"AI: 내러티브 resp type={type(resp).__name__} candidates={len(resp.candidates) if resp.candidates else 0}")
+                    if resp.candidates:
+                        c = resp.candidates[0]
+                        log(f"AI: 내러티브 finish={c.finish_reason} parts_type={type(c.content.parts).__name__ if c.content and c.content.parts else 'None'} parts_len={len(c.content.parts) if c.content and c.content.parts else 0}")
+                except Exception as dbg_e:
+                    log(f"AI: 내러티브 resp 디버그 실패: {dbg_e}")
             text = extract_text(resp) if resp else None
             if text:
                 # 마크다운 볼드 제거
