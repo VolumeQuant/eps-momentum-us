@@ -3134,15 +3134,22 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
         try:
             if resp.text:
                 return resp.text
-        except Exception:
-            pass
+        except Exception as e:
+            log(f"AI: resp.text 접근 실패: {e}", "WARN")
         try:
             parts = resp.candidates[0].content.parts
             texts = [p.text for p in parts if hasattr(p, 'text') and p.text]
             if texts:
                 return '\n'.join(texts)
-        except Exception:
-            pass
+        except Exception as e:
+            # candidates 비어있으면 finish_reason, safety_ratings 등 출력
+            try:
+                cands = resp.candidates if resp.candidates else []
+                finish = cands[0].finish_reason if cands else 'NO_CANDIDATES'
+                safety = cands[0].safety_ratings if cands else 'N/A'
+                log(f"AI: candidates 파싱 실패: {e} | finish={finish} | safety={safety}", "WARN")
+            except Exception:
+                log(f"AI: resp 구조 확인 불가: {type(resp)} | {str(resp)[:200]}", "WARN")
         return None
 
     biz_str = biz_day.strftime('%Y년 %m월 %d일')
