@@ -3112,7 +3112,7 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
                 socket.setdefaulttimeout(60)
                 try:
                     resp = client.models.generate_content(
-                        model='gemini-2.5-flash',
+                        model='gemini-2.5-pro',
                         contents=prompt,
                         config=types.GenerateContentConfig(
                             tools=[grounding_tool],
