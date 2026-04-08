@@ -3097,7 +3097,7 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
     try:
         from google import genai
         from google.genai import types
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(api_key=api_key, http_options={'timeout': 180_000})
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
     except Exception as e:
         log(f"AI: Gemini 초기화 실패: {e}", "WARN")
