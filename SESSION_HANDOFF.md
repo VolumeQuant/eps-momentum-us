@@ -4392,3 +4392,58 @@ else:              eps_q = 0.7  # 한 구간이라도 꺾임
 ### 한계
 - 분기 데이터 5개 미만(IPO 2년 미만) 종목은 스킵
 - `rev.iloc[0]` vs `rev.iloc[4]` 위치 기반 YoY — 회계연도 변경 시 정확히 1년이 아닐 수 있음
+
+---
+
+## v71.2 추가: .info 교정을 .info 수집 시점으로 이동 (2026-04-03)
+
+- 별도 파이프라인 단계(verify_info_with_stmt) → `_fetch_one()` 내부로 이동
+- `.info` 호출 직후 rev_growth/OM 의심 시 같은 Ticker 객체로 `quarterly_income_stmt` 즉시 호출
+- rate limit 문제 완전 해소, sleep/대기 불필요
+- FIX, DE, BSAC, PBR, BAP, AMP 등 12종목 교정 확인
+
+---
+
+## v71.3: Gemini Client timeout 수정 (2026-04-09)
+
+- Gemini 2.5 Flash + Google Search Grounding이 빈 응답 반환 (4/8 구글 서버 장애)
+- `google-genai` 1.71.0 → <1.71.0 버전 고정
+- `genai.Client`에 `http_options={'timeout': 180_000}` 추가 (KR 프로젝트와 동일)
+- `extract_text()` 디버그 로그 강화 (finish_reason, safety_ratings)
+
+---
+
+## v72: 전략 파라미터 변경 — E5/X12/S3 (2026-04-10)
+
+### 배경
+- 40거래일(2/10~4/9) 실전 데이터로 864개 조합 그리드 서치
+- 7개 지표(Calmar, Sharpe, Sortino, CAGR, MDD, 수익률, 승률) 백분위 종합 평가
+
+### 변경
+| 파라미터 | v71 | v72 |
+|---------|-----|-----|
+| 진입 | part2_rank ≤ 3 | part2_rank ≤ **5** |
+| 퇴출 | part2_rank > 15 | part2_rank > **12** |
+| 슬롯 | 최대 5 | 최대 **3** |
+| 손절 | -10% | **제거** (퇴출 12에서 커버) |
+
+### 성과 비교
+| 지표 | v71 | v72 |
+|------|-----|-----|
+| 수익률 | +28.3% | **+42.3%** |
+| Sharpe | 2.84 | **3.74** |
+| Sortino | 4.42 | **6.34** |
+| Calmar | 26.0 | **59.6** |
+| MDD | -14.6% | **-14.0%** |
+| 승률 | 59% | **83%** |
+
+### 변경 위치
+- `select_display_top5()`: MAX_SLOTS 5→3, entry rank 3→5
+- `select_portfolio_stocks()`: top15→top12, max_stocks 5→3
+- `_get_system_performance()`: exit 15→12, slots 5→3, entry 3→5, 손절 제거
+- Signal/Watchlist 범례 텍스트
+- Watchlist 매도 기준선 15→12
+
+### 기타 변경 (v72 세션)
+- Watchlist 매도 기준선 표시 추가 (`── 매도 기준선 ──`)
+- 시장 지수 `러셀2000` → `러셀` (텔레그램 줄바꿈 방지)
