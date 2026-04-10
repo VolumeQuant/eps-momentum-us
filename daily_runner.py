@@ -4257,8 +4257,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         # 어닝 서프/공매도는 Signal 메시지의 AI 내러티브에서 표현 (v69)
         lines.append(' · '.join(rank_parts))
 
+        # 매도 기준선 (15위 아래 = 퇴출 대상)
+        if rank == 15 and num_stocks > 15:
+            lines.append('── 매도 기준선 ──')
         # 점선 구분선
-        if rank < num_stocks:
+        elif rank < num_stocks:
             lines.append('- - - - -')
 
     # ── EPS 추세 둔화 (메인 리스트에서 제외된 종목) ──
