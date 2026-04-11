@@ -3230,9 +3230,16 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
         return result
 
     def _gemini_call(prompt, temperature=0.2, label=""):
-        """Gemini 호출 래퍼 — timeout 60초 + 1회 retry"""
+        """Gemini 호출 래퍼 — flash 3회 재시도 (10→20→40초) + lite fallback
+
+        총 70초 회복 시간. 일시적 503은 대부분 복구됨.
+        4번째 시도는 gemini-2.5-flash-lite (품질 약간 낮음, 시장동향 부정확 가능).
+        """
         import time as _time
-        for _attempt in range(2):
+
+        # 1단계: gemini-2.5-flash 3회 재시도
+        delays = [10, 20, 40]
+        for _attempt in range(3):
             try:
                 old_timeout = socket.getdefaulttimeout()
                 socket.setdefaulttimeout(60)
@@ -3249,12 +3256,33 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
                     socket.setdefaulttimeout(old_timeout)
                 return resp
             except Exception as e:
-                if _attempt == 0:
-                    log(f"AI: {label} 실패 (15초 후 재시도): {e}", "WARN")
-                    _time.sleep(15)
+                if _attempt < 2:
+                    log(f"AI: {label} flash 실패 ({delays[_attempt]}초 후 재시도 {_attempt+1}/3): {e}", "WARN")
+                    _time.sleep(delays[_attempt])
                 else:
-                    raise
-        return None
+                    log(f"AI: {label} flash 3회 실패: {e}", "WARN")
+
+        # 2단계: gemini-2.5-flash-lite로 fallback (품질 낮음, 빠름)
+        log(f"AI: {label} → flash-lite fallback (품질 차이 있을 수 있음)", "WARN")
+        try:
+            old_timeout = socket.getdefaulttimeout()
+            socket.setdefaulttimeout(60)
+            try:
+                resp = client.models.generate_content(
+                    model='gemini-2.5-flash-lite',
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        tools=[grounding_tool],
+                        temperature=temperature,
+                    ),
+                )
+            finally:
+                socket.setdefaulttimeout(old_timeout)
+            log(f"AI: {label} flash-lite 성공", "WARN")
+            return resp
+        except Exception as e:
+            log(f"AI: {label} flash-lite도 실패: {e}", "WARN")
+            raise
 
     def extract_text(resp):
         try:
