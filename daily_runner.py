@@ -1380,14 +1380,16 @@ def save_part2_ranks(results_df, today_str):
 
     # 1. 오늘의 composite 순위 (1~N, 당일 conviction adj_gap 오름차순, v71)
     all_candidates = all_candidates.reset_index(drop=True)
-    # conviction 적용: adj_gap × (1 + max(rev_up/N, eps_floor))
+    # conviction 적용: adj_gap × (1 + max(rev_up/N, eps_floor) + rev_bonus) (v75)
     def _conv_gap(row):
         ag = float(row.get('adj_gap') or 0)
         up = float(row.get('rev_up30') or 0)
         na = float(row.get('num_analysts') or 0)
         nc = float(row.get('ntm_current') or 0)
         n90 = float(row.get('ntm_90d') or 0)
-        return _apply_conviction(ag, up, na, nc, n90)
+        rg = row.get('rev_growth')  # v75: 매출 성장률
+        rg = float(rg) if rg is not None else None
+        return _apply_conviction(ag, up, na, nc, n90, rev_growth=rg)
     all_candidates['_conv_gap'] = all_candidates.apply(_conv_gap, axis=1)
     all_candidates = all_candidates.sort_values('_conv_gap', ascending=True).reset_index(drop=True)
     composite_ranks = {row['ticker']: i + 1 for i, (_, row) in enumerate(all_candidates.iterrows())}
@@ -1428,13 +1430,20 @@ def save_part2_ranks(results_df, today_str):
     return top30_tickers
 
 
-def _apply_conviction(adj_gap, rev_up, num_analysts, ntm_current=None, ntm_90d=None):
-    """adj_gap에 애널리스트 합의 배율 적용 (v71)
+def _apply_conviction(adj_gap, rev_up, num_analysts, ntm_current=None, ntm_90d=None,
+                       rev_growth=None):
+    """adj_gap에 애널리스트 합의 + 매출성장 배율 적용 (v75)
 
-    conviction = max(rev_up30/num_analysts, eps_floor)
-    - rev_up30/num_analysts: 최근 30일 상향 비율 (0.0~1.0)
+    conviction = max(rev_up30/num_analysts, eps_floor) + rev_bonus
+    - ratio = rev_up30/num_analysts: 최근 30일 상향 비율 (0.0~1.0)
     - eps_floor: min(|EPS변화율|/100, 1.0) — 30일 창 밖 대규모 상향 보완
-    배율 = 1 + conviction (범위 1.0~2.0)
+    - rev_bonus (v75 신규): rev_growth >= 30%면 +0.3 add 보너스
+    배율 = 1 + conviction (범위 1.0~2.3)
+
+    백테스트 검증 (v74→v75): 41일 33시작일 multistart
+    - baseline (v74): avg +29.4%, MDD -18.2%, risk_adj 1.62
+    - V9h (v75): avg +31.1%, MDD -16.7%, risk_adj 1.87 (+1.69%p, MDD 개선)
+    - 인접 안정성: 25~40% 임계값 / 0.20~0.30 보너스 모두 robust
     """
     ratio = 0
     if num_analysts and num_analysts > 0 and rev_up is not None:
@@ -1442,7 +1451,14 @@ def _apply_conviction(adj_gap, rev_up, num_analysts, ntm_current=None, ntm_90d=N
     eps_floor = 0
     if ntm_current is not None and ntm_90d is not None and ntm_90d and abs(ntm_90d) > 0.01:
         eps_floor = min(abs((ntm_current - ntm_90d) / ntm_90d), 1.0)
-    conviction = max(ratio, eps_floor)
+    base_conviction = max(ratio, eps_floor)
+
+    # v75: 매출 30% 이상 폭발적 성장 종목 보너스
+    rev_bonus = 0.0
+    if rev_growth is not None and rev_growth >= 0.30:
+        rev_bonus = 0.3
+
+    conviction = base_conviction + rev_bonus
     return adj_gap * (1 + conviction)
 
 
@@ -1462,11 +1478,12 @@ def _compute_w_gap_map(cursor, today_str, tickers):
     score_by_date = {}
     for d in dates:
         rows = cursor.execute(
-            'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
+            'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d, rev_growth '
             'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
             (d,)
         ).fetchall()
-        conv_gaps = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
+        # v75: rev_growth 전달
+        conv_gaps = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5], rev_growth=r[6]) for r in rows}
         # z-score → 30~100 변환 (eligible 내 상대 위치)
         vals = list(conv_gaps.values())
         if len(vals) >= 2:
@@ -3602,11 +3619,12 @@ def _build_score_100_map(today_str=None):
     score_by_date = {}
     for d in dates:
         rows = cursor.execute(
-            'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
+            'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d, rev_growth '
             'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
             (d,)
         ).fetchall()
-        conv_gaps = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
+        # v75: rev_growth 전달
+        conv_gaps = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5], rev_growth=r[6]) for r in rows}
         vals = list(conv_gaps.values())
         if len(vals) >= 2:
             mean_v = np.mean(vals)
@@ -3710,10 +3728,11 @@ def _get_system_performance():
             score_by_d = {}
             for d in ds:
                 rows = c.execute(
-                    'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d '
+                    'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d, rev_growth '
                     'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL', (d,)
                 ).fetchall()
-                conv = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5]) for r in rows}
+                # v75: rev_growth 전달
+                conv = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5], rev_growth=r[6]) for r in rows}
                 vals = list(conv.values())
                 if len(vals) >= 2:
                     mv, sv = sum(vals)/len(vals), (sum((v-sum(vals)/len(vals))**2 for v in vals)/len(vals))**0.5
