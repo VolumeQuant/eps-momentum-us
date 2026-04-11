@@ -4812,8 +4812,8 @@
     "industry": "자본시장"
   },
   "SNN": {
-    "shortName": "SNN",
-    "industry": "기타"
+    "shortName": "Smith & Nephew SNATS, Inc.",
+    "industry": "의료기기"
   },
   "SOBO": {
     "shortName": "South Bow Corporation",
@@ -5418,5 +5418,13 @@
   "PKX": {
     "shortName": "PKX",
     "industry": "기타"
+  },
+  "ALAB": {
+    "shortName": "Astera Labs, Inc.",
+    "industry": "반도체"
+  },
+  "FMS": {
+    "shortName": "Fresenius Medical Care AG",
+    "industry": "의료시설"
   }
 }

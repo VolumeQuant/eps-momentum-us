@@ -1403,7 +1403,10 @@ def save_part2_ranks(results_df, today_str):
             (crank, today_str, ticker)
         )
 
-    # 2. w_gap(3일 가중 adj_gap) 기준 Top 30 → part2_rank (v58)
+    # 2. w_gap(3일 가중 z-score) 기준 Top 30 → part2_rank
+    #    v73 percentile rank 시도 → 40일 백테스트에서 -8.6%p 열세로 롤백
+    #    이유: conviction 배율(_apply_conviction)이 만든 magnitude 신호를
+    #         percentile은 압축해서 버림 (자기모순). z-score는 magnitude 보존.
     eligible_tickers = list(composite_ranks.keys())
     wgap_map = _compute_w_gap_map(cursor, today_str, eligible_tickers)
     sorted_by_wgap = sorted(eligible_tickers, key=lambda tk: wgap_map.get(tk, 0), reverse=True)
@@ -1503,6 +1506,53 @@ def _compute_w_gap_map(cursor, today_str, tickers):
                 score = _carry_forward(tk, i)
             wg += score * weights[i]
         result[tk] = wg
+    return result
+
+
+def _compute_weighted_rank_map(cursor, today_str, tickers):
+    """[DEPRECATED 2026-04 — 연구용, production 미사용]
+    v73 percentile rank 변형. 40일 백테스트에서 z-score 대비 -8.6%p 열세로 롤백.
+    원인: conviction 배율(_apply_conviction)이 만든 magnitude 신호를 percentile이
+    압축해서 버림. 미래 A/B shadow 테스트용으로만 보존.
+
+    3일 가중 순위(percentile rank) 계산 — composite_rank 기반
+    Returns: {ticker: float(weighted_rank)} — 값이 작을수록 상위
+    """
+    dates = _get_recent_dates(cursor, 'composite_rank', today_str, 3)
+    dates = sorted(dates)  # 오래된 순
+
+    weights = [0.2, 0.3, 0.5]  # T-2, T-1, T0
+    if len(dates) == 2:
+        weights = [0.4, 0.6]
+    elif len(dates) == 1:
+        weights = [1.0]
+
+    # 일별 composite_rank 수집
+    rank_by_date = {}
+    n_by_date = {}
+    for d in dates:
+        rows = cursor.execute(
+            'SELECT ticker, composite_rank FROM ntm_screening '
+            'WHERE date=? AND composite_rank IS NOT NULL',
+            (d,)
+        ).fetchall()
+        rank_by_date[d] = {r[0]: r[1] for r in rows}
+        n_by_date[d] = len(rows) if rows else 1
+
+    result = {}
+    for tk in tickers:
+        wr = 0
+        for i, d in enumerate(dates):
+            rank = rank_by_date.get(d, {}).get(tk)
+            if rank is not None:
+                n = n_by_date[d]
+                # percentile rank: (rank-1)/(N-1), 0=최상위, 1=최하위
+                pct = (rank - 1) / max(n - 1, 1)
+                wr += pct * weights[i]
+            else:
+                # 미존재 = 최하위 + 페널티 (carry-forward 방지)
+                wr += 1.1 * weights[i]
+        result[tk] = wr
     return result
 
 
@@ -2663,7 +2713,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         hist_all=None):
     """Signal 메시지용 종목 선정 (v72: w_gap 순위 Top5 + min_seg ≥ 0%, 최대 3종목)
 
-    part2_rank(w_gap 기반) 상위 5종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
+    part2_rank(w_gap 기반) 상위 3종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
     이탈선: part2_rank > 12. 최대 3슬롯.
     """
     if earnings_map is None:
@@ -2707,8 +2757,10 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                  for _, row in candidates.head(7).iterrows()]
     log(f"w_gap 순위 상위 7: {top_debug}")
 
-    # v72: part2_rank 순서대로 3종목 채울 때까지 탐색 (Top5 상한)
+    # part2_rank 순서대로 3종목 채울 때까지 탐색 (Top3 상한)
+    # 2026-04 변경: Top5 → Top3 (40일 백테스트에서 동일 수익이지만 집중도 향상)
     MAX_SLOTS = 3
+    ENTRY_THRESHOLD = 3
     selected = []
     for _, row in candidates.iterrows():
         if len(selected) >= MAX_SLOTS:
@@ -2716,8 +2768,8 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
         t = row['ticker']
         p2r = p2r_map.get(t, 999)
 
-        # Top5만 진입 — 슬롯 3개는 여러 날에 걸쳐 누적
-        if p2r > 5:
+        # Top3만 진입 — 슬롯 3개는 여러 날에 걸쳐 누적
+        if p2r > ENTRY_THRESHOLD:
             break
 
         # v71: 3일 검증(✅) 필수 — 🆕/⏳ 종목은 Signal에서 제외
@@ -3949,7 +4001,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 상위 5종목, 최대 3종목 보유')
+    lines.append('매수: 상위 3종목, 최대 3종목 보유')
     lines.append('매도: 12위 밖 or 실적하락')
 
     return '\n'.join(lines)
@@ -4282,7 +4334,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 상위 5종목, 최대 3종목 보유')
+    lines.append('매수: 상위 3종목, 최대 3종목 보유')
     lines.append('매도: 12위 밖 or 실적하락')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
