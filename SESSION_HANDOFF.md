@@ -4447,3 +4447,116 @@ else:              eps_q = 0.7  # 한 구간이라도 꺾임
 ### 기타 변경 (v72 세션)
 - Watchlist 매도 기준선 표시 추가 (`── 매도 기준선 ──`)
 - 시장 지수 `러셀2000` → `러셀` (텔레그램 줄바꿈 방지)
+
+
+## v73 percentile rank 시도 → 롤백 (2026-04-11)
+
+### 배경
+- TTMI 사례: +13% 폭등으로 adj_gap -1.97 → +21.27 → composite_rank 6→28 → Top20 탈락
+- 가설: z-score가 극단 adj_gap에 취약 → percentile rank로 변경하면 magnitude loss 없이 robust
+
+### 시도
+- `_compute_w_gap_map`을 z-score(30~100) → composite_rank percentile 가중으로 변경
+- `_build_score_100_map`도 동일하게 변경
+- 추가: NTM 절벽 감지 (인접 NTM 비율 > 2.5x면 해당 lookback 제외) — SNDK 같은 스핀오프 데이터 결함 방어 목적
+
+### 결과 (40일 백테스트)
+| 변형 | 평균 수익 | 차이 |
+|------|---------|-----|
+| v71 (z-score) E5/X12/S3 | +32.3% | baseline |
+| v73 (percentile) E5/X12/S3 | +23.7% | **-8.6%p** |
+
+### 원인
+- conviction 배율(`_apply_conviction`)이 만든 magnitude 신호를 percentile이 압축해서 버림 (자기모순)
+- SNDK rank 3은 거짓 시그널이 아니었음 — 실제 559% 슈퍼위너의 진짜 진입점
+- 절벽 감지 적용 시 SNDK가 처음부터 진입 못 함 → 큰 알파 손실
+
+### 롤백
+- `save_part2_ranks`: `_compute_w_gap_map` (z-score 방식) 복원
+- `_build_score_100_map`: z-score 방식 복원
+- 절벽 감지 코드 제거 (메인 + carry-forward 두 곳)
+- `_compute_weighted_rank_map`: 보존, deprecated 주석 (미래 A/B 테스트용)
+
+
+## v74: E3/X11/S3 + Breakout Hold strict (2026-04-11)
+
+### 배경
+- v73 롤백 후, 진짜 robust한 개선 찾기 위해 41일 데이터로 정밀 검증
+- 핵심 인사이트: 41일 데이터에서는 walk-forward보다 multistart가 더 신뢰
+
+### 검증 방법
+1. 파라미터 그리드 (E×X×S 12개 조합)
+2. Multistart (33개 시작일)
+3. 인접 안정성 (26개 인접 변형)
+4. Walk-Forward (5개 train/test split)
+5. Conviction 변형 (없음/현재/강화)
+6. Breakout Hold (4가지 조건)
+7. 모든 metric: CAGR/Sharpe/Sortino/Calmar/MDD/PF/위험조정
+
+### 핵심 발견
+
+**1. CAGR 환산은 노이즈** — 41일 → 252일 환산하면 극단값 발생 (S1 변형 +9679% CAGR로 보임). 41일 raw return으로 비교 필수.
+
+**2. S1 (몰빵)은 함정** — 평균 +28% 비슷하지만 worst MDD -25.9%로 위험조정 꼴찌(1.09). 슈퍼위너 100% 잡은 결과지 robust 아님.
+
+**3. Strong conviction 효과 0** — 이중확증(ratio≥0.5 AND eps_floor≥1.0) 조건 만족 종목 0.8%만 발생. 그 22건도 모두 SNDK 같은 이미 1위 종목이라 추가 boost 무의미.
+
+**4. Conviction 자체는 가치 있음** — 제거 시 모든 baseline에서 -1.6 ~ -3.0%p 손실 일관.
+
+**5. Strict Hold이 진짜 효과** — 첫 단일 시뮬에서 트리거 0회였지만, multistart로 보면 평균 0.88회/시작일 트리거, +5.4%p 평균 향상, MDD 악화 없음.
+
+**6. moderate/loose Hold은 역효과** — 조건 너무 관대해서 false positive 발생, 손실.
+
+### 변경
+| 파라미터 | v72 | v74 |
+|---------|-----|-----|
+| 진입 | part2_rank ≤ 5 | part2_rank ≤ **3** |
+| 퇴출 | part2_rank > 12 | part2_rank > **11** |
+| 슬롯 | 최대 3 | 최대 3 (유지) |
+| Conviction | 1~2배 | 1~2배 (유지) |
+| **Breakout Hold** | 없음 | **strict** (신규) |
+
+### Breakout Hold (strict) 조건
+모두 만족 시 매도 신호에서 2일 유예:
+1. 최근 20거래일 종가 +25% 이상
+2. ntm_90d → ntm_current 순방향 (EPS 동행)
+3. rev_up30 / num_analysts >= 0.4 (애널리스트 합의)
+4. 현재가 > MA60
+
+### 성과 비교 (33개 시작일 multistart)
+| 지표 | A (현재 v72) | v74 (E3/X11/S3 + strict) | 차이 |
+|------|------------|------------------------|------|
+| 평균 수익 | +22.58% | **+31.59%** | +9.01%p |
+| 중앙값 | +22.50% | +32.51% | +10.01%p |
+| 최저 | +4.08% | +9.18% | +5.10%p |
+| MDD 평균 | -11.44% | -11.67% | -0.23%p |
+| **MDD 최악** | -18.16% | **-18.16%** | **동일** |
+| Sharpe | 4.80 | **6.37** | +1.57 |
+| Sortino | 4.98 | 6.27 | +1.29 |
+| 위험조정 | 1.24 | **1.74** | +0.50 |
+| 양의 수익률 | 100% | **100%** | - |
+
+**MDD 악화 없이 평균 +9.01%p 향상**.
+
+### 검증 한계 명시
+- 41일 백테스트의 본질적 한계 (60일+ 데이터 후 재검증 필요)
+- Sim 100% 정확성 본질적 불가 (78% Top3 일치) — v71 도입 시점 차이 때문, 차분 측정으로 우회
+- Walk-forward 검증기간 6~26일로 짧음
+- Breakout Hold 자동 보유 추적 미구현 — 메시지 ⏸️ 마커로 표시, 사용자 수동 매매
+
+### 변경 위치
+- `daily_runner.py:select_display_top5()`: ENTRY_THRESHOLD 5→3 (이미 적용됨)
+- `daily_runner.py:select_portfolio_stocks()`: top12_tickers → top11_tickers (3곳)
+- `daily_runner.py:check_breakout_hold()`: 신규 함수 추가
+- `daily_runner.py:classify_exit_reasons()`: hold 조건 만족 시 `⏸️유예` 마커 추가
+- `daily_runner.py`: 메시지 텍스트 "12위 밖" → "11위 밖" (2곳)
+- `daily_runner.py`: Watchlist 매도 기준선 rank 12→11
+- `daily_runner.py`: 운영 규칙 메시지에 `⏸️: 강한 상승 추세 시 2일 매도 유예` 추가
+
+### 백테스트 인프라 (v74 세션 신규)
+- `bt_engine.py`: 통합 시뮬레이션 엔진
+- `bt_metrics.py`: CAGR/Sharpe/Sortino/Calmar 계산기
+- `backtest_v3.py`: regenerate_part2_with_conviction (DB 복사본 + monkey-patch)
+- `v74_results_export.py`: 채택안 일자별 결과 CSV 출력
+- `backtest_v6_winner.py`: 최종 후보 정밀 검증
+- `backtest_final_summary.py`: 최종 결과 요약

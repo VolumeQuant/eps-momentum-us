@@ -2714,7 +2714,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     """Signal 메시지용 종목 선정 (v72: w_gap 순위 Top5 + min_seg ≥ 0%, 최대 3종목)
 
     part2_rank(w_gap 기반) 상위 3종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
-    이탈선: part2_rank > 12. 최대 3슬롯.
+    이탈선: part2_rank > 11. 최대 3슬롯.
     """
     if earnings_map is None:
         earnings_map = {}
@@ -2822,7 +2822,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
 
     전략:
     - 진입: w_gap 순위 Top5, min_seg ≥ 0%, 최대 3종목
-    - 이탈: part2_rank > 12 (w_gap 기준) / min_seg < -2%
+    - 이탈: part2_rank > 11 (w_gap 기준) / min_seg < -2% / breakout hold 조건 시 2일 유예
     - 최대 3종목, 동일 비중
 
     Returns: (selected, portfolio_mode, concordance, final_action)
@@ -2851,16 +2851,16 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
     if top30.empty:
         return [], portfolio_mode, concordance, final_action
 
-    top12_tickers = set(top30.head(12)['ticker'].tolist())
+    top11_tickers = set(top30.head(11)['ticker'].tolist())
 
-    # ── 어제 보유 → Top 12 유지 시 홀드 (v72: 미사용, 참조용) ──
+    # ── 어제 보유 → Top 11 유지 시 홀드 (v74: 미사용, 참조용) ──
     prev_holdings = _get_prev_portfolio(today_str)
 
-    # 1차 이탈: Top 12 밖
-    holds_in_top20 = [t for t in prev_holdings if t in top12_tickers]
-    exited_rank = [t for t in prev_holdings if t not in top12_tickers]
+    # 1차 이탈: Top 11 밖
+    holds_in_top20 = [t for t in prev_holdings if t in top11_tickers]
+    exited_rank = [t for t in prev_holdings if t not in top11_tickers]
     if exited_rank:
-        log(f"  📤 Top12 이탈: {', '.join(exited_rank)}")
+        log(f"  📤 Top11 이탈: {', '.join(exited_rank)}")
 
     # 2차 이탈: min_seg < -2% (EPS 건강도 악화)
     hold_entries = []
@@ -2977,6 +2977,75 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
     return selected, portfolio_mode, concordance, final_action
 
 # ============================================================
+# Breakout Hold (이탈 유예) — v74
+# ============================================================
+
+def check_breakout_hold(ticker):
+    """이탈 유예 조건 체크 (strict)
+
+    조건 (모두 만족):
+      1. 최근 20거래일 종가 +25% 이상
+      2. ntm_90d → ntm_current 순방향 (EPS 동행)
+      3. rev_up30 / num_analysts >= 0.4
+      4. 현재가 > MA60
+
+    Returns: True if hold (이탈 유예), False otherwise
+
+    백테스트 검증 (v74): 평균 +5.4%p 향상, MDD 악화 없음 (33일 multistart).
+    실제 운영에서는 사용자 참고용으로 표시 (자동 보유 추적은 미구현).
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # 최근 21일 가격 + 오늘 NTM/애널/MA60
+        cursor.execute('''
+            SELECT date, price, ma60, ntm_current, ntm_90d, rev_up30, num_analysts
+            FROM ntm_screening WHERE ticker=? ORDER BY date DESC LIMIT 21
+        ''', (ticker,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        if len(rows) < 21:
+            return False
+
+        today_row = rows[0]
+        past_row = rows[20]
+        today_price = today_row[1]
+        past_price = past_row[1]
+
+        if not today_price or not past_price or past_price <= 0:
+            return False
+
+        # 1. 20일 가격 +25%
+        price_chg_20d = (today_price - past_price) / past_price * 100
+        if price_chg_20d < 25:
+            return False
+
+        # 2. ntm_90d → ntm_current 순방향
+        nc = today_row[3]
+        n90 = today_row[4]
+        if not nc or not n90 or n90 <= 0 or nc <= n90:
+            return False
+
+        # 3. rev_up30 / num_analysts >= 0.4
+        rev_up = today_row[5] or 0
+        num_an = today_row[6] or 0
+        if num_an < 1 or (rev_up / num_an) < 0.4:
+            return False
+
+        # 4. price > MA60
+        ma60 = today_row[2]
+        if not ma60 or today_price <= ma60:
+            return False
+
+        return True
+    except Exception as e:
+        log(f"check_breakout_hold {ticker} 오류: {e}", "WARN")
+        return False
+
+
+# ============================================================
 # 이탈 사유 분류 + AI 분석
 # ============================================================
 
@@ -3045,6 +3114,11 @@ def classify_exit_reasons(exited_tickers, results_df):
         else:
             # 어떤 필터에 걸렸는지 특정
             reason = _identify_filter_failure(full_data.get(t), t)
+
+        # v74: Breakout Hold 체크 - 순위밀림/주가선반영이지만 강한 상승 추세면 유예
+        if reason in ('순위밀림', '주가선반영') and check_breakout_hold(t):
+            reason = f'{reason}⏸️유예'
+
         result.append((t, cur_rank, reason))
 
     return result
@@ -4002,7 +4076,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('매수: 상위 3종목, 최대 3종목 보유')
-    lines.append('매도: 12위 밖 or 실적하락')
+    lines.append('매도: 11위 밖 or 실적하락')
 
     return '\n'.join(lines)
 
@@ -4309,8 +4383,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         # 어닝 서프/공매도는 Signal 메시지의 AI 내러티브에서 표현 (v69)
         lines.append(' · '.join(rank_parts))
 
-        # 매도 기준선 (12위 아래 = 퇴출 대상)
-        if rank == 12 and num_stocks > 12:
+        # 매도 기준선 (11위 아래 = 퇴출 대상)
+        if rank == 11 and num_stocks > 11:
             lines.append('── 매도 기준선 ──')
         # 점선 구분선
         elif rank < num_stocks:
@@ -4335,7 +4409,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
     lines.append('매수: 상위 3종목, 최대 3종목 보유')
-    lines.append('매도: 12위 밖 or 실적하락')
+    lines.append('매도: 11위 밖 or 실적하락')
+    lines.append('⏸️: 강한 상승 추세 시 2일 매도 유예')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
     return '\n'.join(lines)
