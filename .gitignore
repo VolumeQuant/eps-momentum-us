@@ -36,3 +36,6 @@ config.json
 # eps_data/  <- 주석처리: CSV 올림
 # *.db       <- 주석처리: DB 올림
 # reports/   <- 주석처리: 리포트 올림
+
+# 임시 백테스트 DB (DB 복사본)
+eps_test*.db

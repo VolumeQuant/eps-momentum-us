@@ -97,9 +97,15 @@ def conv_strong(adj_gap, rev_up, num_analysts, ntm_current, ntm_90d):
 
 
 def recompute_ranks(data, conviction_fn):
-    """conviction 함수로 composite_rank + part2_rank 재계산"""
+    """conviction 함수로 composite_rank + part2_rank 재계산
+
+    중요: tie-break을 conv_gap 원본값으로 함 (sim 정확성 버그 수정)
+    z-score 100 cap에 걸린 종목들의 동점을 conv_gap으로 풀어줌.
+    """
     dates = sorted(data.keys())
     new_score_by_date = {}
+    new_conv_gaps_by_date = {}  # tie-break용
+
     for d in dates:
         ticker_gaps = {}
         for tk, v in data[d].items():
@@ -109,6 +115,8 @@ def recompute_ranks(data, conviction_fn):
                                v['ntm_current'], v['ntm_90d'])
             if cg is not None:
                 ticker_gaps[tk] = cg
+        new_conv_gaps_by_date[d] = ticker_gaps
+
         vals = list(ticker_gaps.values())
         if len(vals) >= 2:
             mean_v = np.mean(vals)
@@ -156,7 +164,12 @@ def recompute_ranks(data, conviction_fn):
                     score = carry(tk, i)
                 ws += score * weights[i]
             wgap_map[tk] = ws
-        sorted_tks = sorted(eligible, key=lambda tk: -wgap_map.get(tk, -999))
+
+        # tie-break: 동점일 때 오늘의 conv_gap이 작은(음수) 순서대로
+        today_conv = new_conv_gaps_by_date.get(today, {})
+        sorted_tks = sorted(eligible,
+                            key=lambda tk: (-wgap_map.get(tk, -999),
+                                            today_conv.get(tk, 0)))
         new_p2[today] = {tk: i + 1 for i, tk in enumerate(sorted_tks[:30])}
     return new_p2
 
