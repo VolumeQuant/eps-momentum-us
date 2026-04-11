@@ -82,6 +82,9 @@
 > **v70**: 2026-03-24 — 슬롯 3→5 확장 + API 안정성 강화. 진입 Top3 유지, 최대 5종목 보유(shrinkage 논리). socket timeout 60초, yf.download retry, hist_all 재사용(시장지수+역변동성+상관관계), NASDAQ API sleep, Gemini timeout+retry. 종목명 캐시 자동 보정. 스케줄: UTC 21:15 = KST 06:15
 > **v71**: 2026-03-30 — RETURN_MATRIX 교정(6,593일). 역변동성→균등비중. 🔗유사도% BFS. conviction: adj_gap×(1+max(up/N, eps_floor)). 일별z-score→3일가중점수(빈날30점). composite_rank=당일순위(추이), part2_rank=3일가중순위(매매). Signal ✅필터. VIX yfinance보완. 선정과정 고객친화. DB 32일 재계산
 > **v71.1**: 2026-04-02 — carry-forward 버그 수정 + 수집 안정화. (1) forward 탐색 제거(3곳) — 신규 종목이 미래 점수 복사로 3일 패널티 우회하던 버그(4/1 Top20 중 10개 신규 유입→기존 11개 대량 이탈 사고). (2) 수집 실패 Top30 carry-forward row 삽입 — 전일 EPS+오늘 가격으로 adj_gap 재계산(TTMI rank2 증발 방지). (3) rate limit 완화 — 5→3스레드, 배치50→30, 대기0.5→1.5s(요청속도 14→7 req/s). (4) 🛒→📡 header 복원(v45 프레이밍 퇴행)
+> **v74**: 2026-04-11 — E3/X11/S3 + Breakout Hold strict. 진입 Top3, 이탈 Top11, 매도 신호 시 4조건 모두 만족하면 2일 유예 (+5.4%p 알파, MDD 동일)
+> **v75**: 2026-04-11 — 매출 성장 보너스 (V9h). conviction에 `+0.3 if rev_growth ≥ 30%` add. 광범위 신호 11종 비교에서 rev_only가 최선 (+1.84%p, fair 검증). 전 일자 part2_rank 재계산. 5월 초 60일 데이터 후 부호 결함/N<3 재검증 예정
+> **v75 검증**: 2026-04-11 저녁 — V75 부호 결함 + N<3 필터 종합 검증. (1) 부호 결함 5개 변형(A/B/D) 비교 → V75가 최선 (양수 adj_gap 자동 차별이 알파의 일부, 결함이 아니라 feature). (2) N<3 필터: N≥1 -4.32%p, N≥2 +0.06%p 노이즈 → 현재 N≥3 유지. (3) FTAI 실제 -16.76% 손실 → boundary 종목 살리는 건 잘못된 가설. **production 변경 0건**
 
 ---
 

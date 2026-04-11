@@ -39,3 +39,10 @@ config.json
 
 # 임시 백테스트 DB (DB 복사본)
 eps_test*.db
+
+# DB 백업 (마이그레이션 전 스냅샷)
+eps_momentum_data.db.*backup*
+eps_momentum_data.db.before_*
+
+# 임시 로그
+wf_log.txt
