@@ -4492,24 +4492,24 @@
     "industry": "기타"
   },
   "MKTX": {
-    "shortName": "MKTX",
-    "industry": "기타"
+    "shortName": "MarketAxess Holdings, Inc.",
+    "industry": "자본시장"
   },
   "MOD": {
     "shortName": "Modine Manufacturing Company",
     "industry": "자동차부품"
   },
   "MPLX": {
-    "shortName": "MPLX",
-    "industry": "기타"
+    "shortName": "MPLX LP",
+    "industry": "석유미드스트림"
   },
   "MRCY": {
     "shortName": "MRCY",
     "industry": "기타"
   },
   "MRP": {
-    "shortName": "MRP",
-    "industry": "기타"
+    "shortName": "Millrose Properties, Inc.",
+    "industry": "리츠주거"
   },
   "MSGS": {
     "shortName": "MSGS",
@@ -4612,8 +4612,8 @@
     "industry": "의료시설"
   },
   "PBA": {
-    "shortName": "PBA",
-    "industry": "기타"
+    "shortName": "Pembina Pipeline Corp.",
+    "industry": "석유미드스트림"
   },
   "PBR": {
     "shortName": "Petroleo Brasileiro S.A. Petrob",
@@ -4624,8 +4624,8 @@
     "industry": "바이오"
   },
   "PHG": {
-    "shortName": "PHG",
-    "industry": "기타"
+    "shortName": "Koninklijke Philips N.V. NY Reg",
+    "industry": "의료기기"
   },
   "PHI": {
     "shortName": "PHI",
@@ -4652,16 +4652,16 @@
     "industry": "건설"
   },
   "PRMB": {
-    "shortName": "PRMB",
-    "industry": "기타"
+    "shortName": "Primo Brands Corporation",
+    "industry": "음료"
   },
   "PTGX": {
     "shortName": "Protagonist Therapeutics, Inc.",
     "industry": "바이오"
   },
   "PUK": {
-    "shortName": "PUK",
-    "industry": "기타"
+    "shortName": "Prudential Public Limited Compa",
+    "industry": "생명보험"
   },
   "QGEN": {
     "shortName": "QGEN",
@@ -4752,8 +4752,8 @@
     "industry": "대형은행"
   },
   "SANM": {
-    "shortName": "SANM",
-    "industry": "기타"
+    "shortName": "Sanmina Corporation",
+    "industry": "전자부품"
   },
   "SBS": {
     "shortName": "Companhia de saneamento Basico ",
@@ -4868,8 +4868,8 @@
     "industry": "산업금속"
   },
   "TEVA": {
-    "shortName": "TEVA",
-    "industry": "기타"
+    "shortName": "Teva Pharmaceutical Industries ",
+    "industry": "특수제약"
   },
   "TFII": {
     "shortName": "TFI International Inc.",
@@ -4904,8 +4904,8 @@
     "industry": "리츠산업"
   },
   "TRP": {
-    "shortName": "TRP",
-    "industry": "기타"
+    "shortName": "TC Energy Corporation",
+    "industry": "석유미드스트림"
   },
   "TS": {
     "shortName": "Tenaris S.A.",
@@ -5040,8 +5040,8 @@
     "industry": "물류"
   },
   "ZWS": {
-    "shortName": "ZWS",
-    "industry": "기타"
+    "shortName": "Zurn Elkay Water Solutions Corp",
+    "industry": "환경"
   },
   "VALE": {
     "shortName": "VALE S.A.",
@@ -5064,8 +5064,8 @@
     "industry": "기타"
   },
   "CRSP": {
-    "shortName": "CRSP",
-    "industry": "기타"
+    "shortName": "CRISPR Therapeutics AG",
+    "industry": "바이오"
   },
   "CZR": {
     "shortName": "CZR",
@@ -5092,8 +5092,8 @@
     "industry": "기타"
   },
   "SIRI": {
-    "shortName": "SIRI",
-    "industry": "기타"
+    "shortName": "SiriusXM Holdings Inc.",
+    "industry": "엔터"
   },
   "TFX": {
     "shortName": "Teleflex Incorporated",
@@ -5276,8 +5276,8 @@
     "industry": "기타"
   },
   "KMX": {
-    "shortName": "KMX",
-    "industry": "기타"
+    "shortName": "CarMax Inc",
+    "industry": "자동차딜러"
   },
   "ONDS": {
     "shortName": "ONDS",
@@ -5372,8 +5372,8 @@
     "industry": "기타"
   },
   "JD": {
-    "shortName": "JD",
-    "industry": "기타"
+    "shortName": "JD.com, Inc.",
+    "industry": "온라인유통"
   },
   "LI": {
     "shortName": "Li Auto Inc.",
@@ -5416,8 +5416,8 @@
     "industry": "기타"
   },
   "PKX": {
-    "shortName": "PKX",
-    "industry": "기타"
+    "shortName": "POSCO Holdings Inc.",
+    "industry": "철강"
   },
   "ALAB": {
     "shortName": "Astera Labs, Inc.",
@@ -5426,5 +5426,21 @@
   "FMS": {
     "shortName": "Fresenius Medical Care AG",
     "industry": "의료시설"
+  },
+  "ICL": {
+    "shortName": "ICL",
+    "industry": "기타"
+  },
+  "PIPR": {
+    "shortName": "Piper Sandler Companies",
+    "industry": "자본시장"
+  },
+  "UBS": {
+    "shortName": "UBS Group AG Registered",
+    "industry": "대형은행"
+  },
+  "UHAL": {
+    "shortName": "UHAL",
+    "industry": "기타"
   }
 }
