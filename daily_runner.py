@@ -3461,6 +3461,9 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
                     log(f"AI: 내러티브 resp 디버그 실패: {dbg_e}")
             text = extract_text(resp) if resp else None
             if text:
+                # 디버그: raw 텍스트 앞 500자 (파싱 실패 원인 추적)
+                raw_preview = text[:500].replace('\n', '\\n')
+                log(f"AI: 내러티브 raw[:500]={raw_preview}")
                 # 마크다운 볼드 제거
                 text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
                 text = re.sub(r'#{1,3}\s*', '', text)
@@ -3487,7 +3490,17 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
                         if narrative:
                             result['narratives'][ticker] = narrative
 
-                log(f"AI: 내러티브 {len(result['narratives'])}종목")
+                parsed_n = len(result['narratives'])
+                expected_n = len(selected)
+                if parsed_n == 0:
+                    log(f"AI: 내러티브 파싱 0종목 (요청 {expected_n}종목) — Signal 메시지에서 생략됨", "WARN")
+                elif parsed_n < expected_n:
+                    got = set(result['narratives'].keys())
+                    want = {s['ticker'] for s in selected}
+                    missing = want - got
+                    log(f"AI: 내러티브 {parsed_n}/{expected_n}종목 파싱 — 누락: {','.join(sorted(missing))}", "WARN")
+                else:
+                    log(f"AI: 내러티브 {parsed_n}종목")
             else:
                 log("AI: 내러티브 Gemini 응답 없음", "WARN")
         except Exception as e:
