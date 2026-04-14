@@ -3520,15 +3520,64 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
                         if narrative:
                             result['narratives'][ticker] = narrative
 
-                parsed_n = len(result['narratives'])
+                expected_tickers = {s['ticker'] for s in selected}
+                parsed_n = sum(1 for t in result['narratives'] if t in expected_tickers)
                 expected_n = len(selected)
+
+                # 파싱 불완전 시 누락 종목만 재요청 (1회)
+                missing = expected_tickers - set(result['narratives'].keys())
+                if missing and parsed_n < expected_n:
+                    log(f"AI: 내러티브 1차 {parsed_n}/{expected_n} — 누락 {','.join(sorted(missing))} 재요청", "WARN")
+                    missing_selected = [s for s in selected if s['ticker'] in missing]
+                    # 누락 종목만 포함한 stock_lines 재생성
+                    retry_lines = []
+                    for i, s in enumerate(missing_selected):
+                        rev = _safe_float(s.get('rev_growth'))
+                        gap = _safe_float(s.get('adj_gap'))
+                        retry_lines.append(
+                            f"{i+1}. {s['name']}({s['ticker']}) · {s['industry']}\n"
+                            f"   EPS {s['eps_chg']:+.1f}% · 매출 {rev:+.0%} · 괴리 {gap:+.1f}%"
+                        )
+                    retry_prompt = (f"""아래 {len(missing_selected)}종목 각각에 대해 Google 검색해서 종목 브리핑을 써줘.
+
+[종목]
+{chr(10).join(retry_lines)}
+
+[필수 형식] 반드시 `TICKER: 설명` 으로 시작. 종목 사이는 [SEP] 로 구분.
+예: {missing_selected[0]['ticker']}: 설명... [SEP] ...
+
+[내용 규칙]
+- 종목당 2~3문장(150~200자), 실적 성장 배경 + 최근 뉴스
+- 회사명은 티커만 써
+- 한국어 ~입니다 체, 서두/맺음말 금지""")
+                    resp2 = _gemini_call(retry_prompt, temperature=0.3, label="종목내러티브재시도")
+                    text2 = extract_text(resp2) if resp2 else None
+                    if text2:
+                        raw2 = text2[:500].replace('\n', '\\n')
+                        log(f"AI: 내러티브 재시도 raw[:500]={raw2}")
+                        text2 = re.sub(r'\*\*(.+?)\*\*', r'\1', text2).replace('[SEP]', '\n')
+                        text2 = re.sub(r'#{1,3}\s*', '', text2)
+                        for line in text2.split('\n'):
+                            line = line.strip()
+                            if not line:
+                                continue
+                            m = re.match(r'(?:\d+\.\s*)?(?:-\s*)?([A-Z]{1,5})[\s:：]+(.{10,})', line)
+                            if not m:
+                                m2 = re.match(r'.*?\(([A-Z]{1,5})\)[\s:：]+(.{10,})', line)
+                                if m2:
+                                    m = m2
+                            if m:
+                                tk = m.group(1)
+                                nar = re.sub(r'^[:\s]+', '', m.group(2).strip())
+                                if nar and tk in missing:
+                                    result['narratives'][tk] = nar
+                    parsed_n = sum(1 for t in result['narratives'] if t in expected_tickers)
+
                 if parsed_n == 0:
                     log(f"AI: 내러티브 파싱 0종목 (요청 {expected_n}종목) — Signal 메시지에서 생략됨", "WARN")
                 elif parsed_n < expected_n:
-                    got = set(result['narratives'].keys())
-                    want = {s['ticker'] for s in selected}
-                    missing = want - got
-                    log(f"AI: 내러티브 {parsed_n}/{expected_n}종목 파싱 — 누락: {','.join(sorted(missing))}", "WARN")
+                    final_missing = expected_tickers - set(result['narratives'].keys())
+                    log(f"AI: 내러티브 최종 {parsed_n}/{expected_n}종목 — 최종 누락: {','.join(sorted(final_missing))}", "WARN")
                 else:
                     log(f"AI: 내러티브 {parsed_n}종목")
             else:
