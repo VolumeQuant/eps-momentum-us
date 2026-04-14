@@ -1070,17 +1070,35 @@ def fetch_revenue_growth(df, today_str):
             ''', (t, today_str, today_str)).fetchone()
             if row:
                 rg, om, gm = row
+                rev_filled = om_filled = gm_filled = False
                 if rev_map.get(t) is None and rg is not None:
                     rev_map[t] = rg
                     filled_rev += 1
+                    rev_filled = True
                 if om_map.get(t) is None and om is not None:
                     om_map[t] = om
                     filled_om += 1
+                    om_filled = True
                 if gm_map.get(t) is None and gm is not None:
                     gm_map[t] = gm
                     filled_gm += 1
+                    gm_filled = True
+                # v77: fallback 값을 오늘 DB row에도 UPDATE
+                #      → 다음날 이후 조회에서 NULL 체인 방지 (GMED 4/14 사례)
+                if rev_filled or om_filled or gm_filled:
+                    cur2.execute('''
+                        UPDATE ntm_screening SET
+                            rev_growth = COALESCE(rev_growth, ?),
+                            operating_margin = COALESCE(operating_margin, ?),
+                            gross_margin = COALESCE(gross_margin, ?)
+                        WHERE date=? AND ticker=?
+                    ''', (rg if rev_filled else None,
+                          om if om_filled else None,
+                          gm if gm_filled else None,
+                          today_str, t))
+        conn2.commit()
         conn2.close()
-        log(f"DB 캐시 fallback: rev_growth {filled_rev}개, op_margin {filled_om}개, gross_margin {filled_gm}개 (최근 7일 값)")
+        log(f"DB 캐시 fallback: rev_growth {filled_rev}개, op_margin {filled_om}개, gross_margin {filled_gm}개 (최근 7일 값, DB에도 UPDATE)")
 
     df['rev_growth'] = df['ticker'].map(rev_map)
     df['operating_margin'] = df['ticker'].map(om_map)
@@ -1535,22 +1553,19 @@ def _compute_w_gap_map(cursor, today_str, tickers):
     elif len(dates) == 1:
         weights = [1.0]
 
-    def _carry_forward(tk, date_idx):
-        """빈 날 → 직전(과거) 가용 점수 이월, 없으면 MISSING_PENALTY.
-        forward ��색 금지 — 신규 종목이 미래 점수를 복사받아 3일 패널티를 우회하는 버그 방지."""
-        for j in range(date_idx - 1, -1, -1):
-            prev = score_by_date.get(dates[j], {}).get(tk)
-            if prev is not None:
-                return prev
-        return MISSING_PENALTY
-
+    # v77 (2026-04-15): carry-forward 제거.
+    # 이전: 필터탈락 날이 있어도 과거 점수 이월 → 🆕 종목이 비정상적으로 상위 진입
+    # 예: FAF 4/13 MA120 일시 이탈(-0.03%)로 필터탈락 → 4/14 복귀 시
+    #      4/10 점수 이월받아 rank 3위 (🆕 상태인데 Top 3) — UI 모순
+    # 현재: 빈 날은 무조건 MISSING_PENALTY(30점). 🆕 = w_gap 낮음 일관성 확보.
+    # 재무 수집 실패 방어는 _fetch_one()의 DB 캐시 fallback이 담당.
     result = {}
     for tk in tickers:
         wg = 0
         for i, d in enumerate(dates):
             score = score_by_date.get(d, {}).get(tk)
             if score is None:
-                score = _carry_forward(tk, i)
+                score = MISSING_PENALTY
             wg += score * weights[i]
         result[tk] = wg
     return result

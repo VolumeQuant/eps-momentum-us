@@ -86,6 +86,7 @@
 > **v75**: 2026-04-11 — 매출 성장 보너스 (V9h). conviction에 `+0.3 if rev_growth ≥ 30%` add. 광범위 신호 11종 비교에서 rev_only가 최선 (+1.84%p, fair 검증). 전 일자 part2_rank 재계산. 5월 초 60일 데이터 후 부호 결함/N<3 재검증 예정
 > **v75 검증**: 2026-04-11 저녁 — V75 부호 결함 + N<3 필터 종합 검증. (1) 부호 결함 5개 변형(A/B/D) 비교 → V75가 최선 (양수 adj_gap 자동 차별이 알파의 일부, 결함이 아니라 feature). (2) N<3 필터: N≥1 -4.32%p, N≥2 +0.06%p 노이즈 → 현재 N≥3 유지. (3) FTAI 실제 -16.76% 손실 → boundary 종목 살리는 건 잘못된 가설. **production 변경 0건**
 > **v76**: 2026-04-14 — (1) AI 내러티브 raw 500자 덤프 + 파싱 누락 WARN 로깅 (4/13 flash-lite 1/3 파싱 원인 추적용, 3505d6a). (2) 재무 필드 DB 캐시 fallback — yfinance `.info` 수집률이 run마다 17~99% 편차. 재무 데이터(rev_growth/op_margin/gross_margin)는 분기 발표라 최근 7일 DB 값이 유효. 오늘 수집 실패 종목은 자동으로 DB 직전값 사용해 Top 20 안정화 (cb6fc3d). (3) BT 결과: MISSING_PENALTY 그리드(20~50) 43일 BT에서 차이 0 (실거래 6건이 모두 Top 5 이내 강한 종목이라 T-2 penalty 영향 없음). AROC 룰(n≥3/dn≥2) BT는 43일 + NULL 낙관/비관 상반 결과로 의사결정 불가 → 현 룰 유지. EPS 수집(매일 바뀜)은 문제 없음, `.info` 분기 재무만 불안정
+> **v77**: 2026-04-15 — carry-forward 제거 + fallback DB UPDATE. **원인**: 4/14에 FAF가 🆕 상태인데 part2_rank 3위로 표시 (4/13 MA120 일시 이탈 필터탈락 → 4/14 복귀). carry-forward가 4/13 빈 날에 4/10 점수를 이월해서 쓴 결과로 w_gap 78.57 → rank 3. UI("🆕"=검증 안 됨)와 로직(rank 3) 모순. **변경**: (1) `_carry_forward` 제거 → 빈 날 무조건 30점. (2) fallback 값을 in-memory만 채우던 버그 수정 — DB에도 UPDATE (GMED 4/14 전체 재무 NULL 사례. 다음날 NULL 체인 방지). **검증**: 44일 BT에서 option A(현행) vs option B(제거) 완전 동일 성과 (거래 9건, 누적 45.59%, Sharpe 4.61). 실거래 종목들이 모두 Top 3 이내 강한 종목이라 carry-forward 필요 없었음 확인. **부수 효과**: "2종목만 추천" 문제 자동 해결 — FAF가 Top 5 밖으로 밀리고 TPR(4→3위 승격, ✅)이 들어와 Top 3 모두 ✅
 
 ---
 
