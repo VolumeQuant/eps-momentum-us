@@ -5442,5 +5442,53 @@
   "UHAL": {
     "shortName": "UHAL",
     "industry": "기타"
+  },
+  "AIR": {
+    "shortName": "AIR",
+    "industry": "기타"
+  },
+  "ARGX": {
+    "shortName": "ARGX",
+    "industry": "기타"
+  },
+  "BLSH": {
+    "shortName": "BLSH",
+    "industry": "기타"
+  },
+  "CRDO": {
+    "shortName": "CRDO",
+    "industry": "기타"
+  },
+  "CSW": {
+    "shortName": "CSW",
+    "industry": "기타"
+  },
+  "DNTH": {
+    "shortName": "DNTH",
+    "industry": "기타"
+  },
+  "HASI": {
+    "shortName": "HASI",
+    "industry": "기타"
+  },
+  "IREN": {
+    "shortName": "IREN",
+    "industry": "기타"
+  },
+  "MC": {
+    "shortName": "MC",
+    "industry": "기타"
+  },
+  "MYRG": {
+    "shortName": "MYRG",
+    "industry": "기타"
+  },
+  "PTCT": {
+    "shortName": "PTCT",
+    "industry": "기타"
+  },
+  "SYRE": {
+    "shortName": "SYRE",
+    "industry": "기타"
   }
 }
