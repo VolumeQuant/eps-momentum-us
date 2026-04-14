@@ -1048,11 +1048,41 @@ def fetch_revenue_growth(df, today_str):
     success = sum(1 for v in rev_map.values() if v is not None)
     log(f"매출+품질 수집 완료: {saved}/{len(tickers)} (rev_growth {success}개)")
 
-    df['rev_growth'] = df['ticker'].map(rev_map)
-
     # margin 데이터도 dataframe에 추가 (구조적 저마진 필터용)
     om_map = {t: results[t].get('operatingMargins') for t in results if results[t]}
     gm_map = {t: results[t].get('grossMargins') for t in results if results[t]}
+
+    # ── yfinance .info 수집 실패 시 DB 캐시 fallback ──
+    # 재무 데이터(매출성장률/마진)는 분기 발표라 며칠 전 값이 오늘도 유효.
+    # yfinance 불안정(Run 2 사례: 1118중 185개만 수집)에 대한 방어.
+    failed_tickers = [t for t in tickers if rev_map.get(t) is None
+                      or om_map.get(t) is None or gm_map.get(t) is None]
+    if failed_tickers:
+        conn2 = sqlite3.connect(DB_PATH)
+        cur2 = conn2.cursor()
+        filled_rev = filled_om = filled_gm = 0
+        for t in failed_tickers:
+            row = cur2.execute('''
+                SELECT rev_growth, operating_margin, gross_margin FROM ntm_screening
+                WHERE ticker=? AND date < ? AND date >= date(?, '-7 day')
+                AND (rev_growth IS NOT NULL OR operating_margin IS NOT NULL OR gross_margin IS NOT NULL)
+                ORDER BY date DESC LIMIT 1
+            ''', (t, today_str, today_str)).fetchone()
+            if row:
+                rg, om, gm = row
+                if rev_map.get(t) is None and rg is not None:
+                    rev_map[t] = rg
+                    filled_rev += 1
+                if om_map.get(t) is None and om is not None:
+                    om_map[t] = om
+                    filled_om += 1
+                if gm_map.get(t) is None and gm is not None:
+                    gm_map[t] = gm
+                    filled_gm += 1
+        conn2.close()
+        log(f"DB 캐시 fallback: rev_growth {filled_rev}개, op_margin {filled_om}개, gross_margin {filled_gm}개 (최근 7일 값)")
+
+    df['rev_growth'] = df['ticker'].map(rev_map)
     df['operating_margin'] = df['ticker'].map(om_map)
     df['gross_margin'] = df['ticker'].map(gm_map)
 
