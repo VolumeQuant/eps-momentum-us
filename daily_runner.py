@@ -3756,15 +3756,9 @@ def _build_score_100_map(today_str=None):
     for d in dates:
         all_tickers.update(score_by_date.get(d, {}).keys())
 
-    def _carry_forward(tk, date_idx):
-        """빈 날 → 직전(과거) 가용 점수 이월, 없으면 MISSING_PENALTY.
-        forward 탐색 금지 — 신규 종목이 미래 점수를 복사받아 3일 패널티를 우회하는 버그 방지."""
-        for j in range(date_idx - 1, -1, -1):
-            prev = score_by_date.get(dates[j], {}).get(tk)
-            if prev is not None:
-                return prev
-        return MISSING_PENALTY
-
+    # v77 (2026-04-15): carry-forward 제거 — _compute_w_gap_map과 동일 정책.
+    # 이전: 두 함수가 carry-forward 가짐 → 🆕 종목이 display Top 3에 표시되는 버그.
+    # 이제: 빈 날 = 무조건 30점. display와 매매 순위 일관성 확보.
     # 3일 가중 점수 (순위/정렬용)
     w_score_map = {}
     for tk in all_tickers:
@@ -3772,7 +3766,7 @@ def _build_score_100_map(today_str=None):
         for i, d in enumerate(dates):
             score = score_by_date.get(d, {}).get(tk)
             if score is None:
-                score = _carry_forward(tk, i)
+                score = MISSING_PENALTY
             ws += score * weights[i]
         w_score_map[tk] = ws
 
