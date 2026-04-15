@@ -4504,8 +4504,8 @@
     "industry": "석유미드스트림"
   },
   "MRCY": {
-    "shortName": "MRCY",
-    "industry": "기타"
+    "shortName": "Mercury Systems Inc",
+    "industry": "방산"
   },
   "MRP": {
     "shortName": "Millrose Properties, Inc.",
@@ -5489,6 +5489,46 @@
   },
   "SYRE": {
     "shortName": "SYRE",
+    "industry": "기타"
+  },
+  "ETSY": {
+    "shortName": "Etsy, Inc.",
+    "industry": "온라인유통"
+  },
+  "FUTU": {
+    "shortName": "Futu Holdings Limited",
+    "industry": "자본시장"
+  },
+  "IONQ": {
+    "shortName": "IONQ",
+    "industry": "기타"
+  },
+  "JAN": {
+    "shortName": "JAN",
+    "industry": "기타"
+  },
+  "LUMN": {
+    "shortName": "LUMN",
+    "industry": "기타"
+  },
+  "MAIN": {
+    "shortName": "Main Street Capital Corporation",
+    "industry": "자산운용"
+  },
+  "OBDC": {
+    "shortName": "OBDC",
+    "industry": "기타"
+  },
+  "OSIS": {
+    "shortName": "OSIS",
+    "industry": "기타"
+  },
+  "YSS": {
+    "shortName": "YSS",
+    "industry": "기타"
+  },
+  "ZM": {
+    "shortName": "ZM",
     "industry": "기타"
   }
 }
