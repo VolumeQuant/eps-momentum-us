@@ -1555,7 +1555,7 @@ def _compute_w_gap_map(cursor, today_str, tickers):
             std_v = np.std(vals)
             if std_v > 0:
                 score_by_date[d] = {
-                    tk: min(100.0, max(30.0, 65 + (-(v - mean_v) / std_v) * 15))
+                    tk: max(30.0, 65 + (-(v - mean_v) / std_v) * 15)  # v79: 상한 100 clamp 제거 (outlier 변별력 보존)
                     for tk, v in conv_gaps.items()
                 }
             else:
@@ -3784,7 +3784,7 @@ def _build_score_100_map(today_str=None):
             std_v = np.std(vals)
             if std_v > 0:
                 score_by_date[d] = {
-                    tk: min(100.0, max(30.0, 65 + (-(v - mean_v) / std_v) * 15))
+                    tk: max(30.0, 65 + (-(v - mean_v) / std_v) * 15)  # v79: 상한 100 clamp 제거 (outlier 변별력 보존)
                     for tk, v in conv_gaps.items()
                 }
             else:
@@ -3892,7 +3892,7 @@ def _get_system_performance():
                 if len(vals) >= 2:
                     mv, sv = sum(vals)/len(vals), (sum((v-sum(vals)/len(vals))**2 for v in vals)/len(vals))**0.5
                     if sv > 0:
-                        score_by_d[d] = {tk: min(100.0, max(30.0, 65 + (-(v - mv) / sv) * 15)) for tk, v in conv.items()}
+                        score_by_d[d] = {tk: max(30.0, 65 + (-(v - mv) / sv) * 15) for tk, v in conv.items()}  # v79: 상한 clamp 제거
                     else:
                         score_by_d[d] = {tk: 65 for tk in conv}
                 else:
