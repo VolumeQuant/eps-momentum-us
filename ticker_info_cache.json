@@ -4456,8 +4456,8 @@
     "industry": "해운"
   },
   "MDLN": {
-    "shortName": "MDLN",
-    "industry": "기타"
+    "shortName": "Medline Inc.",
+    "industry": "의료용품"
   },
   "MFC": {
     "shortName": "Manulife Financial Corporation",
@@ -4888,8 +4888,8 @@
     "industry": "통신"
   },
   "TKC": {
-    "shortName": "TKC",
-    "industry": "기타"
+    "shortName": "Turkcell Iletisim Hizmetleri AS",
+    "industry": "통신"
   },
   "TLK": {
     "shortName": "TLK",
@@ -5116,8 +5116,8 @@
     "industry": "손해보험"
   },
   "SNY": {
-    "shortName": "SNY",
-    "industry": "기타"
+    "shortName": "Sanofi",
+    "industry": "대형제약"
   },
   "TEO": {
     "shortName": "Telecom Argentina SA",
@@ -5248,8 +5248,8 @@
     "industry": "금"
   },
   "RIVN": {
-    "shortName": "RIVN",
-    "industry": "기타"
+    "shortName": "Rivian Automotive, Inc.",
+    "industry": "자동차"
   },
   "SUNB": {
     "shortName": "SUNB",
@@ -5412,8 +5412,8 @@
     "industry": "기타"
   },
   "CRWV": {
-    "shortName": "CRWV",
-    "industry": "기타"
+    "shortName": "CoreWeave, Inc.",
+    "industry": "인프라SW"
   },
   "PKX": {
     "shortName": "POSCO Holdings Inc.",
@@ -5448,8 +5448,8 @@
     "industry": "기타"
   },
   "ARGX": {
-    "shortName": "ARGX",
-    "industry": "기타"
+    "shortName": "argenx SE",
+    "industry": "바이오"
   },
   "BLSH": {
     "shortName": "BLSH",
@@ -5464,20 +5464,20 @@
     "industry": "기타"
   },
   "DNTH": {
-    "shortName": "DNTH",
-    "industry": "기타"
+    "shortName": "Dianthus Therapeutics, Inc.",
+    "industry": "바이오"
   },
   "HASI": {
-    "shortName": "HASI",
-    "industry": "기타"
+    "shortName": "HA Sustainable Infrastructure C",
+    "industry": "자산운용"
   },
   "IREN": {
     "shortName": "IREN",
     "industry": "기타"
   },
   "MC": {
-    "shortName": "MC",
-    "industry": "기타"
+    "shortName": "Moelis & Company",
+    "industry": "자본시장"
   },
   "MYRG": {
     "shortName": "MYRG",
@@ -5488,8 +5488,8 @@
     "industry": "기타"
   },
   "SYRE": {
-    "shortName": "SYRE",
-    "industry": "기타"
+    "shortName": "Spyre Therapeutics, Inc.",
+    "industry": "바이오"
   },
   "ETSY": {
     "shortName": "Etsy, Inc.",
@@ -5500,8 +5500,8 @@
     "industry": "자본시장"
   },
   "IONQ": {
-    "shortName": "IONQ",
-    "industry": "기타"
+    "shortName": "IonQ, Inc.",
+    "industry": "하드웨어"
   },
   "JAN": {
     "shortName": "JAN",
@@ -5516,19 +5516,19 @@
     "industry": "자산운용"
   },
   "OBDC": {
-    "shortName": "OBDC",
-    "industry": "기타"
+    "shortName": "Blue Owl Capital Corporation",
+    "industry": "자산운용"
   },
   "OSIS": {
-    "shortName": "OSIS",
-    "industry": "기타"
+    "shortName": "OSI Systems, Inc.",
+    "industry": "전자부품"
   },
   "YSS": {
     "shortName": "YSS",
     "industry": "기타"
   },
   "ZM": {
-    "shortName": "ZM",
-    "industry": "기타"
+    "shortName": "Zoom Communications, Inc.",
+    "industry": "응용SW"
   }
 }
