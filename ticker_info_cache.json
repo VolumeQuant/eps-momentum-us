@@ -5530,5 +5530,13 @@
   "ZM": {
     "shortName": "Zoom Communications, Inc.",
     "industry": "응용SW"
+  },
+  "SNDR": {
+    "shortName": "SNDR",
+    "industry": "기타"
+  },
+  "SYM": {
+    "shortName": "SYM",
+    "industry": "기타"
   }
 }
