@@ -328,169 +328,200 @@ score = min(100.0, max(30.0, 65 + (-(v - mean_v) / std_v) * 15))
 
 ## 9. 검증 계획 — 실행 원칙 (필수 준수)
 
-### 핵심 원칙 (이전 작업에서 합의된 룰)
+### 핵심 실행 원칙
 
-이전 v74~v77 검증에서 확립된 실행 원칙. **하나라도 빠지면 production 채택 금지**.
+**반드시 지킬 원칙 (과거 대화에서 합의된 룰 + 이번 세션 추가)**:
 
-1. **한 번에 하나씩만 변경 (single-variable change)**
-   - 두 변수 동시 변경 시 어느 변수가 효과를 냈는지 disambiguation 불가
-   - 예: 방안 A2(상한)와 B1(계수)을 동시에 바꾸지 말고, A2 단독 → 결과 보고 → 필요 시 B1 추가
-   - 조합안은 단독 검증을 모두 통과한 뒤에만 시도
-2. **반드시 baseline(v78)과 비교**
-   - 현행 v78의 성과 표를 먼저 확정 (45일, 33시작일 멀티스타트, MDD, Sharpe, Sortino, 위험조정)
-   - 모든 변형은 동일한 sim 환경에서 동일한 metric으로 비교
-   - "절대 성과"가 아니라 **"v78 대비 차분"**으로 평가 (sim 100% 정확성 제약 우회)
-3. **fair 비교 (조건 통일)**
-   - 같은 시작일·종료일·필터·진입/이탈 룰
-   - z-score 변형만 단일 차이로 두고, 나머지 모두 동일
-   - 불공정 비교(예: A2는 45일, baseline은 41일)는 결과 무효
-4. **충분한 표본 (단일 BT 결과로 결론 금지)**
-   - **41~45일 단일 BT**: 1차 스크리닝용, 결론 짓지 말 것
-   - **멀티스타트 33시작일**: 평균/min/max/표준편차 모두 확인
-   - **Walk-Forward**: 학습 구간 / 검증 구간 분리 (예: 첫 22일 학습 + 마지막 22일 검증)
-   - **Leave-one-out**: 1일씩 빼고 BT → 결과 안정성 확인
-5. **사이드 이펙트 점검**
-   - z-score 변경은 임계값 룰(L3 동결, breakout hold, ⚠️ 추세주의)에 영향 줄 수 있음
-   - 해당 룰들이 영향을 받는지 별도 점검 — silent regression 차단
-6. **DB 재계산 후 비교** (호환성)
-   - 과거 score 컬럼은 v78 clamp된 값으로 저장됨
-   - 변형 BT 전에 `recompute_ranks.py`로 전 일자 part2_rank 재계산
-   - 안 하면 과거 ✅/⏳/🆕 상태가 새 로직과 어긋남
-7. **검증 통과 못 하면 production 변경 0건**
-   - v75 검증 사례: 5개 변형 비교 결과 모두 baseline 미만 → "production 변경 0건"으로 마무리
-   - 이번에도 같은 원칙: **개선 입증 못 하면 v78 유지하고 핸드오프에 결과 기록만**
-8. **차분 측정** (sim 100% 정확성 제약)
-   - v71 이전 코드로 만들어진 part2_rank 데이터가 일부 섞여 있어 sim 100% 일치 불가
-   - 절대값 대신 같은 sim 안에서 변형 vs baseline 차이로 측정
-9. **검증 결과 모두 문서화**
-   - 채택/기각 모두 SESSION_HANDOFF.md에 v79 항목으로 기록
-   - 기각 사유 명시 — 미래 동일 가설 반복 방지
+1. **각 Step은 30분 이내**
+   - 30분 초과 시 그 Step은 설계가 잘못된 것 — 더 작게 쪼개라
+   - 진단·BT·비교 단계가 1시간 넘게 걸리면 캐시 설계가 틀린 것
+
+2. **캐시 한 번 로드해서 재사용 (효율성)**
+   - DB, conv_gaps, z-score 분포, 종목 info는 **스크립트 시작 시 한 번만 로드**
+   - 각 변형 BT에서 재로드 금지 → 변형별 계산 부분만 분리
+   - 예: `load_all_data()` → dict/DataFrame 캐시 → 모든 변형이 이걸 참조
+
+3. **CAGR 환산 금지**
+   - 41일 raw return으로만 비교 (CAGR 환산하면 41일 +60% → 3000% 노이즈)
+   - 누적 수익률 그대로 보고
+
+4. **41일 데이터는 multistart만 사용**
+   - Walk-Forward는 41일에선 부적합 (train/test 양쪽 다 너무 작음)
+   - Leave-one-out도 41일에선 multistart와 중복 효과 → multistart만
+   - 60거래일+ 축적되면 그때 walk-forward 추가
+
+5. **모든 risk metric 필수**
+   - multistart (33시작일): **평균 / 중앙값 / std / min / max** 5개 모두
+   - **MDD 평균 + worst** (단일 MDD가 아닌 분포)
+   - Sharpe (일간 수익 std 기반)
+   - Sortino (하방 위험만)
+   - **위험조정 = 평균 / |worst MDD|** (raw return 기반, Calmar 아님)
+   - 거래 수, 승률, PF, 회전율
+
+6. **차분 측정 (Differential Measurement)**
+   - sim 100% 정확성은 본질적으로 불가능 (v71 이전 데이터 호환 안 됨)
+   - 같은 sim 환경에서 변형끼리만 비교 → 차이는 정확
+   - 변형 절대값은 참고, **변형 간 delta가 진짜 신호**
+
+7. **single-variable change**
+   - 한 번에 한 변수만 (A2 상한 / B 계수 / C missing 중 하나만)
+   - 조합안은 단독 검증 모두 통과 후에만 시도
+   - 두 변수 동시 변경 시 어느 변수가 효과 냈는지 disambiguation 불가
+
+8. **사이드 이펙트 점검**
+   - z-score 변경이 임계값 룰(L3 동결, breakout hold, ⚠️ 추세주의)에 silent regression 일으키는지 확인
+   - Watchlist Top 20 안정성도 확인
+
+9. **슬롯 1개 몰빵은 함정**
+   - 단일 BT에서 CAGR/Sortino 압도적으로 좋아 보이면 의심
+   - 슈퍼위너 1개 우연히 잡은 결과 → 재현성 없음
+   - raw return + worst MDD + 위험조정으로 볼 것
+
+10. **Strict > Moderate/Loose 패턴**
+    - 트리거 조건은 까다롭게 (strict)
+    - 느슨하게 하면 false positive → 손실
+    - "많이 잡는 것"보다 "확신 케이스만"
+
+11. **baseline(v78) 먼저 확정**
+    - 변형 BT 전에 v78 성과표부터 동일 sim 환경에서 측정
+    - 모든 변형은 **v78 대비 delta**로 평가
+
+12. **검증 실패 시 production 변경 0건**
+    - v75 검증 사례(2026-04-11): 5개 변형 모두 baseline 미만 → 변경 0건
+    - 결함 자체는 인정해도, **알파 보존이 더 중요하면 v78 유지**가 정답
+    - 결과 기록은 SESSION_HANDOFF.md에 남김
+
+13. **DB 재계산 후 비교**
+    - 과거 score 컬럼은 v78 clamp 값이라 새 로직과 비교 안 됨
+    - 변형 BT마다 `recompute_ranks.py`로 재계산
+
+14. **알파시그널 수집은 기존 스크리닝 방해 금지**
+    - z-score 변경은 rev/OM/GM 등 기존 필터에 영향 주면 안 됨
+    - 순수하게 w_gap 계산만 건드릴 것
+
+15. **투자 성향 (MDD -60% 감내, 수익 우선)**
+    - 수익 깎아서 MDD 줄이는 변형은 거부
+    - win-win 아니면 채택 금지 (역변동성 때처럼)
 
 ---
 
-### 단계별 실행 순서 (하나씩 검증)
+### 단계별 실행 (Step당 30분 이내, 캐시 재사용)
 
-#### Step 0 — 준비 (30분)
+#### Step 0 — 4/16 데이터 로컬 보강 (15분)
 
 ```bash
-# 4/16 데이터 로컬 보강 (현재 DB max는 2026-04-15)
 unset TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TELEGRAM_PRIVATE_ID
 python daily_runner.py
 # → MAX(date) = 2026-04-16 확인
 ```
 
-#### Step 1 — 진단 스크립트 작성 (1시간)
+#### Step 1 — 공통 데이터 로더 작성 (30분)
 
-`research_zscore_distribution.py` 신규 생성:
-- [ ] 전 일자 conv adj_gap 분포 통계 (mean/std/min/max/skew/kurtosis)
-- [ ] z_raw가 100 천장에 박힌 종목 수 / 날짜별 빈도
-- [ ] 1·2·3위 종목의 z_raw 차이 히스토그램 (변별력 손실 정량화)
-- [ ] "missing day + outlier" 케이스 발생 횟수 (VNOM 같은 패턴)
-- [ ] 결과를 `research/zscore_diagnosis_2026_04_17.md`에 기록
+**캐시 재사용의 핵심**. 한 번 돌려서 전 단계가 쓸 자료 전부 뽑아두기.
 
-**목적**: 변형 시도 전에 결함의 규모를 정량화. 만약 100 clamp 발생이 전체 1%면 굳이 큰 변경 불필요.
-
-#### Step 2 — Baseline 확정 (1시간)
-
-현행 v78 성과를 다양한 metric으로 정확히 측정.
-
-```bash
-python backtest/backtest_v3.py --variant baseline_v78 --multistart 33 --output baseline_v78.csv
-```
-
-기록할 metric:
-- [ ] 전 41일 단일 BT: 누적 %, MDD, Sharpe, Sortino, Calmar
-- [ ] 멀티스타트 33시작일: 평균/min/max/표준편차
-- [ ] Walk-Forward: 학습 % / 검증 %
-- [ ] Leave-one-out: 양수 일수 / 부정 일수
-- [ ] 거래 수, 승률, PF, 회전율
-
-**산출물**: `research/baseline_v78_metrics.md` — 모든 변형이 비교할 기준선.
-
-#### Step 3 — 방안 A2 단독 검증 (1시간)
-
-**가장 본질적이고 단순한 변경부터**.
-
+`research/zscore_cache.py` 신규:
 ```python
-# daily_runner.py 두 곳만 변경:
-#   _compute_w_gap_map (line 1558)
-#   _build_score_100_map (line ~3815)
-# 기존: min(100.0, max(30.0, ...))
-# 변경: min(200.0, max(30.0, ...))
+# 한 번 실행해서 아래 전부 pickle 저장
+CACHE = {
+    'conv_gaps_by_date': {...},     # 전 일자 × 티커 → conv adj_gap
+    'composite_rank_by_date': {...},
+    'ntm_data_by_date': {...},      # ntm_current, ntm_30d, price 캐시
+    'eligible_tickers_by_date': {...},
+}
+# → research/zscore_cache.pkl 로 저장
 ```
 
-검증:
-- [ ] DB 재계산 (`recompute_ranks.py`)
-- [ ] Step 2와 동일한 metric으로 BT
-- [ ] **vs baseline 차분 표** 작성
+**이후 모든 Step은 이 pickle만 로드해서 씀**. yfinance/DB 재조회 0회.
 
-**판정 기준**:
-- 멀티스타트 평균 ≥ baseline + 2%p, MDD 동등 이하 → 통과
-- 단일 BT에서 좋아도 멀티스타트 약화면 기각
-- 통과 시 Step 4로, 기각 시 Step 5로
+#### Step 2 — 진단 리포트 (30분)
 
-#### Step 4 — 방안 A1 단독 검증 (A2 통과 시)
+`research_zscore_diagnosis.py`:
+- 캐시 로드 (1초)
+- 전 일자 conv 분포 (mean/std/min/max/skew/kurtosis)
+- z_raw ≥ 100 종목 수 / 날짜
+- 1·2·3위 z_raw 차이
+- "missing day + outlier" 케이스 (VNOM 패턴) 발생 횟수
+- → `research/zscore_diagnosis.md`
 
-상한 무제한 (`max(30.0, ...)`만)으로 더 극단적 변경.
+**판정**: 100 clamp 발생률이 전체 < 1%면 결함 영향 작음 → production 변경 불필요 결론 가능.
 
-- [ ] Step 3과 동일한 검증 절차
-- [ ] **A1 vs A2 비교** — 어느 쪽이 더 나은지
+#### Step 3 — Baseline v78 metric (30분)
 
-#### Step 5 — 방안 D 단독 검증 (A 계열 모두 fail 시)
+기존 `backtest_v3.py` 활용, **캐시를 입력으로 넘겨** BT 함수 재구성.
 
-Robust z-score (median/MAD).
+측정 (raw return 기준):
+- 33시작일 multistart: 평균 / 중앙값 / std / min / max
+- MDD: 평균 / worst
+- Sharpe / Sortino
+- 위험조정 = 평균 / |worst MDD|
+- 거래 수, 승률, PF
 
-- [ ] median/MAD 코드 변경
-- [ ] MAD=0 방어 코드 추가
-- [ ] Step 3과 동일한 검증
+→ `research/baseline_v78.md` 표로 기록.
 
-#### Step 6 — 방안 C 추가 (단독 통과한 변형 + missing 강화)
+#### Step 4 — 방안 A2 단독 BT (30분)
 
-A2 또는 D가 통과했다면, 그 위에 missing day 룰 강화 추가.
+변경: `_compute_w_gap_map` + `_build_score_100_map` 에서 `min(100, ...)` → `min(200, ...)`.
 
-- [ ] 가중치 재정규화 코드 추가
-- [ ] 단독 변형 vs 변형+C 비교 — C가 추가 이득을 주는지
+- 캐시 재사용 (재로드 금지)
+- multistart 33시작일 돌림
+- Step 3과 동일 metric
+- vs baseline delta 표 작성 (절대값 X, **차분만**)
 
-#### Step 7 — 사이드 이펙트 점검 (필수)
+**판정 (MDD 악화 금지, 수익 우선 원칙)**:
+- 평균 delta ≥ 0 AND worst MDD 동등 이하 → 통과
+- 수익만 좋고 MDD 악화면: 투자 성향(수익 우선)상 검토, but MDD 2%p 이상 악화면 기각
+- slot 몰빵 의심 (단일 BT max만 높으면 거부)
 
-채택 후보 변형에 대해:
-- [ ] L3 동결 임계값이 여전히 의미 있는지
-- [ ] Breakout hold 4조건 중 z-score 임계값(있다면) 영향 확인
-- [ ] ⚠️ 추세주의 표시 빈도 변화 (점수 분포 바뀌면 변화 가능)
-- [ ] Watchlist Top 20에 들어오는 종목 변동률 (안정성)
+#### Step 5 — 방안 A1 단독 BT (A2 통과 시, 30분)
 
-#### Step 8 — 최종 채택 또는 기각
+상한 무제한. Step 4와 동일 절차.
+
+#### Step 6 — 방안 D 단독 BT (A 모두 fail 시, 30분)
+
+median/MAD 기반. Step 4와 동일.
+
+#### Step 7 — 방안 C 추가 (단독 통과 변형 + missing 강화, 30분)
+
+가중치 재정규화. single-variable 원칙 상, "통과한 변형 + C" 하나만 조합.
+
+#### Step 8 — 사이드 이펙트 점검 (30분)
+
+채택 후보에 대해:
+- L3 동결 트리거 빈도 변화
+- breakout hold 발동 빈도 변화
+- ⚠️ 추세주의 표시 빈도 변화
+- Watchlist Top 20 일별 변동률 (안정성)
+
+캐시로 변형별 결과 재계산해서 빈도 비교.
+
+#### Step 9 — 채택 or 기각 결정 (15분)
 
 **채택 조건 (모두 만족)**:
-- [ ] 멀티스타트 평균 ≥ v78 + 2%p
-- [ ] MDD 동등 이하 (악화 금지)
-- [ ] Walk-Forward 학습/검증 모두 v78 이상
-- [ ] Leave-one-out 양수 비율 ≥ v78
-- [ ] 사이드 이펙트 없음
+- multistart 평균 ≥ v78
+- worst MDD ≤ v78 + 2%p 이내 (악화 허용 범위)
+- 위험조정 ≥ v78
+- 사이드 이펙트 없음
 
-**기각 시**:
-- [ ] SESSION_HANDOFF.md에 "v79 검증: 방안 X/Y/Z 모두 v78 미만 → production 변경 0건" 기록
-- [ ] 결함 자체는 인정하되, 알파 보존이 더 중요하다는 판정 명시
+**기각 조건 (하나라도)**:
+- 평균이 v78보다 떨어짐
+- worst MDD 2%p 이상 악화
+- 사이드 이펙트 (L3/breakout 빈도 급변)
 
-#### Step 9 — 채택 시 production 적용
+#### Step 10 — production 적용 or 기록 (30분)
 
-- [ ] daily_runner.py 변경
-- [ ] DB 전 일자 part2_rank 재계산 + commit
-- [ ] SESSION_HANDOFF.md에 v79 항목 추가
-- [ ] MEMORY.md 업데이트 (System Version, 전략 설명)
-- [ ] 커밋 메시지: 변경 + BT 결과 + 검증 통과 항목 명시
+**채택**: daily_runner.py 수정 → DB 재계산 → SESSION_HANDOFF.md v79 추가 → MEMORY.md 업데이트 → commit/push.
+
+**기각**: SESSION_HANDOFF.md에 "v79 검증: 방안 X/Y/Z 모두 v78 미만 (또는 MDD 악화) → production 변경 0건" 기록 → commit/push.
 
 ---
 
-### 시간 예상
+### 시간 예상 (각 Step 30분, 캐시 재사용)
 
-- Step 0~1: 1.5시간 (준비 + 진단)
-- Step 2: 1시간 (baseline)
-- Step 3 (A2): 1시간 — **여기까지 첫 세션 권장**
-- Step 4~6: 변형당 1시간씩 = 3시간 (다음 세션)
-- Step 7~9: 2시간 (적용 또는 기각)
+- Step 0~3 (준비 + 진단 + baseline): **1.5시간** — 첫 세션 여기까지
+- Step 4~7 (변형 4개): **2시간** — 다음 세션
+- Step 8~10 (점검 + 결정 + 적용): **1시간** — 세 번째 세션
 
-**총 7~8시간**. 한 번에 하지 말고 세션 단위로 끊어서, 각 단계 결과를 핸드오프 문서에 누적.
+**총 4.5시간** (캐시 재사용 기준). 캐시 없으면 BT마다 데이터 재로드로 3배 넘게 걸림.
 
 ---
 
@@ -505,30 +536,47 @@ A2 또는 D가 통과했다면, 그 위에 missing day 룰 강화 추가.
 
 ---
 
-## 11. 액션 아이템 체크리스트 (Step별 진행)
+## 11. 액션 아이템 체크리스트 (각 Step 30분 이내)
 
-### 첫 세션 (회사 PC)
-- [ ] Step 0: 4/16 데이터 로컬 생성 (`python daily_runner.py`)
-- [ ] Step 1: `research_zscore_distribution.py` 작성 → `research/zscore_diagnosis_2026_04_17.md` 산출
-- [ ] Step 2: Baseline v78 metric 확정 → `research/baseline_v78_metrics.md` 산출
-- [ ] Step 3: 방안 A2 단독 BT → vs baseline 차분 표
-- [ ] 첫 세션 결과를 이 문서에 누적 기록
+### 첫 세션 (회사 PC, 1.5시간)
+- [ ] Step 0 (15분): 4/16 데이터 로컬 생성 (`python daily_runner.py`)
+- [ ] Step 1 (30분): `research/zscore_cache.py` — 공통 데이터 캐시 한 번만 생성 (pickle)
+- [ ] Step 2 (30분): `research/zscore_diagnosis.md` — 결함 정량화
+- [ ] Step 3 (30분): `research/baseline_v78.md` — multistart 33시작일 모든 metric
 
-### 후속 세션
-- [ ] Step 4: 방안 A1 단독 (A2 통과 시)
-- [ ] Step 5: 방안 D 단독 (A 모두 fail 시)
-- [ ] Step 6: 방안 C 추가 (단독 통과 변형 + missing 강화)
-- [ ] Step 7: 사이드 이펙트 점검 (L3, breakout, ⚠️, Watchlist 안정성)
-- [ ] Step 8: 채택 또는 기각 결정
+### 두 번째 세션 (2시간, 캐시 재사용)
+- [ ] Step 4 (30분): 방안 A2 단독 BT → vs baseline delta
+- [ ] Step 5 (30분): 방안 A1 단독 (A2 통과 시)
+- [ ] Step 6 (30분): 방안 D 단독 (A 모두 fail 시)
+- [ ] Step 7 (30분): 방안 C 추가 (단독 통과 변형 + missing 강화)
+
+### 세 번째 세션 (1시간)
+- [ ] Step 8 (30분): 사이드 이펙트 점검 (L3, breakout, ⚠️, Watchlist 안정성)
+- [ ] Step 9 (15분): 채택 또는 기각 결정
+- [ ] Step 10 (30분): production 적용 또는 기록
 
 ### 채택 시
-- [ ] Step 9: daily_runner.py 수정 + DB 재계산 + commit/push
-- [ ] SESSION_HANDOFF.md에 v79 항목 추가
-- [ ] MEMORY.md 업데이트
+- daily_runner.py 수정 + DB 재계산 + commit/push
+- SESSION_HANDOFF.md에 v79 항목 추가
+- MEMORY.md 업데이트
 
 ### 기각 시
-- [ ] SESSION_HANDOFF.md에 "production 변경 0건" 기록
-- [ ] 검증 결과 표 첨부 (미래 동일 가설 반복 방지)
+- SESSION_HANDOFF.md에 "production 변경 0건 + 사유" 기록
+- 검증 결과 표 첨부 (미래 동일 가설 반복 방지)
+
+---
+
+### Metric 표 템플릿 (모든 변형에 동일하게 사용)
+
+```
+| 변형      | 평균  | 중앙값 | std   | min   | max   | MDD avg | MDD worst | Sharpe | Sortino | 위험조정 |
+|-----------|-------|--------|-------|-------|-------|---------|-----------|--------|---------|----------|
+| baseline  | 49.8% | ?      | ?     | ?     | ?     | ?       | -16.1%    | 4.58   | ?       | ?        |
+| A2 (200)  | ?     | ?      | ?     | ?     | ?     | ?       | ?         | ?      | ?       | ?        |
+| ...       | ...   |        |       |       |       |         |           |        |         |          |
+```
+
+**주의**: 모든 수치는 **raw return** (CAGR 환산 X), **차분** 컬럼 별도로 추가.
 
 ---
 
