@@ -1514,8 +1514,11 @@ def _compute_w_gap_map(cursor, today_str, tickers):
     """w_gap(3일 가중 conviction adj_gap) 계산 — T0×0.5 + T1×0.3 + T2×0.2
 
     v71: adj_gap × (1 + rev_up30/num_analysts) conviction 배율 적용
+    v78: Case 1 보너스 — 30d NTM > +1% AND 가격 < -1% → z-score +8점
+         (81,880조합 그리드서치 + 촘촘 인접안정성(고원) + WF검증 + 멀티스타트 + LOO)
     Returns: {ticker: float(w_gap)}
     """
+    from datetime import datetime, timedelta
     dates = _get_recent_dates(cursor, 'composite_rank', today_str, 3)
     dates = sorted(dates)  # 오래된 순
 
@@ -1523,15 +1526,28 @@ def _compute_w_gap_map(cursor, today_str, tickers):
     import numpy as np
     MISSING_PENALTY = 30  # 빈 날 최종 폴백 (carry-forward 불가 시)
 
+    # v78: Case 1 보너스 파라미터
+    CASE1_PERIOD = 30     # 30 캘린더일
+    CASE1_NTM_THR = 1.0   # NTM 30d 변화율 > +1%
+    CASE1_PX_THR = -1.0   # 가격 30d 변화율 < -1%
+    CASE1_SCORE_BONUS = 8 # z-score 가산점
+
     score_by_date = {}
     for d in dates:
         rows = cursor.execute(
-            'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d, rev_growth '
+            'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d, '
+            'rev_growth, ntm_30d, price '
             'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
             (d,)
         ).fetchall()
         # v75: rev_growth 전달
-        conv_gaps = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5], rev_growth=r[6]) for r in rows}
+        conv_gaps = {}
+        ntm_px_data = {}
+        for r in rows:
+            tk = r[0]
+            conv_gaps[tk] = _apply_conviction(r[1], r[2], r[3], r[4], r[5], rev_growth=r[6])
+            ntm_px_data[tk] = (r[4], r[7], r[8])  # ntm_current, ntm_30d, price_now
+
         # z-score → 30~100 변환 (eligible 내 상대 위치)
         vals = list(conv_gaps.values())
         if len(vals) >= 2:
@@ -1546,6 +1562,35 @@ def _compute_w_gap_map(cursor, today_str, tickers):
                 score_by_date[d] = {tk: 65 for tk in conv_gaps}
         else:
             score_by_date[d] = {tk: 65 for tk in conv_gaps}
+
+        # v78: Case 1 보너스 (z-score 후 적용)
+        target_30d = (datetime.strptime(d, '%Y-%m-%d') - timedelta(days=CASE1_PERIOD)).strftime('%Y-%m-%d')
+        d_30ago = cursor.execute(
+            'SELECT MAX(date) FROM ntm_screening WHERE date <= ?', (target_30d,)
+        ).fetchone()
+        px_30d_map = {}
+        if d_30ago and d_30ago[0]:
+            px_30d_rows = cursor.execute(
+                'SELECT ticker, price FROM ntm_screening WHERE date=? AND price > 0',
+                (d_30ago[0],)
+            ).fetchall()
+            px_30d_map = {r[0]: r[1] for r in px_30d_rows}
+
+        case1_count = 0
+        for tk in list(score_by_date[d].keys()):
+            nd = ntm_px_data.get(tk)
+            if not nd: continue
+            ntm_cur, ntm_30d_val, price_now = nd
+            ntm_chg = ((ntm_cur - ntm_30d_val) / ntm_30d_val * 100) \
+                if ntm_30d_val and abs(ntm_30d_val) > 0.01 and ntm_cur else 0
+            px_30d = px_30d_map.get(tk)
+            px_chg = ((price_now - px_30d) / px_30d * 100) \
+                if px_30d and px_30d > 0 and price_now and price_now > 0 else 0
+            if ntm_chg > CASE1_NTM_THR and px_chg < CASE1_PX_THR:
+                score_by_date[d][tk] += CASE1_SCORE_BONUS
+                case1_count += 1
+        if case1_count > 0:
+            log(f"  w_gap [{d}]: Case 1(30d) 보너스 +{CASE1_SCORE_BONUS}점 → {case1_count}종목")
 
     weights = [0.2, 0.3, 0.5]  # T-2, T-1, T0 (오래된순)
     if len(dates) == 2:
@@ -2773,10 +2818,11 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         earnings_map=None, risk_status=None, score_100_map=None,
                         hist_all=None):
-    """Signal 메시지용 종목 선정 (v72: w_gap 순위 Top5 + min_seg ≥ 0%, 최대 3종목)
+    """Signal 메시지용 종목 선정 (v78: w_gap 순위 Top3 + min_seg ≥ 0%, 최대 3종목)
 
     part2_rank(w_gap 기반) 상위 3종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
-    이탈선: part2_rank > 11. 최대 3슬롯.
+    이탈선: part2_rank > 8. 최대 3슬롯.
+    v78: Case 1(30d NTM>+1% 가격<-1%) 보너스 +8점 반영된 w_gap 기준.
     """
     if earnings_map is None:
         earnings_map = {}
@@ -2913,7 +2959,7 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
     if top30.empty:
         return [], portfolio_mode, concordance, final_action
 
-    top11_tickers = set(top30.head(11)['ticker'].tolist())
+    top11_tickers = set(top30.head(8)['ticker'].tolist())  # v78: X11→X8
 
     # ── 어제 보유 → Top 11 유지 시 홀드 (v74: 미사용, 참조용) ──
     prev_holdings = _get_prev_portfolio(today_str)
@@ -3825,15 +3871,23 @@ def _get_system_performance():
             d1 = all_dates[di - 1] if di >= 1 else None
             d2 = all_dates[di - 2] if di >= 2 else None
             ds = [d for d in [d2, d1, d0] if d]  # 오래된 순
-            # 일별 conviction adj_gap → z-score 변환
+            # 일별 conviction adj_gap → z-score 변환 + v78 Case 1 보너스
+            from datetime import datetime, timedelta
+            CASE1_PERIOD = 30
+            CASE1_NTM_THR = 1.0
+            CASE1_PX_THR = -1.0
+            CASE1_SCORE_BONUS = 8
+
             score_by_d = {}
             for d in ds:
                 rows = c.execute(
-                    'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d, rev_growth '
+                    'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d, '
+                    'rev_growth, ntm_30d, price '
                     'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL', (d,)
                 ).fetchall()
                 # v75: rev_growth 전달
                 conv = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5], rev_growth=r[6]) for r in rows}
+                ntm_px = {r[0]: (r[4], r[7], r[8]) for r in rows}  # ntm_cur, ntm_30d, price
                 vals = list(conv.values())
                 if len(vals) >= 2:
                     mv, sv = sum(vals)/len(vals), (sum((v-sum(vals)/len(vals))**2 for v in vals)/len(vals))**0.5
@@ -3843,6 +3897,23 @@ def _get_system_performance():
                         score_by_d[d] = {tk: 65 for tk in conv}
                 else:
                     score_by_d[d] = {tk: 65 for tk in conv}
+
+                # v78: Case 1 보너스 (z-score 후)
+                target_30d = (datetime.strptime(d, '%Y-%m-%d') - timedelta(days=CASE1_PERIOD)).strftime('%Y-%m-%d')
+                d_30ago = c.execute('SELECT MAX(date) FROM ntm_screening WHERE date <= ?', (target_30d,)).fetchone()
+                px_30d_map = {}
+                if d_30ago and d_30ago[0]:
+                    px_30d_map = {r[0]: r[1] for r in c.execute(
+                        'SELECT ticker, price FROM ntm_screening WHERE date=? AND price > 0', (d_30ago[0],)).fetchall()}
+                for tk in list(score_by_d[d].keys()):
+                    nd = ntm_px.get(tk)
+                    if not nd: continue
+                    nc, n30v, pn = nd
+                    ntm_chg = ((nc - n30v) / n30v * 100) if n30v and abs(n30v) > 0.01 and nc else 0
+                    px_30 = px_30d_map.get(tk)
+                    px_chg = ((pn - px_30) / px_30 * 100) if px_30 and px_30 > 0 and pn and pn > 0 else 0
+                    if ntm_chg > CASE1_NTM_THR and px_chg < CASE1_PX_THR:
+                        score_by_d[d][tk] += CASE1_SCORE_BONUS
 
             def _cf(tk, idx):
                 """backward only — forward 탐색 금지 (신규 종목 3일 패널티 우회 방지)"""
@@ -3914,7 +3985,7 @@ def _get_system_performance():
                 rk = wgap_rank.get(tk)
                 ms = ticker_ms.get(tk, 0)
                 ret = (cp - ep) / ep * 100
-                if (rk is None or rk > 12) or ms < -2:
+                if (rk is None or rk > 8) or ms < -2:  # v78: X12→X8
                     if ret > 0:
                         wins += 1
                     else:
@@ -3925,7 +3996,7 @@ def _get_system_performance():
             slots = 3 - len(portfolio)
             if slots > 0:
                 cands = [tk for tk, _ in eligible[:30]
-                         if tk not in portfolio and wgap_rank.get(tk, 999) <= 5
+                         if tk not in portfolio and wgap_rank.get(tk, 999) <= 3  # v78: E5→E3
                          and ticker_ms.get(tk, -999) >= 0]
                 for tk in cands[:slots]:
                     cp = prices.get(tk)
@@ -4224,7 +4295,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('매수: 상위 3종목, 최대 3종목 보유')
-    lines.append('매도: 11위 밖 or 실적하락')
+    lines.append('매도: 8위 밖 or 실적하락')
 
     return '\n'.join(lines)
 
@@ -4531,8 +4602,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         # 어닝 서프/공매도는 Signal 메시지의 AI 내러티브에서 표현 (v69)
         lines.append(' · '.join(rank_parts))
 
-        # 매도 기준선 (11위 아래 = 퇴출 대상)
-        if rank == 11 and num_stocks > 11:
+        # 매도 기준선 (8위 아래 = 퇴출 대상, v78)
+        if rank == 8 and num_stocks > 8:
             lines.append('── 매도 기준선 ──')
         # 점선 구분선
         elif rank < num_stocks:
@@ -4557,7 +4628,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
     lines.append('매수: 상위 3종목, 최대 3종목 보유')
-    lines.append('매도: 11위 밖 or 실적하락')
+    lines.append('매도: 8위 밖 or 실적하락')
     lines.append('⏸️: 강한 상승 추세 시 2일 매도 유예')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
