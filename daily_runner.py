@@ -1246,6 +1246,17 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
         log(f"원자재 제외(티커): {', '.join(commodity_tk['ticker'].tolist())}")
         filtered = filtered[~filtered['ticker'].isin(COMMODITY_TICKERS)].copy()
 
+    # v79: FCF<0 AND ROE<0 동시 → 제외 (현금 창출 불가 + 자본 수익 없는 종목)
+    # FCF 단독 or ROE 단독 음수는 허용 (SNDK=ROE-, TTMI=FCF- 등 성장주 보호)
+    if 'free_cashflow' in filtered.columns and 'roe' in filtered.columns:
+        fcf = filtered['free_cashflow'].fillna(0)
+        roe_col = filtered['roe'].fillna(0)
+        both_neg = filtered[(fcf < 0) & (roe_col < 0)]
+        if len(both_neg) > 0:
+            details = [f"{r['ticker']}(FCF{r['free_cashflow']/1e9:+.1f}B/ROE{r['roe']:+.3f})" for _, r in both_neg.iterrows()]
+            log(f"FCF·ROE 동시 음수 제외: {', '.join(details)}")
+        filtered = filtered[~((fcf < 0) & (roe_col < 0))].copy()
+
     # adj_gap 오름차순 정렬 (가장 음수 = 가장 저평가 = 1위)
     # rev_growth는 하드필터(≥10%)로만 사용, 순위 가중치에서 제거 (v52)
     filtered = filtered.sort_values('adj_gap', ascending=True)
