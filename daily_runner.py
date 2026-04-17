@@ -3976,11 +3976,14 @@ def _get_system_performance():
                 result[tk] = wg
             return result
 
-        # SPY 가격
+        # S&P500 지수 (^GSPC) — 벤치마크 표준, 배당 조정 불필요
         try:
             import yfinance as yf
-            spy_df = yf.download('SPY', start=all_dates[0], end=all_dates[-1],
-                                 auto_adjust=True, progress=False)
+            from datetime import datetime, timedelta
+            # yfinance end는 exclusive → 하루 더 해야 all_dates[-1]까지 포함됨
+            end_inclusive = (datetime.strptime(all_dates[-1], '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+            spy_df = yf.download('^GSPC', start=all_dates[0], end=end_inclusive,
+                                 auto_adjust=False, progress=False)
             spy_prices = {}
             for idx, row in spy_df.iterrows():
                 ds = idx.strftime('%Y-%m-%d')
