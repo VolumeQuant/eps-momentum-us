@@ -3849,10 +3849,11 @@ def _build_score_100_map(today_str=None):
             ws += score * weights[i]
         w_score_map[tk] = ws
 
-    # v79.1: 순번 기반 점수 표시 (100 × 0.9^(순번-1))
-    # w_gap 내림차순 정렬 → 순번 부여 → 지수감쇠
-    sorted_by_wgap = sorted(w_score_map.items(), key=lambda x: x[1], reverse=True)
-    score_display_map = {tk: round(100 * (0.9 ** i), 1) for i, (tk, _) in enumerate(sorted_by_wgap)}
+    # v79.1: 1위=100 환산 점수 (종목 간 격차 반영)
+    # w_gap 최대값 기준으로 전체를 0~100 스케일로 환산
+    # → "2위 60점, 3위 59점 = 거의 동점, 역전 가능" 직관적
+    max_wgap = max(w_score_map.values()) if w_score_map else 1
+    score_display_map = {tk: round(ws / max_wgap * 100, 1) for tk, ws in w_score_map.items()}
 
     conn.close()
     return w_score_map, score_display_map
