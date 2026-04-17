@@ -3849,8 +3849,10 @@ def _build_score_100_map(today_str=None):
             ws += score * weights[i]
         w_score_map[tk] = ws
 
-    # 표시용도 3일 가중 점수 사용 (당일 점수와 순위 불일치 방지, 소수점 1자리)
-    score_display_map = {tk: round(ws, 1) for tk, ws in w_score_map.items()}
+    # v79.1: 순번 기반 점수 표시 (100 × 0.9^(순번-1))
+    # w_gap 내림차순 정렬 → 순번 부여 → 지수감쇠
+    sorted_by_wgap = sorted(w_score_map.items(), key=lambda x: x[1], reverse=True)
+    score_display_map = {tk: round(100 * (0.9 ** i), 1) for i, (tk, _) in enumerate(sorted_by_wgap)}
 
     conn.close()
     return w_score_map, score_display_map
