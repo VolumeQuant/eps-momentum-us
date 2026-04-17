@@ -1246,16 +1246,36 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
         log(f"원자재 제외(티커): {', '.join(commodity_tk['ticker'].tolist())}")
         filtered = filtered[~filtered['ticker'].isin(COMMODITY_TICKERS)].copy()
 
-    # v79: FCF<0 AND ROE<0 동시 → 제외 (현금 창출 불가 + 자본 수익 없는 종목)
+    # v79.1: FCF<0 AND ROE<0 동시 → 제외 (현금 창출 불가 + 자본 수익 없는 종목)
     # FCF 단독 or ROE 단독 음수는 허용 (SNDK=ROE-, TTMI=FCF- 등 성장주 보호)
-    if 'free_cashflow' in filtered.columns and 'roe' in filtered.columns:
-        fcf = filtered['free_cashflow'].fillna(0)
-        roe_col = filtered['roe'].fillna(0)
-        both_neg = filtered[(fcf < 0) & (roe_col < 0)]
-        if len(both_neg) > 0:
-            details = [f"{r['ticker']}(FCF{r['free_cashflow']/1e9:+.1f}B/ROE{r['roe']:+.3f})" for _, r in both_neg.iterrows()]
+    # results_df에 FCF/ROE 컬럼 없을 수 있으므로 DB에서 직접 조회
+    try:
+        import sqlite3 as _sql
+        _conn = _sql.connect(DB_PATH)
+        _cur = _conn.cursor()
+        _today = filtered['date'].iloc[0] if 'date' in filtered.columns else None
+        if _today is None:
+            # date 컬럼 없으면 DB에서 최신 날짜
+            _today = _cur.execute('SELECT MAX(date) FROM ntm_screening WHERE composite_rank IS NOT NULL').fetchone()[0]
+        _fcf_roe = {}
+        if _today:
+            for r in _cur.execute(
+                'SELECT ticker, free_cashflow, roe FROM ntm_screening WHERE date=?', (_today,)
+            ).fetchall():
+                _fcf_roe[r[0]] = (r[1], r[2])
+        _conn.close()
+
+        both_neg_tickers = []
+        for tk in filtered['ticker'].values:
+            fcf_val, roe_val = _fcf_roe.get(tk, (None, None))
+            if fcf_val is not None and roe_val is not None and fcf_val < 0 and roe_val < 0:
+                both_neg_tickers.append(tk)
+        if both_neg_tickers:
+            details = [f"{tk}(FCF{_fcf_roe[tk][0]/1e9:+.1f}B/ROE{_fcf_roe[tk][1]:+.3f})" for tk in both_neg_tickers]
             log(f"FCF·ROE 동시 음수 제외: {', '.join(details)}")
-        filtered = filtered[~((fcf < 0) & (roe_col < 0))].copy()
+            filtered = filtered[~filtered['ticker'].isin(both_neg_tickers)].copy()
+    except Exception as e:
+        log(f"FCF·ROE 필터 오류 (스킵): {e}", "WARN")
 
     # adj_gap 오름차순 정렬 (가장 음수 = 가장 저평가 = 1위)
     # rev_growth는 하드필터(≥10%)로만 사용, 순위 가중치에서 제거 (v52)
