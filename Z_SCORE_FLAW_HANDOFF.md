@@ -590,3 +590,30 @@ median/MAD 기반. Step 4와 동일.
 - **재계산**: `recompute_ranks.py`
 - **DB**: `eps_momentum_data.db` (max date 2026-04-15)
 - **메모리**: `~/.claude/projects/C--dev-claude-code-eps-momentum-us/memory/MEMORY.md`
+
+---
+
+## 13. 실행 결과 (2026-04-17 회사 PC)
+
+### 완료 항목
+- [x] Step 0: 4/16 데이터 로컬 생성
+- [x] Step 1: 공통 캐시 구축 (0.2초)
+- [x] Step 2: 결함 정량화 — 100 clamp 2.2%(40/46일), VNOM 패턴 1건
+- [x] Step 3: Baseline v78 metric (multistart 33: +33.8%, Sharpe 4.78)
+- [x] Step 4: 방안 A2(200)/A1(무제한) — ret +5.6%p, MDD +1.5%p, Sharpe +0.39 ✅
+- [x] Step 5: A1=A2 동일 → A1 채택 (미래 outlier 대비)
+- [x] Step 7: C(missing 재정규화) — ret -10.7%p ❌ 기각
+- [x] Step 8: 사이드이펙트 없음 확인
+- [x] Step 9: A1 채택 결정
+- [x] Step 10: production 적용 + DB 재계산
+
+### 추가 발견 및 수정
+- VNOM(⏳ 2일 검증)이 FIVE(✅ 3일 검증)보다 높은 순위 → missing penalty 문제
+- penalty 변경은 수익 악화 → 대신 select_display_top5에서 ✅ 기준 3종목 채움으로 해결
+- FCF<0 AND ROE<0 품질 필터 추가 (VNOM 패턴 대응)
+- eligible 전수 검사 (40종목) → 추가 필터 불필요 확인
+
+### 최종 v79.1 성과
+- 시스템 누적: +48.8% (44거래일)
+- SPY: +0.1%
+- 알파: +48.7%
