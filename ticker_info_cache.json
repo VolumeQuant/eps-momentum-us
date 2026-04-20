@@ -4896,8 +4896,8 @@
     "industry": "기타"
   },
   "TM": {
-    "shortName": "TM",
-    "industry": "기타"
+    "shortName": "Toyota Motor Corporation",
+    "industry": "자동차"
   },
   "TRNO": {
     "shortName": "Terreno Realty Corporation",
@@ -5537,6 +5537,50 @@
   },
   "SYM": {
     "shortName": "SYM",
+    "industry": "기타"
+  },
+  "AFRM": {
+    "shortName": "AFRM",
+    "industry": "기타"
+  },
+  "ARCC": {
+    "shortName": "ARCC",
+    "industry": "기타"
+  },
+  "ELPC": {
+    "shortName": "ELPC",
+    "industry": "기타"
+  },
+  "FSV": {
+    "shortName": "FSV",
+    "industry": "기타"
+  },
+  "GLXY": {
+    "shortName": "GLXY",
+    "industry": "기타"
+  },
+  "LMND": {
+    "shortName": "Lemonade, Inc.",
+    "industry": "손해보험"
+  },
+  "LOGI": {
+    "shortName": "LOGI",
+    "industry": "기타"
+  },
+  "NNI": {
+    "shortName": "NNI",
+    "industry": "기타"
+  },
+  "RACE": {
+    "shortName": "RACE",
+    "industry": "기타"
+  },
+  "RAL": {
+    "shortName": "RAL",
+    "industry": "기타"
+  },
+  "URBN": {
+    "shortName": "URBN",
     "industry": "기타"
   }
 }
