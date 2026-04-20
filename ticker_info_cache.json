@@ -5132,8 +5132,8 @@
     "industry": "기타"
   },
   "BIRK": {
-    "shortName": "BIRK",
-    "industry": "기타"
+    "shortName": "Birkenstock Holding plc",
+    "industry": "신발잡화"
   },
   "CRC": {
     "shortName": "California Resources Corporatio",
@@ -5480,8 +5480,8 @@
     "industry": "자본시장"
   },
   "MYRG": {
-    "shortName": "MYRG",
-    "industry": "기타"
+    "shortName": "MYR Group, Inc.",
+    "industry": "건설"
   },
   "PTCT": {
     "shortName": "PTCT",
@@ -5540,8 +5540,8 @@
     "industry": "기타"
   },
   "AFRM": {
-    "shortName": "AFRM",
-    "industry": "기타"
+    "shortName": "Affirm Holdings, Inc.",
+    "industry": "신용서비스"
   },
   "ARCC": {
     "shortName": "ARCC",
@@ -5581,6 +5581,18 @@
   },
   "URBN": {
     "shortName": "URBN",
+    "industry": "기타"
+  },
+  "ALH": {
+    "shortName": "Alliance Laundry Holdings Inc.",
+    "industry": "가구가전"
+  },
+  "IEP": {
+    "shortName": "IEP",
+    "industry": "기타"
+  },
+  "OMF": {
+    "shortName": "OMF",
     "industry": "기타"
   }
 }
