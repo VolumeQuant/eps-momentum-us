@@ -2005,12 +2005,48 @@ def get_daily_changes(today_tickers, today_str=None):
     return sorted(entered), exited_with_rank
 
 
+_HY_CACHE_PATH = Path(__file__).parent / 'data_cache' / 'hy_spread.parquet'
+
+
+def _load_merge_save_hy_cache(fred_df):
+    """로컬 장기 캐시 + FRED 최근분 병합 후 캐시 갱신
+
+    FRED는 2026-04부터 BAMLH0A0HYM2를 최근 3년으로 제한 (series note 명시).
+    1996년부터의 장기 데이터는 로컬 parquet으로 유지하고,
+    매일 FRED 최근분을 받아 겹치는 구간을 덮어쓰며 꼬리를 연장한다.
+    """
+    import pandas as pd
+    try:
+        cache_df = pd.read_parquet(_HY_CACHE_PATH) if _HY_CACHE_PATH.exists() else None
+    except Exception as e:
+        log(f"HY Spread: 캐시 로드 실패: {e} — 신규 생성", level="WARN")
+        cache_df = None
+
+    if cache_df is None or cache_df.empty:
+        merged = fred_df.copy()
+    else:
+        merged = cache_df.copy()
+        for ts, val in fred_df['hy_spread'].items():
+            merged.loc[ts, 'hy_spread'] = val
+        merged = merged.sort_index()
+
+    try:
+        _HY_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        merged.to_parquet(_HY_CACHE_PATH)
+    except Exception as e:
+        log(f"HY Spread: 캐시 저장 실패 (계속 진행): {e}", level="WARN")
+
+    return merged
+
+
 def fetch_hy_quadrant():
     """HY Spread Verdad 4분면 + 해빙 신호 (FRED BAMLH0A0HYM2)
 
     수준: HY vs 10년 롤링 중위수 (넓/좁)
     방향: 현재 vs 63영업일(3개월) 전 (상승/하락)
     → Q1 회복(넓+하락), Q2 성장(좁+하락), Q3 과열(좁+상승), Q4 침체(넓+상승)
+
+    FRED 최근분(3년) + 로컬 장기 캐시 병합. FRED가 2026-04부터 3년 제한.
     """
     import urllib.request
     import json as _json
@@ -2034,23 +2070,26 @@ def fetch_hy_quadrant():
             with urllib.request.urlopen(req, timeout=30) as response:
                 data = _json.loads(response.read().decode('utf-8'))
             rows = [(r['date'], r['value']) for r in data['observations'] if r['value'] != '.']
-            df = pd.DataFrame(rows, columns=['date', 'hy_spread'])
-            df['date'] = pd.to_datetime(df['date'])
+            fred_df = pd.DataFrame(rows, columns=['date', 'hy_spread'])
+            fred_df['date'] = pd.to_datetime(fred_df['date'])
         else:
             # fallback: CSV 엔드포인트 (API key 없을 때)
             url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2&cosd={start_date}&coed={end_date}"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=60) as response:
                 csv_data = response.read().decode('utf-8')
-            df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
-            df.columns = ['date', 'hy_spread']
+            fred_df = pd.read_csv(io.StringIO(csv_data), parse_dates=['observation_date'])
+            fred_df.columns = ['date', 'hy_spread']
 
-        df = df.dropna(subset=['hy_spread'])
-        df['hy_spread'] = pd.to_numeric(df['hy_spread'], errors='coerce')
-        df = df.dropna().set_index('date').sort_index()
+        fred_df = fred_df.dropna(subset=['hy_spread'])
+        fred_df['hy_spread'] = pd.to_numeric(fred_df['hy_spread'], errors='coerce')
+        fred_df = fred_df.dropna().set_index('date').sort_index()
+
+        # FRED는 최근 3년만 반환 → 로컬 장기 캐시와 병합
+        df = _load_merge_save_hy_cache(fred_df)
 
         if len(df) < 1260:  # 최소 5년치 필요
-            log("HY Spread: 데이터 부족", level="WARN")
+            log(f"HY Spread: 데이터 부족 ({len(df)}/1260)", level="WARN")
             return None
 
         # 10년 롤링 중위수 (min 5년)
