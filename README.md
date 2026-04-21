@@ -286,9 +286,11 @@ v71 전환 배경: 역변동성(5일 window)이 단기 변동에 과민반응하
 ## 신용·변동성 모니터링 (HY+VIX)
 
 ### Layer 1: HY Spread (FRED BAMLH0A0HYM2)
-US High Yield Spread 기반 Verdad 4분면 모델. `fetch_hy_quadrant()` — FRED API CSV 수집.
+US High Yield Spread 기반 Verdad 4분면 모델. `fetch_hy_quadrant()` — FRED API JSON + 로컬 장기 캐시 병합.
 
 **HY 퍼센타일**: 2520일(10년) rolling rank.
+
+**캐시 병합 (2026-04-21 도입)**: FRED가 2026-04부터 이 시리즈를 최근 3년으로 제한(series note 명시) → 10년 rolling 중위수(min 5년) 계산 불가. `data_cache/hy_spread.parquet`(1996~, 7,650일)에 FRED 최근분을 매일 오버레이하고 GA 워크플로우의 `git add -A`로 꼬리 자동 연장. `_load_merge_save_hy_cache()` 참조.
 
 ### Layer 2: VIX (FRED VIXCLS)
 `fetch_vix_data()` — 252일 rolling percentile 기반 (최소 126일):
