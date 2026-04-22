@@ -5594,5 +5594,17 @@
   "OMF": {
     "shortName": "OMF",
     "industry": "기타"
+  },
+  "QRVO": {
+    "shortName": "QRVO",
+    "industry": "기타"
+  },
+  "SKM": {
+    "shortName": "SK Telecom Co., Ltd.",
+    "industry": "통신"
+  },
+  "USAR": {
+    "shortName": "USAR",
+    "industry": "기타"
   }
 }
