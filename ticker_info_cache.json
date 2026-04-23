@@ -5606,5 +5606,17 @@
   "USAR": {
     "shortName": "USAR",
     "industry": "기타"
+  },
+  "PRM": {
+    "shortName": "Perimeter Solutions, SA",
+    "industry": "특수화학"
+  },
+  "PSMT": {
+    "shortName": "PriceSmart, Inc.",
+    "industry": "할인점"
+  },
+  "SEI": {
+    "shortName": "Solaris Energy Infrastructure, ",
+    "industry": "석유장비"
   }
 }
