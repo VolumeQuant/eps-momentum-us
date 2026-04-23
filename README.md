@@ -1,8 +1,8 @@
-# EPS Momentum System v79 (US Stocks)
+# EPS Momentum System v80.1 (US Stocks)
 
 Forward 12개월 EPS(NTM EPS) 기반 모멘텀 시스템. **"파괴적 혁신 기업을 싸게 살래"** 철학으로, w_gap(가중 괴리율)을 기반으로 저평가 종목을 선별한다. 괴리율이 음수일수록 EPS 개선 대비 주가가 덜 반영된 상태(= 저평가). MA120 + 리스크 필터로 신뢰도를 높이고, AI(Gemini 2.5 Flash)가 위험 신호를 점검한 뒤 최대 3종목을 매수 후보로 제시한다. 최대 3종목 보유.
 
-**v79 전략**: 진입 Top 3 / 이탈 8위 밖 / 슬롯 3개 / Breakout Hold (strict, 2일 유예) / Case 1 보너스(NTM↑+가격↓) / FCF·ROE 품질 필터 / z-score 상한 제거. 시스템 누적 +48.8% (44거래일, 2/12~4/16) vs S&P500 +1.4%.
+**v80.1 전략**: 진입 Top 3 / 이탈 8위 밖 / 슬롯 3개 / Breakout Hold (strict, 2일 유예) / Case 1 보너스(NTM↑+가격↓) / FCF·ROE 품질 필터 / z-score 상한 제거 / **빈 날 penalty 기준 `part2_rank IS NULL`** (궤적 표시와 일관). 시스템 누적 +48.8% (44거래일, 2/12~4/16) vs S&P500 +1.4%.
 
 ---
 
@@ -623,6 +623,7 @@ GitHub Actions에서는 Secrets로 등록.
 
 | 버전 | 날짜 | 주요 변경 |
 |------|------|-----------|
+| **v80.1** | **2026-04-24** | w_gap/score penalty 기준 `composite_rank` → `part2_rank`. ⏳(2일)/🆕(1일) 종목이 3일치 실제 데이터로 계산되던 논리 모순 해소. 최근 30일 BT에서 ✅ 진입 3종목 변경 0건(실거래 영향 없음), Top 8 변화 5일(⏳/🆕 종목만 뒤로 밀림). TSM 4/21 사례: 3위→7위, ASML 4위→3위 |
 | **v79** | **2026-04-17** | z-score 상한 100 clamp 제거(outlier 변별력 회복) + FCF·ROE 품질 필터 + Signal ✅ 3종목 보장 + 점수 표시 1위=100 환산. multistart 33시작일 +2.4%p / B/C/A1+C 기각. 벤치마크 SPY→^GSPC 전환(end-exclusive 버그 동시 수정) |
 | **v78** | **2026-04-16** | E5/X12→E3/X8 + Case 1 보너스(NTM 30d>+1% AND 가격 30d<-1% → z-score +8). 81,880조합 그리드서치. 시스템 +34.6%→+49.8% (+15.2%p), MDD 개선. 스케줄 KST 06:15→20:00 |
 | **v77** | **2026-04-15** | carry-forward 제거(빈 날 무조건 30점) + fallback DB UPDATE. FAF 🆕인데 rank 3 모순 해결 |

@@ -1629,19 +1629,35 @@ def _compute_w_gap_map(cursor, today_str, tickers):
     elif len(dates) == 1:
         weights = [1.0]
 
-    # v77 (2026-04-15): carry-forward 제거.
-    # 이전: 필터탈락 날이 있어도 과거 점수 이월 → 🆕 종목이 비정상적으로 상위 진입
-    # 예: FAF 4/13 MA120 일시 이탈(-0.03%)로 필터탈락 → 4/14 복귀 시
-    #      4/10 점수 이월받아 rank 3위 (🆕 상태인데 Top 3) — UI 모순
-    # 현재: 빈 날은 무조건 MISSING_PENALTY(30점). 🆕 = w_gap 낮음 일관성 확보.
-    # 재무 수집 실패 방어는 _fetch_one()의 DB 캐시 fallback이 담당.
+    # v80.1 (2026-04-24): "빈 날" 기준을 composite_rank → part2_rank로 변경.
+    # 이전(cr 기준): 그 날 eligible이면 실제 z-score 사용.
+    #   → 궤적 표시("⏳"인 종목의 T-2는 "-")와 w_gap 계산 기준 불일치.
+    #   → TSM 4/21 사례: ⏳(2일 검증)인데 3일치 실제 z-score 들어가서 wr 3위
+    #      (✅ ASML 4위보다 앞섬) — 상태 라벨과 데이터 사용 일수 모순.
+    # 현재(p2 기준): T-1/T-2에 당시 Top 30(p2_rank) 밖이면 penalty 30점.
+    #   → ⏳ = 2일치 실제 + 1일 penalty, 🆕 = 1일 실제 + 2일 penalty 일관성 확보.
+    #   T-0은 이 함수 실행 시점에 p2_rank가 아직 NULL이라 cr 기준 유지.
+    # 영향 검증: 최근 30거래일 BT에서 ✅ 진입 3종목 변경 0건, Top 8 순위만
+    #   ⏳/🆕 종목이 뒤로 밀림. 실거래 영향 없음.
+    p2_by_date = {}
+    for d in dates:
+        rows = cursor.execute(
+            'SELECT ticker FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL', (d,)
+        ).fetchall()
+        p2_by_date[d] = {r[0] for r in rows}
+
     result = {}
     for tk in tickers:
         wg = 0
         for i, d in enumerate(dates):
-            score = score_by_date.get(d, {}).get(tk)
-            if score is None:
+            is_today = (d == today_str)
+            if not is_today and tk not in p2_by_date.get(d, set()):
+                # 과거 날짜에 당시 Top 30 밖이었으면 빈 날 penalty
                 score = MISSING_PENALTY
+            else:
+                score = score_by_date.get(d, {}).get(tk)
+                if score is None:
+                    score = MISSING_PENALTY
             wg += score * weights[i]
         result[tk] = wg
     return result
@@ -3877,14 +3893,28 @@ def _build_score_100_map(today_str=None):
     # v77 (2026-04-15): carry-forward 제거 — _compute_w_gap_map과 동일 정책.
     # 이전: 두 함수가 carry-forward 가짐 → 🆕 종목이 display Top 3에 표시되는 버그.
     # 이제: 빈 날 = 무조건 30점. display와 매매 순위 일관성 확보.
+    # v80.1 (2026-04-24): 빈 날 기준 cr → p2 변경 (궤적 표시와 일관성).
+    #   상세: _compute_w_gap_map 주석 참조.
+    p2_by_date = {}
+    for d in dates:
+        rows = cursor.execute(
+            'SELECT ticker FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL', (d,)
+        ).fetchall()
+        p2_by_date[d] = {r[0] for r in rows}
+
     # 3일 가중 점수 (순위/정렬용)
     w_score_map = {}
+    today_key = today_str if today_str else (dates[-1] if dates else None)
     for tk in all_tickers:
         ws = 0
         for i, d in enumerate(dates):
-            score = score_by_date.get(d, {}).get(tk)
-            if score is None:
+            is_today = (d == today_key)
+            if not is_today and tk not in p2_by_date.get(d, set()):
                 score = MISSING_PENALTY
+            else:
+                score = score_by_date.get(d, {}).get(tk)
+                if score is None:
+                    score = MISSING_PENALTY
             ws += score * weights[i]
         w_score_map[tk] = ws
 
