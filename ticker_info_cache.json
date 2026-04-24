@@ -5618,5 +5618,29 @@
   "SEI": {
     "shortName": "Solaris Energy Infrastructure, ",
     "industry": "석유장비"
+  },
+  "MXL": {
+    "shortName": "MXL",
+    "industry": "기타"
+  },
+  "OSCR": {
+    "shortName": "OSCR",
+    "industry": "기타"
+  },
+  "P": {
+    "shortName": "P",
+    "industry": "기타"
+  },
+  "SHG": {
+    "shortName": "Shinhan Financial Group Co Ltd",
+    "industry": "지역은행"
+  },
+  "SIMO": {
+    "shortName": "Silicon Motion Technology Corpo",
+    "industry": "반도체"
+  },
+  "SXT": {
+    "shortName": "SXT",
+    "industry": "기타"
   }
 }
