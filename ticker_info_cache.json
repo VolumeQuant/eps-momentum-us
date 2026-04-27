@@ -5642,5 +5642,9 @@
   "SXT": {
     "shortName": "SXT",
     "industry": "기타"
+  },
+  "KB": {
+    "shortName": "KB",
+    "industry": "기타"
   }
 }
