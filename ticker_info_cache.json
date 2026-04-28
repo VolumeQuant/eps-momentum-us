@@ -5644,7 +5644,15 @@
     "industry": "기타"
   },
   "KB": {
-    "shortName": "KB",
+    "shortName": "KB Financial Group Inc",
+    "industry": "지역은행"
+  },
+  "WF": {
+    "shortName": "Woori Financial Group Inc.",
+    "industry": "지역은행"
+  },
+  "XNDU": {
+    "shortName": "XNDU",
     "industry": "기타"
   }
 }
