@@ -2951,13 +2951,12 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                  for _, row in candidates.head(7).iterrows()]
     log(f"w_gap 순위 상위 7: {top_debug}")
 
-    # v79: ✅(3일 검증) 종목 기준으로 3종목 채움
-    # ⏳/🆕는 스킵하되 순위 카운트에 포함하지 않음
-    # → VNOM(⏳) 2위여도 FIVE(✅)/SNDK(✅)가 밀리지 않음
+    # v80.2 (2026-04-29): ⏳/🆕뿐 아니라 ✅이지만 진입 조건(min_seg<0 / 하향과반 / 저커버리지)
+    # 탈락 시에도 다음 정상 ✅ 후보로 슬라이드. 이전(v79.1)엔 ENTRY_THRESHOLD(=3)에 카운트 소진해
+    # 빈 슬롯 발생 가능했음 (실제 발동 0건이었지만 LNG 같은 케이스에서 처음 발동 임박).
+    # 근거: BT는 풀 슬롯 가정이고, ⏳/🆕 슬라이드 정책과 일관성 확보.
     MAX_SLOTS = 3
-    ENTRY_THRESHOLD = 3
     selected = []
-    verified_count = 0
     for _, row in candidates.iterrows():
         if len(selected) >= MAX_SLOTS:
             break
@@ -2969,16 +2968,11 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             log(f"  ⏳ 디스플레이 제외 {t}: 검증 미완료 ({status})")
             continue
 
-        # ✅ 종목만 카운트
-        verified_count += 1
-        if verified_count > ENTRY_THRESHOLD:
-            break
-
         # v58 진입 조건: min_seg ≥ 0% (소수점 1자리 반올림 기준)
         segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
         min_seg = min(segs) if segs else 0
         if round(min_seg, 1) < 0:
-            log(f"  ⛔ 디스플레이 제외 {t}: min_seg={min_seg:.1f}% (< 0%)")
+            log(f"  ⛔ 디스플레이 제외 {t}: min_seg={min_seg:.1f}% (< 0%) → 다음 ✅ 후보 검사")
             continue
 
         rev_up = int(row.get('rev_up30', 0) or 0)
@@ -2994,7 +2988,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             flags.append("저커버리지")
 
         if flags:
-            log(f"  ⛔ 디스플레이 제외 {t}: {','.join(flags)}")
+            log(f"  ⛔ 디스플레이 제외 {t}: {','.join(flags)} → 다음 ✅ 후보 검사")
         else:
             entry = _build_portfolio_entry(row, status_map, earnings_map)
             selected.append(entry)
