@@ -164,6 +164,91 @@ score = (sorted_segs[1] + sorted_segs[2]) * 2  # 4개 기준 보정
 
 ---
 
+## 🧠 4인 전문가 패널 컨설팅 결과 (2026-04-30 추가)
+
+사용자 요청으로 4명 전문가 페르소나(시니어 퀀트 / 시계열 분석 / 통계학자 / 시스템 운영) 토론 받음. 우리가 검토한 8개 해법 외에 **놓친 접근법** 4개 발굴.
+
+### 새로 발견된 접근법
+
+#### 🥇 Hampel filter (시계열 전문가)
+```python
+threshold = median(segs) ± 3 × MAD(segs)
+# |seg - median| > threshold면 median으로 대체
+```
+- **임계값 자의적이지 않음** — MAD 기반 데이터 적응적 (k=3 = 가우시안 99.7% 표준값)
+- Industrial outlier 검출의 정통 기법 (Hampel 1974)
+- n=4의 한계는 forward test로 확인 필요
+
+#### 🥈 Time-normalized differencing (시계열 전문가)
+**시스템의 진짜 bug 지적**:
+- seg2(7→30d) = 23일 윈도우, seg3(30→60d) = 30일 윈도우
+- 그런데 cap=100을 동등하게 취급 → seg2가 단위시간당 23/30배 압축
+- "이건 fix가 아니라 bug fix" 강한 주장
+```python
+seg1_per_day = (ntm_current - ntm_7d) / 7
+seg2_per_day = (ntm_7d - ntm_30d) / 23
+seg3_per_day = (ntm_30d - ntm_60d) / 30
+seg4_per_day = (ntm_60d - ntm_90d) / 30
+```
+- 단 이건 v75~v79 가중치(cap=100 기준 튜닝됨) 모두 재튜닝 필요 → major migration
+
+#### 🥉 Tukey biweight M-estimator (통계학자)
+- Median(robust) + Mean(efficient) 장점 결합
+- 가우시안 efficiency 95% 보장 (Holland & Welsch 1977)
+- c=4.685 표준값. median보다 우월(outlier 없을 때 신호 안 깎임)
+- 단 코드 복잡도 +5줄
+
+#### 🏅 Cross-sectional rank within segment (퀀트)
+- 각 segment를 그날 universe percentile로 변환 후 합산
+- BARRA 같은 전통 팩터 모델 표준 기법
+- v73 percentile 시도(-8.6%p 롤백)와 다른 layer (segment 단계)
+- 어닝시즌 노이즈는 universe 전체가 동시 노출되므로 cross-sectional rank가 자연스럽게 흡수
+
+### 토론에서 도출된 핵심 경고
+
+**"코드 한 줄이라 안전하다"는 환상**:
+- median으로 base 변경 시 v75 conviction, v77 G 다층화, v79 z-clamp 제거 모든 layer 재튜닝 필요
+- v75~v79 누적 +15.2%p 알파를 base 변경으로 깨뜨릴 위험
+
+**BT 신뢰성 부족이 진짜 위기**:
+- 어떤 통계적으로 우월한 해법도 BT 검증 없이 배포 불가
+- 우리 BT의 -20%p 폭락은 코드 결함(재계산 단순화)이지 변형 자체 결함 아님
+- backtest_v3.py 패턴으로 정확한 BT 인프라 재구축 필수
+
+### 4인 합의된 권고
+
+**즉시 (오늘~이번 주)**:
+1. **Display layer fix** — `eps_chg_weighted` → `ntm_current/ntm_90d - 1`. 알파 무변경, 고객 우려 80% 즉시 해결. (운영매니저 추천, 패널 만장일치)
+2. **Shadow deployment 인프라** — DB에 challenger 테이블 추가, base + challenger 동시 실행 후 part2_rank 별도 저장. 실시간 forward test 30일 누적 후 비교.
+3. **BT 코드 결함 진단** — 검증 인프라 신뢰 회복이 우선
+
+**DON'T**:
+- 알파 로직(score, adj_gap, eps_quality, conviction) 즉시 변경 금지
+- "코드 한 줄이니 배포해보자" 식 접근 금지
+
+**단기 (1~4주)** Shadow에서 3개 challenger 병행:
+| Challenger | 우선순위 | 근거 |
+|---|---|---|
+| **C1 Median** | 🥇 | 4명 중 3명 추천. 단순, 롤백 쉬움. n=4 한계 forward test로 확인 |
+| **C2 Hampel filter** | 🥈 | 임계값 자의적 X (MAD 기반). C1보다 sophisticated |
+| **C3 Time-normalized + median** | 🥉 | segment 정의 자체 fix (bug fix). v75 가중치 재튜닝 필요할 수 있음 |
+
+**검증 기준**: 30일 forward test 후 (a) MU 같은 lookback 점프 케이스에서 part2_rank 안정성, (b) 평균 일별 part2_rank 변동성, (c) 실제 매수 신호 종목의 30일 forward return이 champion 대비 우월한지
+
+**장기 (3개월+)**:
+- ntm_current 시계열 직접 사용 (90+ 영업일 누적 후)
+- BT 인프라 재작성 (backtest_v3.py 패턴)
+- Cross-sectional rank within segment 재시도
+
+### 핵심 통찰
+사용자 직관 "EPS 전망 거의 안 변했는데 순위 큰 변화 = 말이 안 됨"은 **monotonicity violation**으로 정확히 진단됨. fix는 **표시 + 알파 두 layer로 분리**:
+- 표시는 오늘 fix 가능 + 안전 (고객 우려 해결)
+- 알파는 shadow 검증 후 fix (수익률 보호)
+
+8개 해법 + 4개 새 발견 중 **median이 4인 합의**지만, **즉시 배포가 아니라 shadow challenger로 검증 후 배포**가 정답.
+
+---
+
 ## 🎯 다음 단계 — 두 가지 길
 
 ### 길 1: 정확한 BT 다시 (30~60분 추가)
