@@ -24,15 +24,20 @@ import daily_runner as dr
 # Conviction 함수 3종
 # ─────────────────────────────────────────────────────────
 
-def conv_none(adj_gap, rev_up=None, num_analysts=None, ntm_current=None, ntm_90d=None):
+def conv_none(adj_gap, rev_up=None, num_analysts=None, ntm_current=None, ntm_90d=None,
+              rev_growth=None):
     """No conviction — raw adj_gap"""
     if adj_gap is None:
         return None
     return adj_gap
 
 
-def conv_base(adj_gap, rev_up=None, num_analysts=None, ntm_current=None, ntm_90d=None):
-    """현재 v71 conviction (1~2x) — daily_runner._apply_conviction과 동일"""
+def conv_base(adj_gap, rev_up=None, num_analysts=None, ntm_current=None, ntm_90d=None,
+              rev_growth=None):
+    """현재 v75+ conviction — daily_runner._apply_conviction과 동일.
+
+    v75: rev_growth >= 30%면 +0.3 add 보너스
+    """
     if adj_gap is None:
         return None
     ratio = 0
@@ -41,11 +46,16 @@ def conv_base(adj_gap, rev_up=None, num_analysts=None, ntm_current=None, ntm_90d
     eps_floor = 0
     if ntm_current is not None and ntm_90d is not None and ntm_90d and abs(ntm_90d) > 0.01:
         eps_floor = min(abs((ntm_current - ntm_90d) / ntm_90d), 1.0)
-    conviction = max(ratio, eps_floor)
+    base_conviction = max(ratio, eps_floor)
+    rev_bonus = 0.0
+    if rev_growth is not None and rev_growth >= 0.30:
+        rev_bonus = 0.3
+    conviction = base_conviction + rev_bonus
     return adj_gap * (1 + conviction)
 
 
-def conv_strong(adj_gap, rev_up=None, num_analysts=None, ntm_current=None, ntm_90d=None):
+def conv_strong(adj_gap, rev_up=None, num_analysts=None, ntm_current=None, ntm_90d=None,
+                rev_growth=None):
     """Strong conviction (1~2.5x) — 이중확증 시 tail bonus"""
     if adj_gap is None:
         return None

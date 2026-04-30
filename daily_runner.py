@@ -652,10 +652,15 @@ def run_ntm_collection(config):
             #     min_seg ≥ 2% → 1.3 (전 구간 고른 상향)
             #     연속함수: eps_q = 1.0 + 0.3 × clamp(min_seg/2, -1, 1)
             #     min_seg ≤ -2% → 0.7, min_seg = 0% → 1.0, min_seg ≥ 2% → 1.3
+            # v80.3 (2026-04-30): direction은 calculate_ntm_score에서 γ''(cap-aware
+            # partial direction)로 계산됨. min_seg도 cap 걸린 segment 제외해 일관성.
             adj_gap = None
             if fwd_pe_chg is not None and direction is not None:
+                SEG_CAP = 100
                 dir_factor = max(-0.3, min(0.3, direction / 30))
-                min_seg = min(seg1 or 0, seg2 or 0, seg3 or 0, seg4 or 0)
+                _segs = [seg1 or 0, seg2 or 0, seg3 or 0, seg4 or 0]
+                _valid = [s for s in _segs if abs(s) < SEG_CAP]
+                min_seg = min(_valid) if _valid else 0
                 eps_q = 1.0 + 0.3 * max(-1, min(1, min_seg / 2))
                 adj_gap = fwd_pe_chg * (1 + dir_factor) * eps_q
 
@@ -780,8 +785,13 @@ def run_ntm_collection(config):
                         fwd_pe_chg = weighted_sum / total_weight
 
                     if fwd_pe_chg is not None and direction is not None:
+                        # v80.3: γ — direction은 calculate_ntm_score에서 cap-aware 계산.
+                        # min_seg도 cap 걸린 segment 제외.
+                        SEG_CAP = 100
                         dir_factor = max(-0.3, min(0.3, direction / 30))
-                        min_seg = min(seg1 or 0, seg2 or 0, seg3 or 0, seg4 or 0)
+                        _segs = [seg1 or 0, seg2 or 0, seg3 or 0, seg4 or 0]
+                        _valid = [s for s in _segs if abs(s) < SEG_CAP]
+                        min_seg = min(_valid) if _valid else 0
                         eps_q = 1.0 + 0.3 * max(-1, min(1, min_seg / 2))
                         adj_gap = fwd_pe_chg * (1 + dir_factor) * eps_q
 

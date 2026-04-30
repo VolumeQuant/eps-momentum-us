@@ -399,11 +399,20 @@ def calculate_ntm_score(ntm_values):
     score = seg1 + seg2 + seg3 + seg4
 
     # 방향 보정: 최근 vs 과거 세그먼트 평균 차이
+    # v80.3 (2026-04-30): γ — segment 중 cap(±100%) 발동 시 direction 무효화.
+    # 어닝 같은 점프 이벤트가 lookback 경계를 가로지르며 한 segment가 cap에 걸리면
+    # 가속도 측정 자체를 신뢰할 수 없음 → dir_factor=0으로 차단.
+    # 근거: MU 4/28 사례에서 cap 발동된 seg3가 direction 부호 반전(+10→-50)
+    # 일으켜 adj_score -43% 폭락. γ 적용 시 -18%로 robust.
+    # 매매 BT (54일, 159 trades): baseline +57.43% vs γ +60.51% (+3.08%p 우위)
     DIRECTION_DIVISOR = 30  # 1σ(3.67) → ~12% 보정
     DIRECTION_CAP = 0.3     # 최대 ±30% 보정
-    recent_avg = (seg1 + seg2) / 2
-    old_avg = (seg3 + seg4) / 2
-    direction = recent_avg - old_avg
+    if any(abs(s) >= SEG_CAP for s in (seg1, seg2, seg3, seg4)):
+        direction = 0.0  # cap 발동 = 노이즈 신호, 가속도 측정 무효
+    else:
+        recent_avg = (seg1 + seg2) / 2
+        old_avg = (seg3 + seg4) / 2
+        direction = recent_avg - old_avg
     direction_mult = max(-DIRECTION_CAP, min(DIRECTION_CAP, direction / DIRECTION_DIVISOR))
     adj_score = score * (1 + direction_mult)
 
