@@ -1487,9 +1487,9 @@ def save_part2_ranks(results_df, today_str):
         ag = float(row.get('adj_gap') or 0)
         up = float(row.get('rev_up30') or 0)
         na = float(row.get('num_analysts') or 0)
-        nc = float(row.get('ntm_current') or 0)
+        nc = float(row.get('ntm_cur') or 0)  # results_df는 'ntm_cur' 키
         n90 = float(row.get('ntm_90d') or 0)
-        rg = row.get('rev_growth')  # v75: 매출 성장률
+        rg = row.get('rev_growth')
         rg = float(rg) if rg is not None else None
         return _apply_conviction(ag, up, na, nc, n90, rev_growth=rg)
     all_candidates['_conv_gap'] = all_candidates.apply(_conv_gap, axis=1)
