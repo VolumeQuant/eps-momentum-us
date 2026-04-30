@@ -1,8 +1,8 @@
-# EPS Momentum System v80.2 (US Stocks)
+# EPS Momentum System v80.3 (US Stocks)
 
 Forward 12개월 EPS(NTM EPS) 기반 모멘텀 시스템. **"파괴적 혁신 기업을 싸게 살래"** 철학으로, w_gap(가중 괴리율)을 기반으로 저평가 종목을 선별한다. 괴리율이 음수일수록 EPS 개선 대비 주가가 덜 반영된 상태(= 저평가). MA120 + 리스크 필터로 신뢰도를 높이고, AI(Gemini 2.5 Flash)가 위험 신호를 점검한 뒤 최대 3종목을 매수 후보로 제시한다. 최대 3종목 보유.
 
-**v80.2 전략**: 진입 Top 3 / 이탈 8위 밖 / 슬롯 3개 / Breakout Hold (strict, 2일 유예) / Case 1 보너스(NTM↑+가격↓) / FCF·ROE 품질 필터 / z-score 상한 제거 / **빈 날 penalty 기준 `part2_rank IS NULL`** / **✅ 약점 종목 슬라이드** (min_seg<0/하향과반/저커버리지 탈락 시 다음 정상 ✅로 슬롯 채움 — 빈 슬롯 방지). 시스템 누적 +48.8% (44거래일, 2/12~4/16) vs S&P500 +1.4%.
+**v80.3 전략**: 진입 Top 3 / 이탈 8위 밖 / 슬롯 3개 / Breakout Hold (strict, 2일 유예) / Case 1 보너스(NTM↑+가격↓) / FCF·ROE 품질 필터 / z-score 상한 제거 / **빈 날 penalty 기준 `part2_rank IS NULL`** / **✅ 약점 종목 슬라이드** / **Segment cap-aware direction (γ)** — segment 중 ±100% cap 발동 시 direction=0으로 무효화 (어닝 lookback shift 노이즈 차단). 매매 BT 54일: baseline +57.43% → γ +60.51% (+3.08%p).
 
 ---
 
@@ -623,6 +623,7 @@ GitHub Actions에서는 Secrets로 등록.
 
 | 버전 | 날짜 | 주요 변경 |
 |------|------|-----------|
+| **v80.3** | **2026-04-30** | Segment cap 발동 시 direction 무효화 (γ). 어닝 같은 점프 이벤트가 lookback 30일 경계를 가로지르며 한 segment가 ±100% cap에 걸리면 direction 부호 반전 → adj_score 폭락 부작용 차단. MU 4/28 사례: adj_score 폭락 -43% → -18%로 robust. 매매 BT (54일/159 trades): baseline +57.43% → γ +60.51% (+3.08%p), MDD -15.34→-15.84%, Sharpe 4.14→4.20. γ''(partial direction) +1.79%p 차선·δ(dir 제거) -6.11%p 폐기. 모든 일자 DB row γ로 재계산 (backup 보존) |
 | **v80.2** | **2026-04-29** | Signal 슬롯 채움 — `ENTRY_THRESHOLD=3` 인공 캡 제거. ⏳/🆕뿐 아니라 ✅이지만 min_seg<0 / 하향과반 / 저커버리지 탈락도 다음 정상 ✅로 슬라이드(4위/5위 자동 대체). 빈 슬롯 발생 차단. 54일 BT 발동 0건이라 과거 BT 결과 변화 없음(+64.80% 동일). LNG 04-29 ✅ 진입 임박 — 첫 발동 케이스 실증 예정. 저커버리지 단독 필터 BT는 -21.8%p 악화로 비채택(TTMI 4명 winner 차단) |
 | **v80.1** | **2026-04-24** | w_gap/score penalty 기준 `composite_rank` → `part2_rank`. ⏳(2일)/🆕(1일) 종목이 3일치 실제 데이터로 계산되던 논리 모순 해소. 최근 30일 BT에서 ✅ 진입 3종목 변경 0건(실거래 영향 없음), Top 8 변화 5일(⏳/🆕 종목만 뒤로 밀림). TSM 4/21 사례: 3위→7위, ASML 4위→3위 |
 | **v79** | **2026-04-17** | z-score 상한 100 clamp 제거(outlier 변별력 회복) + FCF·ROE 품질 필터 + Signal ✅ 3종목 보장 + 점수 표시 1위=100 환산. multistart 33시작일 +2.4%p / B/C/A1+C 기각. 벤치마크 SPY→^GSPC 전환(end-exclusive 버그 동시 수정) |
