@@ -3874,28 +3874,70 @@ def _build_score_100_map(today_str=None):
         conn.close()
         return {}, {}
 
+    # v80.4 (2026-04-30): _compute_w_gap_map과 동일 Case 1 보너스 적용
+    #   = part2_rank와 score_100 일관성 확보. 이전: Case 1 종목이 part2_rank엔
+    #   +8점 보너스 받지만 score_100엔 보너스 없어서 두 정렬 결과 불일치 (LNG 사례).
+    from datetime import datetime, timedelta
+    CASE1_PERIOD = 30
+    CASE1_NTM_THR = 1.0
+    CASE1_PX_THR = -1.0
+    CASE1_SCORE_BONUS = 8
+
     score_by_date = {}
     for d in dates:
         rows = cursor.execute(
-            'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d, rev_growth '
+            'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d, '
+            'rev_growth, ntm_30d, price '
             'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
             (d,)
         ).fetchall()
         # v75: rev_growth 전달
-        conv_gaps = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5], rev_growth=r[6]) for r in rows}
+        conv_gaps = {}
+        ntm_px_data = {}
+        for r in rows:
+            tk = r[0]
+            conv_gaps[tk] = _apply_conviction(r[1], r[2], r[3], r[4], r[5], rev_growth=r[6])
+            ntm_px_data[tk] = (r[4], r[7], r[8])  # ntm_current, ntm_30d, price_now
+
         vals = list(conv_gaps.values())
         if len(vals) >= 2:
             mean_v = np.mean(vals)
             std_v = np.std(vals)
             if std_v > 0:
                 score_by_date[d] = {
-                    tk: max(30.0, 65 + (-(v - mean_v) / std_v) * 15)  # v79: 상한 100 clamp 제거 (outlier 변별력 보존)
+                    tk: max(30.0, 65 + (-(v - mean_v) / std_v) * 15)  # v79: 상한 100 clamp 제거
                     for tk, v in conv_gaps.items()
                 }
             else:
                 score_by_date[d] = {tk: 65 for tk in conv_gaps}
         else:
             score_by_date[d] = {tk: 65 for tk in conv_gaps}
+
+        # v80.4: Case 1 보너스 (z-score 후 적용) — _compute_w_gap_map과 동일
+        target_30d = (datetime.strptime(d, '%Y-%m-%d') - timedelta(days=CASE1_PERIOD)).strftime('%Y-%m-%d')
+        d_30ago = cursor.execute(
+            'SELECT MAX(date) FROM ntm_screening WHERE date <= ?', (target_30d,)
+        ).fetchone()
+        px_30d_map = {}
+        if d_30ago and d_30ago[0]:
+            px_30d_rows = cursor.execute(
+                'SELECT ticker, price FROM ntm_screening WHERE date=? AND price > 0',
+                (d_30ago[0],)
+            ).fetchall()
+            px_30d_map = {r[0]: r[1] for r in px_30d_rows}
+
+        for tk in list(score_by_date[d].keys()):
+            nd = ntm_px_data.get(tk)
+            if not nd:
+                continue
+            ntm_cur, ntm_30d_val, price_now = nd
+            ntm_chg = ((ntm_cur - ntm_30d_val) / ntm_30d_val * 100) \
+                if ntm_30d_val and abs(ntm_30d_val) > 0.01 and ntm_cur else 0
+            px_30d = px_30d_map.get(tk)
+            px_chg = ((price_now - px_30d) / px_30d * 100) \
+                if px_30d and px_30d > 0 and price_now else 0
+            if ntm_chg > CASE1_NTM_THR and px_chg < CASE1_PX_THR:
+                score_by_date[d][tk] += CASE1_SCORE_BONUS
 
     weights = [0.2, 0.3, 0.5]
     if len(dates) == 2:
