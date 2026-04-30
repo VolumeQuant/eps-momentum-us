@@ -652,13 +652,21 @@ def run_ntm_collection(config):
             #     min_seg ≥ 2% → 1.3 (전 구간 고른 상향)
             #     연속함수: eps_q = 1.0 + 0.3 × clamp(min_seg/2, -1, 1)
             #     min_seg ≤ -2% → 0.7, min_seg = 0% → 1.0, min_seg ≥ 2% → 1.3
-            # v80.3 (2026-04-30): direction은 calculate_ntm_score에서 γ''(cap-aware
-            # partial direction)로 계산됨. min_seg도 cap 걸린 segment 제외해 일관성.
+            # v80.4 (2026-04-30): direction은 calculate_ntm_score에서 β1
+            # (cap 발동 시 +9 = +0.3 보너스)로 계산됨. opt4: 정상 영역에서
+            # C4 (고평가 fwd>0 + 둔화 dir<0) 케이스 sign flip → 매도 강조.
+            # cap 발동 시는 β1 boost 그대로 적용 (이미 +0.3).
             adj_gap = None
             if fwd_pe_chg is not None and direction is not None:
                 SEG_CAP = 100
-                dir_factor = max(-0.3, min(0.3, direction / 30))
                 _segs = [seg1 or 0, seg2 or 0, seg3 or 0, seg4 or 0]
+                cap_hit = any(abs(s) >= SEG_CAP for s in _segs)
+                df_raw = max(-0.3, min(0.3, direction / 30))
+                # opt4: 정상 + C4 (양수 fwd × 음수 dir) 시 sign flip
+                if not cap_hit and fwd_pe_chg > 0 and direction < 0:
+                    dir_factor = -df_raw  # +0.3 (매도 강조)
+                else:
+                    dir_factor = df_raw  # baseline / β1(cap 시 +0.3) / C1·C2·C3
                 _valid = [s for s in _segs if abs(s) < SEG_CAP]
                 min_seg = min(_valid) if _valid else 0
                 eps_q = 1.0 + 0.3 * max(-1, min(1, min_seg / 2))
@@ -785,11 +793,16 @@ def run_ntm_collection(config):
                         fwd_pe_chg = weighted_sum / total_weight
 
                     if fwd_pe_chg is not None and direction is not None:
-                        # v80.3: γ — direction은 calculate_ntm_score에서 cap-aware 계산.
-                        # min_seg도 cap 걸린 segment 제외.
+                        # v80.4: β1(cap 시 +0.3 보너스, calculate_ntm_score에서 적용)
+                        # + opt4(정상 영역 C4 sign flip)
                         SEG_CAP = 100
-                        dir_factor = max(-0.3, min(0.3, direction / 30))
                         _segs = [seg1 or 0, seg2 or 0, seg3 or 0, seg4 or 0]
+                        cap_hit = any(abs(s) >= SEG_CAP for s in _segs)
+                        df_raw = max(-0.3, min(0.3, direction / 30))
+                        if not cap_hit and fwd_pe_chg > 0 and direction < 0:
+                            dir_factor = -df_raw  # opt4: C4 매도 강조
+                        else:
+                            dir_factor = df_raw
                         _valid = [s for s in _segs if abs(s) < SEG_CAP]
                         min_seg = min(_valid) if _valid else 0
                         eps_q = 1.0 + 0.3 * max(-1, min(1, min_seg / 2))

@@ -1,8 +1,8 @@
-# EPS Momentum System v80.3 (US Stocks)
+# EPS Momentum System v80.4 (US Stocks)
 
 Forward 12개월 EPS(NTM EPS) 기반 모멘텀 시스템. **"파괴적 혁신 기업을 싸게 살래"** 철학으로, w_gap(가중 괴리율)을 기반으로 저평가 종목을 선별한다. 괴리율이 음수일수록 EPS 개선 대비 주가가 덜 반영된 상태(= 저평가). MA120 + 리스크 필터로 신뢰도를 높이고, AI(Gemini 2.5 Flash)가 위험 신호를 점검한 뒤 최대 3종목을 매수 후보로 제시한다. 최대 3종목 보유.
 
-**v80.3 전략**: 진입 Top 3 / 이탈 8위 밖 / 슬롯 3개 / Breakout Hold (strict, 2일 유예) / Case 1 보너스(NTM↑+가격↓) / FCF·ROE 품질 필터 / z-score 상한 제거 / **빈 날 penalty 기준 `part2_rank IS NULL`** / **✅ 약점 종목 슬라이드** / **Segment cap-aware direction (γ)** — segment 중 ±100% cap 발동 시 direction=0으로 무효화 (어닝 lookback shift 노이즈 차단). 매매 BT 54일: baseline +57.43% → γ +60.51% (+3.08%p).
+**v80.4 전략**: 진입 Top 3 / 이탈 8위 밖 / 슬롯 3개 / Breakout Hold (strict, 2일 유예) / Case 1 보너스(NTM↑+가격↓) / FCF·ROE 품질 필터 / z-score 상한 제거 / **빈 날 penalty 기준 `part2_rank IS NULL`** / **✅ 약점 종목 슬라이드** / **β1 (cap 발동 시 +0.3 보너스)** — 어닝 비트 같은 강한 시그널 강화 / **opt4 (C4 sign flip)** — 고평가+둔화 케이스 매도 강조. v80.3 γ(cap 시 dir=0) 대체. SNDK 제외 multistart에서 baseline 동일, 시스템 아젠다("저평가 매수, 고평가 멀리") 정확 반영 + 미래 데이터 안전장치.
 
 ---
 
