@@ -5352,8 +5352,8 @@
     "industry": "기타"
   },
   "MEOH": {
-    "shortName": "MEOH",
-    "industry": "기타"
+    "shortName": "Methanex Corporation",
+    "industry": "화학"
   },
   "VFS": {
     "shortName": "VFS",
@@ -5658,5 +5658,9 @@
   "BEKE": {
     "shortName": "BEKE",
     "industry": "기타"
+  },
+  "SPHR": {
+    "shortName": "Sphere Entertainment Co.",
+    "industry": "엔터"
   }
 }
