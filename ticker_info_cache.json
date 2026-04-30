@@ -5628,8 +5628,8 @@
     "industry": "기타"
   },
   "P": {
-    "shortName": "P",
-    "industry": "기타"
+    "shortName": "Everpure, Inc.",
+    "industry": "하드웨어"
   },
   "SHG": {
     "shortName": "Shinhan Financial Group Co Ltd",
@@ -5653,6 +5653,10 @@
   },
   "XNDU": {
     "shortName": "XNDU",
+    "industry": "기타"
+  },
+  "BEKE": {
+    "shortName": "BEKE",
     "industry": "기타"
   }
 }
