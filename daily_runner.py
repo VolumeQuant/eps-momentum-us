@@ -4630,11 +4630,17 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
 
     # min_seg < -2%: save_part2_ranks()에서 이미 제외됨 → 이탈은 classify_exit_reasons()에서 처리
     # -2% ≤ min_seg < 0%: 매수 불가지만 보유 추적용으로 표시 (⚠️ 마크)
+    # v80.4 (2026-04-30): 저커버리지 (num_analysts < 3) 종목도 Watchlist에서 제외 —
+    #   매수 후보 차단 필터와 일관성 (이전: Watchlist 표시되지만 매수 후보 X로 UX 혼란)
     healthy_rows = []
     caution_tickers = set()  # -2% ≤ min_seg < 0% — 매수 불가, 보유 추적용
     for _, row in filtered.iterrows():
         _segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
         _min_seg = min(_segs) if _segs else 0
+        # 저커버리지 차단 (매수 후보 차단 필터와 일관성)
+        n_analysts = int(row.get('num_analysts', 0) or 0)
+        if n_analysts < 3:
+            continue
         healthy_rows.append(row)
         if round(_min_seg, 1) < 0:
             caution_tickers.add(row['ticker'])
