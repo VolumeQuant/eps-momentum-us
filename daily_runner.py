@@ -1568,83 +1568,39 @@ def _compute_w_gap_map(cursor, today_str, tickers):
     """w_gap(3일 가중 conviction adj_gap) 계산 — T0×0.5 + T1×0.3 + T2×0.2
 
     v71: adj_gap × (1 + rev_up30/num_analysts) conviction 배율 적용
-    v78: Case 1 보너스 — 30d NTM > +1% AND 가격 < -1% → z-score +8점
-         (81,880조합 그리드서치 + 촘촘 인접안정성(고원) + WF검증 + 멀티스타트 + LOO)
     Returns: {ticker: float(w_gap)}
     """
-    from datetime import datetime, timedelta
     dates = _get_recent_dates(cursor, 'composite_rank', today_str, 3)
     dates = sorted(dates)  # 오래된 순
 
-    # 일별 conviction adj_gap → z-score(30~100) 변환 후 3일 가중 (v71)
     import numpy as np
-    MISSING_PENALTY = 30  # 빈 날 최종 폴백 (carry-forward 불가 시)
-
-    # v78: Case 1 보너스 파라미터
-    CASE1_PERIOD = 30     # 30 캘린더일
-    CASE1_NTM_THR = 1.0   # NTM 30d 변화율 > +1%
-    CASE1_PX_THR = -1.0   # 가격 30d 변화율 < -1%
-    CASE1_SCORE_BONUS = 8 # z-score 가산점
+    MISSING_PENALTY = 30  # 빈 날 최종 폴백
 
     score_by_date = {}
     for d in dates:
         rows = cursor.execute(
             'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d, '
-            'rev_growth, ntm_30d, price '
-            'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
+            'rev_growth FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
             (d,)
         ).fetchall()
-        # v75: rev_growth 전달
         conv_gaps = {}
-        ntm_px_data = {}
         for r in rows:
             tk = r[0]
             conv_gaps[tk] = _apply_conviction(r[1], r[2], r[3], r[4], r[5], rev_growth=r[6])
-            ntm_px_data[tk] = (r[4], r[7], r[8])  # ntm_current, ntm_30d, price_now
 
-        # z-score → 30~100 변환 (eligible 내 상대 위치)
         vals = list(conv_gaps.values())
         if len(vals) >= 2:
             mean_v = np.mean(vals)
             std_v = np.std(vals)
             if std_v > 0:
                 score_by_date[d] = {
-                    tk: max(30.0, 65 + (-(v - mean_v) / std_v) * 15)  # v79: 상한 100 clamp 제거 (outlier 변별력 보존)
+                    tk: max(30.0, 65 + (-(v - mean_v) / std_v) * 15)
                     for tk, v in conv_gaps.items()
                 }
             else:
                 score_by_date[d] = {tk: 65 for tk in conv_gaps}
         else:
             score_by_date[d] = {tk: 65 for tk in conv_gaps}
-
-        # v78: Case 1 보너스 (z-score 후 적용)
-        target_30d = (datetime.strptime(d, '%Y-%m-%d') - timedelta(days=CASE1_PERIOD)).strftime('%Y-%m-%d')
-        d_30ago = cursor.execute(
-            'SELECT MAX(date) FROM ntm_screening WHERE date <= ?', (target_30d,)
-        ).fetchone()
-        px_30d_map = {}
-        if d_30ago and d_30ago[0]:
-            px_30d_rows = cursor.execute(
-                'SELECT ticker, price FROM ntm_screening WHERE date=? AND price > 0',
-                (d_30ago[0],)
-            ).fetchall()
-            px_30d_map = {r[0]: r[1] for r in px_30d_rows}
-
-        case1_count = 0
-        for tk in list(score_by_date[d].keys()):
-            nd = ntm_px_data.get(tk)
-            if not nd: continue
-            ntm_cur, ntm_30d_val, price_now = nd
-            ntm_chg = ((ntm_cur - ntm_30d_val) / ntm_30d_val * 100) \
-                if ntm_30d_val and abs(ntm_30d_val) > 0.01 and ntm_cur else 0
-            px_30d = px_30d_map.get(tk)
-            px_chg = ((price_now - px_30d) / px_30d * 100) \
-                if px_30d and px_30d > 0 and price_now and price_now > 0 else 0
-            if ntm_chg > CASE1_NTM_THR and px_chg < CASE1_PX_THR:
-                score_by_date[d][tk] += CASE1_SCORE_BONUS
-                case1_count += 1
-        if case1_count > 0:
-            log(f"  w_gap [{d}]: Case 1(30d) 보너스 +{CASE1_SCORE_BONUS}점 → {case1_count}종목")
 
     weights = [0.2, 0.3, 0.5]  # T-2, T-1, T0 (오래된순)
     if len(dates) == 2:
@@ -2927,11 +2883,10 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         earnings_map=None, risk_status=None, score_100_map=None,
                         hist_all=None):
-    """Signal 메시지용 종목 선정 (v78: w_gap 순위 Top3 + min_seg ≥ 0%, 최대 3종목)
+    """Signal 메시지용 종목 선정 (w_gap 순위 Top3 + min_seg ≥ 0%, 최대 3종목)
 
     part2_rank(w_gap 기반) 상위 3종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
     이탈선: part2_rank > 8. 최대 3슬롯.
-    v78: Case 1(30d NTM>+1% 가격<-1%) 보너스 +8점 반영된 w_gap 기준.
     """
     if earnings_map is None:
         earnings_map = {}
@@ -3874,30 +3829,17 @@ def _build_score_100_map(today_str=None):
         conn.close()
         return {}, {}
 
-    # v80.4 (2026-04-30): _compute_w_gap_map과 동일 Case 1 보너스 적용
-    #   = part2_rank와 score_100 일관성 확보. 이전: Case 1 종목이 part2_rank엔
-    #   +8점 보너스 받지만 score_100엔 보너스 없어서 두 정렬 결과 불일치 (LNG 사례).
-    from datetime import datetime, timedelta
-    CASE1_PERIOD = 30
-    CASE1_NTM_THR = 1.0
-    CASE1_PX_THR = -1.0
-    CASE1_SCORE_BONUS = 8
-
     score_by_date = {}
     for d in dates:
         rows = cursor.execute(
             'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d, '
-            'rev_growth, ntm_30d, price '
-            'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
+            'rev_growth FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
             (d,)
         ).fetchall()
-        # v75: rev_growth 전달
         conv_gaps = {}
-        ntm_px_data = {}
         for r in rows:
             tk = r[0]
             conv_gaps[tk] = _apply_conviction(r[1], r[2], r[3], r[4], r[5], rev_growth=r[6])
-            ntm_px_data[tk] = (r[4], r[7], r[8])  # ntm_current, ntm_30d, price_now
 
         vals = list(conv_gaps.values())
         if len(vals) >= 2:
@@ -3905,39 +3847,13 @@ def _build_score_100_map(today_str=None):
             std_v = np.std(vals)
             if std_v > 0:
                 score_by_date[d] = {
-                    tk: max(30.0, 65 + (-(v - mean_v) / std_v) * 15)  # v79: 상한 100 clamp 제거
+                    tk: max(30.0, 65 + (-(v - mean_v) / std_v) * 15)
                     for tk, v in conv_gaps.items()
                 }
             else:
                 score_by_date[d] = {tk: 65 for tk in conv_gaps}
         else:
             score_by_date[d] = {tk: 65 for tk in conv_gaps}
-
-        # v80.4: Case 1 보너스 (z-score 후 적용) — _compute_w_gap_map과 동일
-        target_30d = (datetime.strptime(d, '%Y-%m-%d') - timedelta(days=CASE1_PERIOD)).strftime('%Y-%m-%d')
-        d_30ago = cursor.execute(
-            'SELECT MAX(date) FROM ntm_screening WHERE date <= ?', (target_30d,)
-        ).fetchone()
-        px_30d_map = {}
-        if d_30ago and d_30ago[0]:
-            px_30d_rows = cursor.execute(
-                'SELECT ticker, price FROM ntm_screening WHERE date=? AND price > 0',
-                (d_30ago[0],)
-            ).fetchall()
-            px_30d_map = {r[0]: r[1] for r in px_30d_rows}
-
-        for tk in list(score_by_date[d].keys()):
-            nd = ntm_px_data.get(tk)
-            if not nd:
-                continue
-            ntm_cur, ntm_30d_val, price_now = nd
-            ntm_chg = ((ntm_cur - ntm_30d_val) / ntm_30d_val * 100) \
-                if ntm_30d_val and abs(ntm_30d_val) > 0.01 and ntm_cur else 0
-            px_30d = px_30d_map.get(tk)
-            px_chg = ((price_now - px_30d) / px_30d * 100) \
-                if px_30d and px_30d > 0 and price_now else 0
-            if ntm_chg > CASE1_NTM_THR and px_chg < CASE1_PX_THR:
-                score_by_date[d][tk] += CASE1_SCORE_BONUS
 
     weights = [0.2, 0.3, 0.5]
     if len(dates) == 2:
@@ -4035,49 +3951,23 @@ def _get_system_performance():
             d1 = all_dates[di - 1] if di >= 1 else None
             d2 = all_dates[di - 2] if di >= 2 else None
             ds = [d for d in [d2, d1, d0] if d]  # 오래된 순
-            # 일별 conviction adj_gap → z-score 변환 + v78 Case 1 보너스
-            from datetime import datetime, timedelta
-            CASE1_PERIOD = 30
-            CASE1_NTM_THR = 1.0
-            CASE1_PX_THR = -1.0
-            CASE1_SCORE_BONUS = 8
 
             score_by_d = {}
             for d in ds:
                 rows = c.execute(
                     'SELECT ticker, adj_gap, rev_up30, num_analysts, ntm_current, ntm_90d, '
-                    'rev_growth, ntm_30d, price '
-                    'FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL', (d,)
+                    'rev_growth FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL', (d,)
                 ).fetchall()
-                # v75: rev_growth 전달
                 conv = {r[0]: _apply_conviction(r[1], r[2], r[3], r[4], r[5], rev_growth=r[6]) for r in rows}
-                ntm_px = {r[0]: (r[4], r[7], r[8]) for r in rows}  # ntm_cur, ntm_30d, price
                 vals = list(conv.values())
                 if len(vals) >= 2:
                     mv, sv = sum(vals)/len(vals), (sum((v-sum(vals)/len(vals))**2 for v in vals)/len(vals))**0.5
                     if sv > 0:
-                        score_by_d[d] = {tk: max(30.0, 65 + (-(v - mv) / sv) * 15) for tk, v in conv.items()}  # v79: 상한 clamp 제거
+                        score_by_d[d] = {tk: max(30.0, 65 + (-(v - mv) / sv) * 15) for tk, v in conv.items()}
                     else:
                         score_by_d[d] = {tk: 65 for tk in conv}
                 else:
                     score_by_d[d] = {tk: 65 for tk in conv}
-
-                # v78: Case 1 보너스 (z-score 후)
-                target_30d = (datetime.strptime(d, '%Y-%m-%d') - timedelta(days=CASE1_PERIOD)).strftime('%Y-%m-%d')
-                d_30ago = c.execute('SELECT MAX(date) FROM ntm_screening WHERE date <= ?', (target_30d,)).fetchone()
-                px_30d_map = {}
-                if d_30ago and d_30ago[0]:
-                    px_30d_map = {r[0]: r[1] for r in c.execute(
-                        'SELECT ticker, price FROM ntm_screening WHERE date=? AND price > 0', (d_30ago[0],)).fetchall()}
-                for tk in list(score_by_d[d].keys()):
-                    nd = ntm_px.get(tk)
-                    if not nd: continue
-                    nc, n30v, pn = nd
-                    ntm_chg = ((nc - n30v) / n30v * 100) if n30v and abs(n30v) > 0.01 and nc else 0
-                    px_30 = px_30d_map.get(tk)
-                    px_chg = ((pn - px_30) / px_30 * 100) if px_30 and px_30 > 0 and pn and pn > 0 else 0
-                    if ntm_chg > CASE1_NTM_THR and px_chg < CASE1_PX_THR:
-                        score_by_d[d][tk] += CASE1_SCORE_BONUS
 
             def _cf(tk, idx):
                 """backward only — forward 탐색 금지 (신규 종목 3일 패널티 우회 방지)"""
