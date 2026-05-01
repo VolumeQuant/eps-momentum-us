@@ -5452,8 +5452,8 @@
     "industry": "바이오"
   },
   "BLSH": {
-    "shortName": "BLSH",
-    "industry": "기타"
+    "shortName": "Bullish",
+    "industry": "인프라SW"
   },
   "CRDO": {
     "shortName": "Credo Technology Group Holding ",
@@ -5662,5 +5662,17 @@
   "SPHR": {
     "shortName": "Sphere Entertainment Co.",
     "industry": "엔터"
+  },
+  "ADT": {
+    "shortName": "ADT",
+    "industry": "기타"
+  },
+  "AXTI": {
+    "shortName": "AXTI",
+    "industry": "기타"
+  },
+  "S": {
+    "shortName": "S",
+    "industry": "기타"
   }
 }
