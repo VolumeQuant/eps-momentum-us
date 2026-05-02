@@ -12,6 +12,12 @@ on:
         required: false
         default: 'v3'
 
+# v80.7 (2026-05-02): daily-screening.yml과 동일 group으로 묶어 동시 실행 차단.
+# yfinance rate limit 회피 (5/2 사고 재발 방지).
+concurrency:
+  group: yfinance-data-fetch
+  cancel-in-progress: false
+
 permissions:
   contents: read
 

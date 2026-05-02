@@ -13,6 +13,13 @@ on:
     - cron: '58 20 * * 1-5'
   workflow_dispatch:  # 수동 실행도 가능
 
+# v80.7 (2026-05-02): yfinance rate limit 회피 — 테스트 워크플로우와 동시 실행 시
+# IP 기반 throttling으로 대량 수집 실패 발생 (5/2 사고: 333개 실패 → SNDK/VIRT 5/1
+# 어닝 데이터 stale carry-forward → 매수 후보 오판). 같은 group으로 묶어 직렬화.
+concurrency:
+  group: yfinance-data-fetch
+  cancel-in-progress: false  # 진행 중이면 큐에서 대기 (취소 X)
+
 permissions:
   contents: write  # git push 권한
 
