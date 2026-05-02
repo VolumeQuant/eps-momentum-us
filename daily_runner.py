@@ -4640,7 +4640,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                     break
         ind_tag = f' · {industry}' if industry else ''
         caution_tag = ' ⚠️' if ticker in caution_tickers else ''
-        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}{caution_tag}')
+        # v80.7 (2026-05-02): 매도 유예 ⏸️ 표시 — 8위 밖이지만 강한 상승 추세 4조건 충족 시.
+        # 이전엔 "이탈" 섹션 종목만 검사했으나 그건 Top 20 → Top 20 밖 변동 한정이라
+        # 9~20위 사각지대 발생 (MU 5/1 사례). 이제 Watchlist 종목 모두 검사.
+        hold_tag = ' ⏸️' if rank > 8 and check_breakout_hold(ticker) else ''
+        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}{caution_tag}{hold_tag}')
 
         # L1: EPS추이 아이콘 + 설명
         if lights and desc:
