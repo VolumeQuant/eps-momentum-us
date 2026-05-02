@@ -4003,9 +4003,14 @@ def _get_system_performance():
             spy_df = yf.download('^GSPC', start=all_dates[0], end=end_inclusive,
                                  auto_adjust=False, progress=False)
             spy_prices = {}
-            for idx, row in spy_df.iterrows():
+            # v80.7 (2026-05-02): row.iloc[3]은 Low(일중 최저가) — Close가 아님.
+            # yfinance auto_adjust=False 컬럼 순서: [Adj Close, Close, High, Low, Open, Volume]
+            # 결과: SPY 누적 수익률이 -1~2%p 낮게 표시되는 버그 (메시지에 +4.59% vs 실제 +5.94%)
+            # multi-index column 처리: spy_df['Close']는 DataFrame, .iloc[i, 0]으로 단일 값 추출
+            close_df = spy_df['Close'] if 'Close' in spy_df.columns.get_level_values(0) else spy_df.iloc[:, [0]]
+            for i, idx in enumerate(close_df.index):
                 ds = idx.strftime('%Y-%m-%d')
-                spy_prices[ds] = float(row.iloc[3]) if len(row) > 3 else float(row.iloc[0])
+                spy_prices[ds] = float(close_df.iloc[i, 0])
         except Exception:
             spy_prices = {}
 
@@ -4032,6 +4037,31 @@ def _get_system_performance():
             eligible = [(tk, w_gap.get(tk, 0)) for tk in data if ticker_ms.get(tk, 0) >= -2]
             eligible.sort(key=lambda x: x[1], reverse=True)  # 점수 높을수록 상위
             wgap_rank = {tk: r + 1 for r, (tk, _) in enumerate(eligible)}
+
+            # v80.7 (2026-05-02): day_ret을 이탈/진입 전 어제 portfolio 기준으로 계산.
+            # 이전 코드는 진입일 첫 day_ret이 "전일 가격 → 진입일 가격" 변화를 누적에 포함.
+            # 사용자가 부담하지 않은 매수 전 변동이 시스템 ret에 잘못 들어가는 버그.
+            # 영향: 시스템 +57.0% → +53.3%, SPY +4.2% → +5.8% (2/12 진입 첫날 +2.42% 제외)
+            # 균등비중 수익률 (어제 portfolio 기준)
+            day_ret = 0
+            if portfolio:
+                w = 1.0 / len(portfolio)
+                for tk in portfolio:
+                    cur = prices.get(tk)
+                    prev = prev_prices.get(tk)
+                    if cur and prev and prev > 0:
+                        day_ret += w * (cur - prev) / prev * 100
+
+            # SPY는 portfolio 진입 후 첫 거래일부터 누적 (시스템과 동일 시점)
+            spy_ret = 0
+            if portfolio:  # 어제 portfolio가 있어야 SPY ret 누적 (첫 진입일은 skip)
+                sc = spy_prices.get(date)
+                sp = spy_prices.get(prev_date)
+                if sc and sp and sp > 0:
+                    spy_ret = (sc - sp) / sp * 100
+
+            sys_nav *= (1 + day_ret / 100)
+            spy_nav *= (1 + spy_ret / 100)
 
             # 이탈
             for tk in list(portfolio.keys()):
@@ -4060,27 +4090,9 @@ def _get_system_performance():
                     if cp:
                         portfolio[tk] = {'entry_price': cp}
 
-            # 균등비중 수익률 (v71: 역변동성→균등 전환)
-            day_ret = 0
-            if portfolio:
-                w = 1.0 / len(portfolio)
-                for tk in portfolio:
-                    cur = prices.get(tk)
-                    prev = prev_prices.get(tk)
-                    if cur and prev and prev > 0:
-                        day_ret += w * (cur - prev) / prev * 100
-
-            spy_ret = 0
-            sc = spy_prices.get(date)
-            sp = spy_prices.get(prev_date)
-            if sc and sp and sp > 0:
-                spy_ret = (sc - sp) / sp * 100
-
-            sys_nav *= (1 + day_ret / 100)
-            spy_nav *= (1 + spy_ret / 100)
-
         conn.close()
-        n_days = len(all_dates) - start_idx
+        # n_days: 실제 day_ret 누적 일수 (첫 진입일은 day_ret=0이므로 -1)
+        n_days = len(all_dates) - start_idx - 1
         return {
             'sys_cum': (sys_nav - 1) * 100,
             'spy_cum': (spy_nav - 1) * 100,

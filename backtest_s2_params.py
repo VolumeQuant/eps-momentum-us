@@ -77,6 +77,24 @@ def simulate(dates_all, data, entry_top, exit_top, max_slots, start_date=None):
             new_consecutive[tk] = consecutive.get(tk, 0) + 1
         consecutive = new_consecutive
 
+        # v80.7 (2026-05-02): day_ret을 이탈/진입 전 어제 portfolio 기준 계산.
+        # 이전 코드: 이탈→진입→day_ret 순서 → 진입한 종목의 매수 전 변동(어제→오늘)이
+        # day_ret에 잘못 누적 + 이탈한 종목의 마지막 변동(어제→오늘)이 day_ret에서 누락.
+        # 사용자 운영(메시지 받고 그 종가에 애프터마켓 매수/매도)과 일치하려면 어제 portfolio
+        # 기준 day_ret 계산이 정확. (메모리 v80.6 rollback 참조)
+        day_ret = 0
+        if portfolio:
+            for tk in portfolio:
+                price = today_data.get(tk, {}).get('price')
+                if price and di > 0:
+                    prev = data.get(dates[di - 1], {}).get(tk, {}).get('price')
+                    if prev and prev > 0:
+                        day_ret += (price - prev) / prev * 100
+            day_ret /= len(portfolio)
+            daily_returns.append(day_ret)
+        else:
+            daily_returns.append(0)
+
         # 이탈
         exited = []
         for tk in list(portfolio.keys()):
@@ -119,20 +137,6 @@ def simulate(dates_all, data, entry_top, exit_top, max_slots, start_date=None):
                     candidates.append((tk, price))
             for tk, price in candidates[:vacancies]:
                 portfolio[tk] = {'entry_price': price, 'entry_date': today}
-
-        # 일간 수익
-        if portfolio:
-            day_ret = 0
-            for tk in portfolio:
-                price = today_data.get(tk, {}).get('price')
-                if price and di > 0:
-                    prev = data.get(dates[di - 1], {}).get(tk, {}).get('price')
-                    if prev and prev > 0:
-                        day_ret += (price - prev) / prev * 100
-            day_ret /= len(portfolio)
-            daily_returns.append(day_ret)
-        else:
-            daily_returns.append(0)
 
     cum_ret = 1.0
     peak = 1.0

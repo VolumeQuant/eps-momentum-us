@@ -405,6 +405,10 @@ def calculate_ntm_score(ntm_values):
     #   양수 adj_gap → 더 양수 (매도 강조). v80.3 γ(dir=0)에서 변경.
     #   근거: MU 4/28 같은 신규 cap 케이스에서 baseline의 direction 부호 반전
     #   (-50) 페널티는 잘못. 어닝 비트는 호재 시그널이지 노이즈가 아님.
+    # v80.6 시도/롤백 (2026-05-02): β1 제거 → 6시작일 multistart BT에서
+    #   -18.20%p 손실 확인 → 즉시 롤백. 메모리의 "β1 BT 효과 0"은 짧은 기간
+    #   시작일(5거래일짜리) 포함된 33시작일 평균이 노이즈로 흐려진 결과였음.
+    #   50거래일+ 보장된 6시작일 multistart에서 β1 +18%p 알파 일관 확인.
     # opt4: C4 (고평가 + 둔화)는 daily_runner.py adj_gap 계산 시 sign flip.
     DIRECTION_DIVISOR = 30  # 1σ(3.67) → ~12% 보정
     DIRECTION_CAP = 0.3     # 최대 ±30% 보정
