@@ -5192,8 +5192,8 @@
     "industry": "기타"
   },
   "NICE": {
-    "shortName": "NICE",
-    "industry": "기타"
+    "shortName": "NICE Ltd",
+    "industry": "응용SW"
   },
   "APGE": {
     "shortName": "Apogee Therapeutics, Inc.",
@@ -5240,8 +5240,8 @@
     "industry": "인프라SW"
   },
   "XENE": {
-    "shortName": "XENE",
-    "industry": "기타"
+    "shortName": "Xenon Pharmaceuticals Inc.",
+    "industry": "바이오"
   },
   "EGO": {
     "shortName": "Eldorado Gold Corporation",
@@ -5656,8 +5656,8 @@
     "industry": "기타"
   },
   "BEKE": {
-    "shortName": "BEKE",
-    "industry": "기타"
+    "shortName": "KE Holdings Inc",
+    "industry": "부동산서비스"
   },
   "SPHR": {
     "shortName": "Sphere Entertainment Co.",
@@ -5674,5 +5674,17 @@
   "S": {
     "shortName": "S",
     "industry": "기타"
+  },
+  "CORT": {
+    "shortName": "CORT",
+    "industry": "기타"
+  },
+  "DIOD": {
+    "shortName": "Diodes Incorporated",
+    "industry": "반도체"
+  },
+  "RELY": {
+    "shortName": "Remitly Global, Inc.",
+    "industry": "인프라SW"
   }
 }
