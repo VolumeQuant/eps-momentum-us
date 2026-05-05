@@ -1225,6 +1225,17 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
             log(f"저커버리지(<3명) 제외: {', '.join(low_cov['ticker'].tolist())}")
         filtered = filtered[filtered['num_analysts'].fillna(0) >= 3].copy()
 
+    # v80.8 (2026-05-05): 합의 강도 필터 — rev_up30 ≥ 3 종목만 통과.
+    # 단일 분석가 의존 종목(WELL 같은 케이스: rev_up=1) 차단.
+    # 6시작일 multistart BT +8.51%p, 12시작일 +7.16%p 일관 검증.
+    # 7개 맹점 검증 결과 conviction 공식 변경/eps_cap/T0 조정 등 모든 다른 알파를
+    # 흡수하는 single-point fix로 확인됨. (project_v80_8_validation 메모리 참조)
+    if 'rev_up30' in filtered.columns:
+        low_consensus = filtered[filtered['rev_up30'].fillna(0) < 3]
+        if len(low_consensus) > 0:
+            log(f"낮은 합의(<3명 상향) 제외: {', '.join(low_consensus['ticker'].tolist())}")
+        filtered = filtered[filtered['rev_up30'].fillna(0) >= 3].copy()
+
     if 'rev_up30' in filtered.columns and 'rev_down30' in filtered.columns:
         up = filtered['rev_up30'].fillna(0)
         dn = filtered['rev_down30'].fillna(0)
