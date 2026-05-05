@@ -1545,31 +1545,34 @@ def save_part2_ranks(results_df, today_str):
 
 def _apply_conviction(adj_gap, rev_up, num_analysts, ntm_current=None, ntm_90d=None,
                        rev_growth=None):
-    """adj_gap에 애널리스트 합의 + 매출성장 배율 적용 (v75)
+    """adj_gap에 애널리스트 합의 + 매출성장 배율 적용 (v80.9 X2 적용)
 
     conviction = max(rev_up30/num_analysts, eps_floor) + rev_bonus
     - ratio = rev_up30/num_analysts: 최근 30일 상향 비율 (0.0~1.0)
-    - eps_floor: min(|EPS변화율|/100, 1.0) — 30일 창 밖 대규모 상향 보완
-    - rev_bonus (v75 신규): rev_growth >= 30%면 +0.3 add 보너스
-    배율 = 1 + conviction (범위 1.0~2.3)
+    - eps_floor: min(|EPS변화율|/100, 3.0) — v80.9: cap 1.0→3.0 (정보 보존)
+    - rev_bonus (v80.9): rev_growth × 0.6 비례 (cliff 제거, cap 0.3)
+    배율 = 1 + conviction (범위 1.0~3.3)
 
-    백테스트 검증 (v74→v75): 41일 33시작일 multistart
-    - baseline (v74): avg +29.4%, MDD -18.2%, risk_adj 1.62
-    - V9h (v75): avg +31.1%, MDD -16.7%, risk_adj 1.87 (+1.69%p, MDD 개선)
-    - 인접 안정성: 25~40% 임계값 / 0.20~0.30 보너스 모두 robust
+    v80.9 (2026-05-05) X2 채택: cliff/cap 임의 임계값 제거 → 자연 함수
+    근거: 경제학적 합리성 (smooth function, 정보 보존)
+    BT: 12시작일 ret -0.44%p (미세), MDD/Sharpe/Sortino 미세 개선
+    채택 이유: 미래 환경 변화(매출 30% 경계 종목 / NTM 200%+ 폭증) 대비 robust
+
+    이전 (v75): cliff 30% / cap 1.0 — 6시작일 BT 검증됐으나 미래 환경 변동성 취약
     """
     ratio = 0
     if num_analysts and num_analysts > 0 and rev_up is not None:
         ratio = rev_up / num_analysts
     eps_floor = 0
     if ntm_current is not None and ntm_90d is not None and ntm_90d and abs(ntm_90d) > 0.01:
-        eps_floor = min(abs((ntm_current - ntm_90d) / ntm_90d), 1.0)
+        eps_floor = min(abs((ntm_current - ntm_90d) / ntm_90d), 3.0)  # X2: 1.0 → 3.0
     base_conviction = max(ratio, eps_floor)
 
-    # v75: 매출 30% 이상 폭발적 성장 종목 보너스
-    rev_bonus = 0.0
-    if rev_growth is not None and rev_growth >= 0.30:
-        rev_bonus = 0.3
+    # v80.9 X2: rev_growth 비례 (cliff 제거)
+    if rev_growth is not None:
+        rev_bonus = min(min(rev_growth, 0.5) * 0.6, 0.3)
+    else:
+        rev_bonus = 0.0
 
     conviction = base_conviction + rev_bonus
     return adj_gap * (1 + conviction)
