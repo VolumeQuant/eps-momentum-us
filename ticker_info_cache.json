@@ -5686,5 +5686,25 @@
   "RELY": {
     "shortName": "Remitly Global, Inc.",
     "industry": "인프라SW"
+  },
+  "BBUC": {
+    "shortName": "BBUC",
+    "industry": "기타"
+  },
+  "FROG": {
+    "shortName": "FROG",
+    "industry": "기타"
+  },
+  "LEGN": {
+    "shortName": "LEGN",
+    "industry": "기타"
+  },
+  "STVN": {
+    "shortName": "STVN",
+    "industry": "기타"
+  },
+  "TPC": {
+    "shortName": "Tutor Perini Corporation",
+    "industry": "건설"
   }
 }
