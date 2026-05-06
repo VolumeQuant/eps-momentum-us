@@ -5706,5 +5706,29 @@
   "TPC": {
     "shortName": "Tutor Perini Corporation",
     "industry": "건설"
+  },
+  "ACLS": {
+    "shortName": "ACLS",
+    "industry": "기타"
+  },
+  "GTX": {
+    "shortName": "GTX",
+    "industry": "기타"
+  },
+  "INDV": {
+    "shortName": "Indivior Pharmaceuticals, Inc.",
+    "industry": "특수제약"
+  },
+  "NVO": {
+    "shortName": "NVO",
+    "industry": "기타"
+  },
+  "OKLO": {
+    "shortName": "OKLO",
+    "industry": "기타"
+  },
+  "QBTS": {
+    "shortName": "QBTS",
+    "industry": "기타"
   }
 }
