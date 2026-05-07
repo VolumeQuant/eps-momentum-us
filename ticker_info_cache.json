@@ -4552,8 +4552,8 @@
     "industry": "농업"
   },
   "NTRA": {
-    "shortName": "NTRA",
-    "industry": "기타"
+    "shortName": "Natera, Inc.",
+    "industry": "진단연구"
   },
   "NU": {
     "shortName": "NU",
@@ -5720,8 +5720,8 @@
     "industry": "특수제약"
   },
   "NVO": {
-    "shortName": "NVO",
-    "industry": "기타"
+    "shortName": "Novo Nordisk A/S",
+    "industry": "대형제약"
   },
   "OKLO": {
     "shortName": "OKLO",
@@ -5730,5 +5730,25 @@
   "QBTS": {
     "shortName": "QBTS",
     "industry": "기타"
+  },
+  "FWONA": {
+    "shortName": "FWONA",
+    "industry": "기타"
+  },
+  "FWONK": {
+    "shortName": "FWONK",
+    "industry": "기타"
+  },
+  "KLIC": {
+    "shortName": "Kulicke and Soffa Industries, I",
+    "industry": "반도체장비"
+  },
+  "RBRK": {
+    "shortName": "RBRK",
+    "industry": "기타"
+  },
+  "RDN": {
+    "shortName": "Radian Group Inc.",
+    "industry": "특수보험"
   }
 }
