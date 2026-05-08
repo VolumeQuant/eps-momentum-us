@@ -47,6 +47,8 @@ eps_momentum_data.bak_*
 
 # Research 임시 BT DB 폴더 (BT 결과 캐시 — git에 올리지 않음)
 research/*_dbs/
+research/*_dbs_*/
+research/pe_*_dbs/
 research/*.db
 research/*.bak.db
 
