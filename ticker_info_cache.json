@@ -5712,8 +5712,8 @@
     "industry": "기타"
   },
   "GTX": {
-    "shortName": "GTX",
-    "industry": "기타"
+    "shortName": "Garrett Motion Inc.",
+    "industry": "자동차부품"
   },
   "INDV": {
     "shortName": "Indivior Pharmaceuticals, Inc.",
@@ -5750,5 +5750,13 @@
   "RDN": {
     "shortName": "Radian Group Inc.",
     "industry": "특수보험"
+  },
+  "BAM": {
+    "shortName": "BAM",
+    "industry": "기타"
+  },
+  "WSC": {
+    "shortName": "WSC",
+    "industry": "기타"
   }
 }
