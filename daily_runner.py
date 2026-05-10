@@ -2900,7 +2900,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     """Signal 메시지용 종목 선정 (w_gap 순위 Top3 + min_seg ≥ 0%, 최대 3종목)
 
     part2_rank(w_gap 기반) 상위 3종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
-    이탈선: part2_rank > 8. 최대 3슬롯.
+    이탈선: part2_rank > 10. 최대 3슬롯. (v80.10: 8 → 10)
     """
     if earnings_map is None:
         earnings_map = {}
@@ -4378,7 +4378,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('매수: 상위 3종목, 최대 3종목 보유')
-    lines.append('매도: 8위 밖 or 실적하락')
+    lines.append('매도: 10위 밖 or 실적하락')
 
     return '\n'.join(lines)
 
@@ -4654,10 +4654,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                     break
         ind_tag = f' · {industry}' if industry else ''
         caution_tag = ' ⚠️' if ticker in caution_tickers else ''
-        # v80.7 (2026-05-02): 매도 유예 ⏸️ 표시 — 8위 밖이지만 강한 상승 추세 4조건 충족 시.
+        # v80.7 (2026-05-02): 매도 유예 ⏸️ 표시 — 매도 기준선 밖이지만 강한 상승 추세 4조건 충족 시.
         # 이전엔 "이탈" 섹션 종목만 검사했으나 그건 Top 20 → Top 20 밖 변동 한정이라
         # 9~20위 사각지대 발생 (MU 5/1 사례). 이제 Watchlist 종목 모두 검사.
-        hold_tag = ' ⏸️' if rank > 8 and check_breakout_hold(ticker) else ''
+        # v80.10: 매도 기준 8 → 10으로 변경
+        hold_tag = ' ⏸️' if rank > 10 and check_breakout_hold(ticker) else ''
         lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}{caution_tag}{hold_tag}')
 
         # L1: EPS추이 아이콘 + 설명
@@ -4695,8 +4696,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         # 어닝 서프/공매도는 Signal 메시지의 AI 내러티브에서 표현 (v69)
         lines.append(' · '.join(rank_parts))
 
-        # 매도 기준선 (8위 아래 = 퇴출 대상, v78)
-        if rank == 8 and num_stocks > 8:
+        # 매도 기준선 (10위 아래 = 퇴출 대상, v80.10)
+        if rank == 10 and num_stocks > 10:
             lines.append('── 매도 기준선 ──')
         # 점선 구분선
         elif rank < num_stocks:
@@ -4721,7 +4722,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
     lines.append('매수: 상위 3종목, 최대 3종목 보유')
-    lines.append('매도: 8위 밖 or 실적하락')
+    lines.append('매도: 10위 밖 or 실적하락')
     lines.append('⏸️: 강한 상승 추세 시 2일 매도 유예')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
