@@ -5640,8 +5640,8 @@
     "industry": "반도체"
   },
   "SXT": {
-    "shortName": "SXT",
-    "industry": "기타"
+    "shortName": "Sensient Technologies Corporati",
+    "industry": "특수화학"
   },
   "KB": {
     "shortName": "KB Financial Group Inc",
@@ -5736,8 +5736,8 @@
     "industry": "기타"
   },
   "FWONK": {
-    "shortName": "FWONK",
-    "industry": "기타"
+    "shortName": "Liberty Media Corporation - Ser",
+    "industry": "엔터"
   },
   "KLIC": {
     "shortName": "Kulicke and Soffa Industries, I",
@@ -5752,11 +5752,11 @@
     "industry": "특수보험"
   },
   "BAM": {
-    "shortName": "BAM",
-    "industry": "기타"
+    "shortName": "Brookfield Asset Management Inc",
+    "industry": "자산운용"
   },
   "WSC": {
-    "shortName": "WSC",
-    "industry": "기타"
+    "shortName": "WillScot Holdings Corporation",
+    "industry": "렌탈리스"
   }
 }
