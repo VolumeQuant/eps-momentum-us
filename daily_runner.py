@@ -628,8 +628,8 @@ def run_ntm_collection(config):
                     if nc > 0:
                         fwd_pe_now = p_now / nc
 
-                    # 각 주기별 괴리율 → 가중평균
-                    weights = {'7d': 0.4, '30d': 0.3, '60d': 0.2, '90d': 0.1}
+                    # 각 주기별 괴리율 → 가중평균 (v80.10 long-tail: 90d 누적 PE 압축 강조)
+                    weights = {'7d': 0.30, '30d': 0.10, '60d': 0.10, '90d': 0.50}
                     weighted_sum = 0.0
                     total_weight = 0.0
 
@@ -779,7 +779,7 @@ def run_ntm_collection(config):
                         idx = (hist_dt - target).map(lambda x: abs(x.days)).argmin()
                         prices[key] = hist.iloc[idx]
 
-                    weights_pe = {'7d': 0.4, '30d': 0.3, '60d': 0.2, '90d': 0.1}
+                    weights_pe = {'7d': 0.30, '30d': 0.10, '60d': 0.10, '90d': 0.50}  # v80.10 long-tail
                     weighted_sum = 0.0
                     total_weight = 0.0
                     for key, w in weights_pe.items():
