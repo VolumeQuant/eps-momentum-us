@@ -3297,9 +3297,8 @@ def classify_exit_reasons(exited_tickers, results_df):
             # 어떤 필터에 걸렸는지 특정
             reason = _identify_filter_failure(full_data.get(t), t)
 
-        # v74: Breakout Hold 체크 - 순위밀림/주가선반영이지만 강한 상승 추세면 유예
-        if reason in ('순위밀림', '주가선반영') and check_breakout_hold(t):
-            reason = f'{reason}⏸️유예'
+        # v80.10c (2026-05-11): ⏸️ 유예 분류 제거 — BT 결과 v80.10 환경에선 N=0 best.
+        # check_breakout_hold 함수는 코드에 유지 (회귀 검증/약세장 재검토용).
 
         result.append((t, cur_rank, reason))
 
@@ -4654,12 +4653,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                     break
         ind_tag = f' · {industry}' if industry else ''
         caution_tag = ' ⚠️' if ticker in caution_tickers else ''
-        # v80.7 (2026-05-02): 매도 유예 ⏸️ 표시 — 매도 기준선 밖이지만 강한 상승 추세 4조건 충족 시.
-        # 이전엔 "이탈" 섹션 종목만 검사했으나 그건 Top 20 → Top 20 밖 변동 한정이라
-        # 9~20위 사각지대 발생 (MU 5/1 사례). 이제 Watchlist 종목 모두 검사.
-        # v80.10: 매도 기준 8 → 10으로 변경
-        hold_tag = ' ⏸️' if rank > 10 and check_breakout_hold(ticker) else ''
-        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}{caution_tag}{hold_tag}')
+        # v80.10c (2026-05-11): ⏸️ 매도 유예 표시 제거 — v80.10 장기 가중치 전환 후
+        # BT 검증 결과 유예 룰 N=0이 모든 N>0보다 우월 (paired 100/100). 단기 가중치
+        # 체제의 노이즈 완충 알파였던 ⏸️ 룰이 v80.10 환경에선 -5.37%p 손해.
+        # check_breakout_hold 함수는 코드에 유지 (참고/회귀용).
+        lines.append(f'{marker} <b>{rank}. {short_name}({ticker})</b>{ind_tag}{caution_tag}')
 
         # L1: EPS추이 아이콘 + 설명
         if lights and desc:
@@ -4723,7 +4721,6 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('📌 <b>운영 규칙</b>')
     lines.append('매수: 상위 3종목, 최대 3종목 보유')
     lines.append('매도: 10위 밖 or 실적하락')
-    lines.append('⏸️: 강한 상승 추세 시 2일 매도 유예')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
     return '\n'.join(lines)
