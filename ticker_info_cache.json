@@ -5576,8 +5576,8 @@
     "industry": "기타"
   },
   "RAL": {
-    "shortName": "RAL",
-    "industry": "기타"
+    "shortName": "Ralliant Corporation",
+    "industry": "전자부품"
   },
   "URBN": {
     "shortName": "Urban Outfitters, Inc.",
@@ -5708,8 +5708,8 @@
     "industry": "건설"
   },
   "ACLS": {
-    "shortName": "ACLS",
-    "industry": "기타"
+    "shortName": "Axcelis Technologies, Inc.",
+    "industry": "반도체장비"
   },
   "GTX": {
     "shortName": "Garrett Motion Inc.",
@@ -5732,8 +5732,8 @@
     "industry": "기타"
   },
   "FWONA": {
-    "shortName": "FWONA",
-    "industry": "기타"
+    "shortName": "Liberty Media Corporation - Ser",
+    "industry": "엔터"
   },
   "FWONK": {
     "shortName": "Liberty Media Corporation - Ser",
@@ -5758,5 +5758,29 @@
   "WSC": {
     "shortName": "WillScot Holdings Corporation",
     "industry": "렌탈리스"
+  },
+  "ARXS": {
+    "shortName": "ARXS",
+    "industry": "기타"
+  },
+  "MAIR": {
+    "shortName": "MAIR",
+    "industry": "기타"
+  },
+  "MARA": {
+    "shortName": "MARA",
+    "industry": "기타"
+  },
+  "MDA": {
+    "shortName": "MDA",
+    "industry": "기타"
+  },
+  "NVTS": {
+    "shortName": "NVTS",
+    "industry": "기타"
+  },
+  "RGTI": {
+    "shortName": "RGTI",
+    "industry": "기타"
   }
 }
