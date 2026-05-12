@@ -5782,5 +5782,9 @@
   "RGTI": {
     "shortName": "RGTI",
     "industry": "기타"
+  },
+  "LQDA": {
+    "shortName": "Liquidia Corporation",
+    "industry": "특수제약"
   }
 }
