@@ -5786,5 +5786,25 @@
   "LQDA": {
     "shortName": "Liquidia Corporation",
     "industry": "특수제약"
+  },
+  "KC": {
+    "shortName": "KC",
+    "industry": "기타"
+  },
+  "MBLY": {
+    "shortName": "MBLY",
+    "industry": "기타"
+  },
+  "MIAX": {
+    "shortName": "Miami International Holdings, I",
+    "industry": "자본시장"
+  },
+  "PLUG": {
+    "shortName": "PLUG",
+    "industry": "기타"
+  },
+  "VSH": {
+    "shortName": "VSH",
+    "industry": "기타"
   }
 }
