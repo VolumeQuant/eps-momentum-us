@@ -5806,5 +5806,9 @@
   "VSH": {
     "shortName": "VSH",
     "industry": "기타"
+  },
+  "PJT": {
+    "shortName": "PJT",
+    "industry": "기타"
   }
 }
