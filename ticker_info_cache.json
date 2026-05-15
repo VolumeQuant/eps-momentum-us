@@ -5810,5 +5810,9 @@
   "PJT": {
     "shortName": "PJT",
     "industry": "기타"
+  },
+  "WSE": {
+    "shortName": "WSE",
+    "industry": "기타"
   }
 }
