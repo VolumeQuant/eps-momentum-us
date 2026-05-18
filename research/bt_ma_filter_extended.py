@@ -87,6 +87,19 @@ def ma_pass_db(price, ma60, ma120, variant):
     raise ValueError(variant)
 
 
+def _load_ticker_industries():
+    """ticker_info_cache.json에서 ticker → industry 매핑 로드"""
+    import json
+    cache_path = ROOT / 'ticker_info_cache.json'
+    try:
+        with open(cache_path, encoding='utf-8') as f:
+            cache = json.load(f)
+        return {tk: info.get('industry', '') for tk, info in cache.items()}
+    except Exception as e:
+        print(f'WARN: ticker_info_cache.json 로드 실패: {e}')
+        return {}
+
+
 def regenerate(test_db, variant, ma_df=None):
     conn = sqlite3.connect(test_db)
     cur = conn.cursor()
@@ -94,6 +107,11 @@ def regenerate(test_db, variant, ma_df=None):
     dates = [r[0] for r in cur.execute(
         'SELECT DISTINCT date FROM ntm_screening ORDER BY date'
     ).fetchall()]
+
+    # COMMODITY 필터 (production get_part2_candidates와 일치)
+    industry_map = _load_ticker_industries()
+    commodity_industries = dr.COMMODITY_INDUSTRIES
+    commodity_tickers = dr.COMMODITY_TICKERS
 
     cur.execute('UPDATE ntm_screening SET composite_rank=NULL, part2_rank=NULL')
     conn.commit()
@@ -133,6 +151,10 @@ def regenerate(test_db, variant, ma_df=None):
             if om is not None and gm is not None and om < 0.10 and gm < 0.30: continue
             if om is not None and om < 0.05: continue
             if fcf is not None and roe is not None and fcf < 0 and roe < 0: continue
+
+            # COMMODITY 필터 (BUGFIX: production과 일치)
+            if industry_map.get(tk, '') in commodity_industries: continue
+            if tk in commodity_tickers: continue
 
             # min_seg
             segs = []

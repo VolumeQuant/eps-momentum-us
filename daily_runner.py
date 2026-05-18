@@ -144,8 +144,7 @@ def init_ntm_database():
 
     # 기존 DB 마이그레이션: 새 컬럼 추가
     for col, col_type in [('adj_score', 'REAL'), ('adj_gap', 'REAL'),
-                          ('price', 'REAL'), ('ma20', 'REAL'), ('ma60', 'REAL'), ('ma120', 'REAL'),
-                          ('part2_rank', 'INTEGER'),
+                          ('price', 'REAL'), ('ma60', 'REAL'), ('ma120', 'REAL'), ('part2_rank', 'INTEGER'),
                           ('rev_up30', 'INTEGER'), ('rev_down30', 'INTEGER'), ('num_analysts', 'INTEGER')]:
         try:
             cursor.execute(f'ALTER TABLE ntm_screening ADD COLUMN {col} {col_type}')
@@ -372,23 +371,23 @@ def run_ntm_collection(config):
             else:
                 log(f"일괄 다운로드 재시도 실패: {e}, 개별 다운로드로 전환", "WARN")
 
-    # Step 2.5: 동적 신규 종목 MA20 사전 필터 (v81: MA120 → MA20)
-    # price < MA20인 동적 종목은 Top 30 진입 불가 → EPS 수집 생략
+    # Step 2.5: 동적 신규 종목 MA120 사전 필터
+    # price < MA120인 동적 종목은 Top 30 진입 불가 → EPS 수집 생략
     if hist_all is not None and new_dynamic:
-        ma20_skip = set()
+        ma120_skip = set()
         for t in new_dynamic:
             try:
                 h = hist_all['Close'][t].dropna()
-                if len(h) >= 20:
+                if len(h) >= 120:
                     price = float(h.iloc[-1])
-                    ma20 = float(h.tail(20).mean())
-                    if price < ma20:
-                        ma20_skip.add(t)
+                    ma120 = float(h.tail(120).mean())
+                    if price < ma120:
+                        ma120_skip.add(t)
             except Exception:
                 pass
-        if ma20_skip:
-            all_tickers = [t for t in all_tickers if t not in ma20_skip]
-            log(f"MA20 사전 필터 (v81): 동적 종목 {len(ma20_skip)}개 제외 → {len(all_tickers)}개 수집")
+        if ma120_skip:
+            all_tickers = [t for t in all_tickers if t not in ma120_skip]
+            log(f"MA120 사전 필터: 동적 종목 {len(ma120_skip)}개 제외 → {len(all_tickers)}개 수집")
 
     # Step 3: EPS 데이터 병렬 수집 (지수 심볼 제외)
     eps_tickers = [t for t in all_tickers if not t.startswith('^')]
@@ -578,7 +577,6 @@ def run_ntm_collection(config):
             price_chg_weighted = None
             eps_chg_weighted = None
             current_price = None
-            ma20_val = None
             ma60_val = None
             ma120_val = None
 
@@ -588,11 +586,9 @@ def run_ntm_collection(config):
                 else:
                     hist = pd.Series(dtype=float)
 
-                if len(hist) >= 20:
+                if len(hist) >= 60:
                     p_now = hist.iloc[-1]
                     current_price = float(p_now)
-                    ma20_val = float(hist.rolling(window=20).mean().iloc[-1])
-                if len(hist) >= 60:
                     ma60_val = float(hist.rolling(window=60).mean().iloc[-1])
                     if len(hist) >= 120:
                         ma120_val = float(hist.rolling(window=120).mean().iloc[-1])
@@ -703,7 +699,6 @@ def run_ntm_collection(config):
                 'rev_down30': rev_down30,
                 'num_analysts': num_analysts,
                 'price': current_price,
-                'ma20': ma20_val,
                 'ma60': ma60_val,
                 'ma120': ma120_val,
             }
@@ -711,10 +706,10 @@ def run_ntm_collection(config):
             # DB에 파생 데이터 업데이트
             cursor.execute('''
                 UPDATE ntm_screening
-                SET adj_score=?, adj_gap=?, price=?, ma20=?, ma60=?, ma120=?,
+                SET adj_score=?, adj_gap=?, price=?, ma60=?, ma120=?,
                     rev_up30=?, rev_down30=?, num_analysts=?, eps_chg_weighted=?
                 WHERE date=? AND ticker=?
-            ''', (adj_score, adj_gap, current_price, ma20_val, ma60_val, ma120_val,
+            ''', (adj_score, adj_gap, current_price, ma60_val, ma120_val,
                   rev_up30, rev_down30, num_analysts, eps_chg_weighted,
                   today_str, ticker))
 
@@ -762,7 +757,6 @@ def run_ntm_collection(config):
                         continue
 
                     p_now = float(hist.iloc[-1])
-                    ma20_val = float(hist.rolling(window=20).mean().iloc[-1]) if len(hist) >= 20 else None
                     ma60_val = float(hist.rolling(window=60).mean().iloc[-1])
                     ma120_val = float(hist.rolling(window=120).mean().iloc[-1]) if len(hist) >= 120 else None
 
@@ -833,10 +827,10 @@ def run_ntm_collection(config):
 
                     cur_cf.execute('''
                         UPDATE ntm_screening
-                        SET adj_score=?, adj_gap=?, price=?, ma20=?, ma60=?, ma120=?,
+                        SET adj_score=?, adj_gap=?, price=?, ma60=?, ma120=?,
                             rev_up30=?, rev_down30=?, num_analysts=?
                         WHERE date=? AND ticker=?
-                    ''', (adj_score, adj_gap, p_now, ma20_val, ma60_val, ma120_val,
+                    ''', (adj_score, adj_gap, p_now, ma60_val, ma120_val,
                           prev[5], prev[6], prev[7],
                           today_str, ticker))
 
@@ -860,7 +854,7 @@ def run_ntm_collection(config):
                         'fwd_pe': fwd_pe_now, 'fwd_pe_chg': fwd_pe_chg, 'adj_gap': adj_gap,
                         'is_turnaround': is_turnaround,
                         'rev_up30': prev[5], 'rev_down30': prev[6], 'num_analysts': prev[7],
-                        'price': p_now, 'ma20': ma20_val, 'ma60': ma60_val, 'ma120': ma120_val,
+                        'price': p_now, 'ma60': ma60_val, 'ma120': ma120_val,
                     }
                     results.append(row)
                     _cf_inserted.append(ticker)
@@ -1182,30 +1176,21 @@ def fetch_revenue_growth(df, today_str):
 def get_part2_candidates(df, top_n=None, return_counts=False):
     """Part 2 매수 후보 필터링 (공통 함수)
 
-    필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA20 (v81),
+    필터: adj_score > 9, fwd_pe > 0, eps > 0, price ≥ $10, price > MA120,
           rev_growth ≥ 10%, num_analysts ≥ 3, 하향 비율 ≤ 30%,
           구조적 저마진(OM<10%&GM<30%), OP<5%, 원자재 업종 제외
     정렬: adj_gap 오름차순 (가장 저평가된 종목이 1위)
-
-    v81 (2026-05-18): MA120 (MA60 fallback) → MA20 변경
-      BT 검증: random 100seed×3 100/0, 12시작일 12/12, 6/6 파라미터 robust
-      평균 lift +18.26%p, MDD 평균 +8.46%p 개선
-      핵심: 매수 필터 자체는 알파 0 — 알파는 MA20 이탈 시 part2_rank NULL →
-            rank>10 트리거 → 즉시 매도 효과 (단기 모멘텀 잃은 종목 빠른 cut)
 
     return_counts=True: (filtered_df, {'eps_screened': N, 'quality_filtered': N}) 반환
     """
     import numpy as np
     import pandas as pd
 
-    # MA20 단기 모멘텀 필터 (v81)
-    if 'ma20' in df.columns:
-        ma_col = df['ma20']
-    elif 'ma60' in df.columns:
-        # backward compat: ma20 컬럼 없으면 ma60 fallback
-        ma_col = df['ma60']
+    # MA120 우선, NULL이면 MA60 fallback (ma120 컬럼 없으면 ma60만 사용)
+    if 'ma120' in df.columns:
+        ma_col = df['ma120'].where(df['ma120'].notna(), df['ma60'])
     else:
-        ma_col = pd.Series([None] * len(df), index=df.index)
+        ma_col = df['ma60']
     filtered = df[
         (df['adj_score'] > 9) &
         (df['adj_gap'].notna()) &
@@ -3358,11 +3343,12 @@ def _identify_filter_failure(row, ticker):
     if price < 10:
         return '저가'
 
-    # v81: MA20 단기 모멘텀 필터 (이전: MA120 / MA60 fallback)
-    ma20 = row.get('ma20')
-    ma_val = ma20 if ma20 is not None and pd.notna(ma20) else 0
+    # MA120 우선, 없으면 MA60
+    ma120 = row.get('ma120')
+    ma60 = row.get('ma60')
+    ma_val = (ma120 if ma120 is not None and pd.notna(ma120) else ma60) or 0
     if ma_val > 0 and price < ma_val:
-        return 'MA20↓'
+        return 'MA120↓'
 
     ntm = row.get('ntm_cur') or row.get('ntm_current') or 0
     fwd_pe = price / ntm if ntm > 0 else 0
@@ -4379,13 +4365,13 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             parts.append(f'{"·".join(tickers)}({reason})')
         lines.append('')
         lines.append(f'⚠️ 이탈: {" ".join(parts)}')
-        # MA20 이탈 + 어제 상위권 종목 → 반등 관심 대상 (v81)
+        # MA120 이탈 + 어제 상위권 종목 → 반등 관심 대상
         if exited_tickers:
             for t, _, reason in exit_reasons:
-                if reason == 'MA20↓':
+                if reason == 'MA120↓':
                     prev_rank = exited_tickers.get(t)
                     if prev_rank is not None and prev_rank <= 10:
-                        lines.append(f'💡 {t} — MA20 이탈이지만 어제 {prev_rank}위, 반등 시 재진입 대상')
+                        lines.append(f'💡 {t} — MA120 이탈이지만 어제 {prev_rank}위, 반등 시 재진입 대상')
 
     # ━━ 범례 + 면책 ━━
     lines.append('')
