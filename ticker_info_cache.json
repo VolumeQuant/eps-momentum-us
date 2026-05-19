@@ -5814,5 +5814,17 @@
   "WSE": {
     "shortName": "WSE",
     "industry": "기타"
+  },
+  "CMBT": {
+    "shortName": "CMBT",
+    "industry": "기타"
+  },
+  "MDB": {
+    "shortName": "MDB",
+    "industry": "기타"
+  },
+  "PAGP": {
+    "shortName": "Plains GP Holdings, L.P.",
+    "industry": "석유미드스트림"
   }
 }
