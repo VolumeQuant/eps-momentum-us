@@ -4085,7 +4085,7 @@ def _get_system_performance():
                 rk = wgap_rank.get(tk)
                 ms = ticker_ms.get(tk, 0)
                 ret = (cp - ep) / ep * 100
-                if (rk is None or rk > 8) or ms < -2:  # v78: X12→X8
+                if (rk is None or rk > 10) or ms < -2:  # v80.10b: X8→X10 (production 룰과 일치)
                     if ret > 0:
                         wins += 1
                     else:
