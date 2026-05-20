@@ -4056,14 +4056,18 @@ def _get_system_performance():
             # 사용자가 부담하지 않은 매수 전 변동이 시스템 ret에 잘못 들어가는 버그.
             # 영향: 시스템 +57.0% → +53.3%, SPY +4.2% → +5.8% (2/12 진입 첫날 +2.42% 제외)
             # 균등비중 수익률 (어제 portfolio 기준)
+            # 가격 누락 종목은 분모에서 제외 (OLD simulator의 pool-exit price masking 동형 버그 회피)
             day_ret = 0
             if portfolio:
-                w = 1.0 / len(portfolio)
+                n_valid = 0
                 for tk in portfolio:
                     cur = prices.get(tk)
                     prev = prev_prices.get(tk)
                     if cur and prev and prev > 0:
-                        day_ret += w * (cur - prev) / prev * 100
+                        day_ret += (cur - prev) / prev * 100
+                        n_valid += 1
+                if n_valid > 0:
+                    day_ret /= n_valid
 
             # SPY는 portfolio 진입 후 첫 거래일부터 누적 (시스템과 동일 시점)
             spy_ret = 0
