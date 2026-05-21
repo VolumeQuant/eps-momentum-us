@@ -5816,8 +5816,8 @@
     "industry": "기타"
   },
   "CMBT": {
-    "shortName": "CMBT",
-    "industry": "기타"
+    "shortName": "CMB.TECH NV",
+    "industry": "석유미드스트림"
   },
   "MDB": {
     "shortName": "MDB",
@@ -5829,6 +5829,10 @@
   },
   "DEO": {
     "shortName": "DEO",
+    "industry": "기타"
+  },
+  "XE": {
+    "shortName": "XE",
     "industry": "기타"
   }
 }
