@@ -5834,5 +5834,21 @@
   "XE": {
     "shortName": "XE",
     "industry": "기타"
+  },
+  "IRDM": {
+    "shortName": "IRDM",
+    "industry": "기타"
+  },
+  "NAVN": {
+    "shortName": "NAVN",
+    "industry": "기타"
+  },
+  "SAIL": {
+    "shortName": "SAIL",
+    "industry": "기타"
+  },
+  "SPOT": {
+    "shortName": "SPOT",
+    "industry": "기타"
   }
 }
