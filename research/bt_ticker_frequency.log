@@ -1,0 +1,54 @@
+====================================================================================================
+종목별 진입 빈도 + 5/22 메시지 시뮬레이션
+====================================================================================================
+
+[baseline (3,10,3)] 12 multistart 진입 종목 Top 20
+ticker      total   slot1
+  SNDK        17       9
+  LITE        13       5
+  MU          12       3
+  TER         12       5
+  BE          12       3
+  AEIS        12       3
+  FIVE        10       5
+  FORM         8       5
+  STX          7       0
+  MOD          6       3
+  TTMI         2       0
+  ASML         1       0
+  SIMO         1       0
+
+[(3,10,2) 80/20 b=3] 12 multistart 진입 종목 Top 20
+ticker      total   slot1
+  FIVE        22      11
+  SNDK        17       7
+  MU          12      10
+  BE          12      10
+  AEIS        12      10
+  MOD          6       6
+  TTMI         6       0
+  STX          5       0
+  FORM         3       0
+  LITE         1       0
+
+[차이] 새 후보 - baseline
+ticker      diff baseline   new
+  FIVE     +  12      10    22
+  TTMI     +   4       2     6
+  ASML     -   1       1     0
+  SIMO     -   1       1     0
+  STX      -   2       7     5
+  FORM     -   5       8     3
+  TER      -  12      12     0
+  LITE     -  12      13     1
+
+====================================================================================================
+5/22 (마지막 거래일) 메시지 시뮬레이션
+====================================================================================================
+Traceback (most recent call last):
+  File "C:\dev\claude-code\eps-momentum-us\research\bt_ticker_frequency.py", line 224, in <module>
+    main()
+    ~~~~^^
+  File "C:\dev\claude-code\eps-momentum-us\research\bt_ticker_frequency.py", line 200, in main
+    base_ranks = sorted(today_data.items(), key=lambda x: x[1].get('p2', 999))
+TypeError: '<' not supported between instances of 'int' and 'NoneType'
