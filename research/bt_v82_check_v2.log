@@ -1,0 +1,31 @@
+====================================================================================================
+[Test 1] (2,10,2) 단독 효과 — MA120 baseline 위에서
+  500 seed × 5 = 2500 sim/조합
+====================================================================================================
+
+  [ 7.7s]  ★(3,10,3)   current production     avg=+78.65% mdd=-18.18% ra=+4.33
+  [ 8.4s]   (2,10,2)   (2,10,2)만 변경           avg=+122.56% mdd=-22.19% ra=+5.52
+  [ 7.4s]   (1,10,1)   (1,10,1) 단일            avg=+108.15% mdd=-23.90% ra=+4.52
+
+  paired vs (3,10,3): (2,10,2) lift +43.91%p, 500/500 wins  [✓]
+  paired vs (3,10,3): (1,10,1) lift +29.50%p, 500/500 wins  [✓]
+
+====================================================================================================
+[Test 2] MA20 + smooth 12시작일 multistart (vs MA20만)
+  12 fixed starts × 1 simulation = 12 sim/조합
+====================================================================================================
+
+  [MA20만] 12시작일...
+Traceback (most recent call last):
+  File "C:\dev\claude-code\eps-momentum-us\research\bt_v82_check.py", line 155, in <module>
+    main()
+    ~~~~^^
+  File "C:\dev\claude-code\eps-momentum-us\research\bt_v82_check.py", line 128, in main
+    starts_a, rets_a, mdds_a = run_multistart(db_ma20, 3, 10, 3)
+                               ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\dev\claude-code\eps-momentum-us\research\bt_v82_check.py", line 53, in run_multistart
+    dates, data, price_series = bth.load_data_ext()
+                                ~~~~~~~~~~~~~~~~~^^
+  File "C:\dev\claude-code\eps-momentum-us\research\bt_breakout_hold.py", line 37, in load_data_ext
+    conn = sqlite3.connect(DB_PATH)
+sqlite3.OperationalError: unable to open database file
