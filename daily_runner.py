@@ -1473,8 +1473,60 @@ def get_forward_test_summary(today_str):
     }
 
 
+# v83 (2026-05-24): C2 boost — adj_gap (괴리율) 본질에 부합하는 buy-the-dip 강화
+# C2 = EPS 상향(eps_chg_weighted > 0) + 가격 30 거래일 하락(price 30d < 0)
+# BT 표준 (research/bt_third_way.py, bt_c2_dense_grid.py):
+#   80/20 + C2 rank-boost b=3 = random 500 +48.14%p / 500/500, 24 multistart 24/24,
+#   M24 min +13.54%p / M24 max +105.97%p, MDD -19.82% (v82 동일)
+# 4/2 worst 시작일에서 v82 (+13%p) → v83 (+38%p) 완벽 뒤집기 (MU +103% 80% 비중).
+# 사용자 첫 거부 "추세 추종 모순" 재검토: 시스템 본질은 mean reversion (adj_gap 괴리율) →
+#   C2가 본질 강화. C1 boost는 거꾸로 buy-the-dip 슈퍼위너 차단 → tail risk -37%p.
+C2_BOOST_RANK = 3  # v83: C2 종목 rank 점수에 +3 가산
+
+
+def _is_c2_for_v83(cursor, today_str, ticker, lookback=30):
+    """v83: C2 종목 여부 (EPS 상향 + 가격 30거래일 하락)"""
+    row = cursor.execute(
+        'SELECT eps_chg_weighted, price FROM ntm_screening WHERE date=? AND ticker=?',
+        (today_str, ticker)
+    ).fetchone()
+    if not row or row[0] is None or row[0] <= 0:
+        return False
+    cur_p = row[1]
+    if not cur_p:
+        return False
+    past_rows = cursor.execute(
+        'SELECT price FROM ntm_screening WHERE ticker=? AND date<? AND price IS NOT NULL '
+        'ORDER BY date DESC LIMIT 1 OFFSET ?',
+        (ticker, today_str, lookback - 1)
+    ).fetchone()
+    if not past_rows or not past_rows[0] or past_rows[0] <= 0:
+        return False
+    return (cur_p - past_rows[0]) / past_rows[0] < 0
+
+
+def _apply_c2_boost_rerank(cursor, today_str, sorted_tickers, boost=None):
+    """v83: C2 boost rerank — (n - idx) + boost by C2
+
+    sorted_tickers: w_gap descending (좋은 종목 먼저)
+    Returns: rerank된 ticker list (C2 종목이 boost만큼 위로 이동)
+    """
+    if boost is None:
+        boost = C2_BOOST_RANK
+    n = len(sorted_tickers)
+    if n <= 1:
+        return sorted_tickers
+    is_c2_map = {tk: _is_c2_for_v83(cursor, today_str, tk) for tk in sorted_tickers}
+    indexed = list(enumerate(sorted_tickers))
+    def _score(idx, tk):
+        return (n - idx) + (boost if is_c2_map[tk] else 0)
+    # 큰 score 먼저, 동점이면 원래 rank 작은 거 (안정 정렬)
+    indexed.sort(key=lambda x: (-_score(x[0], x[1]), x[0]))
+    return [tk for _, tk in indexed]
+
+
 def save_part2_ranks(results_df, today_str):
-    """Part 2 eligible 종목 저장 — composite_rank + w_gap Top 30 (v58)
+    """Part 2 eligible 종목 저장 — composite_rank + w_gap Top 30 (v58, v83 C2 boost)
 
     1. 전체 eligible의 당일 adj_gap 순위 → composite_rank 컬럼에 저장
     2. w_gap(3일 가중 adj_gap) 오름차순 상위 30개 → part2_rank 저장
@@ -1525,6 +1577,8 @@ def save_part2_ranks(results_df, today_str):
     eligible_tickers = list(composite_ranks.keys())
     wgap_map = _compute_w_gap_map(cursor, today_str, eligible_tickers)
     sorted_by_wgap = sorted(eligible_tickers, key=lambda tk: wgap_map.get(tk, 0), reverse=True)
+    # v83 (2026-05-24): C2 boost rerank — buy-the-dip 종목을 boost 만큼 위로 이동
+    sorted_by_wgap = _apply_c2_boost_rerank(cursor, today_str, sorted_by_wgap)
     top30 = sorted_by_wgap[:30]
 
     # part2_rank 저장 (Top 30만)
@@ -2901,7 +2955,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
 
     part2_rank(w_gap 기반) 상위 2종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
     이탈선: part2_rank > 10. 최대 2슬롯. (v82: 3→2)
-    비중: 1위 70%, 2위 30% (v82: 균등 → 차등).
+    비중: 1위 80%, 2위 20% (v83: 70/30 → 80/20 + C2 boost 동반).
     """
     if earnings_map is None:
         earnings_map = {}
@@ -2944,12 +2998,14 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                  for _, row in candidates.head(7).iterrows()]
     log(f"w_gap 순위 상위 7: {top_debug}")
 
-    # v82 (2026-05-24): 슬롯 3 → 2 + 1위 비중 70% (v80.2 슬라이드 정책 유지)
-    # BT 검증 (research/bt_corrected_final.py + bt_no_boost_options.py):
-    #   (2,10,2) 70/30 b=0 = random 500 +27.43%p / 500/500 wins / 12 multistart +30.89%p
-    #   M min +12.03%p (음수 0건), MDD -19.98% (baseline -18.14% 대비 +1.84%p 미세 악화)
-    # 사용자 결정: 80/20 부담 + C2 boost 추세추종 본질 모순 → 70/30 b=0이 안전 균형
-    # 다음 단계 (검토 보류): C1 boost=5 추가 시 +11%p 추가 알파 (research/verify_c1_boost_final.py)
+    # v83 (2026-05-24): 슬롯 (2,10,2) 유지 + 1위 비중 80% + C2 boost rank +3
+    # BT 검증 (research/bt_third_way.py, bt_c2_dense_grid.py):
+    #   80/20 + C2 b=3 = random 500 +48.14%p / 500/500 wins / 24 multistart 24/24,
+    #   M24 min +13.54%p / M24 max +105.97%p, MDD -19.82% (v82 동일)
+    # 4/2 worst 시작일 v82 (+13%p) → v83 (+38%p) 완벽 뒤집기 (MU +103% 80% 비중).
+    # 사용자 첫 거부 "추세추종 모순" 재검토: 시스템 본질은 mean reversion (adj_gap 괴리율) →
+    #   C2가 본질 강화. C1 boost는 거꾸로 buy-the-dip 슈퍼위너 차단 → tail risk -37%p.
+    # 모든 BT 측정 지표 (R lift, M24 lift, M24 wins, M24 min, M24 max, MDD) 에서 v82 ≤ v83.
     MAX_SLOTS = 2
     selected = []
     for _, row in candidates.iterrows():
@@ -2988,16 +3044,17 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             entry = _build_portfolio_entry(row, status_map, earnings_map)
             selected.append(entry)
 
-    # v82 (2026-05-24): 1위 비중 70%, 2위 30% (균등 → 차등)
-    # BT 검증: 1위 강한 신호에 더 노출 → +27%p 알파 (baseline 대비)
-    # 1종목만 선택된 경우 100%, 2종목인 경우 [70, 30]
+    # v83 (2026-05-24): 1위 비중 80%, 2위 20% (v82 70/30 → 80/20)
+    # BT 검증 (24 multistart): C2 boost 동반 시 worst case +13.54%p (모든 시작일 baseline 이상),
+    # max +105.97%p. C1 boost는 -37%p tail risk 발생하지만 C2는 시스템 본질 강화.
+    # 1종목만 선택된 경우 100%, 2종목인 경우 [80, 20]
     n = len(selected)
     if n == 1:
         selected[0]['weight'] = 100
     elif n >= 2:
-        weights_v82 = [70, 30]
+        weights_v83 = [80, 20]
         for i, s in enumerate(selected):
-            s['weight'] = weights_v82[i] if i < len(weights_v82) else 0
+            s['weight'] = weights_v83[i] if i < len(weights_v83) else 0
 
     log(f"디스플레이 {n}종목: " + ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
@@ -3912,6 +3969,14 @@ def _build_score_100_map(today_str=None):
             ws += score * weights[i]
         w_score_map[tk] = ws
 
+    # v83 (2026-05-24): C2 boost rerank — save_part2_ranks와 정렬 일관성 보장.
+    # w_score 분포는 보존하되 순서만 rerank (C2 종목이 boost만큼 위로 이동).
+    if w_score_map and today_key:
+        sorted_tks_orig = sorted(w_score_map.keys(), key=lambda t: w_score_map[t], reverse=True)
+        sorted_tks_v83 = _apply_c2_boost_rerank(cursor, today_key, sorted_tks_orig)
+        original_values_sorted = sorted(w_score_map.values(), reverse=True)
+        w_score_map = {tk: original_values_sorted[i] for i, tk in enumerate(sorted_tks_v83)}
+
     # v79.1: 1위=100 환산 점수 (종목 간 격차 반영)
     # w_gap 최대값 기준으로 전체를 0~100 스케일로 환산
     # → "2위 60점, 3위 59점 = 거의 동점, 역전 가능" 직관적
@@ -4011,6 +4076,12 @@ def _get_system_performance():
                             score = _cf(tk, ds.index(d) if d in ds else i)
                         wg += score * wts[i]
                 result[tk] = wg
+            # v83: C2 boost rerank — _build_score_100_map과 동일 정책
+            if result:
+                sorted_orig = sorted(result.keys(), key=lambda t: result[t], reverse=True)
+                sorted_v83 = _apply_c2_boost_rerank(c, date_str, sorted_orig)
+                vals_sorted = sorted(result.values(), reverse=True)
+                result = {tk: vals_sorted[i] for i, tk in enumerate(sorted_v83)}
             return result
 
         # S&P500 지수 (^GSPC) — 벤치마크 표준, 배당 조정 불필요
@@ -4057,22 +4128,19 @@ def _get_system_performance():
             eligible.sort(key=lambda x: x[1], reverse=True)  # 점수 높을수록 상위
             wgap_rank = {tk: r + 1 for r, (tk, _) in enumerate(eligible)}
 
-            # v80.7 (2026-05-02): day_ret을 이탈/진입 전 어제 portfolio 기준으로 계산.
-            # v82 (2026-05-24): 비중 70/30 적용 — 균등 분모 → slot별 비중 가중평균
-            #   1위 슬롯 70%, 2위 슬롯 30%. 보유 종목들 점수순 정렬해서 weight 할당.
-            #   (production select_display_top5와 동일 룰)
+            # v83 (2026-05-24): 슬롯 idx 기반 weight + C2 boost rerank
+            #   슬롯 idx 0 = 80%, 슬롯 idx 1 = 20%. 점수 1위가 슬롯 0.
+            #   _w_gap 내부에서 이미 C2 boost rerank 적용됨 → wgap_rank 자동 반영.
+            v83_weights = [80, 20]
             day_ret = 0
             if portfolio:
-                # 보유 종목 점수순 정렬 (높을수록 1위)
-                pf_with_score = [(tk, w_gap.get(tk, 0)) for tk in portfolio]
-                pf_with_score.sort(key=lambda x: -x[1])
-                v82_weights = [70, 30]
-                for i, (tk, _) in enumerate(pf_with_score):
+                for tk, info in portfolio.items():
+                    slot_idx = info.get('slot_idx', 0)
+                    w = v83_weights[slot_idx] / 100.0 if slot_idx < len(v83_weights) else 0
                     cur = prices.get(tk)
                     prev = prev_prices.get(tk)
-                    w = v82_weights[i] if i < len(v82_weights) else 0
                     if cur and prev and prev > 0:
-                        day_ret += (w / 100.0) * (cur - prev) / prev * 100
+                        day_ret += w * (cur - prev) / prev * 100
 
             # SPY는 portfolio 진입 후 첫 거래일부터 누적 (시스템과 동일 시점)
             spy_ret = 0
@@ -4101,16 +4169,19 @@ def _get_system_performance():
                         losses += 1
                     del portfolio[tk]
 
-            # 진입 (v82: slot 3→2, entry top 3→2)
-            slots = 2 - len(portfolio)
-            if slots > 0:
+            # 진입 (v82.1: 빈 슬롯에 idx 순서대로 진입, weight = slot idx 기반)
+            if len(portfolio) < 2:
                 cands = [tk for tk, _ in eligible[:30]
-                         if tk not in portfolio and wgap_rank.get(tk, 999) <= 2  # v82: E3→E2
+                         if tk not in portfolio and wgap_rank.get(tk, 999) <= 2
                          and ticker_ms.get(tk, -999) >= 0]
-                for tk in cands[:slots]:
+                used_idx = {info['slot_idx'] for info in portfolio.values()}
+                free_idx = sorted([i for i in range(2) if i not in used_idx])
+                for slot_idx in free_idx:
+                    if not cands: break
+                    tk = cands.pop(0)
                     cp = prices.get(tk)
                     if cp:
-                        portfolio[tk] = {'entry_price': cp}
+                        portfolio[tk] = {'entry_price': cp, 'slot_idx': slot_idx}
 
         conn.close()
         # n_days: 실제 day_ret 누적 일수 (첫 진입일은 day_ret=0이므로 -1)
@@ -4385,7 +4456,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 상위 2종목 (1위 70%, 2위 30%), 최대 2종목 보유')
+    lines.append('매수: 상위 2종목 (1위 80%, 2위 20%), 최대 2종목 보유')
     lines.append('매도: 10위 밖 or 실적하락')
 
     return '\n'.join(lines)
@@ -4728,7 +4799,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 상위 2종목 (1위 70%, 2위 30%), 최대 2종목 보유')
+    lines.append('매수: 상위 2종목 (1위 80%, 2위 20%), 최대 2종목 보유')
     lines.append('매도: 10위 밖 or 실적하락')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
