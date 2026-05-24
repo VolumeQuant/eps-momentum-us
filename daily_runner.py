@@ -294,6 +294,83 @@ def fetch_dynamic_tickers(min_mcap=5_000_000_000):
     return tickers
 
 
+def _real_today_str():
+    """현재 NY 시간 기준 영업일 추정 (yfinance와 일관)"""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/New_York")).strftime('%Y-%m-%d')
+    except Exception:
+        return datetime.now().strftime('%Y-%m-%d')
+
+
+def is_historical_mode():
+    """v83.1: MARKET_DATE 환경변수가 실제 오늘과 다른 historical 재실행 모드 감지
+
+    Returns: True if MARKET_DATE is set and != real today
+    """
+    md = os.environ.get('MARKET_DATE', '').strip()
+    if not md:
+        return False
+    return md != _real_today_str()
+
+
+def load_historical_results_df(target_date):
+    """v83.1: DB의 target_date row를 results_df 형식으로 재구성 (yfinance fetch 없이)
+
+    historical 재실행 모드 (test workflow + MARKET_DATE 과거 날짜)에서
+    yfinance lookback mismatch를 회피하기 위해 DB 데이터 그대로 사용.
+
+    Returns: pd.DataFrame (run_ntm_collection 반환 결과와 동일 컬럼)
+    """
+    import sqlite3
+    import pandas as pd
+    import json
+
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query(
+        'SELECT * FROM ntm_screening WHERE date=? AND composite_rank IS NOT NULL',
+        conn, params=(target_date,)
+    )
+    conn.close()
+
+    if df.empty:
+        return df
+
+    # 컬럼 매핑: DB의 ntm_current ↔ results_df의 ntm_cur
+    df['ntm_cur'] = df['ntm_current']
+
+    # seg1~4: NTM 변화율 segment (calculate_ntm_score와 동일 로직)
+    def _calc_seg(a, b):
+        if b is not None and abs(b) > 0.01:
+            return max(-100.0, min(100.0, (a - b) / abs(b) * 100))
+        return 0.0
+    df['seg1'] = df.apply(lambda r: _calc_seg(r['ntm_current'] or 0, r['ntm_7d'] or 0), axis=1)
+    df['seg2'] = df.apply(lambda r: _calc_seg(r['ntm_7d'] or 0, r['ntm_30d'] or 0), axis=1)
+    df['seg3'] = df.apply(lambda r: _calc_seg(r['ntm_30d'] or 0, r['ntm_60d'] or 0), axis=1)
+    df['seg4'] = df.apply(lambda r: _calc_seg(r['ntm_60d'] or 0, r['ntm_90d'] or 0), axis=1)
+
+    # short_name + industry: ticker_info_cache.json
+    cache_path = PROJECT_ROOT / 'ticker_info_cache.json'
+    cache = {}
+    if cache_path.exists():
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache = json.load(f)
+        except Exception:
+            cache = {}
+    df['short_name'] = df['ticker'].map(lambda t: (cache.get(t) or {}).get('shortName', t))
+    df['industry'] = df['ticker'].map(lambda t: (cache.get(t) or {}).get('industry', '기타'))
+    df['name'] = df['short_name']
+
+    # fwd_pe_chg는 results_df에 별도 컬럼이 아님 (adj_gap에 이미 반영됨)
+    # price_chg_weighted, eps_chg_weighted는 DB에 저장됨 (이미 들어있음)
+    # eps_chg_weighted 보장
+    if 'eps_chg_weighted' not in df.columns:
+        df['eps_chg_weighted'] = None
+
+    return df
+
+
 def run_ntm_collection(config):
     """NTM EPS 전 종목 수집 & DB 적재
 
@@ -302,11 +379,43 @@ def run_ntm_collection(config):
     - 종목 정보: JSON 캐시 (shortName, industry)
     - EPS 데이터: 순차 처리 (yfinance 스레딩 비호환)
 
+    v83.1 (2026-05-24): HISTORICAL MODE — MARKET_DATE가 실제 오늘과 다르면
+    yfinance fetch SKIP + DB의 historical row로 results_df 재구성.
+    이유: yfinance eps_trend의 '90daysAgo' 컬럼이 호출 시점 기준이라
+    사용자 지정 today (과거 날짜)와 window misaligned → adj_gap drift.
+    해결: 정확한 historical 재현은 DB에 저장된 값으로만 가능.
+
     Returns:
-        tuple (results_df, turnaround_df, stats_dict)
+        tuple (results_df, turnaround_df, stats_dict, today_str, hist_all)
     """
     import yfinance as yf
     import pandas as pd
+
+    # v83.1: HISTORICAL MODE — fetch SKIP + DB로 재구성
+    today_str_env = os.environ.get('MARKET_DATE', '').strip()
+    if is_historical_mode():
+        today_str = today_str_env
+        log("=" * 60)
+        log(f"⚠️  HISTORICAL MODE 활성 — MARKET_DATE={today_str} (real today={_real_today_str()})")
+        log("    yfinance fetch SKIP, DB의 historical row로 results_df 재구성")
+        log("    모든 DB write 차단 (production DB drift 방지)")
+        log("=" * 60)
+        results_df = load_historical_results_df(today_str)
+        if results_df.empty:
+            log(f"❌ DB에 {today_str} 데이터 없음 — historical 재실행 불가", "WARN")
+            return pd.DataFrame(), pd.DataFrame(), {}, today_str, None
+        log(f"✅ DB 로드 완료: {len(results_df)}종목")
+        # hist_all: 시장 지수만 yfinance fetch (DB에 없으므로) — 단 read-only
+        try:
+            _INDEX_SYMBOLS = ['^GSPC', '^IXIC', '^DJI', '^RUT']
+            hist_all = yf.download(_INDEX_SYMBOLS, start=today_str,
+                                    end=(datetime.strptime(today_str, '%Y-%m-%d') + timedelta(days=2)).strftime('%Y-%m-%d'),
+                                    progress=False, auto_adjust=False, threads=False)
+            log(f"  시장 지수 fetch ({len(_INDEX_SYMBOLS)}개) — read-only, DB write 없음")
+        except Exception as e:
+            log(f"  시장 지수 fetch 실패: {e}", "WARN")
+            hist_all = None
+        return results_df, pd.DataFrame(), {}, today_str, hist_all
 
     from eps_momentum_system import (
         INDICES, INDUSTRY_MAP,
@@ -5101,11 +5210,26 @@ def main():
         log(f"시장 지수: {len(market_lines)}개")
 
     if not results_df.empty:
-        # 매출+품질 수집 → rev_growth composite score + 12개 재무지표 DB 저장 (v33)
-        results_df, earnings_map, info_cache = fetch_revenue_growth(results_df, today_str)
+        if is_historical_mode():
+            # v83.1: HISTORICAL MODE — fetch_revenue_growth (yfinance) skip + DB의 part2_rank 그대로 사용
+            log("⚠️ HISTORICAL MODE: fetch_revenue_growth SKIP + save_part2_ranks SKIP (DB write 차단)")
+            earnings_map = {}
+            info_cache = {}
+            # DB에서 today_str의 part2_rank 순서대로 today_tickers 로드
+            import sqlite3
+            _conn = sqlite3.connect(DB_PATH)
+            today_tickers = [r[0] for r in _conn.execute(
+                'SELECT ticker FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL ORDER BY part2_rank',
+                (today_str,)
+            ).fetchall()]
+            _conn.close()
+            log(f"  DB의 {today_str} part2_rank Top 30: {len(today_tickers)}종목")
+        else:
+            # 매출+품질 수집 → rev_growth composite score + 12개 재무지표 DB 저장 (v33)
+            results_df, earnings_map, info_cache = fetch_revenue_growth(results_df, today_str)
 
-        # 가중순위 기반 Top 30 선정 + DB 저장
-        today_tickers = save_part2_ranks(results_df, today_str) or []
+            # 가중순위 기반 Top 30 선정 + DB 저장
+            today_tickers = save_part2_ranks(results_df, today_str) or []
 
         status_map = get_3day_status(today_tickers, today_str)
         rank_history = get_rank_history(today_tickers, today_str)
