@@ -349,6 +349,44 @@ def load_historical_results_df(target_date):
     df['seg3'] = df.apply(lambda r: _calc_seg(r['ntm_30d'] or 0, r['ntm_60d'] or 0), axis=1)
     df['seg4'] = df.apply(lambda r: _calc_seg(r['ntm_60d'] or 0, r['ntm_90d'] or 0), axis=1)
 
+    # fwd_pe: price / ntm_current (forward 12-month P/E)
+    df['fwd_pe'] = df.apply(
+        lambda r: (r['price'] / r['ntm_current']) if (r.get('ntm_current') and r['ntm_current'] > 0 and r.get('price')) else None,
+        axis=1
+    )
+
+    # eps_change_90d: (ntm_current - ntm_90d) / abs(ntm_90d) * 100
+    df['eps_change_90d'] = df.apply(
+        lambda r: ((r['ntm_current'] - r['ntm_90d']) / abs(r['ntm_90d']) * 100)
+                  if (r.get('ntm_90d') and abs(r['ntm_90d']) > 0.01) else None,
+        axis=1
+    )
+
+    # trend_lights + trend_desc: get_trend_lights(seg1, seg2, seg3, seg4) — 표시용
+    try:
+        from eps_momentum_system import get_trend_lights
+        def _lights(r):
+            return get_trend_lights(r['seg1'], r['seg2'], r['seg3'], r['seg4'])
+        lights_results = df.apply(_lights, axis=1)
+        df['trend_lights'] = lights_results.apply(lambda x: x[0] if x else '')
+        df['trend_desc'] = lights_results.apply(lambda x: x[1] if x else '')
+    except Exception:
+        df['trend_lights'] = ''
+        df['trend_desc'] = ''
+
+    # fwd_pe_chg, price_chg, price_chg_weighted: 표시/필터에 직접 사용 안 됨 또는 미세 영향
+    # adj_gap에 이미 fwd_pe_chg 반영됨. 누락 시 None으로 채움 (get_part2_candidates filter 통과)
+    if 'fwd_pe_chg' not in df.columns:
+        df['fwd_pe_chg'] = None
+    if 'price_chg' not in df.columns:
+        df['price_chg'] = None
+    if 'price_chg_weighted' not in df.columns:
+        df['price_chg_weighted'] = None
+
+    # direction: dir_factor 계산용. 단 adj_gap에 이미 반영됨 → 0 default
+    if 'direction' not in df.columns:
+        df['direction'] = 0.0
+
     # short_name + industry: ticker_info_cache.json
     cache_path = PROJECT_ROOT / 'ticker_info_cache.json'
     cache = {}
@@ -362,9 +400,7 @@ def load_historical_results_df(target_date):
     df['industry'] = df['ticker'].map(lambda t: (cache.get(t) or {}).get('industry', '기타'))
     df['name'] = df['short_name']
 
-    # fwd_pe_chg는 results_df에 별도 컬럼이 아님 (adj_gap에 이미 반영됨)
-    # price_chg_weighted, eps_chg_weighted는 DB에 저장됨 (이미 들어있음)
-    # eps_chg_weighted 보장
+    # eps_chg_weighted 보장 (이미 DB 컬럼이지만 안전망)
     if 'eps_chg_weighted' not in df.columns:
         df['eps_chg_weighted'] = None
 
