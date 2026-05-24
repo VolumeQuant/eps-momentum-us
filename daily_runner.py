@@ -2897,10 +2897,11 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         earnings_map=None, risk_status=None, score_100_map=None,
                         hist_all=None):
-    """Signal 메시지용 종목 선정 (w_gap 순위 Top3 + min_seg ≥ 0%, 최대 3종목)
+    """Signal 메시지용 종목 선정 (w_gap 순위 Top2 + min_seg ≥ 0%, 최대 2종목)
 
-    part2_rank(w_gap 기반) 상위 3종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
-    이탈선: part2_rank > 10. 최대 3슬롯. (v80.10: 8 → 10)
+    part2_rank(w_gap 기반) 상위 2종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
+    이탈선: part2_rank > 10. 최대 2슬롯. (v82: 3→2)
+    비중: 1위 70%, 2위 30% (v82: 균등 → 차등).
     """
     if earnings_map is None:
         earnings_map = {}
@@ -2943,11 +2944,13 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                  for _, row in candidates.head(7).iterrows()]
     log(f"w_gap 순위 상위 7: {top_debug}")
 
-    # v80.2 (2026-04-29): ⏳/🆕뿐 아니라 ✅이지만 진입 조건(min_seg<0 / 하향과반 / 저커버리지)
-    # 탈락 시에도 다음 정상 ✅ 후보로 슬라이드. 이전(v79.1)엔 ENTRY_THRESHOLD(=3)에 카운트 소진해
-    # 빈 슬롯 발생 가능했음 (실제 발동 0건이었지만 LNG 같은 케이스에서 처음 발동 임박).
-    # 근거: BT는 풀 슬롯 가정이고, ⏳/🆕 슬라이드 정책과 일관성 확보.
-    MAX_SLOTS = 3
+    # v82 (2026-05-24): 슬롯 3 → 2 + 1위 비중 70% (v80.2 슬라이드 정책 유지)
+    # BT 검증 (research/bt_corrected_final.py + bt_no_boost_options.py):
+    #   (2,10,2) 70/30 b=0 = random 500 +27.43%p / 500/500 wins / 12 multistart +30.89%p
+    #   M min +12.03%p (음수 0건), MDD -19.98% (baseline -18.14% 대비 +1.84%p 미세 악화)
+    # 사용자 결정: 80/20 부담 + C2 boost 추세추종 본질 모순 → 70/30 b=0이 안전 균형
+    # 다음 단계 (검토 보류): C1 boost=5 추가 시 +11%p 추가 알파 (research/verify_c1_boost_final.py)
+    MAX_SLOTS = 2
     selected = []
     for _, row in candidates.iterrows():
         if len(selected) >= MAX_SLOTS:
@@ -2985,13 +2988,16 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             entry = _build_portfolio_entry(row, status_map, earnings_map)
             selected.append(entry)
 
-    # 균등비중 (v71: 역변동성→균등 전환, 28일 검증 균등 +19.7% > 역변동성 +10.9%)
+    # v82 (2026-05-24): 1위 비중 70%, 2위 30% (균등 → 차등)
+    # BT 검증: 1위 강한 신호에 더 노출 → +27%p 알파 (baseline 대비)
+    # 1종목만 선택된 경우 100%, 2종목인 경우 [70, 30]
     n = len(selected)
-    if n > 0:
-        base = 100 // n
-        remainder = 100 - base * n
+    if n == 1:
+        selected[0]['weight'] = 100
+    elif n >= 2:
+        weights_v82 = [70, 30]
         for i, s in enumerate(selected):
-            s['weight'] = base + (1 if i < remainder else 0)
+            s['weight'] = weights_v82[i] if i < len(weights_v82) else 0
 
     log(f"디스플레이 {n}종목: " + ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
@@ -4052,22 +4058,21 @@ def _get_system_performance():
             wgap_rank = {tk: r + 1 for r, (tk, _) in enumerate(eligible)}
 
             # v80.7 (2026-05-02): day_ret을 이탈/진입 전 어제 portfolio 기준으로 계산.
-            # 이전 코드는 진입일 첫 day_ret이 "전일 가격 → 진입일 가격" 변화를 누적에 포함.
-            # 사용자가 부담하지 않은 매수 전 변동이 시스템 ret에 잘못 들어가는 버그.
-            # 영향: 시스템 +57.0% → +53.3%, SPY +4.2% → +5.8% (2/12 진입 첫날 +2.42% 제외)
-            # 균등비중 수익률 (어제 portfolio 기준)
-            # 가격 누락 종목은 분모에서 제외 (OLD simulator의 pool-exit price masking 동형 버그 회피)
+            # v82 (2026-05-24): 비중 70/30 적용 — 균등 분모 → slot별 비중 가중평균
+            #   1위 슬롯 70%, 2위 슬롯 30%. 보유 종목들 점수순 정렬해서 weight 할당.
+            #   (production select_display_top5와 동일 룰)
             day_ret = 0
             if portfolio:
-                n_valid = 0
-                for tk in portfolio:
+                # 보유 종목 점수순 정렬 (높을수록 1위)
+                pf_with_score = [(tk, w_gap.get(tk, 0)) for tk in portfolio]
+                pf_with_score.sort(key=lambda x: -x[1])
+                v82_weights = [70, 30]
+                for i, (tk, _) in enumerate(pf_with_score):
                     cur = prices.get(tk)
                     prev = prev_prices.get(tk)
+                    w = v82_weights[i] if i < len(v82_weights) else 0
                     if cur and prev and prev > 0:
-                        day_ret += (cur - prev) / prev * 100
-                        n_valid += 1
-                if n_valid > 0:
-                    day_ret /= n_valid
+                        day_ret += (w / 100.0) * (cur - prev) / prev * 100
 
             # SPY는 portfolio 진입 후 첫 거래일부터 누적 (시스템과 동일 시점)
             spy_ret = 0
@@ -4096,11 +4101,11 @@ def _get_system_performance():
                         losses += 1
                     del portfolio[tk]
 
-            # 진입
-            slots = 3 - len(portfolio)
+            # 진입 (v82: slot 3→2, entry top 3→2)
+            slots = 2 - len(portfolio)
             if slots > 0:
                 cands = [tk for tk, _ in eligible[:30]
-                         if tk not in portfolio and wgap_rank.get(tk, 999) <= 3  # v78: E5→E3
+                         if tk not in portfolio and wgap_rank.get(tk, 999) <= 2  # v82: E3→E2
                          and ticker_ms.get(tk, -999) >= 0]
                 for tk in cands[:slots]:
                     cp = prices.get(tk)
@@ -4380,7 +4385,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 상위 3종목, 최대 3종목 보유')
+    lines.append('매수: 상위 2종목 (1위 70%, 2위 30%), 최대 2종목 보유')
     lines.append('매도: 10위 밖 or 실적하락')
 
     return '\n'.join(lines)
@@ -4723,7 +4728,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 상위 3종목, 최대 3종목 보유')
+    lines.append('매수: 상위 2종목 (1위 70%, 2위 30%), 최대 2종목 보유')
     lines.append('매도: 10위 밖 or 실적하락')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
