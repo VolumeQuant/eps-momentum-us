@@ -5850,5 +5850,13 @@
   "SPOT": {
     "shortName": "SPOT",
     "industry": "기타"
+  },
+  "BNY": {
+    "shortName": "BNY",
+    "industry": "기타"
+  },
+  "PS": {
+    "shortName": "PS",
+    "industry": "기타"
   }
 }
