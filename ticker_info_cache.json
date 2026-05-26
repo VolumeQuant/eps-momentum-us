@@ -5858,5 +5858,25 @@
   "PS": {
     "shortName": "PS",
     "industry": "기타"
+  },
+  "ACMR": {
+    "shortName": "ACMR",
+    "industry": "기타"
+  },
+  "JOBY": {
+    "shortName": "JOBY",
+    "industry": "기타"
+  },
+  "NTES": {
+    "shortName": "NTES",
+    "industry": "기타"
+  },
+  "QS": {
+    "shortName": "QS",
+    "industry": "기타"
+  },
+  "WHD": {
+    "shortName": "WHD",
+    "industry": "기타"
   }
 }
