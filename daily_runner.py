@@ -2598,6 +2598,14 @@ REGIME_VIX_THRESH = float(os.environ.get('REGIME_VIX_THRESH', '36'))
 REGIME_VIX_CONFIRM = int(os.environ.get('REGIME_VIX_CONFIRM', '2'))
 REGIME_OVERLAY_DISABLE = os.environ.get('REGIME_OVERLAY_DISABLE', '') == '1'
 
+# ── 블렌드 (주식 + 섹터ETF, 2026-05-27) ──
+# 개별 2종목(집중) + top-20 지배섹터 대표 ETF(분산) 혼합. 로테이션 헤지.
+# 26년 EDA: 50/50이 위험조정 최적 (Sharpe 6.04·랜덤 7.57 정점, MDD -19.8%→-11.6%),
+#   슈퍼위너 제외해도 우위 더 커짐(분산효과 진짜). ETF는 동적매칭(SOXX/XLK).
+# 기본 OFF — 켜면 메시지/성과가 블렌드로 전환. 미리보기 후 production 적용.
+BLEND_ENABLE = os.environ.get('BLEND_ENABLE', '') == '1'
+BLEND_STOCK_W = float(os.environ.get('BLEND_STOCK_W', '0.5'))  # 주식 비중 (나머지 ETF)
+
 
 def _confirm_regime(raw_seq, n):
     """raw(bool 시퀀스, 오래된→최신) → 최신 시점 defense 여부 (n일 연속 확인, 히스테리시스)."""
@@ -4188,6 +4196,60 @@ def _build_score_100_map(today_str=None):
     return w_score_map, score_display_map
 
 
+def _blend_etf_returns(all_dates):
+    """블렌드 성과용 — 각 날짜 매칭 ETF의 일수익률(%). BLEND_ENABLE 시 boost에 혼합.
+    매칭: top-30 최다 포함 ETF (find_etf_recommendations 동일 로직, 희석필터)."""
+    try:
+        import yfinance as yf
+        import pandas as pd
+        from datetime import datetime, timedelta
+        cache_path = PROJECT_ROOT / 'etf_holdings_cache_v2.json'
+        with open(cache_path, encoding='utf-8') as f:
+            etf = json.load(f)
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        def match_etf(d):
+            ts = set(r[0] for r in c.execute(
+                'SELECT ticker FROM ntm_screening WHERE date=? AND part2_rank<=30', (d,)))
+            best = None
+            for sym, info in etf.items():
+                h = info.get('holdings', {})
+                mt = {t: h[t] for t in ts if t in h}
+                if not mt or sum(mt.values()) / len(mt) < 0.01:
+                    continue
+                cand = (len(mt), sum(mt.values()), sym)
+                if best is None or cand[:2] > best[:2]:
+                    best = cand
+            return best[2] if best else None
+
+        match = {d: match_etf(d) for d in all_dates}
+        conn.close()
+        start = (datetime.strptime(all_dates[0], '%Y-%m-%d') - timedelta(days=10)).strftime('%Y-%m-%d')
+        end = (datetime.strptime(all_dates[-1], '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+        px = {}
+        for s in set(v for v in match.values() if v):
+            df = yf.download(s, start=start, end=end, auto_adjust=True, progress=False)
+            cl = df['Close']
+            if hasattr(cl, 'columns'):
+                cl = cl.iloc[:, 0]
+            cl.index = pd.to_datetime(cl.index).tz_localize(None)
+            px[s] = cl.dropna()
+        out = {}
+        for i, d in enumerate(all_dates):
+            if i == 0:
+                out[d] = 0.0
+                continue
+            p = px.get(match[all_dates[i - 1]])  # 전일 매칭 ETF 보유
+            cp = p.get(pd.Timestamp(d)) if p is not None else None
+            pp = p.get(pd.Timestamp(all_dates[i - 1])) if p is not None else None
+            out[d] = ((cp - pp) / pp * 100) if (cp and pp and pp > 0) else 0.0
+        return out
+    except Exception as e:
+        log(f"블렌드 ETF 수익 계산 실패: {e}", level="WARN")
+        return {d: 0.0 for d in all_dates}
+
+
 def _regime_defense_series(all_dates):
     """성과 계산용 — all_dates 각 날짜의 defense 여부 + IEF 일수익률.
 
@@ -4254,6 +4316,8 @@ def _get_system_performance():
         # 국면 오버레이 (2026-05-27): defense 일자엔 IEF 보유 수익으로 계산.
         #   현재 데이터 전부 boost라 영향 0, 미래 약세장이 쌓이면 자동 반영.
         regime_def, ief_ret = _regime_defense_series(all_dates)
+        # 블렌드: boost일 매칭 ETF 일수익(%) (BLEND_ENABLE 시에만 계산)
+        blend_etf_ret = _blend_etf_returns(all_dates) if BLEND_ENABLE else {}
 
         # 전체 가격 로드
         all_prices = {}
@@ -4408,6 +4472,9 @@ def _get_system_performance():
                 if sc and sp and sp > 0:
                     spy_ret = (sc - sp) / sp * 100
 
+            # 블렌드(BLEND_ENABLE): boost일 = 주식 W + ETF (1-W). defense는 위에서 IEF 처리됨.
+            if BLEND_ENABLE:
+                day_ret = BLEND_STOCK_W * day_ret + (1 - BLEND_STOCK_W) * blend_etf_ret.get(date, 0.0)
             sys_nav *= (1 + day_ret / 100)
             spy_nav *= (1 + spy_ret / 100)
 
@@ -4496,7 +4563,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                           status_map=None, eps_screened=None, universe_size=None,
                           exited_tickers=None, risk_status=None,
                           score_100_map=None, score_display_map=None, alpha_signals=None,
-                          hist_all=None):
+                          hist_all=None, blend_etf=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -4572,12 +4639,18 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 섹션 1: 결론 먼저 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append(f'🛒 <b>EPS 모멘텀 매수 후보</b>')
+    if BLEND_ENABLE and blend_etf:
+        sw = int(round(BLEND_STOCK_W * 100))
+        lines.append(f'🛒 <b>EPS 모멘텀 매수 후보 (개별 {sw}% + ETF {100-sw}%)</b>')
+    else:
+        lines.append(f'🛒 <b>EPS 모멘텀 매수 후보</b>')
     lines.append('━━━━━━━━━━━━━━━')
     for idx, s in enumerate(selected):
         name = _clean_company_name(s['name'], s['ticker'])
         w = s.get('weight', 0)
         lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
+    if BLEND_ENABLE and blend_etf:
+        lines.append(f'<b>{len(selected)+1}. {blend_etf["ticker"]}</b> ({blend_etf["name"]}) — 섹터 분산 ETF')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
@@ -4740,7 +4813,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 상위 2종목 (1위 80%, 2위 20%), 최대 2종목 보유')
+    if BLEND_ENABLE and blend_etf:
+        sw = int(round(BLEND_STOCK_W * 100))
+        lines.append(f'매수: 개별 2종목 {sw}% (1위 {int(sw*0.8)}%/2위 {int(sw*0.2)}%) + {blend_etf["ticker"]} {100-sw}%')
+    else:
+        lines.append('매수: 상위 2종목 (1위 80%, 2위 20%), 최대 2종목 보유')
     lines.append('매도: 10위 밖 or 실적하락')
 
     return '\n'.join(lines)
@@ -5495,6 +5572,18 @@ def main():
                                      market_lines=market_lines,
                                      alpha_signals=alpha_signals)
 
+        # 블렌드: top-30 지배섹터 대표 ETF 매칭 (BLEND_ENABLE 시)
+        blend_etf = None
+        if BLEND_ENABLE:
+            try:
+                _top30 = get_part2_candidates(results_df, top_n=30)['ticker'].tolist()
+                _recs = find_etf_recommendations(_top30)
+                if _recs:
+                    blend_etf = {'ticker': _recs[0]['ticker'], 'name': _recs[0]['name']}
+                    log(f"블렌드 ETF 매칭: {blend_etf['ticker']} ({blend_etf['name']})")
+            except Exception as e:
+                log(f"블렌드 ETF 매칭 실패: {e}", level="WARN")
+
         # 메시지 1: Signal — v57b 진입 조건 충족 종목
         msg_signal = create_signal_message(
             display_top5, earnings_map, exit_reasons, biz_day, ai_content,
@@ -5505,6 +5594,7 @@ def main():
             exited_tickers=exited_tickers, risk_status=risk_status,
             score_100_map=score_100_map, score_display_map=score_display_map,
             alpha_signals=alpha_signals, hist_all=hist_all,
+            blend_etf=blend_etf,
         )
         if msg_signal:
             if send_to_channel:
