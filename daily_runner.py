@@ -5577,7 +5577,7 @@ def main():
         if BLEND_ENABLE:
             try:
                 _top30 = get_part2_candidates(results_df, top_n=30)['ticker'].tolist()
-                _recs = find_etf_recommendations(_top30)
+                _recs = find_etf_recommendations(_top30)[0]  # (ETF리스트, 미커버) 튜플
                 if _recs:
                     blend_etf = {'ticker': _recs[0]['ticker'], 'name': _recs[0]['name']}
                     log(f"블렌드 ETF 매칭: {blend_etf['ticker']} ({blend_etf['name']})")
