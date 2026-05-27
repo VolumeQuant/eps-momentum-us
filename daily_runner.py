@@ -1619,7 +1619,7 @@ def get_forward_test_summary(today_str):
 
 
 def save_part2_ranks(results_df, today_str):
-    """Part 2 eligible 종목 저장 — composite_rank + w_gap Top 30 (v58, v83 C2 boost)
+    """Part 2 eligible 종목 저장 — composite_rank + w_gap Top 30 (v58)
 
     1. 전체 eligible의 당일 adj_gap 순위 → composite_rank 컬럼에 저장
     2. w_gap(3일 가중 adj_gap) 오름차순 상위 30개 → part2_rank 저장
@@ -3046,7 +3046,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
 
     part2_rank(w_gap 기반) 상위 2종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
     이탈선: part2_rank > 10. 최대 2슬롯. (v82: 3→2)
-    비중: 1위 80%, 2위 20% (v83: 70/30 → 80/20 + C2 boost 동반).
+    비중: 1위 80%, 2위 20% (v82 70/30 → 80/20). C2 boost는 v83.2에서 제거.
     """
     if earnings_map is None:
         earnings_map = {}
@@ -3089,14 +3089,9 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                  for _, row in candidates.head(7).iterrows()]
     log(f"w_gap 순위 상위 7: {top_debug}")
 
-    # v83 (2026-05-24): 슬롯 (2,10,2) 유지 + 1위 비중 80% + C2 boost rank +3
-    # BT 검증 (research/bt_third_way.py, bt_c2_dense_grid.py):
-    #   80/20 + C2 b=3 = random 500 +48.14%p / 500/500 wins / 24 multistart 24/24,
-    #   M24 min +13.54%p / M24 max +105.97%p, MDD -19.82% (v82 동일)
-    # 4/2 worst 시작일 v82 (+13%p) → v83 (+38%p) 완벽 뒤집기 (MU +103% 80% 비중).
-    # 사용자 첫 거부 "추세추종 모순" 재검토: 시스템 본질은 mean reversion (adj_gap 괴리율) →
-    #   C2가 본질 강화. C1 boost는 거꾸로 buy-the-dip 슈퍼위너 차단 → tail risk -37%p.
-    # 모든 BT 측정 지표 (R lift, M24 lift, M24 wins, M24 min, M24 max, MDD) 에서 v82 ≤ v83.
+    # v83.2 (2026-05-27): 슬롯 (2,10,2) + 1위 80%/2위 20%. C2 boost 제거.
+    #   boost edge가 MU/SNDK 단일 종목 착시로 판명 (leave-one-superwinner-out 검증) →
+    #   part2_rank = 순수 w_gap 순위. (candidates 정렬에 boost 없음)
     MAX_SLOTS = 2
     selected = []
     for _, row in candidates.iterrows():
@@ -3135,10 +3130,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             entry = _build_portfolio_entry(row, status_map, earnings_map)
             selected.append(entry)
 
-    # v83 (2026-05-24): 1위 비중 80%, 2위 20% (v82 70/30 → 80/20)
-    # BT 검증 (24 multistart): C2 boost 동반 시 worst case +13.54%p (모든 시작일 baseline 이상),
-    # max +105.97%p. C1 boost는 -37%p tail risk 발생하지만 C2는 시스템 본질 강화.
-    # 1종목만 선택된 경우 100%, 2종목인 경우 [80, 20]
+    # v83.2: 1위 80%, 2위 20% (v82 70/30 → 80/20). 1종목이면 100%.
     n = len(selected)
     if n == 1:
         selected[0]['weight'] = 100
@@ -4205,9 +4197,8 @@ def _get_system_performance():
             eligible.sort(key=lambda x: x[1], reverse=True)  # 점수 높을수록 상위
             wgap_rank = {tk: r + 1 for r, (tk, _) in enumerate(eligible)}
 
-            # v83 (2026-05-24): 슬롯 idx 기반 weight + C2 boost rerank
-            #   슬롯 idx 0 = 80%, 슬롯 idx 1 = 20%. 점수 1위가 슬롯 0.
-            #   _w_gap 내부에서 이미 C2 boost rerank 적용됨 → wgap_rank 자동 반영.
+            # v83.2: 슬롯 idx 기반 weight (C2 boost 제거됨).
+            #   슬롯 0 = 80%, 슬롯 1 = 20%. 진입 시점 슬롯에 고정(sticky) — 현재 순위로 재배분 안 함.
             v83_weights = [80, 20]
             day_ret = 0
             if portfolio:
