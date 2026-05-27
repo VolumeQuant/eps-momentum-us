@@ -5878,5 +5878,9 @@
   "WHD": {
     "shortName": "WHD",
     "industry": "기타"
+  },
+  "BB": {
+    "shortName": "BB",
+    "industry": "기타"
   }
 }
