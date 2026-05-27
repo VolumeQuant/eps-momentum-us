@@ -1618,58 +1618,6 @@ def get_forward_test_summary(today_str):
     }
 
 
-# v83 (2026-05-24): C2 boost — adj_gap (괴리율) 본질에 부합하는 buy-the-dip 강화
-# C2 = EPS 상향(eps_chg_weighted > 0) + 가격 30 거래일 하락(price 30d < 0)
-# BT 표준 (research/bt_third_way.py, bt_c2_dense_grid.py):
-#   80/20 + C2 rank-boost b=3 = random 500 +48.14%p / 500/500, 24 multistart 24/24,
-#   M24 min +13.54%p / M24 max +105.97%p, MDD -19.82% (v82 동일)
-# 4/2 worst 시작일에서 v82 (+13%p) → v83 (+38%p) 완벽 뒤집기 (MU +103% 80% 비중).
-# 사용자 첫 거부 "추세 추종 모순" 재검토: 시스템 본질은 mean reversion (adj_gap 괴리율) →
-#   C2가 본질 강화. C1 boost는 거꾸로 buy-the-dip 슈퍼위너 차단 → tail risk -37%p.
-C2_BOOST_RANK = 3  # v83: C2 종목 rank 점수에 +3 가산
-
-
-def _is_c2_for_v83(cursor, today_str, ticker, lookback=30):
-    """v83: C2 종목 여부 (EPS 상향 + 가격 30거래일 하락)"""
-    row = cursor.execute(
-        'SELECT eps_chg_weighted, price FROM ntm_screening WHERE date=? AND ticker=?',
-        (today_str, ticker)
-    ).fetchone()
-    if not row or row[0] is None or row[0] <= 0:
-        return False
-    cur_p = row[1]
-    if not cur_p:
-        return False
-    past_rows = cursor.execute(
-        'SELECT price FROM ntm_screening WHERE ticker=? AND date<? AND price IS NOT NULL '
-        'ORDER BY date DESC LIMIT 1 OFFSET ?',
-        (ticker, today_str, lookback - 1)
-    ).fetchone()
-    if not past_rows or not past_rows[0] or past_rows[0] <= 0:
-        return False
-    return (cur_p - past_rows[0]) / past_rows[0] < 0
-
-
-def _apply_c2_boost_rerank(cursor, today_str, sorted_tickers, boost=None):
-    """v83: C2 boost rerank — (n - idx) + boost by C2
-
-    sorted_tickers: w_gap descending (좋은 종목 먼저)
-    Returns: rerank된 ticker list (C2 종목이 boost만큼 위로 이동)
-    """
-    if boost is None:
-        boost = C2_BOOST_RANK
-    n = len(sorted_tickers)
-    if n <= 1:
-        return sorted_tickers
-    is_c2_map = {tk: _is_c2_for_v83(cursor, today_str, tk) for tk in sorted_tickers}
-    indexed = list(enumerate(sorted_tickers))
-    def _score(idx, tk):
-        return (n - idx) + (boost if is_c2_map[tk] else 0)
-    # 큰 score 먼저, 동점이면 원래 rank 작은 거 (안정 정렬)
-    indexed.sort(key=lambda x: (-_score(x[0], x[1]), x[0]))
-    return [tk for _, tk in indexed]
-
-
 def save_part2_ranks(results_df, today_str):
     """Part 2 eligible 종목 저장 — composite_rank + w_gap Top 30 (v58, v83 C2 boost)
 
@@ -1722,8 +1670,6 @@ def save_part2_ranks(results_df, today_str):
     eligible_tickers = list(composite_ranks.keys())
     wgap_map = _compute_w_gap_map(cursor, today_str, eligible_tickers)
     sorted_by_wgap = sorted(eligible_tickers, key=lambda tk: wgap_map.get(tk, 0), reverse=True)
-    # v83 (2026-05-24): C2 boost rerank — buy-the-dip 종목을 boost 만큼 위로 이동
-    sorted_by_wgap = _apply_c2_boost_rerank(cursor, today_str, sorted_by_wgap)
     top30 = sorted_by_wgap[:30]
 
     # part2_rank 저장 (Top 30만)
@@ -4114,14 +4060,6 @@ def _build_score_100_map(today_str=None):
             ws += score * weights[i]
         w_score_map[tk] = ws
 
-    # v83 (2026-05-24): C2 boost rerank — save_part2_ranks와 정렬 일관성 보장.
-    # w_score 분포는 보존하되 순서만 rerank (C2 종목이 boost만큼 위로 이동).
-    if w_score_map and today_key:
-        sorted_tks_orig = sorted(w_score_map.keys(), key=lambda t: w_score_map[t], reverse=True)
-        sorted_tks_v83 = _apply_c2_boost_rerank(cursor, today_key, sorted_tks_orig)
-        original_values_sorted = sorted(w_score_map.values(), reverse=True)
-        w_score_map = {tk: original_values_sorted[i] for i, tk in enumerate(sorted_tks_v83)}
-
     # v79.1: 1위=100 환산 점수 (종목 간 격차 반영)
     # w_gap 최대값 기준으로 전체를 0~100 스케일로 환산
     # → "2위 60점, 3위 59점 = 거의 동점, 역전 가능" 직관적
@@ -4221,12 +4159,6 @@ def _get_system_performance():
                             score = _cf(tk, ds.index(d) if d in ds else i)
                         wg += score * wts[i]
                 result[tk] = wg
-            # v83: C2 boost rerank — _build_score_100_map과 동일 정책
-            if result:
-                sorted_orig = sorted(result.keys(), key=lambda t: result[t], reverse=True)
-                sorted_v83 = _apply_c2_boost_rerank(c, date_str, sorted_orig)
-                vals_sorted = sorted(result.values(), reverse=True)
-                result = {tk: vals_sorted[i] for i, tk in enumerate(sorted_v83)}
             return result
 
         # S&P500 지수 (^GSPC) — 벤치마크 표준, 배당 조정 불필요
