@@ -2582,12 +2582,129 @@ def _fetch_vix_yfinance_fallback():
         return None
 
 
+# ── 국면(regime) 오버레이 (2026-05-27) ──
+# S&P 500 < 200일선(15일 확인) OR VIX > 36(2일 확인) → defense(방어).
+# defense 시 주식 매수 중단 + 채권ETF(IEF 기본 / BIL 안전) 권장.
+# 26년 시장데이터 EDA(research/regime_eda_*.py): 4대 약세장(dotcom/GFC/COVID/2022) 포착,
+#   QQQ 프록시 MDD -83%→-29%, Cal 0.11→0.50. 인버스ETF는 측정 결과 열위(탈락).
+# 확인 15일: 10일이면 2026-04 1~4% 얕은 dip(15일 안에 V자 회복)에 휘프소 → -105%p 손실.
+#   15일은 그 휘프소 거르면서(우리 window defense 0일) 진짜 약세장(15일+ 지속) 그대로 포착.
+#   26년 검증서도 15일이 10일보다 Cal 0.27>0.26, MDD -36.5%<-40%, 전환 31<41로 우월.
+# ⚠️ 신호 품질은 26년 검증, 우리 전략 이득은 프록시 추정 (약세장 종목데이터 없음).
+# 현재(2026-05) regime=boost → 배포 시 즉시 영향 0, 미래 약세장에만 자동 발동.
+REGIME_MA_PERIOD = int(os.environ.get('REGIME_MA_PERIOD', '200'))
+REGIME_MA_CONFIRM = int(os.environ.get('REGIME_MA_CONFIRM', '15'))
+REGIME_VIX_THRESH = float(os.environ.get('REGIME_VIX_THRESH', '36'))
+REGIME_VIX_CONFIRM = int(os.environ.get('REGIME_VIX_CONFIRM', '2'))
+REGIME_OVERLAY_DISABLE = os.environ.get('REGIME_OVERLAY_DISABLE', '') == '1'
+
+
+def _confirm_regime(raw_seq, n):
+    """raw(bool 시퀀스, 오래된→최신) → 최신 시점 defense 여부 (n일 연속 확인, 히스테리시스)."""
+    state = False
+    sd = sb = 0
+    for d in raw_seq:
+        if d:
+            sd += 1
+            sb = 0
+        else:
+            sb += 1
+            sd = 0
+        if not state and sd >= n:
+            state = True
+        elif state and sb >= n:
+            state = False
+    return state
+
+
+def get_market_regime():
+    """국면 판단 — SPX<MA200(확인) OR VIX>thresh(확인) → defense.
+
+    stateless: 매 실행마다 ~2년 히스토리에서 confirm 재계산 (상태파일 불필요).
+    Returns: {regime:'boost'|'defense', reason, spx, ma200, vix, days_below}
+    """
+    if REGIME_OVERLAY_DISABLE:
+        return {'regime': 'boost', 'reason': 'overlay disabled',
+                'spx': None, 'ma200': None, 'vix': None, 'days_below': 0}
+    forced = os.environ.get('REGIME_FORCE', '').strip().lower()
+    if forced in ('boost', 'defense'):
+        return {'regime': forced, 'reason': f'[테스트 강제 {forced} 모드]',
+                'spx': None, 'ma200': None, 'vix': None, 'days_below': 0}
+    try:
+        import yfinance as yf
+        spx = yf.download('^GSPC', period='2y', auto_adjust=True, progress=False)
+        cl = spx['Close']
+        if hasattr(cl, 'columns'):
+            cl = cl.iloc[:, 0]
+        cl = cl.dropna()
+        ma = cl.rolling(REGIME_MA_PERIOD).mean()
+        below = (cl < ma).dropna()
+        ma_defense = _confirm_regime(list(below.values[-260:]), REGIME_MA_CONFIRM)
+        spx_now, ma_now = float(cl.iloc[-1]), float(ma.iloc[-1])
+        days_below = 0
+        for v in reversed(below.values):
+            if v:
+                days_below += 1
+            else:
+                break
+
+        vix_df = yf.download('^VIX', period='1mo', auto_adjust=True, progress=False)
+        vcl = vix_df['Close']
+        if hasattr(vcl, 'columns'):
+            vcl = vcl.iloc[:, 0]
+        vcl = vcl.dropna()
+        vix_now = float(vcl.iloc[-1])
+        vix_defense = _confirm_regime(list((vcl > REGIME_VIX_THRESH).values), REGIME_VIX_CONFIRM)
+
+        reasons = []
+        if ma_defense:
+            reasons.append(f'S&P 200일선 이탈 {days_below}일')
+        if vix_defense:
+            reasons.append(f'VIX 급등({vix_now:.0f}>{REGIME_VIX_THRESH:.0f})')
+        return {
+            'regime': 'defense' if (ma_defense or vix_defense) else 'boost',
+            'reason': ' + '.join(reasons) if reasons else '정상 (S&P 200일선 위, VIX 안정)',
+            'spx': spx_now, 'ma200': ma_now, 'vix': vix_now, 'days_below': days_below,
+        }
+    except Exception as e:
+        log(f"regime 판단 실패 (boost 유지): {e}", level="WARN")
+        return {'regime': 'boost', 'reason': 'regime 판단 실패',
+                'spx': None, 'ma200': None, 'vix': None, 'days_below': 0}
+
+
+_REGIME_STATE_PATH = Path(__file__).parent / 'regime_state.json'
+_RISK_STATUS_CACHE = None
+
+
+def _detect_regime_transition(current_regime):
+    """이전 실행 regime과 비교해 전환 감지 (regime_state.json, GA가 commit해 영속).
+    Returns: None | 'to_defense' | 'to_boost'."""
+    import json
+    prev = None
+    try:
+        if _REGIME_STATE_PATH.exists():
+            prev = json.loads(_REGIME_STATE_PATH.read_text(encoding='utf-8')).get('regime')
+    except Exception:
+        pass
+    transition = None
+    if prev and prev != current_regime:
+        transition = 'to_defense' if current_regime == 'defense' else 'to_boost'
+    try:
+        _REGIME_STATE_PATH.write_text(json.dumps({'regime': current_regime}), encoding='utf-8')
+    except Exception:
+        pass
+    return transition
+
+
 def get_market_risk_status():
-    """시장 위험 통합 상태 (HY + VIX + Concordance)
+    """시장 위험 통합 상태 (HY + VIX + Concordance + 국면 regime)
 
     Returns:
-        dict {hy, vix, concordance, final_action}
+        dict {hy, vix, concordance, final_action, portfolio_mode, regime}
     """
+    global _RISK_STATUS_CACHE
+    if _RISK_STATUS_CACHE is not None:
+        return _RISK_STATUS_CACHE
     hy = fetch_hy_quadrant()
     vix = fetch_vix_data()
 
@@ -2657,18 +2774,27 @@ def get_market_risk_status():
         else:
             final_action = ''
 
-    # portfolio_mode: 항상 normal (TOP 5) — 시장 경고는 AI 리스크 필터에서 별도 안내
-    portfolio_mode = 'normal'
+    # 국면 오버레이 (2026-05-27): S&P 200일선 이탈(15d) OR VIX>36(2d) → defense.
+    #   defense 시 주식 매수 중단 + 채권ETF(IEF/BIL) 권장. 현재 강세장이면 normal.
+    regime = get_market_regime()
+    if regime:
+        regime['transition'] = _detect_regime_transition(regime.get('regime', 'boost'))
+    portfolio_mode = 'defense' if (regime and regime.get('regime') == 'defense') else 'normal'
 
-    log(f"Concordance: {concordance} (q_days={hy.get('q_days', 'N/A') if hy else 'N/A'}) → {final_action} [portfolio: {portfolio_mode}]")
+    log(f"Concordance: {concordance} (q_days={hy.get('q_days', 'N/A') if hy else 'N/A'}) → {final_action} "
+        f"[regime: {regime.get('regime') if regime else '?'} "
+        f"({regime.get('transition') if regime else ''}) — {regime.get('reason') if regime else ''}] "
+        f"[portfolio: {portfolio_mode}]")
 
-    return {
+    _RISK_STATUS_CACHE = {
         'hy': hy,
         'vix': vix,
         'concordance': concordance,
         'final_action': final_action,
         'portfolio_mode': portfolio_mode,
+        'regime': regime,
     }
+    return _RISK_STATUS_CACHE
 
 
 def get_market_context(hist_all=None):
@@ -3060,7 +3186,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     if results_df is None or results_df.empty:
         return []
 
-    if portfolio_mode == 'stop':
+    if portfolio_mode in ('stop', 'defense'):
         return []
 
     all_eligible = get_part2_candidates(results_df, top_n=None)
@@ -3169,9 +3295,9 @@ def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
     if results_df is None or results_df.empty:
         return [], portfolio_mode, concordance, final_action
 
-    # stop 모드: 빈 리스트 반환
-    if portfolio_mode == 'stop':
-        log(f"포트폴리오: portfolio_mode=stop → 추천 중단 ({final_action})")
+    # stop/defense 모드: 빈 리스트 반환 (defense=약세장 방어, 주식 매수 중단)
+    if portfolio_mode in ('stop', 'defense'):
+        log(f"포트폴리오: portfolio_mode={portfolio_mode} → 추천 중단 ({final_action})")
         return [], portfolio_mode, concordance, final_action
 
     # Top 30 (하드 필터 적용, ✅ 필터 전) — Watchlist용 유지, 이탈은 Top 12 기준
@@ -4062,8 +4188,59 @@ def _build_score_100_map(today_str=None):
     return w_score_map, score_display_map
 
 
+def _regime_defense_series(all_dates):
+    """성과 계산용 — all_dates 각 날짜의 defense 여부 + IEF 일수익률.
+
+    get_market_regime과 동일 신호 (SPX<MA200 10d OR VIX>36 2d), 전 구간 시리즈로.
+    Returns: (defense_by_date {date:bool}, ief_ret_by_date {date:float}). 실패 시 전부 boost.
+    """
+    try:
+        import yfinance as yf
+        import pandas as pd
+        from datetime import datetime, timedelta
+        start = (datetime.strptime(all_dates[0], '%Y-%m-%d') - timedelta(days=400)).strftime('%Y-%m-%d')
+        end = (datetime.strptime(all_dates[-1], '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+
+        def _close(tk):
+            df = yf.download(tk, start=start, end=end, auto_adjust=True, progress=False)
+            cl = df['Close']
+            if hasattr(cl, 'columns'):
+                cl = cl.iloc[:, 0]
+            cl.index = pd.to_datetime(cl.index).tz_localize(None)
+            return cl.dropna()
+
+        def _ser(raw, n):
+            out, state, sd, sb = [], False, 0, 0
+            for d in raw.values:
+                if bool(d):
+                    sd += 1; sb = 0
+                else:
+                    sb += 1; sd = 0
+                if not state and sd >= n:
+                    state = True
+                elif state and sb >= n:
+                    state = False
+                out.append(state)
+            return pd.Series(out, index=raw.index)
+
+        spx, vix, ief = _close('^GSPC'), _close('^VIX'), _close('IEF')
+        ma = spx.rolling(REGIME_MA_PERIOD).mean()
+        ma_def = _ser((spx < ma).fillna(False), REGIME_MA_CONFIRM)
+        vix_def = _ser((vix.reindex(spx.index).ffill() > REGIME_VIX_THRESH).fillna(False), REGIME_VIX_CONFIRM)
+        defense = (ma_def | vix_def)
+        ief_r = ief.reindex(spx.index).ffill().pct_change()
+        defense.index = defense.index.strftime('%Y-%m-%d')
+        ief_r.index = ief_r.index.strftime('%Y-%m-%d')
+        dmap = {d: bool(defense.get(d, False)) for d in all_dates}
+        imap = {d: float(ief_r.get(d, 0.0) or 0.0) for d in all_dates}
+        return dmap, imap
+    except Exception as e:
+        log(f"성과 regime 계산 실패 (boost 가정): {e}", level="WARN")
+        return {d: False for d in all_dates}, {d: 0.0 for d in all_dates}
+
+
 def _get_system_performance():
-    """시스템 누적 성과 계산 (DB 데이터 기반, 역변동성 가중 복리)"""
+    """시스템 누적 성과 계산 (DB 데이터 기반, defense 일자 IEF 반영)"""
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -4073,6 +4250,10 @@ def _get_system_performance():
         if len(all_dates) < 3:
             conn.close()
             return None
+
+        # 국면 오버레이 (2026-05-27): defense 일자엔 IEF 보유 수익으로 계산.
+        #   현재 데이터 전부 boost라 영향 0, 미래 약세장이 쌓이면 자동 반영.
+        regime_def, ief_ret = _regime_defense_series(all_dates)
 
         # 전체 가격 로드
         all_prices = {}
@@ -4187,6 +4368,15 @@ def _get_system_performance():
             data = daily_data.get(date, {})
             prices = all_prices.get(date, {})
             prev_prices = all_prices.get(prev_date, {})
+
+            # 방어 국면: 주식 청산 + IEF 보유 수익 (현재 전부 boost라 미발동)
+            if regime_def.get(date, False):
+                sys_nav *= (1 + ief_ret.get(date, 0.0))
+                sc, sp = spy_prices.get(date), spy_prices.get(prev_date)
+                if sc and sp and sp > 0:
+                    spy_nav *= (1 + (sc - sp) / sp)
+                portfolio = {}
+                continue
 
             w_gap = _w_gap(date)
             ticker_ms = {}
@@ -4321,6 +4511,25 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
 
     lines = []
 
+    # ── 방어 국면 (regime defense) ──
+    if portfolio_mode == 'defense':
+        regime = risk_status.get('regime') if risk_status else None
+        reason = regime.get('reason', '') if regime else ''
+        transition = regime.get('transition') if regime else None
+        lines.append('')
+        if transition == 'to_defense':
+            lines.append('🔄 <b>공격 → 방어 전환</b> (보유 주식 정리 권장)')
+        lines.append('🛡️ <b>방어 국면 — 신규 매수 중단</b>')
+        if reason:
+            lines.append(f'사유: {reason}')
+        lines.append('')
+        lines.append('약세장 신호로 신규 매수를 멈춥니다.')
+        lines.append('보유 종목은 매도 기준(10위 밖 / 실적하락) 그대로 적용.')
+        lines.append('현금 또는 <b>IEF</b>(미국 중기 국채 ETF) 보유 권장.')
+        lines.append('안전 우선 시 <b>BIL</b>(단기 국채). ※ 금리 급등기엔 장기채 회피.')
+        lines.append('S&P 500이 200일선을 회복(15일 확인)하면 자동으로 매수 재개.')
+        return '\n'.join(lines)
+
     # ── stop 모드 ──
     if portfolio_mode == 'stop':
         lines.append('')
@@ -4342,6 +4551,13 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append(f'📡 <b>AI 종목 브리핑 US</b> · {biz_str}({weekday})')
     lines.append('월가 애널리스트의 이익 전망 변화를 추적해')
     lines.append('유망 종목을 매일 선별해 드립니다.')
+
+    # 방어→공격 전환 알림 (regime이 방금 boost로 복귀)
+    _rg = risk_status.get('regime') if risk_status else None
+    if _rg and _rg.get('transition') == 'to_boost':
+        lines.append('')
+        lines.append('🔄 <b>방어 → 공격 전환 — 매수 재개</b>')
+        lines.append('S&P 500이 200일선을 회복했습니다. 아래 후보로 복귀합니다.')
 
     # ━━ 시스템 성과 ━━
     try:

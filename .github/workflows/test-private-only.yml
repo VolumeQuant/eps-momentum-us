@@ -11,6 +11,10 @@ on:
         description: 'Message format (v3 only)'
         required: false
         default: 'v3'
+      regime_force:
+        description: 'Force regime for preview (boost/defense, empty=auto)'
+        required: false
+        default: ''
 
 # v80.7 (2026-05-02): daily-screening.yml과 동일 group으로 묶어 동시 실행 차단.
 # yfinance rate limit 회피 (5/2 사고 재발 방지).
@@ -54,6 +58,7 @@ jobs:
           TZ: 'America/New_York'
           MARKET_DATE: ${{ github.event.inputs.market_date }}
           MESSAGE_VERSION: ${{ github.event.inputs.message_version }}
+          REGIME_FORCE: ${{ github.event.inputs.regime_force }}
           # TELEGRAM_CHAT_ID 미설정 → 채널 전송 안함, 개인봇만
         run: python daily_runner.py
 
