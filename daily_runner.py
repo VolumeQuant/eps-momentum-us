@@ -3172,7 +3172,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
 
     part2_rank(w_gap 기반) 상위 2종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
     이탈선: part2_rank > 10. 최대 2슬롯. (v82: 3→2)
-    비중: 1위 80%, 2위 20% (v82 70/30 → 80/20). C2 boost는 v83.2에서 제거.
+    비중: 1위 90%, 2위 10% (v83.3: 80/20 → 90/10). C2 boost는 v83.2에서 제거.
     """
     if earnings_map is None:
         earnings_map = {}
@@ -3215,7 +3215,8 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                  for _, row in candidates.head(7).iterrows()]
     log(f"w_gap 순위 상위 7: {top_debug}")
 
-    # v83.2 (2026-05-27): 슬롯 (2,10,2) + 1위 80%/2위 20%. C2 boost 제거.
+    # v83.3 (2026-05-28): 슬롯 (2,10,2) + 1위 90%/2위 10% (v83.2 80/20 → 90/10).
+    # v83.2 (2026-05-27): C2 boost 제거.
     #   boost edge가 MU/SNDK 단일 종목 착시로 판명 (leave-one-superwinner-out 검증) →
     #   part2_rank = 순수 w_gap 순위. (candidates 정렬에 boost 없음)
     MAX_SLOTS = 2
@@ -3256,12 +3257,12 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             entry = _build_portfolio_entry(row, status_map, earnings_map)
             selected.append(entry)
 
-    # v83.2: 1위 80%, 2위 20% (v82 70/30 → 80/20). 1종목이면 100%.
+    # v83.3 (2026-05-28): 1위 90%, 2위 10% (v83.2 80/20 → 90/10). 1종목이면 100%.
     n = len(selected)
     if n == 1:
         selected[0]['weight'] = 100
     elif n >= 2:
-        weights_v83 = [80, 20]
+        weights_v83 = [90, 10]
         for i, s in enumerate(selected):
             s['weight'] = weights_v83[i] if i < len(weights_v83) else 0
 
@@ -4387,9 +4388,9 @@ def _get_system_performance():
             eligible.sort(key=lambda x: x[1], reverse=True)  # 점수 높을수록 상위
             wgap_rank = {tk: r + 1 for r, (tk, _) in enumerate(eligible)}
 
-            # v83.2: 슬롯 idx 기반 weight (C2 boost 제거됨).
-            #   슬롯 0 = 80%, 슬롯 1 = 20%. 진입 시점 슬롯에 고정(sticky) — 현재 순위로 재배분 안 함.
-            v83_weights = [80, 20]
+            # v83.3 (2026-05-28): 슬롯 idx 기반 weight, 90/10 집중 강화.
+            #   슬롯 0 = 90%, 슬롯 1 = 10%. 진입 시점 슬롯에 고정(sticky) — 현재 순위로 재배분 안 함.
+            v83_weights = [90, 10]
             day_ret = 0
             if portfolio:
                 for tk, info in portfolio.items():
@@ -4740,7 +4741,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 상위 2종목 (1위 80%, 2위 20%), 최대 2종목 보유')
+    lines.append('매수: 상위 2종목 (1위 90%, 2위 10%), 최대 2종목 보유')
     lines.append('매도: 10위 밖 or 실적하락')
 
     return '\n'.join(lines)
@@ -5083,7 +5084,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 상위 2종목 (1위 80%, 2위 20%), 최대 2종목 보유')
+    lines.append('매수: 상위 2종목 (1위 90%, 2위 10%), 최대 2종목 보유')
     lines.append('매도: 10위 밖 or 실적하락')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
