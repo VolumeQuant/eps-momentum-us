@@ -5882,5 +5882,9 @@
   "BB": {
     "shortName": "BB",
     "industry": "기타"
+  },
+  "ICLR": {
+    "shortName": "ICLR",
+    "industry": "기타"
   }
 }
