@@ -145,7 +145,8 @@ def init_ntm_database():
     # 기존 DB 마이그레이션: 새 컬럼 추가
     for col, col_type in [('adj_score', 'REAL'), ('adj_gap', 'REAL'),
                           ('price', 'REAL'), ('ma60', 'REAL'), ('ma120', 'REAL'), ('part2_rank', 'INTEGER'),
-                          ('rev_up30', 'INTEGER'), ('rev_down30', 'INTEGER'), ('num_analysts', 'INTEGER')]:
+                          ('rev_up30', 'INTEGER'), ('rev_down30', 'INTEGER'), ('num_analysts', 'INTEGER'),
+                          ('high30', 'REAL')]:
         try:
             cursor.execute(f'ALTER TABLE ntm_screening ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
@@ -737,6 +738,8 @@ def run_ntm_collection(config):
                     ma60_val = float(hist.rolling(window=60).mean().iloc[-1])
                     if len(hist) >= 120:
                         ma120_val = float(hist.rolling(window=120).mean().iloc[-1])
+                    # v84 (2026-05-30): 30거래일 high (dd_30_25 진입 필터용)
+                    high30_val = float(hist.tail(30).max()) if len(hist) >= 30 else None
                     hist_dt = hist.index.tz_localize(None) if hist.index.tz else hist.index
 
                     # 각 시점의 주가 찾기
@@ -846,16 +849,17 @@ def run_ntm_collection(config):
                 'price': current_price,
                 'ma60': ma60_val,
                 'ma120': ma120_val,
+                'high30': high30_val,
             }
 
             # DB에 파생 데이터 업데이트
             cursor.execute('''
                 UPDATE ntm_screening
                 SET adj_score=?, adj_gap=?, price=?, ma60=?, ma120=?,
-                    rev_up30=?, rev_down30=?, num_analysts=?, eps_chg_weighted=?
+                    rev_up30=?, rev_down30=?, num_analysts=?, eps_chg_weighted=?, high30=?
                 WHERE date=? AND ticker=?
             ''', (adj_score, adj_gap, current_price, ma60_val, ma120_val,
-                  rev_up30, rev_down30, num_analysts, eps_chg_weighted,
+                  rev_up30, rev_down30, num_analysts, eps_chg_weighted, high30_val,
                   today_str, ticker))
 
             if is_turnaround:
@@ -904,6 +908,8 @@ def run_ntm_collection(config):
                     p_now = float(hist.iloc[-1])
                     ma60_val = float(hist.rolling(window=60).mean().iloc[-1])
                     ma120_val = float(hist.rolling(window=120).mean().iloc[-1]) if len(hist) >= 120 else None
+                    # v84: 30거래일 high (dd_30_25 진입 필터용)
+                    high30_val = float(hist.tail(30).max()) if len(hist) >= 30 else None
 
                     # 3) 스코어 재계산 (전일 EPS 기반)
                     score, seg1, seg2, seg3, seg4, is_turnaround, adj_score, direction = calculate_ntm_score(ntm)
@@ -973,10 +979,10 @@ def run_ntm_collection(config):
                     cur_cf.execute('''
                         UPDATE ntm_screening
                         SET adj_score=?, adj_gap=?, price=?, ma60=?, ma120=?,
-                            rev_up30=?, rev_down30=?, num_analysts=?
+                            rev_up30=?, rev_down30=?, num_analysts=?, high30=?
                         WHERE date=? AND ticker=?
                     ''', (adj_score, adj_gap, p_now, ma60_val, ma120_val,
-                          prev[5], prev[6], prev[7],
+                          prev[5], prev[6], prev[7], high30_val,
                           today_str, ticker))
 
                     # 6) results 리스트에 추가
@@ -1000,6 +1006,7 @@ def run_ntm_collection(config):
                         'is_turnaround': is_turnaround,
                         'rev_up30': prev[5], 'rev_down30': prev[6], 'num_analysts': prev[7],
                         'price': p_now, 'ma60': ma60_val, 'ma120': ma120_val,
+                        'high30': high30_val,
                     }
                     results.append(row)
                     _cf_inserted.append(ticker)
@@ -1344,6 +1351,19 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
         (df['price'].notna()) & (df['price'] >= 10) &
         (ma_col.notna()) & (df['price'] > ma_col)
     ].copy()
+
+    # v84 (2026-05-30): dd_30_25 진입 필터 — 30일 high 대비 -25%+ drawdown 제외
+    # 단기 폭락 종목 차단. BT robust 검증: incl +8.73%p (94/100), excl +7.16%p (77/100)
+    if 'high30' in filtered.columns:
+        high30 = filtered['high30']
+        dd30 = (filtered['price'] - high30) / high30 * 100
+        # high30 NULL이면 통과 (cold start 보호), 있으면 dd > -25 필수
+        dd_pass = high30.isna() | (dd30 > -25)
+        dropped = filtered[~dd_pass]
+        if len(dropped) > 0:
+            log(f"dd_30_25 진입필터: {len(dropped)}개 제외 (30일 high -25%+ drawdown): "
+                f"{', '.join(dropped['ticker'].tolist()[:10])}{'...' if len(dropped) > 10 else ''}")
+        filtered = filtered[dd_pass].copy()
 
     eps_screened = len(filtered)  # EPS 상향 + 추세 필터 통과 수
 
@@ -3172,7 +3192,9 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
 
     part2_rank(w_gap 기반) 상위 2종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
     이탈선: part2_rank > 10. 최대 2슬롯. (v82: 3→2)
-    비중: 1위 90%, 2위 10% (v83.3: 80/20 → 90/10). C2 boost는 v83.2에서 제거.
+    비중 (v84): score_100 1-2위 격차 기반 dynamic (2step_t15)
+      - gap ≥ 15: 1위 100%, 2위 0% (slot 2 skip, 1종목만 매수)
+      - gap < 15: 1위 50%, 2위 50% (1-2위 거의 동등시 분산)
     """
     if earnings_map is None:
         earnings_map = {}
@@ -3257,14 +3279,36 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             entry = _build_portfolio_entry(row, status_map, earnings_map)
             selected.append(entry)
 
-    # v83.3 (2026-05-28): 1위 90%, 2위 10% (v83.2 80/20 → 90/10). 1종목이면 100%.
+    # v84 (2026-05-30): 2step_t15 dynamic weight
+    #   score_100 1-2위 격차 ≥ 15 → 1위 100%, 2위 0% (slot 2 skip)
+    #   score_100 1-2위 격차 < 15 → 1위 50%, 2위 50% (분산)
+    # BT 검증 (entry_fixed, 100×3 paired, 양 환경):
+    #   incl +1.80%p (79/100), excl +3.49%p (63/100), 평균 +2.65%p
+    # dd_30_25 진입필터와 결합 시: incl +5.63%p (98/100), excl +17.27%p (99/100), 평균 +11.45%p
     n = len(selected)
     if n == 1:
         selected[0]['weight'] = 100
     elif n >= 2:
-        weights_v83 = [90, 10]
-        for i, s in enumerate(selected):
-            s['weight'] = weights_v83[i] if i < len(weights_v83) else 0
+        # 1-2위 score gap 계산 (1위 = 100점 기준 환산)
+        s1_score = float(score_100_map.get(selected[0]['ticker'], 0)) if score_100_map else 0
+        s2_score = float(score_100_map.get(selected[1]['ticker'], 0)) if score_100_map else 0
+        if s1_score > 0:
+            gap = (s1_score - s2_score) / s1_score * 100  # = (1위-2위) / 1위 × 100
+        else:
+            gap = 0  # fallback
+        if gap >= 15:
+            # 1위 압도 → 100% 집중
+            selected[0]['weight'] = 100
+            selected[1]['weight'] = 0
+            log(f"v84 dynamic weight: gap={gap:.2f} (≥15) → 1위 100%, 2위 skip")
+        else:
+            # 1-2위 동등 → 50/50 분산
+            selected[0]['weight'] = 50
+            selected[1]['weight'] = 50
+            log(f"v84 dynamic weight: gap={gap:.2f} (<15) → 50/50 분산")
+        # 3위 이하는 0
+        for i in range(2, n):
+            selected[i]['weight'] = 0
 
     log(f"디스플레이 {n}종목: " + ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
@@ -4388,14 +4432,13 @@ def _get_system_performance():
             eligible.sort(key=lambda x: x[1], reverse=True)  # 점수 높을수록 상위
             wgap_rank = {tk: r + 1 for r, (tk, _) in enumerate(eligible)}
 
-            # v83.3 (2026-05-28): 슬롯 idx 기반 weight, 90/10 집중 강화.
-            #   슬롯 0 = 90%, 슬롯 1 = 10%. 진입 시점 슬롯에 고정(sticky) — 현재 순위로 재배분 안 함.
-            v83_weights = [90, 10]
+            # v84 (2026-05-30): 진입 시점 score gap 기반 dynamic weight (2step_t15)
+            #   portfolio[tk]['weight']에 진입 시 결정된 weight 저장됨 (sticky)
+            #   v83.3 정적 [90,10] → v84 dynamic ([100,0] or [50,50])
             day_ret = 0
             if portfolio:
                 for tk, info in portfolio.items():
-                    slot_idx = info.get('slot_idx', 0)
-                    w = v83_weights[slot_idx] / 100.0 if slot_idx < len(v83_weights) else 0
+                    w = info.get('weight', 0) / 100.0
                     cur = prices.get(tk)
                     prev = prev_prices.get(tk)
                     if cur and prev and prev > 0:
@@ -4428,19 +4471,41 @@ def _get_system_performance():
                         losses += 1
                     del portfolio[tk]
 
-            # 진입 (v82.1: 빈 슬롯에 idx 순서대로 진입, weight = slot idx 기반)
+            # 진입 (v84: 빈 슬롯에 idx 순서대로 + 진입 시 score gap 기반 weight 결정)
             if len(portfolio) < 2:
                 cands = [tk for tk, _ in eligible[:30]
                          if tk not in portfolio and wgap_rank.get(tk, 999) <= 2
                          and ticker_ms.get(tk, -999) >= 0]
                 used_idx = {info['slot_idx'] for info in portfolio.values()}
                 free_idx = sorted([i for i in range(2) if i not in used_idx])
+                # 진입 시점의 1-2위 score gap 계산 (slot 1 진입은 portfolio 비었을 때만 일어남)
+                # v84 weight 결정: gap≥15 → [100,0], gap<15 → [50,50]
+                # 슬롯 0,1 둘 다 빈 경우에만 weight 새로 결정. 한쪽만 채워있으면 기존 weight 유지.
+                if len(portfolio) == 0 and len(eligible) >= 2:
+                    top1_w = eligible[0][1]; top2_w = eligible[1][1]
+                    if top1_w > 0:
+                        gap = (top1_w - top2_w) / top1_w * 100
+                    else:
+                        gap = 0
+                    new_weights = [100, 0] if gap >= 15 else [50, 50]
+                else:
+                    new_weights = None  # 기존 portfolio 유지
                 for slot_idx in free_idx:
                     if not cands: break
                     tk = cands.pop(0)
                     cp = prices.get(tk)
                     if cp:
-                        portfolio[tk] = {'entry_price': cp, 'slot_idx': slot_idx}
+                        if new_weights is not None:
+                            w_val = new_weights[slot_idx]
+                            if w_val == 0:
+                                continue  # weight 0 슬롯은 진입 안 함
+                            portfolio[tk] = {'entry_price': cp, 'slot_idx': slot_idx, 'weight': w_val}
+                        else:
+                            # 기존 portfolio가 있을 때 새 슬롯 진입 — 기존 weight 보존
+                            # (이 경우는 한 슬롯만 매도되고 새로 채우는 케이스)
+                            existing_total = sum(info.get('weight', 0) for info in portfolio.values())
+                            remaining = 100 - existing_total
+                            portfolio[tk] = {'entry_price': cp, 'slot_idx': slot_idx, 'weight': remaining}
 
         conn.close()
         # n_days: 실제 day_ret 누적 일수 (첫 진입일은 day_ret=0이므로 -1)
@@ -4741,7 +4806,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 상위 2종목 (1위 90%, 2위 10%), 최대 2종목 보유')
+    lines.append('매수: 1-2위 점수차 기반 dynamic (격차≥15 → 1위 100% / 격차<15 → 50/50)')
     lines.append('매도: 10위 밖 or 실적하락')
 
     return '\n'.join(lines)
@@ -5084,7 +5149,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 상위 2종목 (1위 90%, 2위 10%), 최대 2종목 보유')
+    lines.append('매수: 1-2위 점수차 기반 dynamic (격차≥15 → 1위 100% / 격차<15 → 50/50)')
     lines.append('매도: 10위 밖 or 실적하락')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 

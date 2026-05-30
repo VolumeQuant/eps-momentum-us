@@ -47,10 +47,10 @@ N_SEEDS = 100
 SAMPLES_PER_SEED = 3
 MIN_HOLD_DAYS = 10
 
-# v80.10c production params
+# v83.3 production params (2026-05-29 재실행)
 ENTRY_TOP = 3
 EXIT_TOP = 10
-MAX_SLOTS = 3
+MAX_SLOTS = 2  # v82+ (이전 BT는 3)
 HOLD_DAYS = 0  # v80.10c: ⏸️ 룰 제거
 
 
@@ -251,7 +251,7 @@ def main():
     print('=' * 110)
     print('MA 필터 변형 BT — production (MA120 fallback MA60) vs 4 변형')
     print(f'DB: {DB_ORIGINAL}')
-    print(f'params: entry={ENTRY_TOP}, exit={EXIT_TOP}, slots={MAX_SLOTS}, hold={HOLD_DAYS} (v80.10c)')
+    print(f'params: entry={ENTRY_TOP}, exit={EXIT_TOP}, slots={MAX_SLOTS}, hold={HOLD_DAYS} (v83.3)')
     print(f'seeds: {N_SEEDS} × samples {SAMPLES_PER_SEED} = {N_SEEDS*SAMPLES_PER_SEED} 시뮬/변형')
     print('=' * 110)
 
