@@ -34,7 +34,7 @@ def backfill_etf(ticker, category, days=30):
         info = t.info
         aum_now = info.get('totalAssets', 0) or 0
         expense = (info.get('netExpenseRatio') or info.get('annualReportExpenseRatio') or 0) / 100
-        divy = (info.get('yield') or 0) / 100 if info.get('yield') else 0
+        divy = info.get('yield') or 0  # yfinance yield는 이미 decimal
         beta = info.get('beta3Year') or info.get('beta') or 0
 
         out = []

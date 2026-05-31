@@ -46,7 +46,7 @@ def fetch_etf_basic(ticker, category):
             'aum': info.get('totalAssets', 0) or 0,
             'day_return': day_ret,
             'expense_ratio': (info.get('netExpenseRatio') or info.get('annualReportExpenseRatio') or 0) / 100,  # yfinance가 %로 줌 → 0~1 범위
-            'dividend_yield': (info.get('yield') or 0) / 100 if info.get('yield') else 0,
+            'dividend_yield': info.get('yield') or 0,  # yfinance yield는 이미 decimal (0.011 = 1.1%)
             'beta': info.get('beta3Year') or info.get('beta') or 0,
             'date_str': hist.index[-1].strftime('%Y-%m-%d'),
         }
