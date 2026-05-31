@@ -98,6 +98,41 @@ def main():
         out.write_text(md, encoding='utf-8')
     run_step('8. weekly_changes', gen_chg)
 
+    # Step 8.5: 시장 regime
+    from hedge_diagnose import gen_hedge_md
+    def gen_regime():
+        md = gen_hedge_md()
+        out = Path(__file__).parent / 'content' / 'market_regime.md'
+        out.write_text(md, encoding='utf-8')
+    run_step('8.5 market_regime', gen_regime)
+
+    # Step 8.6: ETF × EPS Momentum signal (사용자 unique value)
+    from etf_eps_signal import gen_eps_etf_signal_md
+    def gen_eps_sig():
+        md = gen_eps_etf_signal_md(signals['date'])
+        out = Path(__file__).parent / 'content' / 'etf_eps_signal.md'
+        out.write_text(md, encoding='utf-8')
+    run_step('8.6 etf_eps_signal', gen_eps_sig)
+
+    # Step 8.7: Premium Daily (통합)
+    from premium_daily import gen_premium_md
+    def gen_premium():
+        md = gen_premium_md()
+        out = Path(__file__).parent / 'content' / f'premium_daily_{signals["date"]}.md'
+        out.write_text(md, encoding='utf-8')
+    run_step('8.7 premium_daily', gen_premium)
+
+    # Step 8.8: Health check
+    from health_check import check_all, gen_health_report
+    def gen_hc():
+        issues = check_all()
+        report, has_critical = gen_health_report(issues)
+        out = Path(__file__).parent / 'content' / 'health_check.md'
+        out.write_text(report, encoding='utf-8')
+        if has_critical:
+            print('⚠️ HEALTH CHECK: critical issues found!')
+    run_step('8.8 health_check', gen_hc)
+
     # Step 9: 차트
     from charts import chart_all
     run_step('9. charts', chart_all, signals['date'])
