@@ -32,8 +32,9 @@ ETF_UNIVERSE = {
         'VPL', 'VGK', 'EZU',  # Asia/EU
     ],
 
-    # ━━━ 섹터 (Sector ETF) ━━━
+    # ━━━ 섹터 (Sector ETF — 전통 11 GICS 섹터 + sub) ━━━
     'sectors': [
+        'SOXX', 'SMH', 'XSD',  # Semiconductors (sub-sector)
         'XLK', 'VGT', 'IYW', 'FTEC',  # Tech
         'XLF', 'VFH', 'IYF', 'KRE', 'KBE',  # Financials
         'XLV', 'VHT', 'IYH', 'IBB', 'XBI',  # Health
@@ -47,9 +48,8 @@ ETF_UNIVERSE = {
         'XLC', 'VOX',  # Comm
     ],
 
-    # ━━━ 테마 / 트렌드 ━━━
+    # ━━━ 테마 / 트렌드 (특정 산업 베팅) ━━━
     'themes': [
-        'SOXX', 'SMH', 'XSD',  # Semiconductors
         'BOTZ', 'ROBO', 'IRBO', 'AIQ',  # AI/Robot
         'ARKK', 'ARKG', 'ARKW', 'ARKQ', 'ARKF', 'ARKX',  # ARK
         'TAN', 'PBW', 'QCLN',  # Clean Energy

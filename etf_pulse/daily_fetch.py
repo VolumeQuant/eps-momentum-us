@@ -45,9 +45,9 @@ def fetch_etf_basic(ticker, category):
             'volume_spike': vol_spike,
             'aum': info.get('totalAssets', 0) or 0,
             'day_return': day_ret,
-            'expense_ratio': info.get('annualReportExpenseRatio', 0) or 0,
-            'dividend_yield': info.get('yield', 0) or 0,
-            'beta': info.get('beta3Year', 0) or 0,
+            'expense_ratio': (info.get('netExpenseRatio') or info.get('annualReportExpenseRatio') or 0) / 100,  # yfinance가 %로 줌 → 0~1 범위
+            'dividend_yield': (info.get('yield') or 0) / 100 if info.get('yield') else 0,
+            'beta': info.get('beta3Year') or info.get('beta') or 0,
             'date_str': hist.index[-1].strftime('%Y-%m-%d'),
         }
     except Exception as e:

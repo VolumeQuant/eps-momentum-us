@@ -33,9 +33,9 @@ def backfill_etf(ticker, category, days=30):
         # 현재 정보 (AUM 등)는 snapshot으로 한 번만
         info = t.info
         aum_now = info.get('totalAssets', 0) or 0
-        expense = info.get('annualReportExpenseRatio', 0) or 0
-        divy = info.get('yield', 0) or 0
-        beta = info.get('beta3Year', 0) or 0
+        expense = (info.get('netExpenseRatio') or info.get('annualReportExpenseRatio') or 0) / 100
+        divy = (info.get('yield') or 0) / 100 if info.get('yield') else 0
+        beta = info.get('beta3Year') or info.get('beta') or 0
 
         out = []
         # 최근 N일만 저장 (앞 40일은 avg 계산용)

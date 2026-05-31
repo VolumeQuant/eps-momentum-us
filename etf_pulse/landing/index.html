@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="ETF Pulse — 미국 ETF Daily 인사이트. 카테고리별 best, 거래량 급증, 자동 패턴 분석.">
+  <meta property="og:title" content="ETF Pulse — 미국 ETF Daily 인사이트">
+  <meta property="og:description" content="토스/Webull이 못 하는 카테고리 신호 자동 정리. 매일 아침 inbox로.">
+  <title>ETF Pulse — 미국 ETF Daily 인사이트</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Pretendard', sans-serif;
+      color: #1a1a1a;
+      line-height: 1.6;
+      background: #ffffff;
+    }
+    .hero {
+      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+      color: white;
+      padding: 80px 20px;
+      text-align: center;
+    }
+    .hero h1 { font-size: 48px; margin-bottom: 16px; font-weight: 800; }
+    .hero p { font-size: 20px; opacity: 0.95; max-width: 700px; margin: 0 auto 32px; }
+    .cta {
+      display: inline-block;
+      background: #ff6b35;
+      color: white;
+      padding: 16px 36px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 18px;
+      transition: transform 0.2s;
+    }
+    .cta:hover { transform: translateY(-2px); }
+    .container { max-width: 1100px; margin: 0 auto; padding: 60px 20px; }
+    h2 { font-size: 32px; margin-bottom: 24px; text-align: center; }
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      margin-top: 40px;
+    }
+    .feature {
+      background: #f8f9fa;
+      padding: 24px;
+      border-radius: 12px;
+      border-left: 4px solid #2a5298;
+    }
+    .feature .emoji { font-size: 32px; margin-bottom: 12px; display: block; }
+    .feature h3 { font-size: 18px; margin-bottom: 8px; }
+    .feature p { color: #555; font-size: 15px; }
+    .compare {
+      background: #f8f9fa;
+      padding: 60px 20px;
+    }
+    .compare table {
+      width: 100%; max-width: 900px; margin: 0 auto;
+      border-collapse: collapse; background: white;
+      border-radius: 8px; overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    .compare th, .compare td {
+      padding: 14px 18px; text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+    .compare th { background: #2a5298; color: white; font-weight: 600; }
+    .compare .yes { color: #2ecc71; font-weight: bold; font-size: 18px; }
+    .compare .no { color: #999; font-size: 18px; }
+    .compare .star { color: #ff6b35; font-weight: bold; }
+    .sample {
+      background: white; padding: 60px 20px;
+    }
+    .sample-box {
+      max-width: 700px; margin: 0 auto;
+      background: #f8f9fa; padding: 32px; border-radius: 12px;
+      border: 1px solid #e0e0e0;
+      font-family: 'SF Mono', Monaco, monospace; font-size: 14px;
+      white-space: pre-wrap; line-height: 1.5;
+    }
+    .pricing {
+      background: linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
+      padding: 60px 20px;
+    }
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 24px;
+      max-width: 900px; margin: 40px auto 0;
+    }
+    .tier {
+      background: white; padding: 32px; border-radius: 12px;
+      border: 2px solid #eee; text-align: center;
+    }
+    .tier.featured { border-color: #ff6b35; transform: scale(1.05); }
+    .tier h3 { font-size: 24px; margin-bottom: 8px; }
+    .tier .price { font-size: 36px; font-weight: bold; margin: 16px 0; color: #2a5298; }
+    .tier ul { list-style: none; text-align: left; margin: 20px 0; }
+    .tier li { padding: 6px 0; color: #555; }
+    .tier li::before { content: '✓ '; color: #2ecc71; font-weight: bold; }
+    footer {
+      background: #1a1a1a; color: #ccc;
+      padding: 40px 20px; text-align: center;
+    }
+    footer a { color: #ff6b35; text-decoration: none; }
+  </style>
+</head>
+<body>
+
+<section class="hero">
+  <h1>🌅 ETF Pulse</h1>
+  <p>미국 ETF Daily 인사이트<br>토스·Webull·Seeking Alpha가 못 하는 카테고리 신호 자동 정리, 매일 아침 inbox로.</p>
+  <a href="#subscribe" class="cta">무료 구독 시작 →</a>
+</section>
+
+<section class="container">
+  <h2>왜 ETF Pulse인가</h2>
+  <div class="features">
+    <div class="feature">
+      <span class="emoji">📊</span>
+      <h3>카테고리별 best ETF 추천</h3>
+      <p>S&P500, AI, 반도체, 채권 등 카테고리마다 Top 3 자동 추천. 객관 점수 기반.</p>
+    </div>
+    <div class="feature">
+      <span class="emoji">🔥</span>
+      <h3>거래량 급증 + 자동 narrative</h3>
+      <p>매일 거래량 폭증한 ETF + AI가 분석한 "왜 터졌나" 한 줄 narrative.</p>
+    </div>
+    <div class="feature">
+      <span class="emoji">🧠</span>
+      <h3>자동 패턴 인사이트</h3>
+      <p>"사이버보안 ETF 2개 동시 폭증", "ARK 시리즈 4개 신고가" 같은 패턴 자동 감지.</p>
+    </div>
+    <div class="feature">
+      <span class="emoji">💼</span>
+      <h3>내 포트폴리오 펄스</h3>
+      <p>보유 ETF 등록 → 매일 변동 + 더 좋은 alternatives 추천 (Pro).</p>
+    </div>
+    <div class="feature">
+      <span class="emoji">🏔️</span>
+      <h3>신고가/신저가 자동 감지</h3>
+      <p>30일 신고가 ETF, 신저가 클러스터 자동 추출. 트렌드 시작/끝 시그널.</p>
+    </div>
+    <div class="feature">
+      <span class="emoji">⚙️</span>
+      <h3>BT 검증된 신호</h3>
+      <p>모든 신호는 historical BT로 검증. quant 마인드로 만든 ETF 도구.</p>
+    </div>
+  </div>
+</section>
+
+<section class="compare">
+  <h2>다른 서비스와 비교</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>기능</th>
+        <th>토스/MTS</th>
+        <th>Webull</th>
+        <th>Seeking Alpha</th>
+        <th>ETF Pulse</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>카테고리별 best 추천</td><td class="no">✗</td><td class="no">✗</td><td class="no">부분</td><td class="yes star">✓ ★</td></tr>
+      <tr><td>거래량 spike + AI narrative</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="yes star">✓ ★</td></tr>
+      <tr><td>동일 카테고리 alternatives 비교</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="yes star">✓ ★</td></tr>
+      <tr><td>자동 패턴 인사이트</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="yes star">✓ ★</td></tr>
+      <tr><td>포트폴리오 Daily 펄스</td><td class="no">부분</td><td class="no">부분</td><td class="no">✗</td><td class="yes star">✓ ★</td></tr>
+      <tr><td>매일 자동 발행 (이메일/텔레그램)</td><td class="no">✗</td><td class="no">✗</td><td class="no">부분</td><td class="yes star">✓ ★</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="sample">
+  <h2>샘플 콘텐츠 미리보기</h2>
+  <div class="sample-box">🌅 ETF Pulse — 2026-05-29
+
+🎯 어제 시장 분위기
+강세 테마: 테마 ETF (평균 +0.46%)
+약세 테마: 원자재/헷지 (평균 -0.42%)
+
+📈 어제 수익률 Top 5
+1. MSTU (MSTR 2X 레버리지)   +9.66%
+2. CIBR (사이버보안)         +6.41%
+3. HACK (사이버보안)         +5.83%   ← 같은 테마 동시 상승 ★
+4. GDXJ (소형 금광주)        +3.88%
+5. TAN (태양광)              +2.78%   거래량 2.4x 폭증
+
+🚀 5일 모멘텀 Top 3
+SOXL (반도체 3X 레버리지)   +25.76%
+TAN (태양광)                +13.98%
+ARKG (ARK 바이오)           +13.46%
+
+🧠 자동 인사이트
+- 사이버보안 ETF 2개 수익률 동시 상승
+- ARK 시리즈 4개 동시 신고가 → 성장주 강세
+- 원자재 ETF 4개 30일 신저가 → 원자재 약세 지속
+
+[Pro] 내 포트폴리오 펄스 →</div>
+</section>
+
+<section class="pricing" id="subscribe">
+  <h2>구독</h2>
+  <div class="pricing-grid">
+    <div class="tier">
+      <h3>Free</h3>
+      <div class="price">₩0</div>
+      <p>매일 ETF Pulse 뉴스레터</p>
+      <ul>
+        <li>매일 아침 이메일</li>
+        <li>카테고리별 신호</li>
+        <li>거래량/수익률 Top 5</li>
+        <li>자동 패턴 인사이트</li>
+      </ul>
+      <a href="mailto:subscribe@etfpulse.kr?subject=Subscribe Free" class="cta" style="background:#2a5298;">구독 시작</a>
+    </div>
+    <div class="tier featured">
+      <h3>Pro</h3>
+      <div class="price">₩15,000/월</div>
+      <p>+ 포트폴리오 펄스</p>
+      <ul>
+        <li>Free 모든 기능</li>
+        <li>내 포트폴리오 매일 추적</li>
+        <li>alternatives 자동 추천</li>
+        <li>알림 (가격/거래량/신호)</li>
+        <li>AI 챗봇 어드바이저</li>
+      </ul>
+      <a href="mailto:subscribe@etfpulse.kr?subject=Subscribe Pro" class="cta">Pro 시작</a>
+    </div>
+    <div class="tier">
+      <h3>Premium</h3>
+      <div class="price">₩30,000/월</div>
+      <p>+ 고급 분석 도구</p>
+      <ul>
+        <li>Pro 모든 기능</li>
+        <li>walk-forward BT</li>
+        <li>커스텀 카테고리</li>
+        <li>이메일 우선 응답</li>
+      </ul>
+      <a href="mailto:subscribe@etfpulse.kr?subject=Subscribe Premium" class="cta" style="background:#2a5298;">Premium 시작</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>ETF Pulse — 자동 데이터 분석 서비스. 투자 추천이 아닙니다.</p>
+  <p style="margin-top:8px;">데이터: yfinance · 대상: AUM 상위 미국 ETF 228개 · 갱신: 매일</p>
+  <p style="margin-top:16px;">
+    <a href="mailto:hello@etfpulse.kr">hello@etfpulse.kr</a>
+  </p>
+</footer>
+
+</body>
+</html>
