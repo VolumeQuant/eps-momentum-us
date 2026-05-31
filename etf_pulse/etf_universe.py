@@ -103,6 +103,39 @@ ETF_UNIVERSE = {
         'AAPU', 'AAPD',  # AAPL single-stock lev
         'TSLL', 'TSLZ',  # TSLA single-stock lev
         'MSTU', 'MSTZ',  # MSTR single-stock lev
+        'CONL',  # Coinbase 2X lev
+        'GOOL',  # GOOGL 2X lev
+        'METU',  # META 2X lev
+        'BITX',  # Bitcoin 2X lev
+        'AMZU',  # AMZN 2X lev
+        'PYPL',  # PayPal (이건 종목이긴 한데)
+    ],
+
+    # ━━━ ESG / 사회적 책임 ━━━
+    'esg': [
+        'ESGU', 'SUSL', 'SUSA',  # MSCI USA ESG
+        'ESGD', 'ESGE',  # International ESG
+        'ICLN',  # Clean energy (themes에도 있음)
+        'NUGT',  # ESG growth
+        'CRBN', 'KRMA',  # Low carbon, impact
+    ],
+
+    # ━━━ 신규/소형 액티브 ETF (2024-2026 인기) ━━━
+    'active_new': [
+        'BUFR',  # FT Cboe Vest US Equity Buffer (downside protection)
+        'BUFB',  # Same buffer different month
+        'PFFV',  # InfraCap Variable Rate Preferred (인컴 액티브)
+        'PYZ',  # Invesco DWA Basic Materials Momentum
+        'GLDM',  # Cheaper gold (이미 commodity에 있음)
+        'IBHI', 'IBHJ',  # iShares iBonds Treasury target maturity
+        'BSCT', 'BSCU',  # Invesco BulletShares (target maturity)
+        'CGUS',  # Capital Group US Equity
+        'CGGO',  # Capital Group Growth Opps
+        'AVUV',  # Avantis US Small Cap Value
+        'AVUS',  # Avantis US Equity
+        'AVEM',  # Avantis EM
+        'CALF',  # Pacer US Small Cap Cash Cows
+        'COWZ',  # Pacer US Cash Cows
     ],
 }
 
