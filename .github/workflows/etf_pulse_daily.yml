@@ -6,6 +6,9 @@ on:
     - cron: '0 21 * * *'
   workflow_dispatch:  # 수동 실행 가능
 
+permissions:
+  contents: write  # git push 권한 (daily commit)
+
 jobs:
   daily-pulse:
     runs-on: ubuntu-latest
