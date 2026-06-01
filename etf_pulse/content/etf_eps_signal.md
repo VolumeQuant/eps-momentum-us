@@ -13,10 +13,10 @@
 | 4 | **NVDX** | -9.28 | 80% | NVDA |
 | 5 | **NLR** | -9.19 | 15% | CEG, BWXT |
 | 6 | **MOO** | -8.43 | 15% | ADM, CF, BG |
-| 7 | **XAR** | -6.52 | 17% | BWXT, BA, CRS |
-| 8 | **IDU** | -6.26 | 10% | CEG, AEP |
-| 9 | **VPU** | -6.26 | 11% | CEG, AEP |
-| 10 | **XLU** | -6.26 | 12% | CEG, AEP |
+| 7 | **PYZ** | -6.62 | 24% | CRS, CF, ATI |
+| 8 | **XAR** | -6.52 | 17% | BWXT, BA, CRS |
+| 9 | **IDU** | -6.26 | 10% | CEG, AEP |
+| 10 | **VPU** | -6.26 | 11% | CEG, AEP |
 
 ## 📈 고평가 ETF Top 10 (양수 큰 순)
 
