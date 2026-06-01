@@ -5104,8 +5104,8 @@
     "industry": "기타"
   },
   "AAOI": {
-    "shortName": "AAOI",
-    "industry": "기타"
+    "shortName": "Applied Optoelectronics, Inc.",
+    "industry": "통신장비"
   },
   "HESM": {
     "shortName": "Hess Midstream LP",
@@ -5885,6 +5885,74 @@
   },
   "ICLR": {
     "shortName": "ICLR",
+    "industry": "기타"
+  },
+  "DSGX": {
+    "shortName": "DSGX",
+    "industry": "기타"
+  },
+  "ESTC": {
+    "shortName": "Elastic N.V.",
+    "industry": "응용SW"
+  },
+  "FIG": {
+    "shortName": "FIG",
+    "industry": "기타"
+  },
+  "FLNC": {
+    "shortName": "FLNC",
+    "industry": "기타"
+  },
+  "FRVO": {
+    "shortName": "FRVO",
+    "industry": "기타"
+  },
+  "GTLB": {
+    "shortName": "GTLB",
+    "industry": "기타"
+  },
+  "IOT": {
+    "shortName": "IOT",
+    "industry": "기타"
+  },
+  "NTSK": {
+    "shortName": "NTSK",
+    "industry": "기타"
+  },
+  "OCTV": {
+    "shortName": "OCTV",
+    "industry": "기타"
+  },
+  "RDDT": {
+    "shortName": "Reddit, Inc.",
+    "industry": "인터넷"
+  },
+  "SNOW": {
+    "shortName": "Snowflake Inc.",
+    "industry": "응용SW"
+  },
+  "SONY": {
+    "shortName": "SONY",
+    "industry": "기타"
+  },
+  "TTAN": {
+    "shortName": "TTAN",
+    "industry": "기타"
+  },
+  "U": {
+    "shortName": "U",
+    "industry": "기타"
+  },
+  "WIT": {
+    "shortName": "WIT",
+    "industry": "기타"
+  },
+  "XMTR": {
+    "shortName": "XMTR",
+    "industry": "기타"
+  },
+  "ZETA": {
+    "shortName": "ZETA",
     "industry": "기타"
   }
 }
