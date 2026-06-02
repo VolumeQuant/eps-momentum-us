@@ -3561,6 +3561,45 @@ def check_breakout_hold(ticker):
         return False
 
 
+def check_mega_hold(ticker):
+    """B2 메가 홀드 오버라이드 (v86, 2026-06-02)
+
+    조건 (모두 만족):
+      1. NTM EPS 추정치 상향 (ntm_current/ntm_90d - 1) ≥ 60%  (분석가 대규모 상향 = 슈퍼사이클/턴어라운드)
+      2. PEG = (price/ntm_current) / (rev_growth×100) < 0.2     (성장 대비 극단적 저평가)
+
+    Returns: True면 순위 10위 밖이어도 '홀드 권장' (매도 신호 보류)
+
+    근거: MU(NTM+139%/PEG0.06)·SNDK 같은 극저PEG+EPS폭발 종목이 가격 오르면
+      fwd_pe_chg(변화율) 식어 순위 밀려 회전매도 → 큰 상승 놓침 (사용자 "MU 많이 놓침").
+    BT(100×3 paired): +81.5p, 100/100 wins, Calmar 8.9→10.3, LOWO 무해(MU/SNDK 제외 시 0, 음수 아님).
+    트레일링 스탑은 휘프소로 edge 파괴 확인(-28p) → 가격스탑 없음. 매도조건 min_seg<-2(EPS꺾임)는 유지.
+    ⚠️ N=2 상승장 검증. 사이클 천장에서 멀티플 디레이팅 시 홀드가 하락 흡수 위험(min_seg가 유일 보호).
+    research: research/auto_bt_mega_hold.py, auto_bt_mega_hold_ts.py
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT price, ntm_current, ntm_90d, rev_growth
+            FROM ntm_screening WHERE ticker=?
+            AND date=(SELECT MAX(date) FROM ntm_screening WHERE ticker=? AND ntm_current IS NOT NULL)
+        ''', (ticker, ticker))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return False
+        price, nc, n90, rg = row
+        if not price or not nc or nc <= 0 or not n90 or n90 <= 0 or not rg or rg <= 0:
+            return False
+        ntm_rev = (nc / n90 - 1) * 100
+        peg = (price / nc) / (rg * 100)
+        return ntm_rev >= 60 and peg < 0.2
+    except Exception as e:
+        log(f"check_mega_hold {ticker} 오류: {e}", "WARN")
+        return False
+
+
 # ============================================================
 # 이탈 사유 분류 + AI 분석
 # ============================================================
@@ -3633,6 +3672,11 @@ def classify_exit_reasons(exited_tickers, results_df):
 
         # v80.10c (2026-05-11): ⏸️ 유예 분류 제거 — BT 결과 v80.10 환경에선 N=0 best.
         # check_breakout_hold 함수는 코드에 유지 (회귀 검증/약세장 재검토용).
+
+        # B2 (v86, 2026-06-02): 메가 시그니처면 순위 기반 이탈 → '메가홀드'로 재분류.
+        # 추세둔화(min_seg<-2)는 위에서 이미 continue 처리되어 영향 없음 (EPS꺾임 매도는 유지).
+        if reason in ('순위밀림', '주가선반영') and check_mega_hold(t):
+            reason = '메가홀드'
 
         result.append((t, cur_rank, reason))
 
@@ -4824,7 +4868,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('매수: 1-2위 점수차 기반 dynamic (격차≥15 → 1위 100% / 격차<15 → 50/50)')
-    lines.append('매도: 10위 밖 or 실적하락')
+    lines.append('매도: 10위 밖 or 실적하락 (🔒메가 시그니처는 홀드)')
 
     return '\n'.join(lines)
 
@@ -5149,25 +5193,35 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             lines.append('- - - - -')
 
     # ── EPS 추세 둔화 (메인 리스트에서 제외된 종목) ──
-    # ── 순위 이탈 (사유별 묶어서 표시) ──
+    # ── 순위 이탈 (사유별 묶어서 표시) + 🔒 메가홀드 분리 (B2 v86) ──
     if exit_reasons:
         from collections import defaultdict
         reason_groups = defaultdict(list)
+        mega_holds = []
         for t, _, reason in exit_reasons:
-            reason_groups[reason or '순위밀림'].append(t)
-        parts = []
-        for reason, tickers in reason_groups.items():
-            parts.append(f'{"·".join(tickers)}({reason})')
-        lines.append('')
-        lines.append('━━━━━━━━━━━━━━━')
-        lines.append(f'📉 이탈: {" ".join(parts)}')
+            if reason == '메가홀드':
+                mega_holds.append(t)
+            else:
+                reason_groups[reason or '순위밀림'].append(t)
+        if mega_holds:
+            lines.append('')
+            lines.append('━━━━━━━━━━━━━━━')
+            lines.append(f'🔒 메가 홀드: {"·".join(mega_holds)}')
+            lines.append('  (순위 밀려도 보유 권장 — EPS 폭발 상향+초저평가. 실적 꺾이면 매도)')
+        if reason_groups:
+            parts = []
+            for reason, tickers in reason_groups.items():
+                parts.append(f'{"·".join(tickers)}({reason})')
+            lines.append('')
+            lines.append('━━━━━━━━━━━━━━━')
+            lines.append(f'📉 이탈: {" ".join(parts)}')
 
     # ── 범례 ──
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
     lines.append('매수: 1-2위 점수차 기반 dynamic (격차≥15 → 1위 100% / 격차<15 → 50/50)')
-    lines.append('매도: 10위 밖 or 실적하락')
+    lines.append('매도: 10위 밖 or 실적하락 (🔒메가 시그니처는 홀드)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
     return '\n'.join(lines)
