@@ -57,6 +57,16 @@ COMMODITY_INDUSTRIES = {
 # 업종 분류는 특수화학이지만 실제 원자재(리튬 광산) — 가격 패스스루
 COMMODITY_TICKERS = {'SQM', 'ALB'}
 
+# v85 (2026-06-02): 비(非)성장 소비/미디어 업종 제외 — "압도적 성장기업만" 목적 외.
+# WMG(음반)·FIVE(전문소매)처럼 EPS revision은 떠도 구조적 저성장 catalyst형.
+# 숫자 필터(성장/PEG/모멘텀) 전부 MU/SNDK 착시로 실패 → 유일하게 robust한 lever=업종.
+# 300회 paired BT에서 winning trade 0개 차단 (비용 0). COMMODITY_INDUSTRIES와 동일 메커니즘.
+OFF_STRATEGY_INDUSTRIES = {
+    '엔터', '전문소매',
+    # 영문 fallback (INDUSTRY_MAP 미매핑 시)
+    'Entertainment', 'Specialty Retail',
+}
+
 # 기본 설정
 DEFAULT_CONFIG = {
     "git_enabled": True,
@@ -1444,6 +1454,13 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
     if len(commodity_tk) > 0:
         log(f"원자재 제외(티커): {', '.join(commodity_tk['ticker'].tolist())}")
         filtered = filtered[~filtered['ticker'].isin(COMMODITY_TICKERS)].copy()
+
+    # v85: 비성장 소비/미디어 업종 제외 (엔터/전문소매) — 사용자 "압도적 성장기업만" 전략 목적 외
+    if 'industry' in filtered.columns:
+        off_strat = filtered[filtered['industry'].isin(OFF_STRATEGY_INDUSTRIES)]
+        if len(off_strat) > 0:
+            log(f"비성장 소비/미디어 제외(업종): {', '.join(off_strat['ticker'].tolist())}")
+        filtered = filtered[~filtered['industry'].isin(OFF_STRATEGY_INDUSTRIES)].copy()
 
     # v79.1: FCF<0 AND ROE<0 동시 → 제외 (현금 창출 불가 + 자본 수익 없는 종목)
     # FCF 단독 or ROE 단독 음수는 허용 (SNDK=ROE-, TTMI=FCF- 등 성장주 보호)
