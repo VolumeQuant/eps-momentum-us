@@ -4474,16 +4474,17 @@ def _get_system_performance():
             rows = c.execute('SELECT ticker, price FROM ntm_screening WHERE date=?', (d,)).fetchall()
             all_prices[d] = {r[0]: r[1] for r in rows}
 
-        # 일별 데이터 로드
+        # 일별 데이터 로드 (v86e+ 메가 carryover 시뮬에 rev_growth 필요)
         daily_data = {}
         for d in all_dates:
             rows = c.execute('''
-                SELECT ticker, price, part2_rank, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d
+                SELECT ticker, price, part2_rank, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, rev_growth
                 FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL
             ''', (d,)).fetchall()
             daily_data[d] = {
                 r[0]: {'price': r[1], 'part2_rank': r[2],
-                       'nc': r[3], 'n7': r[4], 'n30': r[5], 'n60': r[6], 'n90': r[7]}
+                       'nc': r[3], 'n7': r[4], 'n30': r[5], 'n60': r[6], 'n90': r[7],
+                       'rg': r[8]}
                 for r in rows
             }
 
@@ -4623,7 +4624,11 @@ def _get_system_performance():
             sys_nav *= (1 + day_ret / 100)
             spy_nav *= (1 + spy_ret / 100)
 
-            # 이탈
+            # 이탈 (v86e+ 메가 carryover 시뮬 통합)
+            # 매도 트리거:
+            #   1. min_seg < -2 (EPS 꺾임)
+            #   2. rev_growth < 0.25 (매출 둔화)
+            #   3. rank > 10 AND NOT 메가(PEG<0.22) — 메가는 carryover
             for tk in list(portfolio.keys()):
                 ep = portfolio[tk]['entry_price']
                 cp = prices.get(tk)
@@ -4632,7 +4637,24 @@ def _get_system_performance():
                 rk = wgap_rank.get(tk)
                 ms = ticker_ms.get(tk, 0)
                 ret = (cp - ep) / ep * 100
-                if (rk is None or rk > 10) or ms < -2:  # v80.10b: X8→X10 (production 룰과 일치)
+                info_tk = data.get(tk, {})
+                rg_tk = info_tk.get('rg')
+                nc_tk = info_tk.get('nc')
+                # PEG 계산 — V86e+ 메가 판정
+                peg_tk = (cp / nc_tk) / (rg_tk * 100) if (cp and nc_tk and nc_tk > 0 and rg_tk and rg_tk > 0) else None
+                is_mega_tk = peg_tk is not None and peg_tk < 0.22
+                # V86e+ logic:
+                # - 모든 종목: ms<-2면 매도
+                # - 메가만: rev_growth<0.25면 매도 (메가 carryover 해제 조건)
+                # - 일반 종목: rank>10이면 매도 (메가는 carryover로 보호)
+                sell = False
+                if ms < -2:
+                    sell = True  # 모든 종목 EPS 꺾임
+                elif is_mega_tk and rg_tk is not None and rg_tk < 0.25:
+                    sell = True  # 메가만 매출 둔화 시 carryover 해제
+                elif (rk is None or rk > 10) and not is_mega_tk:
+                    sell = True  # 일반 종목 rank 밀림 (메가는 carryover)
+                if sell:
                     if ret > 0:
                         wins += 1
                     else:
@@ -4974,8 +4996,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 1-2위 점수차 기반 dynamic (격차≥15 → 1위 100% / 격차<15 → 50/50)')
-    lines.append('매도: 10위 밖 or 실적하락 (🔒메가 시그니처는 홀드)')
+    lines.append('매수: 1·2위 점수차 dynamic')
+    lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
+    lines.append('매도: 10위 밖 or 실적하락')
+    lines.append('  🔒 메가(PEG<0.22)는 홀드')
+    lines.append('  (단 매출<25%면 매도)')
 
     return '\n'.join(lines)
 
@@ -5312,7 +5337,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
         lines.append(f'🔒 메가 홀드: {" ".join(parts)}')
-        lines.append('  (순위 밀려도 보유 권장 — 초저평가(PEG<0.22). EPS 꺾이거나 매출 둔화 시 매도)')
+        lines.append('  순위 밀려도 보유 권장')
+        lines.append('  (초저평가 PEG<0.22)')
+        lines.append('  EPS 꺾이거나 매출<25% 매도')
 
     # ── 순위 이탈 (사유별 묶어서 표시) — 메가홀드 종목은 제외 ──
     if exit_reasons:
@@ -5334,8 +5361,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 1-2위 점수차 기반 dynamic (격차≥15 → 1위 100% / 격차<15 → 50/50)')
-    lines.append('매도: 10위 밖 or 실적하락 (🔒메가 시그니처는 홀드)')
+    lines.append('매수: 1·2위 점수차 dynamic')
+    lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
+    lines.append('매도: 10위 밖 or 실적하락')
+    lines.append('  🔒 메가(PEG<0.22)는 홀드')
+    lines.append('  (단 매출<25%면 매도)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
     return '\n'.join(lines)
