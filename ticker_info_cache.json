@@ -5820,8 +5820,8 @@
     "industry": "석유미드스트림"
   },
   "MDB": {
-    "shortName": "MDB",
-    "industry": "기타"
+    "shortName": "MongoDB, Inc.",
+    "industry": "인프라SW"
   },
   "PAGP": {
     "shortName": "Plains GP Holdings, L.P.",
@@ -5852,8 +5852,8 @@
     "industry": "기타"
   },
   "BNY": {
-    "shortName": "BNY",
-    "industry": "기타"
+    "shortName": "The Bank of New York Mellon Cor",
+    "industry": "대형은행"
   },
   "PS": {
     "shortName": "PS",
@@ -5868,8 +5868,8 @@
     "industry": "기타"
   },
   "NTES": {
-    "shortName": "NTES",
-    "industry": "기타"
+    "shortName": "NetEase, Inc.",
+    "industry": "게임"
   },
   "QS": {
     "shortName": "QS",
@@ -5888,8 +5888,8 @@
     "industry": "기타"
   },
   "DSGX": {
-    "shortName": "DSGX",
-    "industry": "기타"
+    "shortName": "The Descartes Systems Group Inc",
+    "industry": "응용SW"
   },
   "ESTC": {
     "shortName": "Elastic N.V.",
@@ -5940,8 +5940,8 @@
     "industry": "기타"
   },
   "U": {
-    "shortName": "U",
-    "industry": "기타"
+    "shortName": "Unity Software Inc.",
+    "industry": "응용SW"
   },
   "WIT": {
     "shortName": "WIT",
@@ -5954,5 +5954,13 @@
   "ZETA": {
     "shortName": "ZETA",
     "industry": "기타"
+  },
+  "OPEN": {
+    "shortName": "OPEN",
+    "industry": "기타"
+  },
+  "YMM": {
+    "shortName": "Full Truck Alliance Co. Ltd.",
+    "industry": "응용SW"
   }
 }
