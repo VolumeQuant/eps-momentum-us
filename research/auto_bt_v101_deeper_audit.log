@@ -1,0 +1,66 @@
+====================================================================================================
+V101 — 더 깊은 맹점 검증 (6가지 새 각도)
+====================================================================================================
+
+[1] 메가 시그니처 활성도 추이 (PEG<0.22 종목 일별)
+date              메가 수종목                                      
+----------------------------------------------------------------------
+  2026-02-12        23    AMCR, APO, ASB, BG, CELH, CG, COF, COLB
+  2026-03-11        24    APO, ASB, AU, AUGO, B, BVN, CDE, ENIC
+  2026-04-08        19    AU, AUGO, B, BSAC, BVN, CDE, CELH, GFI
+  2026-05-05        50    AGNC, AMCR, APO, AUB, AUGO, BG, BHF, CELH
+  2026-06-01        43    AMCR, AUGO, BG, BGC, BMA, BVN, CELH, CHRD
+
+  평균 메가 수: 36.2일별
+  최대: 59, 최소: 11
+
+[2] 시드별 lift 분포 (paired 100×3)
+  V99-V86e+ lift 분포:
+  최소: -180.8p / 25%: -47.0p / 중앙: -15.4p / 75%: +3.6p / 최대: +44.3p
+  평균: -23.0p / 표준편차: 40.3p
+  V99 우월 시드: 28/100
+
+[3] MDD/Sharpe/Sortino 비교 (start=0 1회)
+  V86e+     : cum +396.9% MDD 28.6% Sharpe 5.07 Sortino 8.93
+  V99(0.7)  : cum +329.5% MDD 37.4% Sharpe 4.70 Sortino 9.35
+  V99(0.9)  : cum +329.5% MDD 37.4% Sharpe 4.70 Sortino 9.35
+
+[4] LOWO -MU-SNDK 시 매수 종목 비교 (start=0)
+  V86e+ -MU-SNDK 매수: 47회 / cum +116.7%
+    종목: ['AEIS', 'ASML', 'BE', 'CRDO', 'FIVE', 'FORM', 'KEYS', 'LITE', 'MOD', 'STX', 'TER', 'TSM', 'TTMI']
+  V99(0.9) -MU-SNDK 매수: 23회 / cum +134.1%
+    종목: ['ADI', 'CRDO', 'FHN', 'FIX', 'FUTU', 'LITE', 'MOD', 'SIMO', 'STX', 'TER', 'TSM', 'ZTO']
+
+[5] 후반 phase 매수 (start=50, end=75)
+  V86e+ start=50: 매수 4회 / cum +111.2%
+    종목: ['AEIS', 'KEYS', 'MU', 'SNDK']
+  V99(0.7) start=50: 매수 3회 / cum +76.3%
+    종목: ['MU', 'SNDK', 'VIRT']
+
+[6] Systematic bias 진단
+  a. look-ahead bias 검증
+    sim 매수가: today 종가 (실제 production = next-day open)
+    영향: 1일 lag, 보통 V86e+/V99 둘 다 동일 영향
+  b. selection bias 검증
+    universe: 1486 종목
+    cron 매일 fetch — survivorship bias 없음
+    단 dates 시작 (2026-02-06)은 이미 살아남은 종목 → mild bias 가능
+  c. data snooping bias 검증
+    PEG<0.22 cutoff = 데이터 보고 결정 (V90 grid search)
+    rev_exit 0.25 = 데이터 보고 결정
+    → 둘 다 75일 데이터 over-fit 위험. multistart로 일부 검증
+  d. paired BT 가정
+    같은 75일 데이터 → 시장 환경 변동 미반영
+    → multistart phase 결과 (전반/후반)로 일부 검증
+
+  e. MU/SNDK 가격 변화 timing (75일)
+    MU phase 1/4 (2026-02-12~2026-03-10): -2.6%
+    MU phase 2/4 (2026-03-11~2026-04-06): -9.8%
+    MU phase 3/4 (2026-04-07~2026-04-30): +37.0%
+    MU phase 4/4 (2026-05-01~2026-06-01): +91.0%
+    SNDK phase 1/4 (2026-02-12~2026-03-10): -1.8%
+    SNDK phase 2/4 (2026-03-11~2026-04-07): +8.4%
+    SNDK phase 3/4 (2026-04-08~2026-05-04): +60.8%
+    SNDK phase 4/4 (2026-05-05~2026-06-01): +25.3%
+
+총 소요 2초
