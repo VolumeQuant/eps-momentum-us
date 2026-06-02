@@ -3261,11 +3261,15 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     MAX_SLOTS = 2
     selected = []
 
-    # B2 (v86, 2026-06-02): 보유 중 메가 시그니처 종목 캐리오버 (hold_entries 정합).
-    # 어제 보유(portfolio_log) 종목이 메가 시그니처(NTM≥60% & PEG<0.2) 유지 + EPS 안 꺾임
-    # (min_seg≥-2)이면 순위 10위 밖이어도 selected에 먼저 넣어 슬롯 점유 → 신규는 남은 슬롯만.
-    # → portfolio_log(성능)·슬롯·이탈 전부 자동 정합. 매도조건 min_seg<-2(EPS꺾임)는 유지.
-    # BT 100×3: +81.5p, 100/100, Calmar 8.9→10.3, 부분기간(최근 포함) 모두 양수, LOWO 무해.
+    # v86e (2026-06-02): 보유 중 메가 시그니처 종목 캐리오버 (hold_entries 정합).
+    # 어제 보유(portfolio_log) 종목이 메가 시그니처(PEG<0.20) 유지 + EPS/매출 안 꺾임이면
+    # 순위 10위 밖이어도 selected에 먼저 넣어 슬롯 점유 → 신규는 남은 슬롯만.
+    # → portfolio_log(성능)·슬롯·이탈 전부 자동 정합.
+    # 매도 트리거 (둘 중 하나):
+    #   1. min_seg<-2 (EPS 꺾임) — v86 기존
+    #   2. rev_growth<0.25 (매출성장 둔화) — v86e 신규
+    # v86→v86e: NTM 조건 제거 + rev_growth exit 추가.
+    # BT 7 phase 100×3 paired: +92.5p, 100/100, LOWO -MU-SNDK +10.7p(91/100).
     mega_held = []
     try:
         prev_held = set(_get_prev_portfolio(today_str))
@@ -3285,11 +3289,16 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             if segs and min(segs) < -2:
                 log(f"  🔓 메가홀드 해제 {t}: min_seg<-2 (EPS 꺾임) → 매도")
                 continue
+            # v86e: rev_growth<25% 매도 트리거
+            rev_g = row.get('rev_growth')
+            if rev_g is not None and float(rev_g) < 0.25:
+                log(f"  🔓 메가홀드 해제 {t}: rev_growth<25% (매출 둔화) → 매도")
+                continue
             entry = _build_portfolio_entry(row, status_map, earnings_map)
             entry['_mega_hold'] = True
             selected.append(entry)
             mega_held.append(t)
-            log(f"  🔒 메가홀드 유지 {t}: 순위 밀려도 보유 (NTM≥60 & PEG<0.2, w_rank={p2r_map.get(t, '?')})")
+            log(f"  🔒 메가홀드 유지 {t}: 순위 밀려도 보유 (PEG<0.20, w_rank={p2r_map.get(t, '?')})")
 
     for _, row in candidates.iterrows():
         if len(selected) >= MAX_SLOTS:
@@ -3603,26 +3612,29 @@ def check_breakout_hold(ticker):
 
 
 def check_mega_hold(ticker):
-    """B2 메가 홀드 오버라이드 (v86, 2026-06-02)
+    """메가 홀드 오버라이드 (v86e, 2026-06-02)
 
-    조건 (모두 만족):
-      1. NTM EPS 추정치 상향 (ntm_current/ntm_90d - 1) ≥ 60%  (분석가 대규모 상향 = 슈퍼사이클/턴어라운드)
-      2. PEG = (price/ntm_current) / (rev_growth×100) < 0.2     (성장 대비 극단적 저평가)
+    조건 1개만:
+      PEG = (price/ntm_current) / (rev_growth×100) < 0.20  (성장 대비 극단적 저평가)
 
     Returns: True면 순위 10위 밖이어도 '홀드 권장' (매도 신호 보류)
 
-    근거: MU(NTM+139%/PEG0.06)·SNDK 같은 극저PEG+EPS폭발 종목이 가격 오르면
-      fwd_pe_chg(변화율) 식어 순위 밀려 회전매도 → 큰 상승 놓침 (사용자 "MU 많이 놓침").
-    BT(100×3 paired): +81.5p, 100/100 wins, Calmar 8.9→10.3, LOWO 무해(MU/SNDK 제외 시 0, 음수 아님).
-    트레일링 스탑은 휘프소로 edge 파괴 확인(-28p) → 가격스탑 없음. 매도조건 min_seg<-2(EPS꺾임)는 유지.
-    ⚠️ N=2 상승장 검증. 사이클 천장에서 멀티플 디레이팅 시 홀드가 하락 흡수 위험(min_seg가 유일 보호).
-    research: research/auto_bt_mega_hold.py, auto_bt_mega_hold_ts.py
+    v86→v86e: NTM≥60 조건 제거. BT 7 phase 검증 결과 NTM 조건이 LOWO 견고성을 깎음
+      (-MU-SNDK +12.8p → +0.0p). PEG가 단독 알파 소스로 충분.
+    매도 트리거 (select_display_top5에서 처리):
+      1. min_seg<-2 (EPS 꺾임)
+      2. rev_growth<0.25 (매출 성장 둔화) — v86e 신규
+    BT(100×3 paired): +92.5p, 100/100 wins, LOWO -MU-SNDK +10.7p (91/100).
+    plateau: PEG 0.18~0.25 × rev_exit 0.25~0.30 robust.
+    ⚠️ rev_exit 0.20 valley (-1.3p) — cutoff 정확히 0.25 권장.
+    ⚠️ 75일 단일 상승장 검증, N=2(MU/SNDK) 메가 반전 미검증.
+    research: research/auto_bt_mega_sweet_phase1~7_*.py
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT price, ntm_current, ntm_90d, rev_growth
+            SELECT price, ntm_current, rev_growth
             FROM ntm_screening WHERE ticker=?
             AND date=(SELECT MAX(date) FROM ntm_screening WHERE ticker=? AND ntm_current IS NOT NULL)
         ''', (ticker, ticker))
@@ -3630,31 +3642,30 @@ def check_mega_hold(ticker):
         conn.close()
         if not row:
             return False
-        price, nc, n90, rg = row
-        if not price or not nc or nc <= 0 or not n90 or n90 <= 0 or not rg or rg <= 0:
+        price, nc, rg = row
+        if not price or not nc or nc <= 0 or not rg or rg <= 0:
             return False
-        ntm_rev = (nc / n90 - 1) * 100
         peg = (price / nc) / (rg * 100)
-        return ntm_rev >= 60 and peg < 0.2
+        return peg < 0.20
     except Exception as e:
         log(f"check_mega_hold {ticker} 오류: {e}", "WARN")
         return False
 
 
 def get_mega_hold_tickers():
-    """B2 (v86): 현재 메가 시그니처(NTM≥60% AND PEG<0.2) 보유 종목 전부, 순위 무관.
+    """v86e (2026-06-02): 현재 메가 시그니처(PEG<0.20) 보유 종목 전부, 순위 무관.
 
     Returns: [(ticker, part2_rank or None), ...]  part2_rank 오름차순 정렬
 
+    v86→v86e: NTM≥60 조건 제거. PEG<0.20만으로 메가 판정.
     classify_exit_reasons는 '어제 Top20→오늘 이탈'만 잡아 1일짜리라, BT의 연속 홀드를
-    재현 못함(BT≠production). 이 함수로 순위 밖 메가(MU 순위밖/SNDK 26위 등)를 매일
-    지속 표시 → "순위 밀려도 계속 홀드" 신호 유지.
+    재현 못함(BT≠production). 이 함수로 순위 밖 메가를 매일 지속 표시.
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         # 최근 15 거래일 내 part2_rank ≤ 10 경험 종목 = "실제 매수/보유했을" 종목.
-        # 유니버스의 아무 저PEG+고상향 종목(에너지주 등 매수된 적 없는 것) 오탐 방지.
+        # 유니버스의 아무 저PEG 종목(에너지주 등 매수된 적 없는 것) 오탐 방지.
         recent_dates = [r[0] for r in cursor.execute(
             'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 15')]
         held_candidates = set()
@@ -3665,20 +3676,19 @@ def get_mega_hold_tickers():
                     recent_dates):
                 held_candidates.add(tk)
         cursor.execute('''
-            SELECT ticker, price, ntm_current, ntm_90d, rev_growth, part2_rank
+            SELECT ticker, price, ntm_current, rev_growth, part2_rank
             FROM ntm_screening
             WHERE date=(SELECT MAX(date) FROM ntm_screening WHERE composite_rank IS NOT NULL)
             AND ntm_current IS NOT NULL
         ''')
         out = []
-        for tk, price, nc, n90, rg, p2 in cursor.fetchall():
+        for tk, price, nc, rg, p2 in cursor.fetchall():
             if tk not in held_candidates:
                 continue
-            if not price or not nc or nc <= 0 or not n90 or n90 <= 0 or not rg or rg <= 0:
+            if not price or not nc or nc <= 0 or not rg or rg <= 0:
                 continue
-            ntm_rev = (nc / n90 - 1) * 100
             peg = (price / nc) / (rg * 100)
-            if ntm_rev >= 60 and peg < 0.2:
+            if peg < 0.20:
                 out.append((tk, p2))
         conn.close()
         return sorted(out, key=lambda x: x[1] if x[1] is not None else 999)
@@ -5292,7 +5302,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
         lines.append(f'🔒 메가 홀드: {" ".join(parts)}')
-        lines.append('  (순위 밀려도 보유 권장 — EPS 폭발 상향+초저평가. 실적 꺾이면 매도)')
+        lines.append('  (순위 밀려도 보유 권장 — 초저평가(PEG<0.20). EPS 꺾이거나 매출 둔화 시 매도)')
 
     # ── 순위 이탈 (사유별 묶어서 표시) — 메가홀드 종목은 제외 ──
     if exit_reasons:
