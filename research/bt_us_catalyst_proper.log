@@ -1,0 +1,55 @@
+====================================================================================================
+US 본질형 vs Catalyst형 paired BT (정량 정의: rev_growth ≥ 25%)
+Simulator: v84 entry_fixed sticky + dd_30_25 + 2step_t15
+Paired: 100 seeds × 3 samples
+====================================================================================================
+data: 75 dates (2026-02-12 ~ 2026-06-01)
+
+Universe 분류 (rev_growth ≥ 25% = 본질형):
+  본질형: 242 종목
+  Catalyst형: 992 종목
+
+--- Paired BT 결과 (100 × 3 = 300 runs) ---
+variant                            avg      med      mdd   sharpe     cal  vs baseline
+------------------------------------------------------------------------------------------
+ ★Baseline (둘 다)               +253.3%  +253.5%  +40.82%    1.62    6.21
+  본질형만                         +253.3%  +253.5%  +40.82%    1.62    6.21
+  Catalyst형만                    +15.2%   +19.1%  +12.00%    2.07    1.26
+
+--- Paired (vs baseline) ---
+  variant                      avg_lift   med_lift       min       max      wins  verdict
+  ------------------------------------------------------------------------------------------
+  본질형만                          +0.00%p    +0.00%p    +0.00%p    +0.00%p     0/100  ✗ 열세
+  Catalyst형만                  -238.16%p  -230.96%p  -415.07%p   -20.94%p     0/100  ✗ 열세
+
+--- 시스템 picks (rank ≤ 3 등장 종목) 분류 ---
+
+  본질형 (rev_growth ≥ 25%): 17 종목
+    SNDK    58회   rev_g 251%
+    MU      41회   rev_g 196%
+    STX     25회   rev_g 44%
+    LITE    16회   rev_g 90%
+    FORM    15회   rev_g 32%
+    TER     13회   rev_g 87%
+    AEIS    10회   rev_g 26%
+    MOD      5회   rev_g 30%
+    TTMI     5회   rev_g 30%
+    BE       5회   rev_g 130%
+    FIX      4회   rev_g 56%
+    KEYS     4회   rev_g 32%
+    VIRT     3회   rev_g 30%
+    SIMO     2회   rev_g 106%
+    NVDA     2회   rev_g 85%
+
+  Catalyst형 (rev_growth < 25%): 5 종목
+    FIVE     6회   rev_g 24%
+    ASML     3회   rev_g 13%
+    HGV      3회   rev_g 12%
+    LRCX     2회   rev_g 24%
+    WMG      1회   rev_g 17%
+
+--- Baseline의 trade-level 종합 (start_idx=0, 즉 full 74일) ---
+  type             trades    wins    win%      avg%      max%      min%
+  Fundamental          11       9     82%    +20.1%    +77.4%    -13.2%
+
+  Full BT (start_idx=0):  cum +302.9%, MDD 33.39%, 거래 11건
