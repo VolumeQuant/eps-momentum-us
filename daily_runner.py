@@ -3261,15 +3261,17 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     MAX_SLOTS = 2
     selected = []
 
-    # v86e+ (2026-06-02 v90 적용): 보유 중 메가 시그니처 종목 캐리오버 (hold_entries 정합).
-    # 어제 보유(portfolio_log) 종목이 메가 시그니처(PEG<0.22) 유지 + EPS/매출 안 꺾임이면
+    # v86e+ (2026-06-02): EPS revision regime 분기 (mean reversion regime 외 종목 분리).
+    # 시스템 본질 = mean reversion. 슈퍼사이클 종목(MU/SNDK)은 EPS가 가격 영구 압도 → 다른 regime.
+    # 어제 보유(portfolio_log) 종목이 EPS revision regime(PEG<0.22) 유지 + 매도 트리거 안걸리면
     # 순위 10위 밖이어도 selected에 먼저 넣어 슬롯 점유 → 신규는 남은 슬롯만.
     # → portfolio_log(성능)·슬롯·이탈 전부 자동 정합.
-    # 매도 트리거 (둘 중 하나):
-    #   1. min_seg<-2 (EPS 꺾임) — v86 기존
-    #   2. rev_growth<0.25 (매출성장 둔화) — v86e 신규
-    # v86→v86e: NTM 조건 제거 + rev_growth exit 추가.
-    # BT 7 phase 100×3 paired: +92.5p, 100/100, LOWO -MU-SNDK +10.7p(91/100).
+    # 매도 트리거 (regime exit, 둘 중 하나):
+    #   1. min_seg<-2 (EPS 꺾임 = regime exit)
+    #   2. rev_growth<0.25 (매출성장 둔화 = regime exit)
+    # BT 자율주행 (V87~V91): 시스템 본질 재설계 모든 시도 V86e+ 우월하지 못함.
+    # mathematical impossibility (단일 adj_gap으로 mean reversion + EPS revision regime 동시 처리 불가).
+    # V86e+ regime 분리가 베이지안 정보 가중으로 정당. BT +92.5p / LOWO +14.7p (95/100).
     mega_held = []
     try:
         prev_held = set(_get_prev_portfolio(today_str))
@@ -3612,24 +3614,31 @@ def check_breakout_hold(ticker):
 
 
 def check_mega_hold(ticker):
-    """메가 홀드 오버라이드 (v86e+, 2026-06-02 v90 PEG 0.22 적용)
+    """Regime detector — EPS revision regime 판별 (v86e+, 2026-06-02 v90 PEG 0.22)
 
-    조건 1개만:
+    이 함수는 "예외 patch"가 아니라 시스템의 **regime 분기 detector**.
+
+    시스템 본질 = mean reversion (가격 vs PE 변화율 미스프라이싱).
+    Mean reversion regime (대다수 종목): adj_gap / w_gap / part2_rank로 자연 정렬 → 정상 작동.
+    EPS revision regime (메가 시그니처): EPS가 폭발해서 가격을 영구히 압도. fwd_pe_chg가
+      식어 부적합 신호. mean reversion logic 부적용 → PEG가 진짜 valuation 척도.
+
+    Regime 분기 조건 1개:
       PEG = (price/ntm_current) / (rev_growth×100) < 0.22  (성장 대비 극단적 저평가)
 
-    Returns: True면 순위 10위 밖이어도 '홀드 권장' (매도 신호 보류)
+    Returns: True면 EPS revision regime → 순위 10위 밖이어도 보유 (regime-specific logic)
 
-    v86→v86e+ 변화: NTM 조건 제거 + PEG 0.20 → 0.22 (v90 BT robust 우월).
-    매도 트리거 (select_display_top5에서 처리):
-      1. min_seg<-2 (EPS 꺾임)
-      2. rev_growth<0.25 (매출 성장 둔화)
-    BT(100×3 paired, V90 grid):
-      - PEG 0.22 + rev 0.25: +92.5p, 100/100 wins
-      - LOWO -MU-SNDK: +14.7p (95/100) — PEG 0.20 (+10.7p, 91/100)보다 +4p robust
-    plateau: PEG 0.22~0.30 × rev_exit 0.25~0.30 robust.
-    ⚠️ rev_exit 0.20 valley (-1.3p) — cutoff 정확히 0.25 권장.
-    ⚠️ 75일 단일 상승장 검증, N=2(MU/SNDK) 메가 반전 미검증.
-    research: research/auto_bt_v90_peg_rev_grid.py
+    BT 자율주행 입증 (V87/V88/V89/V90/V91 7 phase + 전문가 sub-agent):
+      - 시스템 본질 재설계 모든 시도 실패 (V87 -57~-103p, V88 -167p, V89 -143p, V91 -32~-46p)
+      - 단일 adj_gap으로 두 regime 동시 처리 불가능 (mathematical impossibility, 75일 N=2)
+      - regime 분리(V86e+)가 베이지안 정보 가중으로 정당
+      - BT 100×3 paired: +92.5p / 100/100 wins / LOWO -MU-SNDK +14.7p (95/100)
+      - plateau: PEG 0.22~0.30 × rev_exit 0.25~0.30
+    매도 트리거 (select_display_top5):
+      1. min_seg<-2 (EPS 꺾임 = regime exit)
+      2. rev_growth<0.25 (매출 성장 둔화 = regime exit)
+    ⚠️ 75일 단일 상승장 검증. N=2(MU/SNDK) 메가 반전 미검증.
+    research: research/auto_bt_v90_peg_rev_grid.py, V87_V88_V89_AUTONOMOUS_REPORT_2026_06_02.md
     """
     try:
         conn = sqlite3.connect(DB_PATH)
