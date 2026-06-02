@@ -3260,10 +3260,43 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     #   part2_rank = 순수 w_gap 순위. (candidates 정렬에 boost 없음)
     MAX_SLOTS = 2
     selected = []
+
+    # B2 (v86, 2026-06-02): 보유 중 메가 시그니처 종목 캐리오버 (hold_entries 정합).
+    # 어제 보유(portfolio_log) 종목이 메가 시그니처(NTM≥60% & PEG<0.2) 유지 + EPS 안 꺾임
+    # (min_seg≥-2)이면 순위 10위 밖이어도 selected에 먼저 넣어 슬롯 점유 → 신규는 남은 슬롯만.
+    # → portfolio_log(성능)·슬롯·이탈 전부 자동 정합. 매도조건 min_seg<-2(EPS꺾임)는 유지.
+    # BT 100×3: +81.5p, 100/100, Calmar 8.9→10.3, 부분기간(최근 포함) 모두 양수, LOWO 무해.
+    mega_held = []
+    try:
+        prev_held = set(_get_prev_portfolio(today_str))
+    except Exception:
+        prev_held = set()
+    if prev_held:
+        cand_by_tk = {row['ticker']: row for _, row in candidates.iterrows()}
+        for t in prev_held:
+            if len(selected) >= MAX_SLOTS:
+                break
+            row = cand_by_tk.get(t)
+            if row is None:
+                continue  # eligible 탈락(MA120/업종제외 등) → 자연 매도
+            if not check_mega_hold(t):
+                continue
+            segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+            if segs and min(segs) < -2:
+                log(f"  🔓 메가홀드 해제 {t}: min_seg<-2 (EPS 꺾임) → 매도")
+                continue
+            entry = _build_portfolio_entry(row, status_map, earnings_map)
+            entry['_mega_hold'] = True
+            selected.append(entry)
+            mega_held.append(t)
+            log(f"  🔒 메가홀드 유지 {t}: 순위 밀려도 보유 (NTM≥60 & PEG<0.2, w_rank={p2r_map.get(t, '?')})")
+
     for _, row in candidates.iterrows():
         if len(selected) >= MAX_SLOTS:
             break
         t = row['ticker']
+        if t in mega_held:
+            continue  # 이미 메가홀드로 슬롯 점유
 
         # v71: 3일 검증(✅) 필수 — 🆕/⏳ 종목은 Signal에서 제외
         status = status_map.get(t, '🆕')
@@ -3305,6 +3338,14 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     n = len(selected)
     if n == 1:
         selected[0]['weight'] = 100
+    elif n >= 2 and mega_held:
+        # B2 (v86): 메가홀드 포함 시 50/50 균등 — 메가는 순위 밀려 score_100 낮으므로
+        # 2step gap 로직 적용 시 메가가 0%로 밀려 홀드 무효화됨. 균등으로 메가 비중 보존.
+        selected[0]['weight'] = 50
+        selected[1]['weight'] = 50
+        for i in range(2, n):
+            selected[i]['weight'] = 0
+        log(f"v86 메가홀드 포함 → 50/50 균등 (메가 비중 보존)")
     elif n >= 2:
         # 1-2위 score gap 계산 (1위 = 100점 기준 환산)
         s1_score = float(score_100_map.get(selected[0]['ticker'], 0)) if score_100_map else 0
