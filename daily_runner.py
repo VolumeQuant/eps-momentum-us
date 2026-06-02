@@ -3600,6 +3600,52 @@ def check_mega_hold(ticker):
         return False
 
 
+def get_mega_hold_tickers():
+    """B2 (v86): 현재 메가 시그니처(NTM≥60% AND PEG<0.2) 보유 종목 전부, 순위 무관.
+
+    Returns: [(ticker, part2_rank or None), ...]  part2_rank 오름차순 정렬
+
+    classify_exit_reasons는 '어제 Top20→오늘 이탈'만 잡아 1일짜리라, BT의 연속 홀드를
+    재현 못함(BT≠production). 이 함수로 순위 밖 메가(MU 순위밖/SNDK 26위 등)를 매일
+    지속 표시 → "순위 밀려도 계속 홀드" 신호 유지.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        # 최근 15 거래일 내 part2_rank ≤ 10 경험 종목 = "실제 매수/보유했을" 종목.
+        # 유니버스의 아무 저PEG+고상향 종목(에너지주 등 매수된 적 없는 것) 오탐 방지.
+        recent_dates = [r[0] for r in cursor.execute(
+            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 15')]
+        held_candidates = set()
+        if recent_dates:
+            ph = ','.join('?' * len(recent_dates))
+            for (tk,) in cursor.execute(
+                f'SELECT DISTINCT ticker FROM ntm_screening WHERE date IN ({ph}) AND part2_rank IS NOT NULL AND part2_rank <= 10',
+                    recent_dates):
+                held_candidates.add(tk)
+        cursor.execute('''
+            SELECT ticker, price, ntm_current, ntm_90d, rev_growth, part2_rank
+            FROM ntm_screening
+            WHERE date=(SELECT MAX(date) FROM ntm_screening WHERE composite_rank IS NOT NULL)
+            AND ntm_current IS NOT NULL
+        ''')
+        out = []
+        for tk, price, nc, n90, rg, p2 in cursor.fetchall():
+            if tk not in held_candidates:
+                continue
+            if not price or not nc or nc <= 0 or not n90 or n90 <= 0 or not rg or rg <= 0:
+                continue
+            ntm_rev = (nc / n90 - 1) * 100
+            peg = (price / nc) / (rg * 100)
+            if ntm_rev >= 60 and peg < 0.2:
+                out.append((tk, p2))
+        conn.close()
+        return sorted(out, key=lambda x: x[1] if x[1] is not None else 999)
+    except Exception as e:
+        log(f"get_mega_hold_tickers 오류: {e}", "WARN")
+        return []
+
+
 # ============================================================
 # 이탈 사유 분류 + AI 분석
 # ============================================================
@@ -5193,21 +5239,28 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             lines.append('- - - - -')
 
     # ── EPS 추세 둔화 (메인 리스트에서 제외된 종목) ──
-    # ── 순위 이탈 (사유별 묶어서 표시) + 🔒 메가홀드 분리 (B2 v86) ──
+    # ── 🔒 메가 홀드 (B2 v86): 순위 무관 지속 표시 — rank>10/순위밖 메가만 (홀드 의미있는 구간) ──
+    mega_hold_list = get_mega_hold_tickers()  # [(tk, p2)]
+    mega_set = set(tk for tk, _ in mega_hold_list)
+    mega_show = [(tk, p2) for tk, p2 in mega_hold_list if p2 is None or p2 > 10]
+    if mega_show:
+        parts = []
+        for tk, p2 in mega_show:
+            rk = f'{p2}위' if p2 else '순위밖'
+            parts.append(f'{tk}({rk})')
+        lines.append('')
+        lines.append('━━━━━━━━━━━━━━━')
+        lines.append(f'🔒 메가 홀드: {" ".join(parts)}')
+        lines.append('  (순위 밀려도 보유 권장 — EPS 폭발 상향+초저평가. 실적 꺾이면 매도)')
+
+    # ── 순위 이탈 (사유별 묶어서 표시) — 메가홀드 종목은 제외 ──
     if exit_reasons:
         from collections import defaultdict
         reason_groups = defaultdict(list)
-        mega_holds = []
         for t, _, reason in exit_reasons:
-            if reason == '메가홀드':
-                mega_holds.append(t)
-            else:
-                reason_groups[reason or '순위밀림'].append(t)
-        if mega_holds:
-            lines.append('')
-            lines.append('━━━━━━━━━━━━━━━')
-            lines.append(f'🔒 메가 홀드: {"·".join(mega_holds)}')
-            lines.append('  (순위 밀려도 보유 권장 — EPS 폭발 상향+초저평가. 실적 꺾이면 매도)')
+            if reason == '메가홀드' or t in mega_set:
+                continue
+            reason_groups[reason or '순위밀림'].append(t)
         if reason_groups:
             parts = []
             for reason, tickers in reason_groups.items():
