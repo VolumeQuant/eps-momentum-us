@@ -3458,132 +3458,138 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             mega_held.append(t)
             log(f"  🔒 메가홀드 유지 {t}: 순위 밀려도 보유 (PEG<0.22, w_rank={p2r_map.get(t, '?')})")
 
+    # v110 (2026-06-03): "각 분야 1등 사는" 시스템
+    #   슬롯 1: part2_rank Top 1 (mean reversion 신호 1위)
+    #   슬롯 2: mega_score Top 1 메가 (PEG<0.25 + 매출≥25%) — 별도 entry 기준
+    #   메가 없을 때: 슬롯 1 단독 100% (BT V110a: +198% > V110b +132%)
+    #   메가 carryover (mega_held)는 이미 위에서 슬롯 차지
+    def _entry_pass(row, t):
+        """진입 필터 — V110/V113 공통 (v71/v58/하향/저커버리지)"""
+        status = status_map.get(t, '🆕')
+        if status != '✅':
+            log(f"  ⏳ 제외 {t}: 검증 미완료 ({status})")
+            return False
+        segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+        if round(min(segs) if segs else 0, 1) < 0:
+            log(f"  ⛔ 제외 {t}: min_seg<0")
+            return False
+        rev_up = int(row.get('rev_up30', 0) or 0)
+        rev_down = int(row.get('rev_down30', 0) or 0)
+        num_analysts = int(row.get('num_analysts', 0) or 0)
+        total_rev = rev_up + rev_down
+        if total_rev > 0 and rev_down / total_rev > 0.3:
+            log(f"  ⛔ 제외 {t}: 하향과반")
+            return False
+        if rev_down >= rev_up and rev_down >= 2:
+            log(f"  ⛔ 제외 {t}: 하향우세")
+            return False
+        if num_analysts < 3:
+            log(f"  ⛔ 제외 {t}: 저커버리지")
+            return False
+        return True
+
+    # 슬롯 1: part2_rank Top 1 (mean reversion)
+    slot1_filled = False
     for _, row in candidates.iterrows():
         if len(selected) >= MAX_SLOTS:
             break
         t = row['ticker']
         if t in mega_held:
-            continue  # 이미 메가홀드로 슬롯 점유
-
-        # v71: 3일 검증(✅) 필수 — 🆕/⏳ 종목은 Signal에서 제외
-        status = status_map.get(t, '🆕')
-        if status != '✅':
-            log(f"  ⏳ 디스플레이 제외 {t}: 검증 미완료 ({status})")
             continue
-
-        # v58 진입 조건: min_seg ≥ 0% (소수점 1자리 반올림 기준)
-        segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
-        min_seg = min(segs) if segs else 0
-        if round(min_seg, 1) < 0:
-            log(f"  ⛔ 디스플레이 제외 {t}: min_seg={min_seg:.1f}% (< 0%) → 다음 ✅ 후보 검사")
+        if not _entry_pass(row, t):
             continue
+        entry = _build_portfolio_entry(row, status_map, earnings_map)
+        entry['_entry_type'] = 'mean_reversion'
+        selected.append(entry)
+        slot1_filled = True
+        log(f"  ✅ 슬롯 1 (mean reversion) {t}: part2 1위 진입")
+        break  # 슬롯 1 1개만
 
-        rev_up = int(row.get('rev_up30', 0) or 0)
-        rev_down = int(row.get('rev_down30', 0) or 0)
-        num_analysts = int(row.get('num_analysts', 0) or 0)
-        flags = []
-        total_rev = rev_up + rev_down
-        if total_rev > 0 and rev_down / total_rev > 0.3:
-            flags.append("하향과반")
-        elif rev_down >= rev_up and rev_down >= 2:
-            flags.append("하향우세")
-        if num_analysts < 3:
-            flags.append("저커버리지")
-
-        if flags:
-            log(f"  ⛔ 디스플레이 제외 {t}: {','.join(flags)} → 다음 ✅ 후보 검사")
-        else:
+    # 슬롯 2: mega_score Top 1 (메가 시그니처 PEG<0.25 + 매출≥25%)
+    if len(selected) < MAX_SLOTS:
+        mega_picks = []
+        for _, row in candidates.iterrows():
+            t = row['ticker']
+            if t in mega_held or any(s['ticker'] == t for s in selected):
+                continue
+            score = calc_mega_score(row.to_dict() if hasattr(row, 'to_dict') else dict(row))
+            if score is None:
+                continue
+            if not _entry_pass(row, t):
+                continue
+            mega_picks.append((score, t, row))
+        mega_picks.sort(key=lambda x: -x[0])
+        if mega_picks:
+            score, t, row = mega_picks[0]
             entry = _build_portfolio_entry(row, status_map, earnings_map)
+            entry['_entry_type'] = 'mega'
             selected.append(entry)
+            log(f"  ✅ 슬롯 2 (메가) {t}: mega_score={score:.1f} 진입")
+        else:
+            log(f"  ℹ️  슬롯 2: 메가 시그니처 부재 → 슬롯 1 단독 (V110a 100%)")
 
-    # v84 (2026-05-30): 2step_t15 dynamic weight
-    #   score_100 1-2위 격차 ≥ 15 → 1위 100%, 2위 0% (slot 2 skip)
-    #   score_100 1-2위 격차 < 15 → 1위 50%, 2위 50% (분산)
-    # BT 검증 (entry_fixed, 100×3 paired, 양 환경):
-    #   incl +1.80%p (79/100), excl +3.49%p (63/100), 평균 +2.65%p
-    # dd_30_25 진입필터와 결합 시: incl +5.63%p (98/100), excl +17.27%p (99/100), 평균 +11.45%p
+    # v110 (2026-06-03): 50/50 고정 (각 분야 1등 entry, score 격차 무관 메가 비중 보존)
+    #   슬롯 1 (part2) + 슬롯 2 (mega) 둘 다 차면 → 50/50
+    #   슬롯 1만 (메가 부재) → 100%
+    # BT calmar: V110a 9.09 (전체) — 단일 신호 1종목 100%가 절대 수익 + calmar 둘 다 best
     n = len(selected)
     if n == 1:
         selected[0]['weight'] = 100
-    elif n >= 2 and mega_held:
-        # B2 (v86): 메가홀드 포함 시 50/50 균등 — 메가는 순위 밀려 score_100 낮으므로
-        # 2step gap 로직 적용 시 메가가 0%로 밀려 홀드 무효화됨. 균등으로 메가 비중 보존.
+        log(f"v110 비중: 1종목 단독 100% ({selected[0]['ticker']}, 메가 부재 또는 slot1 only)")
+    elif n >= 2:
         selected[0]['weight'] = 50
         selected[1]['weight'] = 50
         for i in range(2, n):
             selected[i]['weight'] = 0
-        log(f"v86 메가홀드 포함 → 50/50 균등 (메가 비중 보존)")
-    elif n >= 2:
-        # 1-2위 score gap 계산 (1위 = 100점 기준 환산)
-        s1_score = float(score_100_map.get(selected[0]['ticker'], 0)) if score_100_map else 0
-        s2_score = float(score_100_map.get(selected[1]['ticker'], 0)) if score_100_map else 0
-        if s1_score > 0:
-            gap = (s1_score - s2_score) / s1_score * 100  # = (1위-2위) / 1위 × 100
-        else:
-            gap = 0  # fallback
-        if gap >= 15:
-            # 1위 압도 → 100% 집중
-            selected[0]['weight'] = 100
-            selected[1]['weight'] = 0
-            log(f"v84 dynamic weight: gap={gap:.2f} (≥15) → 1위 100%, 2위 skip")
-        else:
-            # 1-2위 동등 → 50/50 분산
-            selected[0]['weight'] = 50
-            selected[1]['weight'] = 50
-            log(f"v84 dynamic weight: gap={gap:.2f} (<15) → 50/50 분산")
-        # 3위 이하는 0
-        for i in range(2, n):
-            selected[i]['weight'] = 0
+        log(f"v110 비중: 50/50 (slot1 part2={selected[0]['ticker']}, slot2 mega={selected[1]['ticker']})")
 
     log(f"디스플레이 {n}종목: " + ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
-    # v87 (2026-06-03): 신규 진입자용 별도 list — 메가 carryover 무시한 매수후보 Top 2.
-    # selected (시뮬용 carryover + 신규)와 신규 진입자가 봐야 할 매수후보가 다름.
-    # 신규는 보유 X → 메가 carryover X → part2_rank Top 2 (메가 제외, entry filter 적용) 매수.
+    # v110 (2026-06-03): 신규 진입자용 매수후보 — "각 분야 1등" 동일 logic
+    #   slot 1: part2_rank Top 1 (mean reversion)
+    #   slot 2: mega_score Top 1 (메가 시그니처 PEG<0.25 + 매출≥25%)
+    #   비중: 둘 다 → 50/50 / 메가 부재 → slot 1 단독 100%
+    # 신규 진입자도 메가 entry 잡음 (V110 핵심: SNDK/UMBF 같은 메가 신규 매수 가능)
     new_buy_top2 = []
+    # slot 1: part2 Top 1
     for _, row in candidates.iterrows():
-        if len(new_buy_top2) >= 2:
+        if len(new_buy_top2) >= 1:
             break
         t = row['ticker']
-        # 메가 종목 제외
-        if check_mega_hold(t):
+        if not _entry_pass(row, t):
             continue
-        # v71: 3일 검증 ✅
-        if status_map.get(t, '🆕') != '✅':
-            continue
-        # min_seg ≥ 0
-        segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
-        if round(min(segs) if segs else 0, 1) < 0:
-            continue
-        # 하향/저커버리지 필터
-        rev_up = int(row.get('rev_up30', 0) or 0)
-        rev_down = int(row.get('rev_down30', 0) or 0)
-        num_analysts = int(row.get('num_analysts', 0) or 0)
-        total_rev = rev_up + rev_down
-        if total_rev > 0 and rev_down / total_rev > 0.3:
-            continue
-        if rev_down >= rev_up and rev_down >= 2:
-            continue
-        if num_analysts < 3:
-            continue
-        new_buy_top2.append(_build_portfolio_entry(row, status_map, earnings_map))
+        entry = _build_portfolio_entry(row, status_map, earnings_map)
+        entry['_entry_type'] = 'mean_reversion'
+        new_buy_top2.append(entry)
+        break
+    # slot 2: mega_score Top 1
+    if len(new_buy_top2) < 2:
+        mega_picks = []
+        for _, row in candidates.iterrows():
+            t = row['ticker']
+            if any(s['ticker'] == t for s in new_buy_top2):
+                continue
+            score = calc_mega_score(row.to_dict() if hasattr(row, 'to_dict') else dict(row))
+            if score is None:
+                continue
+            if not _entry_pass(row, t):
+                continue
+            mega_picks.append((score, t, row))
+        mega_picks.sort(key=lambda x: -x[0])
+        if mega_picks:
+            score, t, row = mega_picks[0]
+            entry = _build_portfolio_entry(row, status_map, earnings_map)
+            entry['_entry_type'] = 'mega'
+            new_buy_top2.append(entry)
 
-    # 신규 매수후보 비중 — dynamic weight (selected와 동일 룰)
+    # 비중 (selected와 동일 logic)
     nb_n = len(new_buy_top2)
     if nb_n == 1:
         new_buy_top2[0]['weight'] = 100
     elif nb_n >= 2:
-        s1 = float(score_100_map.get(new_buy_top2[0]['ticker'], 0)) if score_100_map else 0
-        s2 = float(score_100_map.get(new_buy_top2[1]['ticker'], 0)) if score_100_map else 0
-        gap = (s1 - s2) / s1 * 100 if s1 > 0 else 0
-        if gap >= 15:
-            new_buy_top2[0]['weight'] = 100
-            new_buy_top2[1]['weight'] = 0
-        else:
-            new_buy_top2[0]['weight'] = 50
-            new_buy_top2[1]['weight'] = 50
+        new_buy_top2[0]['weight'] = 50
+        new_buy_top2[1]['weight'] = 50
 
-    # 반환: (시뮬용 selected, 신규 진입자용 매수후보)
     return selected, new_buy_top2
 
 
@@ -3902,10 +3908,35 @@ def check_mega_hold(ticker):
         if not price or not nc or nc <= 0 or not rg or rg <= 0:
             return False
         peg = (price / nc) / (rg * 100)
-        return peg < 0.22
+        # v110 (2026-06-03): PEG 0.22 → 0.25 + rev_growth ≥ 25% 추가 (메가 정의 명확화)
+        # BT V110 best plateau: PEG 0.22~0.30 robust. 0.25 = sample 확보.
+        return peg < 0.25 and rg >= 0.25
     except Exception as e:
         log(f"check_mega_hold {ticker} 오류: {e}", "WARN")
         return False
+
+
+def calc_mega_score(row_dict):
+    """V110 메가 score: NTM_상향(%) + 매출성장(%) + 50 × PEG_inv
+
+    Returns: score or None (메가 시그니처 불충족 시)
+    """
+    try:
+        p = row_dict.get('price') or 0
+        nc = row_dict.get('ntm_current') or 0
+        n90 = row_dict.get('ntm_90d') or 0
+        rg = row_dict.get('rev_growth') or 0
+        if p <= 0 or nc <= 0 or rg <= 0 or n90 <= 0:
+            return None
+        peg = (p / nc) / (rg * 100)
+        if peg >= 0.25 or rg < 0.25:
+            return None  # 메가 시그니처 불충족
+        ntm_rev = (nc / n90 - 1) * 100
+        rg_pct = rg * 100
+        peg_inv = 1 / peg
+        return ntm_rev + rg_pct + 50 * peg_inv
+    except Exception:
+        return None
 
 
 def get_mega_hold_tickers(today_str=None):
