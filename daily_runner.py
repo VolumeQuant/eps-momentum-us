@@ -568,6 +568,20 @@ def run_ntm_collection(config):
     except Exception:
         pass
 
+    # v113 (2026-06-03): 시스템 보유 종목(메가 carryover)도 우선 재시도 대상에 추가.
+    # MU 5/28 사고 — 5/27 cr=67로 Top 30 밖 → _prev_top30 미포함 → fetch 실패 시 우선 재시도 X
+    # → MU MISSING → daily_runner.py:3404 자연 매도 발동.
+    # _replay_holdings로 실 보유 종목 fetch + _prev_top30 union.
+    try:
+        _held_tickers = set(_replay_holdings(today_str))
+        if _held_tickers:
+            _new_holders = _held_tickers - _prev_top30
+            if _new_holders:
+                log(f"우선 재시도 대상 +{len(_new_holders)}종목 (시스템 보유 메가): {','.join(sorted(_new_holders))}")
+            _prev_top30 = _prev_top30 | _held_tickers
+    except Exception as _e:
+        log(f"_replay_holdings 우선 재시도 union 실패: {_e}", "WARN")
+
     def _prefetch_eps(ticker):
         """워커: NTM EPS + 애널리스트 수집 (HTTP 1회 — eps_trend만)
         .info는 fetch_revenue_growth()에서 별도 수집하므로 여기서 생략.
