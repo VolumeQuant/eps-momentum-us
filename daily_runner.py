@@ -3792,24 +3792,31 @@ def get_mega_hold_tickers(today_str=None):
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # v86e++ (2026-06-03): carryover와 동일 — forward replay 실제 보유집합 사용
-        # (recency proxy는 메가 과잉보유 → 성능 replay와 불일치했음). 표시=실제보유 일치.
-        held_candidates = _replay_holdings(None)  # 최신일 through = 오늘 보유
+        # v86e++ (2026-06-03 정정): 현재 가치 기준 (PEG<0.22 + 성장≥25% + EPS안꺾임 + 최근상위권).
+        # 보유이력(replay) 기준은 데이터갭으로 보유 끊긴 MU를 부당 누락 → SNDK와 차별(모순).
+        # 같은 메가는 같게 — 보유이력 무관, 현재 핵심성장주면 전부 표시. (에너지 junk는 recency로 제외)
+        held_candidates = _recent_held_tickers(today_str)
         cursor.execute('''
-            SELECT ticker, price, ntm_current, rev_growth, part2_rank
+            SELECT ticker, price, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, rev_growth, part2_rank
             FROM ntm_screening
             WHERE date=(SELECT MAX(date) FROM ntm_screening WHERE composite_rank IS NOT NULL)
             AND ntm_current IS NOT NULL
         ''')
         out = []
-        for tk, price, nc, rg, p2 in cursor.fetchall():
+        for tk, price, nc, n7, n30, n60, n90, rg, p2 in cursor.fetchall():
             if tk not in held_candidates:
                 continue
             if not price or not nc or nc <= 0 or not rg or rg <= 0:
                 continue
             peg = (price / nc) / (rg * 100)
-            if peg < 0.22:
-                out.append((tk, p2))
+            if peg >= 0.22 or rg < 0.25:
+                continue
+            segs = []
+            for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
+                segs.append((a - b) / abs(b) * 100 if b and abs(b) > 0.01 else 0)
+            if segs and min(segs) < -2:
+                continue
+            out.append((tk, p2))
         conn.close()
         return sorted(out, key=lambda x: x[1] if x[1] is not None else 999)
     except Exception as e:
