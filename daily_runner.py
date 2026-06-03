@@ -3168,6 +3168,95 @@ def _get_prev_portfolio(today_str=None):
         return []
 
 
+def _recent_held_tickers(today_str=None, lookback=15, rank_thresh=10):
+    """무상태 보유 추정 — 최근 lookback 거래일 내 part2_rank ≤ rank_thresh 경험 종목.
+
+    v86e++ (2026-06-03): portfolio_log(log_portfolio_trades 미호출로 2026-03-05 동결)
+    의존 제거. 데이터에서 직접 재구성 → freeze 불가능(무상태). carryover + watchlist
+    공용 단일 소스 → 두 메가 메커니즘 영원히 일치. date <= today_str 로 PIT 안전.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        if today_str:
+            rds = [r[0] for r in cur.execute(
+                'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT ?',
+                (today_str, lookback))]
+        else:
+            rds = [r[0] for r in cur.execute(
+                'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT ?',
+                (lookback,))]
+        out = set()
+        if rds:
+            ph = ','.join('?' * len(rds))
+            for (tk,) in cur.execute(
+                f'SELECT DISTINCT ticker FROM ntm_screening WHERE date IN ({ph}) AND part2_rank IS NOT NULL AND part2_rank <= ?',
+                    rds + [rank_thresh]):
+                out.add(tk)
+        conn.close()
+        return out
+    except Exception as e:
+        log(f"_recent_held_tickers 오류: {e}", "WARN")
+        return set()
+
+
+def _replay_holdings(before_date=None):
+    """forward replay로 '오늘 직전까지 실제 보유 종목' 재구성 (무상태, BT==production).
+
+    v86e++ (2026-06-03): recency proxy(part2 Top10 경험)는 실제 안 들고 있던 메가까지
+    과잉보유(UMBF 등) → 성능 replay({KEYS,SNDK})와 불일치. 이 함수는 _get_system_performance
+    와 동일 규칙으로 처음부터 replay → before_date 직전 거래일까지의 실제 보유집합 반환.
+    규칙: 진입 part2_rank≤2 (빈 슬롯), 이탈 min_seg<-2 OR (메가&rev_growth<0.25) OR
+          (rank>10 & not 메가). 메가=PEG<0.22. MAX 2슬롯.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        if before_date:
+            dts = [r[0] for r in cur.execute(
+                'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date < ? ORDER BY date',
+                (before_date,))]
+        else:
+            dts = [r[0] for r in cur.execute(
+                'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date')]
+        port = set()
+        for d in dts:
+            rows = cur.execute(
+                'SELECT ticker,part2_rank,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,rev_growth FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
+                (d,)).fetchall()
+            info = {}
+            for tk, p2, price, nc, n7, n30, n60, n90, rg in rows:
+                segs = []
+                for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
+                    segs.append((a - b) / abs(b) * 100 if b and abs(b) > 0.01 else 0)
+                peg = (price / nc) / (rg * 100) if (price and nc and nc > 0 and rg and rg > 0) else None
+                info[tk] = dict(p2=p2, peg=peg, minseg=min(segs) if segs else 0, rg=rg)
+            # 이탈
+            for tk in list(port):
+                it = info.get(tk)
+                if it is None:
+                    port.discard(tk); continue
+                mega = it['peg'] is not None and it['peg'] < 0.22
+                if it['minseg'] < -2:
+                    port.discard(tk); continue
+                if mega and it['rg'] is not None and it['rg'] < 0.25:
+                    port.discard(tk); continue
+                if (not mega) and it['p2'] > 10:
+                    port.discard(tk); continue
+            # 진입 (빈 슬롯, rank≤2)
+            if len(port) < 2:
+                for tk, p2 in sorted([(tk, it['p2']) for tk, it in info.items()
+                                      if tk not in port and it['p2'] <= 2], key=lambda x: x[1]):
+                    if len(port) >= 2:
+                        break
+                    port.add(tk)
+        conn.close()
+        return port
+    except Exception as e:
+        log(f"_replay_holdings 오류: {e}", "WARN")
+        return set()
+
+
 def _build_portfolio_entry(row, status_map, earnings_map):
     """포트폴리오 종목 entry dict 생성"""
     t = row.get('ticker', '')
@@ -3273,13 +3362,20 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     # mathematical impossibility (단일 adj_gap으로 mean reversion + EPS revision regime 동시 처리 불가).
     # V86e+ regime 분리가 베이지안 정보 가중으로 정당. BT +92.5p / LOWO +14.7p (95/100).
     mega_held = []
-    try:
-        prev_held = set(_get_prev_portfolio(today_str))
-    except Exception:
-        prev_held = set()
+    # v86e++ (2026-06-03): 동결된 portfolio_log 대신 forward replay로 실제 보유 재구성.
+    # 동결 장부(_get_prev_portfolio: 3개월 stale) → recency proxy(메가 과잉보유) → replay 순으로
+    # 정정. _replay_holdings는 성능sim과 동일 규칙으로 '어제까지 실제 보유'를 무상태 재구성
+    # → carryover가 성능 replay와 동일 보유집합 사용 = BT==production 보장.
+    prev_held = _replay_holdings(today_str)
     if prev_held:
         cand_by_tk = {row['ticker']: row for _, row in candidates.iterrows()}
-        for t in prev_held:
+        # v86e++ (2026-06-03): 결정적 순서 — 현재 part2_rank 오름차순(best rank 우선).
+        # set 순회는 비결정적 → 메가 >슬롯 시 어느 것이 홀드될지 불확정. rank 우선으로 고정.
+        def _cur_rank(t):
+            r = cand_by_tk.get(t)
+            v = r.get('part2_rank') if r is not None else None
+            return v if v is not None else 9999
+        for t in sorted(prev_held, key=_cur_rank):
             if len(selected) >= MAX_SLOTS:
                 break
             row = cand_by_tk.get(t)
@@ -3662,29 +3758,20 @@ def check_mega_hold(ticker):
         return False
 
 
-def get_mega_hold_tickers():
+def get_mega_hold_tickers(today_str=None):
     """v86e+ (2026-06-02 v90): 현재 메가 시그니처(PEG<0.22) 보유 종목 전부, 순위 무관.
 
     Returns: [(ticker, part2_rank or None), ...]  part2_rank 오름차순 정렬
 
     v86→v86e+ 변화: NTM 조건 제거 + PEG 0.20 → 0.22 (v90 BT LOWO +4p robust 우월).
-    classify_exit_reasons는 '어제 Top20→오늘 이탈'만 잡아 1일짜리라, BT의 연속 홀드를
-    재현 못함(BT≠production). 이 함수로 순위 밖 메가를 매일 지속 표시.
+    v86e++ (2026-06-03): 보유추정을 _recent_held_tickers 공용 헬퍼로 → carryover와 단일 소스.
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # 최근 15 거래일 내 part2_rank ≤ 10 경험 종목 = "실제 매수/보유했을" 종목.
-        # 유니버스의 아무 저PEG 종목(에너지주 등 매수된 적 없는 것) 오탐 방지.
-        recent_dates = [r[0] for r in cursor.execute(
-            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 15')]
-        held_candidates = set()
-        if recent_dates:
-            ph = ','.join('?' * len(recent_dates))
-            for (tk,) in cursor.execute(
-                f'SELECT DISTINCT ticker FROM ntm_screening WHERE date IN ({ph}) AND part2_rank IS NOT NULL AND part2_rank <= 10',
-                    recent_dates):
-                held_candidates.add(tk)
+        # v86e++ (2026-06-03): carryover와 동일 — forward replay 실제 보유집합 사용
+        # (recency proxy는 메가 과잉보유 → 성능 replay와 불일치했음). 표시=실제보유 일치.
+        held_candidates = _replay_holdings(None)  # 최신일 through = 오늘 보유
         cursor.execute('''
             SELECT ticker, price, ntm_current, rev_growth, part2_rank
             FROM ntm_screening
@@ -4709,6 +4796,7 @@ def _get_system_performance():
             'end_date': all_dates[-1],
             'wins': wins,
             'losses': losses,
+            'holdings': sorted(portfolio.keys()),  # v86e++ 검증용: 최종 보유집합 노출
         }
     except Exception as e:
         log(f"시스템 성과 계산 실패: {e}", level="WARN")
