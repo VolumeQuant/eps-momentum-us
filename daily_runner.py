@@ -5125,7 +5125,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append('')
             lines.append(f'📈 <b>시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)</b>')
             lines.append(f'    같은 기간 S&P500은 {perf["spy_cum"]:+.1f}%')
-            lines.append(f'⚙️ 각 분야 1등 매수: 괴리율 1위 + 메가(PEG&lt;0.18 매출≥25%) 1위 (50/50)')
+            lines.append(f'⚙️ 매일 2종목 매수: 저평가 1위 + 초고성장주 1위 (50/50)')
     except Exception:
         pass
 
@@ -5152,12 +5152,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             w_tag = f' · {int(w)}%' if w else ''
             lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{w_tag} · 신규 매수')
 
-    # 시스템 시뮬 carryover (있을 때만) — 사용자 명령 "그때 표시"
-    if mega_in_slot:
-        for s in mega_in_slot:
-            name = _clean_company_name(s['name'], s['ticker'])
-            lines.append(f'<b>ℹ️ {name}({s["ticker"]})</b> · 시뮬 holding (신규 매수 X)')
-        lines.append('  (시스템이 과거 매수 후 carryover 중 — 이미 보유자만)')
+    # v110 (2026-06-04): 신규 진입자 입장에서 시뮬 holding 표시 제거.
+    # 신규 고객은 SNDK 안 갖고 있음 → "지나간 종목 보여줘봤자 약올림" (사용자 명령).
+    # 매수 후보만 표시.
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
@@ -5259,11 +5256,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         rev = _safe_float(s.get('rev_growth'))
         earnings_tag = s.get('earnings_note', '')
 
-        # v87 UX (2026-06-03): 명령조 "holding" → 사실 진술 "메가 carryover"
+        # v110 (2026-06-04): "메가 carryover" → 일반 고객 표현 "초고성장주 보유"
         is_mega = s.get('_mega_hold') or (ticker not in new_buy_tks)
         if is_mega:
-            weight_tag = ' · 메가 carryover (보유 중)'
-            num_label = 'ℹ️'  # 메가는 정보 마크 (보유 명령 X)
+            weight_tag = ' · 초고성장주 (이미 보유한 경우만 유지)'
+            num_label = 'ℹ️'
         else:
             w = s.get('weight', 0)
             weight_tag = f' · {int(w)}%' if w else ''
@@ -5286,10 +5283,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
         lines.append(' · '.join(growth_parts))
 
-        # v87 UX (2026-06-03): "보유 유지" 명령 → "carryover 중" 사실 진술
+        # v110 (2026-06-04): 일반 고객 표현
         if s.get('_mega_hold'):
-            lines.append('ℹ️ PEG<0.22 메가 carryover 중')
-            lines.append('   (신규 매수는 위 후보에서 — 이건 참조용)')
+            lines.append('ℹ️ 초고성장주 시그니처 유지 (PEG&lt;0.18 + 매출 25%+)')
+            lines.append('   (신규 매수는 위 후보에서 — 이건 시스템 참조용)')
 
         # L2: 안정성 (순위 · 의견 · 저평가 streak)
         rev_up = int(s.get('rev_up', 0) or 0)
@@ -5339,12 +5336,12 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 위 후보 (1·2위 점수차 dynamic)')
-    lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
-    lines.append('매도: 10위 밖 or 실적하락')
-    lines.append('  ※ 보유 종목이 PEG<0.22 + 매출≥25% 충족 시')
-    lines.append('     순위 밀려도 holding (메가 carryover)')
-    lines.append('     해제: PEG≥0.22 or 매출<25% or EPS 꺾임')
+    lines.append('매수: 저평가 1위 + 초고성장주 1위 (둘 다 있으면 50/50)')
+    lines.append('  · 초고성장주 = PEG&lt;0.18 (극저평가) + 매출성장 25% 이상')
+    lines.append('  · 초고성장주 없으면 저평가 1위 단독 100%')
+    lines.append('매도: 순위 10위 밖 또는 실적 꺾임')
+    lines.append('  · 초고성장주는 순위 밀려도 보유 유지')
+    lines.append('  · 초고성장주 해제: 매출 25% 미만 또는 PEG 0.18 이상')
     lines.append('⚠️ 시뮬 누적수익률 (실제 세금·슬리피지 미반영)')
 
     return '\n'.join(lines)
@@ -5694,12 +5691,12 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 위 후보 (1·2위 점수차 dynamic)')
-    lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
-    lines.append('매도: 10위 밖 or 실적하락')
-    lines.append('  ※ 보유 종목이 PEG<0.22 + 매출≥25% 충족 시')
-    lines.append('     순위 밀려도 holding (메가 carryover)')
-    lines.append('     해제: PEG≥0.22 or 매출<25% or EPS 꺾임')
+    lines.append('매수: 저평가 1위 + 초고성장주 1위 (둘 다 있으면 50/50)')
+    lines.append('  · 초고성장주 = PEG&lt;0.18 (극저평가) + 매출성장 25% 이상')
+    lines.append('  · 초고성장주 없으면 저평가 1위 단독 100%')
+    lines.append('매도: 순위 10위 밖 또는 실적 꺾임')
+    lines.append('  · 초고성장주는 순위 밀려도 보유 유지')
+    lines.append('  · 초고성장주 해제: 매출 25% 미만 또는 PEG 0.18 이상')
     lines.append('⚠️ 시뮬 누적수익률 (실제 세금·슬리피지 미반영)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
