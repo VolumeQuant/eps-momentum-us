@@ -4676,8 +4676,8 @@
     "industry": "기타"
   },
   "RCI": {
-    "shortName": "RCI",
-    "industry": "기타"
+    "shortName": "Rogers Communication, Inc.",
+    "industry": "통신"
   },
   "RDY": {
     "shortName": "RDY",
@@ -5208,8 +5208,8 @@
     "industry": "기타"
   },
   "VSNT": {
-    "shortName": "VSNT",
-    "industry": "기타"
+    "shortName": "Versant Media Group, Inc.",
+    "industry": "엔터"
   },
   "CMCM": {
     "shortName": "Cheetah Mobile Inc.",
@@ -5836,8 +5836,8 @@
     "industry": "기타"
   },
   "IRDM": {
-    "shortName": "IRDM",
-    "industry": "기타"
+    "shortName": "Iridium Communications Inc",
+    "industry": "통신"
   },
   "NAVN": {
     "shortName": "NAVN",
@@ -5860,8 +5860,8 @@
     "industry": "기타"
   },
   "ACMR": {
-    "shortName": "ACMR",
-    "industry": "기타"
+    "shortName": "ACM Research, Inc.",
+    "industry": "반도체장비"
   },
   "JOBY": {
     "shortName": "JOBY",
@@ -5884,8 +5884,8 @@
     "industry": "기타"
   },
   "ICLR": {
-    "shortName": "ICLR",
-    "industry": "기타"
+    "shortName": "ICON plc",
+    "industry": "진단연구"
   },
   "DSGX": {
     "shortName": "The Descartes Systems Group Inc",
@@ -5952,8 +5952,8 @@
     "industry": "기타"
   },
   "ZETA": {
-    "shortName": "ZETA",
-    "industry": "기타"
+    "shortName": "Zeta Global Holdings Corp.",
+    "industry": "인프라SW"
   },
   "OPEN": {
     "shortName": "OPEN",
@@ -5962,5 +5962,17 @@
   "YMM": {
     "shortName": "Full Truck Alliance Co. Ltd.",
     "industry": "응용SW"
+  },
+  "FDXF": {
+    "shortName": "FDXF",
+    "industry": "기타"
+  },
+  "HMC": {
+    "shortName": "HMC",
+    "industry": "기타"
+  },
+  "VSXY": {
+    "shortName": "Victorias Secret & Co",
+    "industry": "의류소매"
   }
 }
