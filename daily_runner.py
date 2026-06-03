@@ -5005,41 +5005,21 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('━━━━━━━━━━━━━━━')
 
     # 매수 후보 영역 — 신규 진입자 시점
+    # v87 UX 재설계 (2026-06-03): 전략 변경 후 모든 사용자 SNDK 매도 완료.
+    # 메가 영역 (replay 시뮬 보유 가정) = 실 사용자 보유 X = 표시 의미 없음.
+    # → 메가 영역 완전 제거. forward 매수 후보만 표시.
+    # 미래 carryover 안내는 footer 운영 규칙에.
     if new_buy_top2 is None:
         new_buy_top2 = [s for s in (selected or []) if not s.get('_mega_hold')]
 
     if new_buy_top2:
-        lines.append(f'🛒 <b>신규 매수 후보</b> (오늘 새로 진입)')
+        lines.append(f'🛒 <b>오늘의 매수 후보</b>')
         lines.append('━━━━━━━━━━━━━━━')
         for idx, s in enumerate(new_buy_top2):
             name = _clean_company_name(s['name'], s['ticker'])
             w = s.get('weight', 0)
             w_tag = f' · {int(w)}%' if w else ''
             lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{w_tag}')
-
-    # 메가 영역 — v87 (2026-06-03): get_mega_hold_tickers 기반 (위 영역 + 하단 영역 일관성)
-    # 이전: selected의 _mega_hold만 → eligible 탈락한 MU 같은 종목 누락
-    # 변경: 현재 메가 시그니처 종목 전체 (held_candidates 풀 포함)
-    try:
-        mega_list = get_mega_hold_tickers()  # [(ticker, part2_rank or None)]
-    except Exception:
-        mega_list = []
-    if mega_list:
-        # v87 UX (2026-06-03): 명령조 "보유 유지" → 사실 진술 "시스템 보유 중"
-        # 신규 사용자에게 보유 종목은 sunk alpha — 정보만 제공, 명령 X
-        name_map = {s['ticker']: _clean_company_name(s['name'], s['ticker']) for s in (selected or [])}
-        for s in (new_buy_top2 or []):
-            name_map.setdefault(s['ticker'], _clean_company_name(s.get('name', s['ticker']), s['ticker']))
-        lines.append('')
-        lines.append('━━━━━━━━━━━━━━━')
-        lines.append(f'ℹ️ <b>참조: 시스템 보유 중인 메가</b>')
-        lines.append('  (시스템이 과거 매수 후 carryover 중)')
-        lines.append('  이미 매수하신 분만 참고 — 신규 매수는 위 후보에서')
-        lines.append('━━━━━━━━━━━━━━━')
-        for tk, p2 in mega_list:
-            nm = name_map.get(tk, tk)
-            rk = f'{p2}위' if p2 else '순위밖'
-            lines.append(f'<b>{nm}({tk})</b> · {rk}')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
@@ -5125,48 +5105,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     if alpha_signals is None:
         alpha_signals = {}
 
-    # ━━ 섹션 3: 종목별 근거 (신규 매수 후보 + 메가 모두) ━━
-    # v87 (2026-06-03): selected (시뮬) 대신 매수후보 + 메가 합쳐 표시.
-    # 메가 = get_mega_hold_tickers (selected 메가 + held_candidates 풀 메가, MU 누락 방지)
+    # ━━ 섹션 3: 종목별 근거 (매수 후보만) ━━
+    # v87 UX 재설계 (2026-06-03): 메가 영역 제거 (실 사용자 보유 X)
+    # 종목별 근거 = new_buy_top2 (매수 후보)만 표시
     detail_list = list(new_buy_top2) if new_buy_top2 else []
-    existing_tks = {s['ticker'] for s in detail_list}
-    # 1. selected의 메가
-    for s in (selected or []):
-        if s.get('_mega_hold') and s['ticker'] not in existing_tks:
-            detail_list.append(s)
-            existing_tks.add(s['ticker'])
-    # 2. get_mega_hold_tickers에만 있는 메가 (MU 같은 selected 누락 종목)
-    try:
-        for tk, _ in (mega_list or []):
-            if tk in existing_tks:
-                continue
-            # results_df에서 row 가져와서 entry 생성
-            try:
-                mega_row = None
-                for s in (selected or []):
-                    if s['ticker'] == tk:
-                        mega_row = s
-                        break
-                if mega_row is None:
-                    # selected에 없으면 build (간단 entry — name은 ticker로 fallback)
-                    import sqlite3 as _sql3
-                    _conn = _sql3.connect(DB_PATH)
-                    _cur = _conn.cursor()
-                    _r = _cur.execute(
-                        'SELECT ticker FROM ntm_screening WHERE ticker=? LIMIT 1', (tk,)
-                    ).fetchone()
-                    _conn.close()
-                    if _r:
-                        mega_row = {'ticker': tk, 'name': tk, 'industry': '', 'eps_chg': 0,
-                                    'rev_growth': 0, '_mega_hold': True, 'earnings_note': ''}
-                if mega_row is not None:
-                    mega_row['_mega_hold'] = True
-                    detail_list.append(mega_row)
-                    existing_tks.add(tk)
-            except Exception:
-                pass
-    except Exception:
-        pass
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>종목별 근거</b>')
@@ -5259,13 +5201,13 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('📌 신규: 매수 후보만 (메가는 참조 — 사면 안 됨)')
-    lines.append('📌 기존 보유자: 매수 후보 + 메가 매도 트리거 확인')
-    lines.append('매수 비중: 1·2위 점수차 dynamic')
+    lines.append('매수: 위 후보 (1·2위 점수차 dynamic)')
     lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
-    lines.append('매도: 매수 후보 10위 밖 or 실적하락')
-    lines.append('메가 매도: PEG≥0.22 or 매출<25% or EPS 꺾임')
-    lines.append('⚠️ 시뮬 누적수익률은 참조용 (실제 세금·슬리피지 미반영)')
+    lines.append('매도: 10위 밖 or 실적하락')
+    lines.append('  ※ 보유 종목이 PEG<0.22 + 매출≥25% 충족 시')
+    lines.append('     순위 밀려도 holding (메가 carryover)')
+    lines.append('     해제: PEG≥0.22 or 매출<25% or EPS 꺾임')
+    lines.append('⚠️ 시뮬 누적수익률 (실제 세금·슬리피지 미반영)')
 
     return '\n'.join(lines)
 
@@ -5589,22 +5531,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         elif rank < num_stocks:
             lines.append('- - - - -')
 
-    # ── EPS 추세 둔화 (메인 리스트에서 제외된 종목) ──
-    # ── 🔒 메가 홀드 (B2 v86): 순위 무관 지속 표시 — rank>10/순위밖 메가만 (홀드 의미있는 구간) ──
-    mega_hold_list = get_mega_hold_tickers()  # [(tk, p2)]
-    mega_set = set(tk for tk, _ in mega_hold_list)
-    mega_show = [(tk, p2) for tk, p2 in mega_hold_list if p2 is None or p2 > 10]
-    if mega_show:
-        parts = []
-        for tk, p2 in mega_show:
-            rk = f'{p2}위' if p2 else '순위밖'
-            parts.append(f'{tk}({rk})')
-        lines.append('')
-        lines.append('━━━━━━━━━━━━━━━')
-        lines.append(f'ℹ️ 시스템 보유 메가: {" ".join(parts)}')
-        lines.append('  (시스템이 과거 매수 후 carryover 중)')
-        lines.append('  이미 매수하신 분만 참고 — 신규 매수는 위 후보에서')
-        lines.append('  매도 트리거: PEG≥0.22 or 매출<25% or EPS 꺾임')
+    # ── 메가 영역 — v87 UX 재설계 (2026-06-03): 제거 ──
+    # 사용자 분노: "지나간 홀드 종목 보여줘봤자 약올림" — 모든 고객 SNDK 매도 완료
+    # 미래 carryover 안내는 footer 운영 규칙에
+    mega_set = set()  # 이탈 표시용 (메가 종목 이탈 표시 제외)
 
     # ── 순위 이탈 (사유별 묶어서 표시) — 메가홀드 종목은 제외 ──
     if exit_reasons:
@@ -5626,13 +5556,13 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('📌 신규: 매수 후보만 (메가는 참조 — 사면 안 됨)')
-    lines.append('📌 기존 보유자: 매수 후보 + 메가 매도 트리거 확인')
-    lines.append('매수 비중: 1·2위 점수차 dynamic')
+    lines.append('매수: 위 후보 (1·2위 점수차 dynamic)')
     lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
-    lines.append('매도: 매수 후보 10위 밖 or 실적하락')
-    lines.append('메가 매도: PEG≥0.22 or 매출<25% or EPS 꺾임')
-    lines.append('⚠️ 시뮬 누적수익률은 참조용 (실제 세금·슬리피지 미반영)')
+    lines.append('매도: 10위 밖 or 실적하락')
+    lines.append('  ※ 보유 종목이 PEG<0.22 + 매출≥25% 충족 시')
+    lines.append('     순위 밀려도 holding (메가 carryover)')
+    lines.append('     해제: PEG≥0.22 or 매출<25% or EPS 꺾임')
+    lines.append('⚠️ 시뮬 누적수익률 (실제 세금·슬리피지 미반영)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
     return '\n'.join(lines)
