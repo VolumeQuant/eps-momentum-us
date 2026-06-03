@@ -4998,10 +4998,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
 
-    # 매수 후보 영역 — 신규 진입자 시점 (메가 carryover 없음 가정)
+    # 매수 후보 영역 — 신규 진입자 시점
     if new_buy_top2 is None:
         new_buy_top2 = [s for s in (selected or []) if not s.get('_mega_hold')]
-    mega_in_slot = [s for s in (selected or []) if s.get('_mega_hold')]
 
     if new_buy_top2:
         lines.append(f'🛒 <b>신규 매수 후보</b> (오늘 새로 진입)')
@@ -5012,15 +5011,28 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             w_tag = f' · {int(w)}%' if w else ''
             lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{w_tag}')
 
-    if mega_in_slot:
+    # 메가 영역 — v87 (2026-06-03): get_mega_hold_tickers 기반 (위 영역 + 하단 영역 일관성)
+    # 이전: selected의 _mega_hold만 → eligible 탈락한 MU 같은 종목 누락
+    # 변경: 현재 메가 시그니처 종목 전체 (held_candidates 풀 포함)
+    try:
+        mega_list = get_mega_hold_tickers()  # [(ticker, part2_rank or None)]
+    except Exception:
+        mega_list = []
+    if mega_list:
+        # 종목명 매핑 (selected에 있으면 거기서, 없으면 ticker만)
+        name_map = {s['ticker']: _clean_company_name(s['name'], s['ticker']) for s in (selected or [])}
+        # 매수후보에도 이름 정보 있을 수 있음 (KEYS 등)
+        for s in (new_buy_top2 or []):
+            name_map.setdefault(s['ticker'], _clean_company_name(s.get('name', s['ticker']), s['ticker']))
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
         lines.append(f'🌟 <b>핵심 성장주 — 보유 유지</b>')
         lines.append('  (이미 보유 중인 경우만 / 신규는 매수 후보로)')
         lines.append('━━━━━━━━━━━━━━━')
-        for s in mega_in_slot:
-            name = _clean_company_name(s['name'], s['ticker'])
-            lines.append(f'<b>{name}({s["ticker"]})</b>')
+        for tk, p2 in mega_list:
+            nm = name_map.get(tk, tk)
+            rk = f'{p2}위' if p2 else '순위밖'
+            lines.append(f'<b>{nm}({tk})</b> · {rk}')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
@@ -5108,29 +5120,76 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
 
     # ━━ 섹션 3: 종목별 근거 (신규 매수 후보 + 메가 모두) ━━
     # v87 (2026-06-03): selected (시뮬) 대신 매수후보 + 메가 합쳐 표시.
+    # 메가 = get_mega_hold_tickers (selected 메가 + held_candidates 풀 메가, MU 누락 방지)
     detail_list = list(new_buy_top2) if new_buy_top2 else []
+    existing_tks = {s['ticker'] for s in detail_list}
+    # 1. selected의 메가
     for s in (selected or []):
-        if s.get('_mega_hold') and s['ticker'] not in [x['ticker'] for x in detail_list]:
+        if s.get('_mega_hold') and s['ticker'] not in existing_tks:
             detail_list.append(s)
+            existing_tks.add(s['ticker'])
+    # 2. get_mega_hold_tickers에만 있는 메가 (MU 같은 selected 누락 종목)
+    try:
+        for tk, _ in (mega_list or []):
+            if tk in existing_tks:
+                continue
+            # results_df에서 row 가져와서 entry 생성
+            try:
+                mega_row = None
+                for s in (selected or []):
+                    if s['ticker'] == tk:
+                        mega_row = s
+                        break
+                if mega_row is None:
+                    # selected에 없으면 build (간단 entry — name은 ticker로 fallback)
+                    import sqlite3 as _sql3
+                    _conn = _sql3.connect(DB_PATH)
+                    _cur = _conn.cursor()
+                    _r = _cur.execute(
+                        'SELECT ticker FROM ntm_screening WHERE ticker=? LIMIT 1', (tk,)
+                    ).fetchone()
+                    _conn.close()
+                    if _r:
+                        mega_row = {'ticker': tk, 'name': tk, 'industry': '', 'eps_chg': 0,
+                                    'rev_growth': 0, '_mega_hold': True, 'earnings_note': ''}
+                if mega_row is not None:
+                    mega_row['_mega_hold'] = True
+                    detail_list.append(mega_row)
+                    existing_tks.add(tk)
+            except Exception:
+                pass
+    except Exception:
+        pass
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>종목별 근거</b>')
     lines.append('━━━━━━━━━━━━━━━')
 
+    new_buy_tks = {s['ticker'] for s in (new_buy_top2 or [])}
     for i, s in enumerate(detail_list):
         ticker = s['ticker']
         eps_chg = s['eps_chg']
         rev = _safe_float(s.get('rev_growth'))
         earnings_tag = s.get('earnings_note', '')
 
-        # L0: 이름·업종·점수
+        # v87 (2026-06-03): 비중 명시 (신규 매수 = 50%/100%, 메가 = holding 표시)
+        is_mega = s.get('_mega_hold') or (ticker not in new_buy_tks)
+        if is_mega:
+            weight_tag = ' · 🌟 holding'
+            num_label = '🌟'  # 메가는 번호 대신 별 마크
+        else:
+            w = s.get('weight', 0)
+            weight_tag = f' · {int(w)}%' if w else ''
+            num_label = f'{i+1}.'
+
+        # L0: 이름·업종·점수·비중
         display_name = _clean_company_name(s["name"], ticker)
         industry = s.get('industry', '')
         ind_str = f' · {industry}' if industry else ''
         score_str = ''
         if score_display_map and ticker in score_display_map:
             score_str = f' · {score_display_map[ticker]}점'
-        lines.append(f'<b>{i+1}. {display_name}({ticker}){ind_str}{score_str}</b>{earnings_tag}')
+        lines.append(f'<b>{num_label} {display_name}({ticker}){ind_str}{score_str}{weight_tag}</b>{earnings_tag}')
 
         # L1: 증거 (EPS 전망 · 매출성장)
         growth_parts = []
