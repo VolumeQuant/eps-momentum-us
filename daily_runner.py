@@ -3293,7 +3293,7 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         earnings_map=None, risk_status=None, score_100_map=None,
-                        hist_all=None):
+                        hist_all=None, today_str=None):
     """Signal 메시지용 종목 선정 (w_gap 순위 Top2 + min_seg ≥ 0%, 최대 2종목)
 
     part2_rank(w_gap 기반) 상위 2종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
@@ -5835,7 +5835,7 @@ def main():
         # 디스플레이용 종목 선정 (v57b: adj_gap ≤ -4% + min_seg ≥ 1%, 최대 3종목)
         display_top5 = select_display_top5(
             results_df, status_map, weighted_ranks, earnings_map, risk_status,
-            score_100_map=score_100_map, hist_all=hist_all
+            score_100_map=score_100_map, hist_all=hist_all, today_str=today_str
         )
 
         # 이탈 종목 사유 분류
