@@ -1074,6 +1074,29 @@ def run_ntm_collection(config):
     return results_df, turnaround_df, stats, today_str, hist_all
 
 
+def _validate_collection_health(stats, min_collected=900, max_error_rate=0.30):
+    """수집 건강성 검증 (v86e++ 2026-06-03) — KR <150 안전망 이식 + US 적응.
+
+    2026-05-28~29 사고: yfinance 대량 실패(에러 676/1272=53%, 수집 600/315 vs 정상 ~1240)인데
+    가드가 없어 망가진 데이터로 순위 계산 + 채널 발송. universe 크기·에러율로 검증.
+    (rev_growth는 DB캐시 fallback[v76]으로 유지되므로 universe·에러율이 진짜 지표.)
+
+    Returns: (ok: bool, reason: str)
+    """
+    try:
+        universe = stats.get('universe', 0) or 0
+        collected = stats.get('total_collected', 0) or 0
+        errors = stats.get('error_count', 0) or 0
+        err_rate = (errors / universe) if universe else 1.0
+        if collected < min_collected:
+            return False, f"수집 종목 {collected} < {min_collected} (정상 ~1240, 5/28사고=600)"
+        if err_rate > max_error_rate:
+            return False, f"에러율 {err_rate*100:.0f}% > {max_error_rate*100:.0f}% (5/28사고=53%)"
+        return True, f"수집 {collected}, 에러율 {err_rate*100:.0f}% — 정상"
+    except Exception as e:
+        return False, f"건강성 검증 오류: {e}"
+
+
 # ============================================================
 # Part 2 공통 필터 & 3일 교집합
 # ============================================================
@@ -3168,6 +3191,95 @@ def _get_prev_portfolio(today_str=None):
         return []
 
 
+def _recent_held_tickers(today_str=None, lookback=15, rank_thresh=10):
+    """무상태 보유 추정 — 최근 lookback 거래일 내 part2_rank ≤ rank_thresh 경험 종목.
+
+    v86e++ (2026-06-03): portfolio_log(log_portfolio_trades 미호출로 2026-03-05 동결)
+    의존 제거. 데이터에서 직접 재구성 → freeze 불가능(무상태). carryover + watchlist
+    공용 단일 소스 → 두 메가 메커니즘 영원히 일치. date <= today_str 로 PIT 안전.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        if today_str:
+            rds = [r[0] for r in cur.execute(
+                'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT ?',
+                (today_str, lookback))]
+        else:
+            rds = [r[0] for r in cur.execute(
+                'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT ?',
+                (lookback,))]
+        out = set()
+        if rds:
+            ph = ','.join('?' * len(rds))
+            for (tk,) in cur.execute(
+                f'SELECT DISTINCT ticker FROM ntm_screening WHERE date IN ({ph}) AND part2_rank IS NOT NULL AND part2_rank <= ?',
+                    rds + [rank_thresh]):
+                out.add(tk)
+        conn.close()
+        return out
+    except Exception as e:
+        log(f"_recent_held_tickers 오류: {e}", "WARN")
+        return set()
+
+
+def _replay_holdings(before_date=None):
+    """forward replay로 '오늘 직전까지 실제 보유 종목' 재구성 (무상태, BT==production).
+
+    v86e++ (2026-06-03): recency proxy(part2 Top10 경험)는 실제 안 들고 있던 메가까지
+    과잉보유(UMBF 등) → 성능 replay({KEYS,SNDK})와 불일치. 이 함수는 _get_system_performance
+    와 동일 규칙으로 처음부터 replay → before_date 직전 거래일까지의 실제 보유집합 반환.
+    규칙: 진입 part2_rank≤2 (빈 슬롯), 이탈 min_seg<-2 OR (메가&rev_growth<0.25) OR
+          (rank>10 & not 메가). 메가=PEG<0.22. MAX 2슬롯.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        if before_date:
+            dts = [r[0] for r in cur.execute(
+                'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date < ? ORDER BY date',
+                (before_date,))]
+        else:
+            dts = [r[0] for r in cur.execute(
+                'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date')]
+        port = set()
+        for d in dts:
+            rows = cur.execute(
+                'SELECT ticker,part2_rank,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,rev_growth FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
+                (d,)).fetchall()
+            info = {}
+            for tk, p2, price, nc, n7, n30, n60, n90, rg in rows:
+                segs = []
+                for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
+                    segs.append((a - b) / abs(b) * 100 if b and abs(b) > 0.01 else 0)
+                peg = (price / nc) / (rg * 100) if (price and nc and nc > 0 and rg and rg > 0) else None
+                info[tk] = dict(p2=p2, peg=peg, minseg=min(segs) if segs else 0, rg=rg)
+            # 이탈
+            for tk in list(port):
+                it = info.get(tk)
+                if it is None:
+                    port.discard(tk); continue
+                mega = it['peg'] is not None and it['peg'] < 0.22
+                if it['minseg'] < -2:
+                    port.discard(tk); continue
+                if mega and it['rg'] is not None and it['rg'] < 0.25:
+                    port.discard(tk); continue
+                if (not mega) and it['p2'] > 10:
+                    port.discard(tk); continue
+            # 진입 (빈 슬롯, rank≤2)
+            if len(port) < 2:
+                for tk, p2 in sorted([(tk, it['p2']) for tk, it in info.items()
+                                      if tk not in port and it['p2'] <= 2], key=lambda x: x[1]):
+                    if len(port) >= 2:
+                        break
+                    port.add(tk)
+        conn.close()
+        return port
+    except Exception as e:
+        log(f"_replay_holdings 오류: {e}", "WARN")
+        return set()
+
+
 def _build_portfolio_entry(row, status_map, earnings_map):
     """포트폴리오 종목 entry dict 생성"""
     t = row.get('ticker', '')
@@ -3204,7 +3316,7 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         earnings_map=None, risk_status=None, score_100_map=None,
-                        hist_all=None):
+                        hist_all=None, today_str=None):
     """Signal 메시지용 종목 선정 (w_gap 순위 Top2 + min_seg ≥ 0%, 최대 2종목)
 
     part2_rank(w_gap 기반) 상위 2종목 중 EPS 추세 건강(min_seg ≥ 0%) 종목만 진입.
@@ -3273,13 +3385,20 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     # mathematical impossibility (단일 adj_gap으로 mean reversion + EPS revision regime 동시 처리 불가).
     # V86e+ regime 분리가 베이지안 정보 가중으로 정당. BT +92.5p / LOWO +14.7p (95/100).
     mega_held = []
-    try:
-        prev_held = set(_get_prev_portfolio(today_str))
-    except Exception:
-        prev_held = set()
+    # v86e++ (2026-06-03): 동결된 portfolio_log 대신 forward replay로 실제 보유 재구성.
+    # 동결 장부(_get_prev_portfolio: 3개월 stale) → recency proxy(메가 과잉보유) → replay 순으로
+    # 정정. _replay_holdings는 성능sim과 동일 규칙으로 '어제까지 실제 보유'를 무상태 재구성
+    # → carryover가 성능 replay와 동일 보유집합 사용 = BT==production 보장.
+    prev_held = _replay_holdings(today_str)
     if prev_held:
         cand_by_tk = {row['ticker']: row for _, row in candidates.iterrows()}
-        for t in prev_held:
+        # v86e++ (2026-06-03): 결정적 순서 — 현재 part2_rank 오름차순(best rank 우선).
+        # set 순회는 비결정적 → 메가 >슬롯 시 어느 것이 홀드될지 불확정. rank 우선으로 고정.
+        def _cur_rank(t):
+            r = cand_by_tk.get(t)
+            v = r.get('part2_rank') if r is not None else None
+            return v if v is not None else 9999
+        for t in sorted(prev_held, key=_cur_rank):
             if len(selected) >= MAX_SLOTS:
                 break
             row = cand_by_tk.get(t)
@@ -3662,44 +3781,42 @@ def check_mega_hold(ticker):
         return False
 
 
-def get_mega_hold_tickers():
+def get_mega_hold_tickers(today_str=None):
     """v86e+ (2026-06-02 v90): 현재 메가 시그니처(PEG<0.22) 보유 종목 전부, 순위 무관.
 
     Returns: [(ticker, part2_rank or None), ...]  part2_rank 오름차순 정렬
 
     v86→v86e+ 변화: NTM 조건 제거 + PEG 0.20 → 0.22 (v90 BT LOWO +4p robust 우월).
-    classify_exit_reasons는 '어제 Top20→오늘 이탈'만 잡아 1일짜리라, BT의 연속 홀드를
-    재현 못함(BT≠production). 이 함수로 순위 밖 메가를 매일 지속 표시.
+    v86e++ (2026-06-03): 보유추정을 _recent_held_tickers 공용 헬퍼로 → carryover와 단일 소스.
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # 최근 15 거래일 내 part2_rank ≤ 10 경험 종목 = "실제 매수/보유했을" 종목.
-        # 유니버스의 아무 저PEG 종목(에너지주 등 매수된 적 없는 것) 오탐 방지.
-        recent_dates = [r[0] for r in cursor.execute(
-            'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date DESC LIMIT 15')]
-        held_candidates = set()
-        if recent_dates:
-            ph = ','.join('?' * len(recent_dates))
-            for (tk,) in cursor.execute(
-                f'SELECT DISTINCT ticker FROM ntm_screening WHERE date IN ({ph}) AND part2_rank IS NOT NULL AND part2_rank <= 10',
-                    recent_dates):
-                held_candidates.add(tk)
+        # v86e++ (2026-06-03 정정): 현재 가치 기준 (PEG<0.22 + 성장≥25% + EPS안꺾임 + 최근상위권).
+        # 보유이력(replay) 기준은 데이터갭으로 보유 끊긴 MU를 부당 누락 → SNDK와 차별(모순).
+        # 같은 메가는 같게 — 보유이력 무관, 현재 핵심성장주면 전부 표시. (에너지 junk는 recency로 제외)
+        held_candidates = _recent_held_tickers(today_str)
         cursor.execute('''
-            SELECT ticker, price, ntm_current, rev_growth, part2_rank
+            SELECT ticker, price, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, rev_growth, part2_rank
             FROM ntm_screening
             WHERE date=(SELECT MAX(date) FROM ntm_screening WHERE composite_rank IS NOT NULL)
             AND ntm_current IS NOT NULL
         ''')
         out = []
-        for tk, price, nc, rg, p2 in cursor.fetchall():
+        for tk, price, nc, n7, n30, n60, n90, rg, p2 in cursor.fetchall():
             if tk not in held_candidates:
                 continue
             if not price or not nc or nc <= 0 or not rg or rg <= 0:
                 continue
             peg = (price / nc) / (rg * 100)
-            if peg < 0.22:
-                out.append((tk, p2))
+            if peg >= 0.22 or rg < 0.25:
+                continue
+            segs = []
+            for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
+                segs.append((a - b) / abs(b) * 100 if b and abs(b) > 0.01 else 0)
+            if segs and min(segs) < -2:
+                continue
+            out.append((tk, p2))
         conn.close()
         return sorted(out, key=lambda x: x[1] if x[1] is not None else 999)
     except Exception as e:
@@ -4709,6 +4826,7 @@ def _get_system_performance():
             'end_date': all_dates[-1],
             'wins': wins,
             'losses': losses,
+            'holdings': sorted(portfolio.keys()),  # v86e++ 검증용: 최종 보유집합 노출
         }
     except Exception as e:
         log(f"시스템 성과 계산 실패: {e}", level="WARN")
@@ -4828,12 +4946,18 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 섹션 1: 결론 먼저 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
+    # v86e++ (2026-06-03): 표시 순서 = 점수 내림차순. 핵심성장주(순위 밀려 점수 낮음)가
+    # 앞에 와서 "왜 47위가 1위?" 혼란 주던 것 정정 → 고확신 픽 먼저. 비중은 entry 저장이라 무관.
+    if score_display_map:
+        selected = sorted(selected, key=lambda s: score_display_map.get(s['ticker'], 0), reverse=True)
+
     lines.append(f'🛒 <b>EPS 모멘텀 매수 후보</b>')
     lines.append('━━━━━━━━━━━━━━━')
     for idx, s in enumerate(selected):
         name = _clean_company_name(s['name'], s['ticker'])
         w = s.get('weight', 0)
-        lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
+        mega_tag = ' 🌟핵심성장주' if s.get('_mega_hold') else ''
+        lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{mega_tag}')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
@@ -4948,6 +5072,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
         lines.append(' · '.join(growth_parts))
 
+        # 핵심 성장주(메가홀드) 맥락 — 순위 일시 하락이 모순 아니라 기회임을 전달
+        if s.get('_mega_hold'):
+            lines.append('🌟 핵심 성장주 — 압도적 성장 + 저평가')
+            lines.append('   (순위 일시 하락했으나 매수·보유 대상)')
+
         # L2: 안정성 (순위 · 의견 · 저평가 streak)
         rev_up = int(s.get('rev_up', 0) or 0)
         rev_down = int(s.get('rev_down', 0) or 0)
@@ -4999,8 +5128,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('매수: 1·2위 점수차 dynamic')
     lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
     lines.append('매도: 10위 밖 or 실적하락')
-    lines.append('  🔒 메가(PEG<0.22)는 홀드')
-    lines.append('  (단 매출<25%면 매도)')
+    lines.append('  🌟 핵심 성장주(성장 대비 저평가)는')
+    lines.append('     순위 밀려도 보유')
+    lines.append('  (저평가 해소되거나 실적 꺾이면 매도)')
 
     return '\n'.join(lines)
 
@@ -5336,10 +5466,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             parts.append(f'{tk}({rk})')
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
-        lines.append(f'🔒 메가 홀드: {" ".join(parts)}')
-        lines.append('  순위 밀려도 보유 권장')
-        lines.append('  (초저평가 PEG<0.22)')
-        lines.append('  EPS 꺾이거나 매출<25% 매도')
+        lines.append(f'🌟 핵심 성장주: {" ".join(parts)}')
+        lines.append('  성장 대비 크게 저평가 → 순위 밀려도 보유')
+        lines.append('  (저평가 해소되거나 실적 꺾이면 매도)')
 
     # ── 순위 이탈 (사유별 묶어서 표시) — 메가홀드 종목은 제외 ──
     if exit_reasons:
@@ -5364,8 +5493,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('매수: 1·2위 점수차 dynamic')
     lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
     lines.append('매도: 10위 밖 or 실적하락')
-    lines.append('  🔒 메가(PEG<0.22)는 홀드')
-    lines.append('  (단 매출<25%면 매도)')
+    lines.append('  🌟 핵심 성장주(성장 대비 저평가)는')
+    lines.append('     순위 밀려도 보유')
+    lines.append('  (저평가 해소되거나 실적 꺾이면 매도)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
     return '\n'.join(lines)
@@ -5564,6 +5694,19 @@ def _sanitize_telegram_html(text):
     return text
 
 
+def _send_personal_alert(config, msg):
+    """개인봇 DM 경고만 발송 (채널 X) — 데이터 수집 사고 알림용 (v86e++ 2026-06-03)."""
+    try:
+        if not config.get('telegram_enabled', False):
+            log(f"[건강성 경고/telegram off] {msg}", "WARN")
+            return
+        pid = config.get('telegram_private_id') or config.get('telegram_chat_id')
+        if pid:
+            send_telegram_long(msg, config, chat_id=pid)
+    except Exception as e:
+        log(f"_send_personal_alert 오류: {e}", "WARN")
+
+
 def send_telegram_long(message, config, chat_id=None):
     """긴 메시지를 여러 개로 분할해서 전송 (chat_id 지정 가능)"""
     if not config.get('telegram_enabled', False):
@@ -5649,6 +5792,30 @@ def main():
     log("=" * 60)
     results_df, turnaround_df, stats, today_str, hist_all = run_ntm_collection(config)
 
+    # ── 수집 건강성 가드 (v86e++ 2026-06-03, KR <150 안전망 이식) ──
+    # 2026-05-28~29 yfinance 대량실패 사고(에러53%, 수집600/315) 재발 방지.
+    # 미달 시 30분 후 1회 재수집, 그래도 미달이면 랭킹 미기록 + 채널 발송 차단(개인봇 알림만).
+    # historical mode는 fetch 안 하므로 스킵.
+    if not is_historical_mode():
+        _hok, _hreason = _validate_collection_health(stats)
+        if not _hok:
+            log(f"⚠️ 수집 건강성 미달: {_hreason} — 30분 후 재수집 시도", "WARN")
+            _send_personal_alert(config, f"⚠️ <b>수집 건강성 미달</b>\n{_hreason}\n\n채널 발송 보류, 30분 후 재수집 시도.")
+            import time as _time_guard
+            _time_guard.sleep(1800)
+            log("재수집 시도...")
+            try:
+                results_df, turnaround_df, stats, today_str, hist_all = run_ntm_collection(config)
+            except Exception as _e_guard:
+                log(f"재수집 오류: {_e_guard}", "WARN")
+            _hok, _hreason = _validate_collection_health(stats)
+            if not _hok:
+                log(f"❌ 재시도 후에도 미달: {_hreason} — 랭킹 미기록 + 채널 발송 차단", "WARN")
+                _send_personal_alert(config, f"❌ <b>재시도 후에도 수집 미달</b>\n{_hreason}\n\n오늘 채널 발송 보류, 랭킹 미기록. 수동 점검 필요.")
+                stats['data_unhealthy'] = True
+            else:
+                log(f"✅ 재수집 통과: {_hreason}")
+
     # 2. Part 2 rank 저장 + 3일 교집합 + 어제 대비 변동
     import pandas as pd
 
@@ -5684,8 +5851,12 @@ def main():
             # 매출+품질 수집 → rev_growth composite score + 12개 재무지표 DB 저장 (v33)
             results_df, earnings_map, info_cache = fetch_revenue_growth(results_df, today_str)
 
-            # 가중순위 기반 Top 30 선정 + DB 저장
-            today_tickers = save_part2_ranks(results_df, today_str) or []
+            # 가중순위 기반 Top 30 선정 + DB 저장 (건강성 미달 시 랭킹 미기록)
+            if stats.get('data_unhealthy'):
+                log("⚠️ 건강성 미달 → save_part2_ranks 스킵 (망가진 랭킹 미기록)")
+                today_tickers = []
+            else:
+                today_tickers = save_part2_ranks(results_df, today_str) or []
 
         status_map = get_3day_status(today_tickers, today_str)
         rank_history = get_rank_history(today_tickers, today_str)
@@ -5727,9 +5898,11 @@ def main():
 
         # cold start: 3일 미만 데이터 → 채널 전송 안함 (개인봇만)
         cold_start = is_cold_start()
-        send_to_channel = is_github and channel_id and not cold_start
+        send_to_channel = is_github and channel_id and not cold_start and not stats.get('data_unhealthy')
         if cold_start:
             log(f"Cold start — 채널 전송 비활성화 (3일 데이터 축적 전)")
+        if stats.get('data_unhealthy'):
+            log("⚠️ 데이터 건강성 미달 — 채널 전송 차단 (개인봇만)")
 
         dest = '채널+개인봇' if send_to_channel else '개인봇'
         biz_day = get_last_business_day()
@@ -5747,7 +5920,7 @@ def main():
         # 디스플레이용 종목 선정 (v57b: adj_gap ≤ -4% + min_seg ≥ 1%, 최대 3종목)
         display_top5 = select_display_top5(
             results_df, status_map, weighted_ranks, earnings_map, risk_status,
-            score_100_map=score_100_map, hist_all=hist_all
+            score_100_map=score_100_map, hist_all=hist_all, today_str=today_str
         )
 
         # 이탈 종목 사유 분류
