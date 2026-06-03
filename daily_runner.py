@@ -5004,22 +5004,28 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
 
-    # 매수 후보 영역 — 신규 진입자 시점
-    # v87 UX 재설계 (2026-06-03): 전략 변경 후 모든 사용자 SNDK 매도 완료.
-    # 메가 영역 (replay 시뮬 보유 가정) = 실 사용자 보유 X = 표시 의미 없음.
-    # → 메가 영역 완전 제거. forward 매수 후보만 표시.
-    # 미래 carryover 안내는 footer 운영 규칙에.
+    # 매수 후보 영역 — v87 UX 최종 (2026-06-03):
+    # 사용자 명령: "매수 후보에 holding 종목 생기면 그때 표시"
+    # 즉 selected에 메가 carryover 들어가면 같이 표시 (신규 매수 가이드 + 시뮬 holding 정보)
     if new_buy_top2 is None:
         new_buy_top2 = [s for s in (selected or []) if not s.get('_mega_hold')]
+    mega_in_slot = [s for s in (selected or []) if s.get('_mega_hold')]
 
+    lines.append(f'🛒 <b>오늘의 매수 후보</b>')
+    lines.append('━━━━━━━━━━━━━━━')
     if new_buy_top2:
-        lines.append(f'🛒 <b>오늘의 매수 후보</b>')
-        lines.append('━━━━━━━━━━━━━━━')
         for idx, s in enumerate(new_buy_top2):
             name = _clean_company_name(s['name'], s['ticker'])
             w = s.get('weight', 0)
             w_tag = f' · {int(w)}%' if w else ''
-            lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{w_tag}')
+            lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{w_tag} · 신규 매수')
+
+    # 시스템 시뮬 carryover (있을 때만) — 사용자 명령 "그때 표시"
+    if mega_in_slot:
+        for s in mega_in_slot:
+            name = _clean_company_name(s['name'], s['ticker'])
+            lines.append(f'<b>ℹ️ {name}({s["ticker"]})</b> · 시뮬 holding (신규 매수 X)')
+        lines.append('  (시스템이 과거 매수 후 carryover 중 — 이미 보유자만)')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
