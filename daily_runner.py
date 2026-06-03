@@ -4939,12 +4939,18 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 섹션 1: 결론 먼저 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
+    # v86e++ (2026-06-03): 표시 순서 = 점수 내림차순. 핵심성장주(순위 밀려 점수 낮음)가
+    # 앞에 와서 "왜 47위가 1위?" 혼란 주던 것 정정 → 고확신 픽 먼저. 비중은 entry 저장이라 무관.
+    if score_display_map:
+        selected = sorted(selected, key=lambda s: score_display_map.get(s['ticker'], 0), reverse=True)
+
     lines.append(f'🛒 <b>EPS 모멘텀 매수 후보</b>')
     lines.append('━━━━━━━━━━━━━━━')
     for idx, s in enumerate(selected):
         name = _clean_company_name(s['name'], s['ticker'])
         w = s.get('weight', 0)
-        lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
+        mega_tag = ' 🌟핵심성장주' if s.get('_mega_hold') else ''
+        lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{mega_tag}')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
@@ -5059,6 +5065,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
         lines.append(' · '.join(growth_parts))
 
+        # 핵심 성장주(메가홀드) 맥락 — 순위 일시 하락이 모순 아니라 기회임을 전달
+        if s.get('_mega_hold'):
+            lines.append('🌟 핵심 성장주 — 압도적 성장 + 저평가')
+            lines.append('   (순위 일시 하락했으나 매수·보유 대상)')
+
         # L2: 안정성 (순위 · 의견 · 저평가 streak)
         rev_up = int(s.get('rev_up', 0) or 0)
         rev_down = int(s.get('rev_down', 0) or 0)
@@ -5110,8 +5121,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('매수: 1·2위 점수차 dynamic')
     lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
     lines.append('매도: 10위 밖 or 실적하락')
-    lines.append('  🔒 메가(PEG<0.22)는 홀드')
-    lines.append('  (단 매출<25%면 매도)')
+    lines.append('  🌟 핵심 성장주는 순위 밀려도 보유')
+    lines.append('  (압도적 성장+저평가, 실적 꺾이면 매도)')
 
     return '\n'.join(lines)
 
@@ -5447,10 +5458,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             parts.append(f'{tk}({rk})')
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
-        lines.append(f'🔒 메가 홀드: {" ".join(parts)}')
+        lines.append(f'🌟 핵심 성장주 (계속 보유): {" ".join(parts)}')
         lines.append('  순위 밀려도 보유 권장')
-        lines.append('  (초저평가 PEG<0.22)')
-        lines.append('  EPS 꺾이거나 매출<25% 매도')
+        lines.append('  (압도적 성장 + 저평가)')
+        lines.append('  실적 꺾이면 매도')
 
     # ── 순위 이탈 (사유별 묶어서 표시) — 메가홀드 종목은 제외 ──
     if exit_reasons:
@@ -5475,8 +5486,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('매수: 1·2위 점수차 dynamic')
     lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
     lines.append('매도: 10위 밖 or 실적하락')
-    lines.append('  🔒 메가(PEG<0.22)는 홀드')
-    lines.append('  (단 매출<25%면 매도)')
+    lines.append('  🌟 핵심 성장주는 순위 밀려도 보유')
+    lines.append('  (압도적 성장+저평가, 실적 꺾이면 매도)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
     return '\n'.join(lines)
