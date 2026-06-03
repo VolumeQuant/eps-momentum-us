@@ -1,0 +1,4 @@
+  File "C:\dev\claude-code\eps-momentum-us\research\auto_bt_v103_full_audit.py", line 149
+    print(f'{\"variant\":<12}{\"cum\":>10}{\"mdd\":>10}{\"매수\":>8}{\"매도\":>8}')
+              ^
+SyntaxError: unexpected character after line continuation character
