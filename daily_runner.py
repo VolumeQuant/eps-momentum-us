@@ -3403,7 +3403,30 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                 break
             row = cand_by_tk.get(t)
             if row is None:
-                continue  # eligible 탈락(MA120/업종제외 등) → 자연 매도
+                # v113 (2026-06-03): Part 2 풀 밖이어도 메가 시그니처 유지 시 carryover.
+                # 5/28-5/29 cron yfinance 부분 fetch 실패로 MU MISSING → 매도 발동 사고 fix.
+                # check_mega_hold가 MAX(date) fallback으로 마지막 가용 데이터로 PEG 판정.
+                if not check_mega_hold(t):
+                    continue  # 메가 시그니처 아니면 자연 매도 (기존 logic 유지)
+                row = _fetch_last_full_row(t, today_str)
+                if row is None:
+                    continue  # 데이터 자체 없으면 매도
+                # 매도 트리거 별도 체크 (메가 holding 기준과 동일)
+                segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+                if segs and min(segs) < -2:
+                    log(f"  🔓 메가홀드 해제 (Part2 풀 밖) {t}: min_seg<-2 → 매도")
+                    continue
+                rev_g = row.get('rev_growth')
+                if rev_g is not None and float(rev_g) < 0.25:
+                    log(f"  🔓 메가홀드 해제 (Part2 풀 밖) {t}: rev_growth<25% → 매도")
+                    continue
+                entry = _build_portfolio_entry(row, status_map, earnings_map)
+                entry['_mega_hold'] = True
+                entry['_stale_data'] = True
+                selected.append(entry)
+                mega_held.append(t)
+                log(f"  🔒 메가홀드 유지 (Part2 풀 밖) {t}: PEG<0.22 carryover (v113 fetch-fail robust)")
+                continue
             if not check_mega_hold(t):
                 continue
             segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
@@ -3777,6 +3800,49 @@ def check_breakout_hold(ticker):
     except Exception as e:
         log(f"check_breakout_hold {ticker} 오류: {e}", "WARN")
         return False
+
+
+def _fetch_last_full_row(ticker, before_date=None):
+    """Ticker의 마지막 ntm_screening 전체 row (before_date 이전, ntm_current 있는).
+
+    v113 (2026-06-03): MU 5/28-5/29 cron 부분 fetch 실패 사고 fix.
+    Part 2 풀 밖(composite_rank>30)이거나 데이터 누락 시 메가 carryover용 fallback.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        if before_date:
+            cur.execute('''
+                SELECT * FROM ntm_screening
+                WHERE ticker=? AND date<=? AND ntm_current IS NOT NULL
+                ORDER BY date DESC LIMIT 1
+            ''', (ticker, before_date))
+        else:
+            cur.execute('''
+                SELECT * FROM ntm_screening
+                WHERE ticker=? AND ntm_current IS NOT NULL
+                ORDER BY date DESC LIMIT 1
+            ''', (ticker,))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return None
+        d = dict(row)
+        # seg1~4 산정 (NTM 변화율, _calc_seg와 동일 로직)
+        def _seg(a, b):
+            if b is not None and abs(b) > 0.01:
+                return max(-100.0, min(100.0, (a - b) / abs(b) * 100))
+            return 0.0
+        nc, n7, n30, n60, n90 = (float(d.get(k) or 0) for k in ('ntm_current','ntm_7d','ntm_30d','ntm_60d','ntm_90d'))
+        d['seg1'] = _seg(nc, n7)
+        d['seg2'] = _seg(n7, n30)
+        d['seg3'] = _seg(n30, n60)
+        d['seg4'] = _seg(n60, n90)
+        return d
+    except Exception as e:
+        log(f"_fetch_last_full_row {ticker} 오류: {e}", "WARN")
+        return None
 
 
 def check_mega_hold(ticker):
