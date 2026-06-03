@@ -1074,6 +1074,29 @@ def run_ntm_collection(config):
     return results_df, turnaround_df, stats, today_str, hist_all
 
 
+def _validate_collection_health(stats, min_collected=900, max_error_rate=0.30):
+    """수집 건강성 검증 (v86e++ 2026-06-03) — KR <150 안전망 이식 + US 적응.
+
+    2026-05-28~29 사고: yfinance 대량 실패(에러 676/1272=53%, 수집 600/315 vs 정상 ~1240)인데
+    가드가 없어 망가진 데이터로 순위 계산 + 채널 발송. universe 크기·에러율로 검증.
+    (rev_growth는 DB캐시 fallback[v76]으로 유지되므로 universe·에러율이 진짜 지표.)
+
+    Returns: (ok: bool, reason: str)
+    """
+    try:
+        universe = stats.get('universe', 0) or 0
+        collected = stats.get('total_collected', 0) or 0
+        errors = stats.get('error_count', 0) or 0
+        err_rate = (errors / universe) if universe else 1.0
+        if collected < min_collected:
+            return False, f"수집 종목 {collected} < {min_collected} (정상 ~1240, 5/28사고=600)"
+        if err_rate > max_error_rate:
+            return False, f"에러율 {err_rate*100:.0f}% > {max_error_rate*100:.0f}% (5/28사고=53%)"
+        return True, f"수집 {collected}, 에러율 {err_rate*100:.0f}% — 정상"
+    except Exception as e:
+        return False, f"건강성 검증 오류: {e}"
+
+
 # ============================================================
 # Part 2 공통 필터 & 3일 교집합
 # ============================================================
@@ -5652,6 +5675,19 @@ def _sanitize_telegram_html(text):
     return text
 
 
+def _send_personal_alert(config, msg):
+    """개인봇 DM 경고만 발송 (채널 X) — 데이터 수집 사고 알림용 (v86e++ 2026-06-03)."""
+    try:
+        if not config.get('telegram_enabled', False):
+            log(f"[건강성 경고/telegram off] {msg}", "WARN")
+            return
+        pid = config.get('telegram_private_id') or config.get('telegram_chat_id')
+        if pid:
+            send_telegram_long(msg, config, chat_id=pid)
+    except Exception as e:
+        log(f"_send_personal_alert 오류: {e}", "WARN")
+
+
 def send_telegram_long(message, config, chat_id=None):
     """긴 메시지를 여러 개로 분할해서 전송 (chat_id 지정 가능)"""
     if not config.get('telegram_enabled', False):
@@ -5737,6 +5773,30 @@ def main():
     log("=" * 60)
     results_df, turnaround_df, stats, today_str, hist_all = run_ntm_collection(config)
 
+    # ── 수집 건강성 가드 (v86e++ 2026-06-03, KR <150 안전망 이식) ──
+    # 2026-05-28~29 yfinance 대량실패 사고(에러53%, 수집600/315) 재발 방지.
+    # 미달 시 30분 후 1회 재수집, 그래도 미달이면 랭킹 미기록 + 채널 발송 차단(개인봇 알림만).
+    # historical mode는 fetch 안 하므로 스킵.
+    if not is_historical_mode():
+        _hok, _hreason = _validate_collection_health(stats)
+        if not _hok:
+            log(f"⚠️ 수집 건강성 미달: {_hreason} — 30분 후 재수집 시도", "WARN")
+            _send_personal_alert(config, f"⚠️ <b>수집 건강성 미달</b>\n{_hreason}\n\n채널 발송 보류, 30분 후 재수집 시도.")
+            import time as _time_guard
+            _time_guard.sleep(1800)
+            log("재수집 시도...")
+            try:
+                results_df, turnaround_df, stats, today_str, hist_all = run_ntm_collection(config)
+            except Exception as _e_guard:
+                log(f"재수집 오류: {_e_guard}", "WARN")
+            _hok, _hreason = _validate_collection_health(stats)
+            if not _hok:
+                log(f"❌ 재시도 후에도 미달: {_hreason} — 랭킹 미기록 + 채널 발송 차단", "WARN")
+                _send_personal_alert(config, f"❌ <b>재시도 후에도 수집 미달</b>\n{_hreason}\n\n오늘 채널 발송 보류, 랭킹 미기록. 수동 점검 필요.")
+                stats['data_unhealthy'] = True
+            else:
+                log(f"✅ 재수집 통과: {_hreason}")
+
     # 2. Part 2 rank 저장 + 3일 교집합 + 어제 대비 변동
     import pandas as pd
 
@@ -5772,8 +5832,12 @@ def main():
             # 매출+품질 수집 → rev_growth composite score + 12개 재무지표 DB 저장 (v33)
             results_df, earnings_map, info_cache = fetch_revenue_growth(results_df, today_str)
 
-            # 가중순위 기반 Top 30 선정 + DB 저장
-            today_tickers = save_part2_ranks(results_df, today_str) or []
+            # 가중순위 기반 Top 30 선정 + DB 저장 (건강성 미달 시 랭킹 미기록)
+            if stats.get('data_unhealthy'):
+                log("⚠️ 건강성 미달 → save_part2_ranks 스킵 (망가진 랭킹 미기록)")
+                today_tickers = []
+            else:
+                today_tickers = save_part2_ranks(results_df, today_str) or []
 
         status_map = get_3day_status(today_tickers, today_str)
         rank_history = get_rank_history(today_tickers, today_str)
@@ -5815,9 +5879,11 @@ def main():
 
         # cold start: 3일 미만 데이터 → 채널 전송 안함 (개인봇만)
         cold_start = is_cold_start()
-        send_to_channel = is_github and channel_id and not cold_start
+        send_to_channel = is_github and channel_id and not cold_start and not stats.get('data_unhealthy')
         if cold_start:
             log(f"Cold start — 채널 전송 비활성화 (3일 데이터 축적 전)")
+        if stats.get('data_unhealthy'):
+            log("⚠️ 데이터 건강성 미달 — 채널 전송 차단 (개인봇만)")
 
         dest = '채널+개인봇' if send_to_channel else '개인봇'
         biz_day = get_last_business_day()
