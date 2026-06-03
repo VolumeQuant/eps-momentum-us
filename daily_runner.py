@@ -3439,7 +3439,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                 entry['_stale_data'] = True
                 selected.append(entry)
                 mega_held.append(t)
-                log(f"  🔒 메가홀드 유지 (Part2 풀 밖) {t}: PEG<0.25 carryover (v110 + v113 fetch-fail robust)")
+                log(f"  🔒 메가홀드 유지 (Part2 풀 밖) {t}: PEG<0.18 carryover (v110b + v113 fetch-fail robust)")
                 continue
             if not check_mega_hold(t):
                 continue
@@ -3456,7 +3456,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             entry['_mega_hold'] = True
             selected.append(entry)
             mega_held.append(t)
-            log(f"  🔒 메가홀드 유지 {t}: 순위 밀려도 보유 (PEG<0.25 + 매출≥25%, w_rank={p2r_map.get(t, '?')})")
+            log(f"  🔒 메가홀드 유지 {t}: 순위 밀려도 보유 (PEG<0.18 + 매출≥25%, w_rank={p2r_map.get(t, '?')})")
 
     # v110 (2026-06-03): "각 분야 1등 사는" 시스템
     #   슬롯 1: part2_rank Top 1 (mean reversion 신호 1위)
@@ -3872,13 +3872,14 @@ def check_mega_hold(ticker):
     Mean reversion regime (대다수): adj_gap/w_gap/part2_rank로 자연 정렬.
     EPS revision regime (메가): EPS 폭발로 가격 영구 압도, PEG가 valuation 척도.
 
-    v110 Regime 분기 조건 (둘 다 만족):
-      1. PEG = (price/ntm_current) / (rev_growth×100) < 0.25 (저평가)
+    v110b Regime 분기 조건 (둘 다 만족):
+      1. PEG = (price/ntm_current) / (rev_growth×100) < 0.18 (저평가, 엄격)
       2. rev_growth ≥ 25% (매출 성장 둔화 아님)
 
-    v86e+ → v110 변경: PEG 0.22 → 0.25 + 매출 25% 명시 조건 추가
-    - BT V110a calmar 9.09 best (수익 +198% / MDD -21.8%)
-    - 메가 sample 확보 (SNDK/MU/UMBF 포함)
+    v110b 변경 사유: PEG 0.25 → 0.18 (UMBF 같은 가짜 메가 제외)
+    - UMBF PEG 0.199 > 0.18 → 메가 진입 차단 (매출 49% but PEG 약함)
+    - SNDK PEG 0.041, MU PEG 0.058 < 0.18 → "진짜 메가"만 통과
+    - BT plateau 0.18~0.30 robust, 0.18이 calmar 9.34 미세 best
 
     Returns: True면 EPS revision regime → 순위 10위 밖이어도 보유 (regime-specific logic)
 
@@ -3912,7 +3913,7 @@ def check_mega_hold(ticker):
         peg = (price / nc) / (rg * 100)
         # v110 (2026-06-03): PEG 0.22 → 0.25 + rev_growth ≥ 25% 추가 (메가 정의 명확화)
         # BT V110 best plateau: PEG 0.22~0.30 robust. 0.25 = sample 확보.
-        return peg < 0.25 and rg >= 0.25
+        return peg < 0.18 and rg >= 0.25
     except Exception as e:
         log(f"check_mega_hold {ticker} 오류: {e}", "WARN")
         return False
@@ -3931,8 +3932,8 @@ def calc_mega_score(row_dict):
         if p <= 0 or nc <= 0 or rg <= 0 or n90 <= 0:
             return None
         peg = (p / nc) / (rg * 100)
-        if peg >= 0.25 or rg < 0.25:
-            return None  # 메가 시그니처 불충족
+        if peg >= 0.18 or rg < 0.25:
+            return None  # 메가 시그니처 불충족 (v110b: PEG 0.18 — UMBF 같은 가짜 메가 제외)
         ntm_rev = (nc / n90 - 1) * 100
         rg_pct = rg * 100
         peg_inv = 1 / peg
@@ -4925,7 +4926,7 @@ def _get_system_performance():
                 nc_tk = info_tk.get('nc')
                 # v110 메가 정의: PEG<0.25 AND rev_growth≥0.25
                 peg_tk = (cp / nc_tk) / (rg_tk * 100) if (cp and nc_tk and nc_tk > 0 and rg_tk and rg_tk > 0) else None
-                is_mega_tk = peg_tk is not None and peg_tk < 0.25 and rg_tk is not None and rg_tk >= 0.25
+                is_mega_tk = peg_tk is not None and peg_tk < 0.18 and rg_tk is not None and rg_tk >= 0.25
                 sell = False
                 if ms < -2:
                     sell = True
@@ -4950,7 +4951,7 @@ def _get_system_performance():
                     if not (p and nc and n90 and rg and nc > 0 and n90 > 0 and rg >= 0.25):
                         return None
                     peg = (p / nc) / (rg * 100)
-                    if peg >= 0.25:
+                    if peg >= 0.18:
                         return None
                     ntm_rev = (nc / n90 - 1) * 100
                     return ntm_rev + rg * 100 + 50 / peg
@@ -5124,7 +5125,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append('')
             lines.append(f'📈 <b>시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)</b>')
             lines.append(f'    같은 기간 S&P500은 {perf["spy_cum"]:+.1f}%')
-            lines.append(f'⚙️ 각 분야 1등 매수: 괴리율 1위 + 메가(PEG&lt;0.25 매출≥25%) 1위 (50/50)')
+            lines.append(f'⚙️ 각 분야 1등 매수: 괴리율 1위 + 메가(PEG&lt;0.18 매출≥25%) 1위 (50/50)')
     except Exception:
         pass
 
