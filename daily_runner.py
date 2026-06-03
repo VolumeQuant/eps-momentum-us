@@ -5140,10 +5140,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
         lines.append(' · '.join(growth_parts))
 
-        # 핵심 성장주(메가홀드) 맥락 — 순위 일시 하락이 모순 아니라 기회임을 전달
+        # 핵심 성장주(메가홀드) — 메시지 전체 일관성
         if s.get('_mega_hold'):
             lines.append('🌟 핵심 성장주 — 압도적 성장 + 저평가')
-            lines.append('   (순위 일시 하락했으나 매수·보유 대상)')
+            lines.append('   (이미 보유 중인 경우만 — 신규는 매수 후보로)')
 
         # L2: 안정성 (순위 · 의견 · 저평가 streak)
         rev_up = int(s.get('rev_up', 0) or 0)
@@ -6015,8 +6015,15 @@ def main():
             log(f"알파 시그널 수집 실패: {e}", level="WARN")
             alpha_signals = {}
 
-        # AI 2회 호출 (시장 요약 + 종목 내러티브) — ETF는 코드 기반 별도 처리
-        ai_content = run_ai_analysis(config, display_top5, biz_day, risk_status,
+        # AI 2회 호출 — v87 (2026-06-03): display_top5 + new_buy_top2 union 입력
+        # selected에 없는 신규 매수후보 (VIRT 등) narrative 누락 방지
+        ai_input = list(display_top5)
+        existing_tks = {s['ticker'] for s in display_top5}
+        for s in (new_buy_top2 or []):
+            if s['ticker'] not in existing_tks:
+                ai_input.append(s)
+                existing_tks.add(s['ticker'])
+        ai_content = run_ai_analysis(config, ai_input, biz_day, risk_status,
                                      market_lines=market_lines,
                                      alpha_signals=alpha_signals)
 
