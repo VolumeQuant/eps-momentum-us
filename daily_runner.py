@@ -5128,8 +5128,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('매수: 1·2위 점수차 dynamic')
     lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
     lines.append('매도: 10위 밖 or 실적하락')
-    lines.append('  🌟 핵심 성장주는 순위 밀려도 보유')
-    lines.append('  (압도적 성장+저평가, 실적 꺾이면 매도)')
+    lines.append('  🌟 핵심 성장주(성장 대비 저평가)는')
+    lines.append('     순위 밀려도 보유')
+    lines.append('  (저평가 해소되거나 실적 꺾이면 매도)')
 
     return '\n'.join(lines)
 
@@ -5465,10 +5466,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             parts.append(f'{tk}({rk})')
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
-        lines.append(f'🌟 핵심 성장주 (계속 보유): {" ".join(parts)}')
-        lines.append('  순위 밀려도 보유 권장')
-        lines.append('  (압도적 성장 + 저평가)')
-        lines.append('  실적 꺾이면 매도')
+        lines.append(f'🌟 핵심 성장주: {" ".join(parts)}')
+        lines.append('  성장 대비 크게 저평가 → 순위 밀려도 보유')
+        lines.append('  (저평가 해소되거나 실적 꺾이면 매도)')
 
     # ── 순위 이탈 (사유별 묶어서 표시) — 메가홀드 종목은 제외 ──
     if exit_reasons:
@@ -5493,8 +5493,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('매수: 1·2위 점수차 dynamic')
     lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
     lines.append('매도: 10위 밖 or 실적하락')
-    lines.append('  🌟 핵심 성장주는 순위 밀려도 보유')
-    lines.append('  (압도적 성장+저평가, 실적 꺾이면 매도)')
+    lines.append('  🌟 핵심 성장주(성장 대비 저평가)는')
+    lines.append('     순위 밀려도 보유')
+    lines.append('  (저평가 해소되거나 실적 꺾이면 매도)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
     return '\n'.join(lines)
