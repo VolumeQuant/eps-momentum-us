@@ -3439,7 +3439,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                 entry['_stale_data'] = True
                 selected.append(entry)
                 mega_held.append(t)
-                log(f"  🔒 메가홀드 유지 (Part2 풀 밖) {t}: PEG<0.22 carryover (v113 fetch-fail robust)")
+                log(f"  🔒 메가홀드 유지 (Part2 풀 밖) {t}: PEG<0.25 carryover (v110 + v113 fetch-fail robust)")
                 continue
             if not check_mega_hold(t):
                 continue
@@ -3456,7 +3456,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             entry['_mega_hold'] = True
             selected.append(entry)
             mega_held.append(t)
-            log(f"  🔒 메가홀드 유지 {t}: 순위 밀려도 보유 (PEG<0.22, w_rank={p2r_map.get(t, '?')})")
+            log(f"  🔒 메가홀드 유지 {t}: 순위 밀려도 보유 (PEG<0.25 + 매출≥25%, w_rank={p2r_map.get(t, '?')})")
 
     # v110 (2026-06-03): "각 분야 1등 사는" 시스템
     #   슬롯 1: part2_rank Top 1 (mean reversion 신호 1위)
@@ -3866,17 +3866,19 @@ def _fetch_last_full_row(ticker, before_date=None):
 
 
 def check_mega_hold(ticker):
-    """Regime detector — EPS revision regime 판별 (v86e+, 2026-06-02 v90 PEG 0.22)
-
-    이 함수는 "예외 patch"가 아니라 시스템의 **regime 분기 detector**.
+    """Regime detector — EPS revision regime 판별 (v110, 2026-06-03)
 
     시스템 본질 = mean reversion (가격 vs PE 변화율 미스프라이싱).
-    Mean reversion regime (대다수 종목): adj_gap / w_gap / part2_rank로 자연 정렬 → 정상 작동.
-    EPS revision regime (메가 시그니처): EPS가 폭발해서 가격을 영구히 압도. fwd_pe_chg가
-      식어 부적합 신호. mean reversion logic 부적용 → PEG가 진짜 valuation 척도.
+    Mean reversion regime (대다수): adj_gap/w_gap/part2_rank로 자연 정렬.
+    EPS revision regime (메가): EPS 폭발로 가격 영구 압도, PEG가 valuation 척도.
 
-    Regime 분기 조건 1개:
-      PEG = (price/ntm_current) / (rev_growth×100) < 0.22  (성장 대비 극단적 저평가)
+    v110 Regime 분기 조건 (둘 다 만족):
+      1. PEG = (price/ntm_current) / (rev_growth×100) < 0.25 (저평가)
+      2. rev_growth ≥ 25% (매출 성장 둔화 아님)
+
+    v86e+ → v110 변경: PEG 0.22 → 0.25 + 매출 25% 명시 조건 추가
+    - BT V110a calmar 9.09 best (수익 +198% / MDD -21.8%)
+    - 메가 sample 확보 (SNDK/MU/UMBF 포함)
 
     Returns: True면 EPS revision regime → 순위 10위 밖이어도 보유 (regime-specific logic)
 
@@ -4905,36 +4907,32 @@ def _get_system_performance():
             sys_nav *= (1 + day_ret / 100)
             spy_nav *= (1 + spy_ret / 100)
 
-            # 이탈 (v86e+ 메가 carryover 시뮬 통합)
+            # 이탈 (v110 메가 carryover 시뮬 통합)
             # 매도 트리거:
             #   1. min_seg < -2 (EPS 꺾임)
-            #   2. rev_growth < 0.25 (매출 둔화)
-            #   3. rank > 10 AND NOT 메가(PEG<0.22) — 메가는 carryover
+            #   2. 메가 (PEG<0.25 + 매출≥25%): rev_growth<0.25면 매도
+            #   3. 일반 (메가 아님): rank>10이면 매도 (메가는 carryover)
             for tk in list(portfolio.keys()):
                 ep = portfolio[tk]['entry_price']
                 cp = prices.get(tk)
                 if cp is None:
-                    del portfolio[tk]; continue
+                    continue  # v113: 데이터 없으면 carryover (매도 안 함)
                 rk = wgap_rank.get(tk)
                 ms = ticker_ms.get(tk, 0)
                 ret = (cp - ep) / ep * 100
                 info_tk = data.get(tk, {})
                 rg_tk = info_tk.get('rg')
                 nc_tk = info_tk.get('nc')
-                # PEG 계산 — V86e+ 메가 판정
+                # v110 메가 정의: PEG<0.25 AND rev_growth≥0.25
                 peg_tk = (cp / nc_tk) / (rg_tk * 100) if (cp and nc_tk and nc_tk > 0 and rg_tk and rg_tk > 0) else None
-                is_mega_tk = peg_tk is not None and peg_tk < 0.22
-                # V86e+ logic:
-                # - 모든 종목: ms<-2면 매도
-                # - 메가만: rev_growth<0.25면 매도 (메가 carryover 해제 조건)
-                # - 일반 종목: rank>10이면 매도 (메가는 carryover로 보호)
+                is_mega_tk = peg_tk is not None and peg_tk < 0.25 and rg_tk is not None and rg_tk >= 0.25
                 sell = False
                 if ms < -2:
-                    sell = True  # 모든 종목 EPS 꺾임
+                    sell = True
                 elif is_mega_tk and rg_tk is not None and rg_tk < 0.25:
-                    sell = True  # 메가만 매출 둔화 시 carryover 해제
+                    sell = True
                 elif (rk is None or rk > 10) and not is_mega_tk:
-                    sell = True  # 일반 종목 rank 밀림 (메가는 carryover)
+                    sell = True
                 if sell:
                     if ret > 0:
                         wins += 1
@@ -4942,41 +4940,63 @@ def _get_system_performance():
                         losses += 1
                     del portfolio[tk]
 
-            # 진입 (v84: 빈 슬롯에 idx 순서대로 + 진입 시 score gap 기반 weight 결정)
+            # v110 진입: slot 1 = part2 Top 1 (mean reversion) + slot 2 = mega_score Top 1
+            # 비중: 둘 다 → 50/50 / slot1만 (메가 부재) → 100%
             if len(portfolio) < 2:
-                cands = [tk for tk, _ in eligible[:30]
-                         if tk not in portfolio and wgap_rank.get(tk, 999) <= 2
-                         and ticker_ms.get(tk, -999) >= 0]
+                # mega_score 계산 함수 (인라인)
+                def _mega_score_v110(tk):
+                    info = data.get(tk, {})
+                    p = prices.get(tk); nc = info.get('nc'); n90 = info.get('n90'); rg = info.get('rg')
+                    if not (p and nc and n90 and rg and nc > 0 and n90 > 0 and rg >= 0.25):
+                        return None
+                    peg = (p / nc) / (rg * 100)
+                    if peg >= 0.25:
+                        return None
+                    ntm_rev = (nc / n90 - 1) * 100
+                    return ntm_rev + rg * 100 + 50 / peg
+
+                # part2 Top 1 후보
+                p2_cand = next((tk for tk, _ in eligible
+                                if tk not in portfolio
+                                and wgap_rank.get(tk, 999) == 1
+                                and ticker_ms.get(tk, -999) >= 0), None)
+                # mega_score Top 1 후보 (메가 시그니처 + 진입 필터)
+                mega_cands = []
+                for tk, _ in eligible:
+                    if tk in portfolio or tk == p2_cand:
+                        continue
+                    if ticker_ms.get(tk, -999) < 0:
+                        continue
+                    if wgap_rank.get(tk, 999) > 30:
+                        continue  # composite Top 30 제한
+                    score = _mega_score_v110(tk)
+                    if score is None:
+                        continue
+                    mega_cands.append((score, tk))
+                mega_cands.sort(key=lambda x: -x[0])
+                mega_cand = mega_cands[0][1] if mega_cands else None
+
+                # 슬롯 채움 — V110a logic: 둘 다 → 50/50 / part2만 → 100%
                 used_idx = {info['slot_idx'] for info in portfolio.values()}
                 free_idx = sorted([i for i in range(2) if i not in used_idx])
-                # 진입 시점의 1-2위 score gap 계산 (slot 1 진입은 portfolio 비었을 때만 일어남)
-                # v84 weight 결정: gap≥15 → [100,0], gap<15 → [50,50]
-                # 슬롯 0,1 둘 다 빈 경우에만 weight 새로 결정. 한쪽만 채워있으면 기존 weight 유지.
-                if len(portfolio) == 0 and len(eligible) >= 2:
-                    top1_w = eligible[0][1]; top2_w = eligible[1][1]
-                    if top1_w > 0:
-                        gap = (top1_w - top2_w) / top1_w * 100
-                    else:
-                        gap = 0
-                    new_weights = [100, 0] if gap >= 15 else [50, 50]
-                else:
-                    new_weights = None  # 기존 portfolio 유지
-                for slot_idx in free_idx:
-                    if not cands: break
-                    tk = cands.pop(0)
-                    cp = prices.get(tk)
-                    if cp:
-                        if new_weights is not None:
-                            w_val = new_weights[slot_idx]
-                            if w_val == 0:
-                                continue  # weight 0 슬롯은 진입 안 함
-                            portfolio[tk] = {'entry_price': cp, 'slot_idx': slot_idx, 'weight': w_val}
-                        else:
-                            # 기존 portfolio가 있을 때 새 슬롯 진입 — 기존 weight 보존
-                            # (이 경우는 한 슬롯만 매도되고 새로 채우는 케이스)
-                            existing_total = sum(info.get('weight', 0) for info in portfolio.values())
-                            remaining = 100 - existing_total
-                            portfolio[tk] = {'entry_price': cp, 'slot_idx': slot_idx, 'weight': remaining}
+                if len(portfolio) == 0:
+                    if p2_cand and mega_cand:
+                        portfolio[p2_cand] = {'entry_price': prices.get(p2_cand), 'slot_idx': 0, 'weight': 50}
+                        portfolio[mega_cand] = {'entry_price': prices.get(mega_cand), 'slot_idx': 1, 'weight': 50}
+                    elif p2_cand:
+                        portfolio[p2_cand] = {'entry_price': prices.get(p2_cand), 'slot_idx': 0, 'weight': 100}
+                elif len(portfolio) == 1:
+                    # 빈 슬롯에 메가 또는 part2 추가
+                    # 우선순위: 1) 기존 슬롯이 part2면 mega 추가 / 2) 기존이 mega면 part2 추가
+                    existing_tk = list(portfolio.keys())[0]
+                    free = free_idx[0] if free_idx else 1
+                    if mega_cand and mega_cand != existing_tk:
+                        portfolio[mega_cand] = {'entry_price': prices.get(mega_cand), 'slot_idx': free, 'weight': 50}
+                        # 기존 슬롯 weight도 50으로 조정 (rebalance)
+                        portfolio[existing_tk]['weight'] = 50
+                    elif p2_cand and p2_cand != existing_tk:
+                        portfolio[p2_cand] = {'entry_price': prices.get(p2_cand), 'slot_idx': free, 'weight': 50}
+                        portfolio[existing_tk]['weight'] = 50
 
         conn.close()
         # n_days: 실제 day_ret 누적 일수 (첫 진입일은 day_ret=0이므로 -1)
@@ -5104,7 +5124,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append('')
             lines.append(f'📈 <b>시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)</b>')
             lines.append(f'    같은 기간 S&P500은 {perf["spy_cum"]:+.1f}%')
-            lines.append(f'⚙️ 신규 매수 (괴리율) + 핵심 성장주 보유 (메가)')
+            lines.append(f'⚙️ 각 분야 1등 매수: 괴리율 1위 + 메가(PEG&lt;0.25 매출≥25%) 1위 (50/50)')
     except Exception:
         pass
 
