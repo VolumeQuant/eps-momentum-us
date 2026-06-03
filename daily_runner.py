@@ -3500,7 +3500,54 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
 
     log(f"디스플레이 {n}종목: " + ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
-    return selected
+    # v87 (2026-06-03): 신규 진입자용 별도 list — 메가 carryover 무시한 매수후보 Top 2.
+    # selected (시뮬용 carryover + 신규)와 신규 진입자가 봐야 할 매수후보가 다름.
+    # 신규는 보유 X → 메가 carryover X → part2_rank Top 2 (메가 제외, entry filter 적용) 매수.
+    new_buy_top2 = []
+    for _, row in candidates.iterrows():
+        if len(new_buy_top2) >= 2:
+            break
+        t = row['ticker']
+        # 메가 종목 제외
+        if check_mega_hold(t):
+            continue
+        # v71: 3일 검증 ✅
+        if status_map.get(t, '🆕') != '✅':
+            continue
+        # min_seg ≥ 0
+        segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+        if round(min(segs) if segs else 0, 1) < 0:
+            continue
+        # 하향/저커버리지 필터
+        rev_up = int(row.get('rev_up30', 0) or 0)
+        rev_down = int(row.get('rev_down30', 0) or 0)
+        num_analysts = int(row.get('num_analysts', 0) or 0)
+        total_rev = rev_up + rev_down
+        if total_rev > 0 and rev_down / total_rev > 0.3:
+            continue
+        if rev_down >= rev_up and rev_down >= 2:
+            continue
+        if num_analysts < 3:
+            continue
+        new_buy_top2.append(_build_portfolio_entry(row, status_map, earnings_map))
+
+    # 신규 매수후보 비중 — dynamic weight (selected와 동일 룰)
+    nb_n = len(new_buy_top2)
+    if nb_n == 1:
+        new_buy_top2[0]['weight'] = 100
+    elif nb_n >= 2:
+        s1 = float(score_100_map.get(new_buy_top2[0]['ticker'], 0)) if score_100_map else 0
+        s2 = float(score_100_map.get(new_buy_top2[1]['ticker'], 0)) if score_100_map else 0
+        gap = (s1 - s2) / s1 * 100 if s1 > 0 else 0
+        if gap >= 15:
+            new_buy_top2[0]['weight'] = 100
+            new_buy_top2[1]['weight'] = 0
+        else:
+            new_buy_top2[0]['weight'] = 50
+            new_buy_top2[1]['weight'] = 50
+
+    # 반환: (시뮬용 selected, 신규 진입자용 매수후보)
+    return selected, new_buy_top2
 
 
 def select_portfolio_stocks(results_df, status_map=None, weighted_ranks=None,
@@ -4870,7 +4917,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                           status_map=None, eps_screened=None, universe_size=None,
                           exited_tickers=None, risk_status=None,
                           score_100_map=None, score_display_map=None, alpha_signals=None,
-                          hist_all=None):
+                          hist_all=None, new_buy_top2=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -4945,23 +4992,25 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         pass
 
     # ━━ 섹션 1: 결론 먼저 ━━
-    # v87 UX (2026-06-03): 매수 후보 vs 핵심성장주 영역 시각적 완전 분리
-    # 사용자 우려 — 신규 진입자가 메가홀드 종목을 매수후보로 오해. 분리 표시로 명확화.
+    # v87 (2026-06-03): 매수후보 vs 메가 영역 완전 분리.
+    # 매수후보 = new_buy_top2 (신규 진입자용 part2_rank Top 2, 메가 제외, dynamic weight)
+    # 메가 영역 = selected의 _mega_hold (이미 보유자만)
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    if score_display_map:
-        selected = sorted(selected, key=lambda s: score_display_map.get(s['ticker'], 0), reverse=True)
 
-    # 매수 후보 = _mega_hold=False만 (신규 진입자 매수 대상)
-    new_buy = [s for s in selected if not s.get('_mega_hold')]
-    mega_in_slot = [s for s in selected if s.get('_mega_hold')]
+    # 매수 후보 영역 — 신규 진입자 시점 (메가 carryover 없음 가정)
+    if new_buy_top2 is None:
+        new_buy_top2 = [s for s in (selected or []) if not s.get('_mega_hold')]
+    mega_in_slot = [s for s in (selected or []) if s.get('_mega_hold')]
 
-    if new_buy:
+    if new_buy_top2:
         lines.append(f'🛒 <b>신규 매수 후보</b> (오늘 새로 진입)')
         lines.append('━━━━━━━━━━━━━━━')
-        for idx, s in enumerate(new_buy):
+        for idx, s in enumerate(new_buy_top2):
             name = _clean_company_name(s['name'], s['ticker'])
-            lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
+            w = s.get('weight', 0)
+            w_tag = f' · {int(w)}%' if w else ''
+            lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{w_tag}')
 
     if mega_in_slot:
         lines.append('')
@@ -5057,13 +5106,18 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     if alpha_signals is None:
         alpha_signals = {}
 
-    # ━━ 섹션 3: 종목별 근거 ━━
+    # ━━ 섹션 3: 종목별 근거 (신규 매수 후보 + 메가 모두) ━━
+    # v87 (2026-06-03): selected (시뮬) 대신 매수후보 + 메가 합쳐 표시.
+    detail_list = list(new_buy_top2) if new_buy_top2 else []
+    for s in (selected or []):
+        if s.get('_mega_hold') and s['ticker'] not in [x['ticker'] for x in detail_list]:
+            detail_list.append(s)
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>종목별 근거</b>')
     lines.append('━━━━━━━━━━━━━━━')
 
-    for i, s in enumerate(selected):
+    for i, s in enumerate(detail_list):
         ticker = s['ticker']
         eps_chg = s['eps_chg']
         rev = _safe_float(s.get('rev_growth'))
@@ -5934,8 +5988,8 @@ def main():
         # conviction w_gap 맵(순위용) + 퍼센타일 점수 맵(표시용)
         score_100_map, score_display_map = _build_score_100_map(today_str)
 
-        # 디스플레이용 종목 선정 (v57b: adj_gap ≤ -4% + min_seg ≥ 1%, 최대 3종목)
-        display_top5 = select_display_top5(
+        # 디스플레이용 종목 선정 — v87 (2026-06-03): selected (시뮬) + new_buy_top2 (신규)
+        display_top5, new_buy_top2 = select_display_top5(
             results_df, status_map, weighted_ranks, earnings_map, risk_status,
             score_100_map=score_100_map, hist_all=hist_all, today_str=today_str
         )
@@ -5976,6 +6030,7 @@ def main():
             exited_tickers=exited_tickers, risk_status=risk_status,
             score_100_map=score_100_map, score_display_map=score_display_map,
             alpha_signals=alpha_signals, hist_all=hist_all,
+            new_buy_top2=new_buy_top2,
         )
         if msg_signal:
             if send_to_channel:
