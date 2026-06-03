@@ -4940,24 +4940,38 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append('')
             lines.append(f'📈 <b>시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)</b>')
             lines.append(f'    같은 기간 S&P500은 {perf["spy_cum"]:+.1f}%')
+            lines.append(f'⚙️ 신규 매수 (괴리율) + 핵심 성장주 보유 (메가)')
     except Exception:
         pass
 
     # ━━ 섹션 1: 결론 먼저 ━━
+    # v87 UX (2026-06-03): 매수 후보 vs 핵심성장주 영역 시각적 완전 분리
+    # 사용자 우려 — 신규 진입자가 메가홀드 종목을 매수후보로 오해. 분리 표시로 명확화.
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    # v86e++ (2026-06-03): 표시 순서 = 점수 내림차순. 핵심성장주(순위 밀려 점수 낮음)가
-    # 앞에 와서 "왜 47위가 1위?" 혼란 주던 것 정정 → 고확신 픽 먼저. 비중은 entry 저장이라 무관.
     if score_display_map:
         selected = sorted(selected, key=lambda s: score_display_map.get(s['ticker'], 0), reverse=True)
 
-    lines.append(f'🛒 <b>EPS 모멘텀 매수 후보</b>')
-    lines.append('━━━━━━━━━━━━━━━')
-    for idx, s in enumerate(selected):
-        name = _clean_company_name(s['name'], s['ticker'])
-        w = s.get('weight', 0)
-        mega_tag = ' 🌟핵심성장주' if s.get('_mega_hold') else ''
-        lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{mega_tag}')
+    # 매수 후보 = _mega_hold=False만 (신규 진입자 매수 대상)
+    new_buy = [s for s in selected if not s.get('_mega_hold')]
+    mega_in_slot = [s for s in selected if s.get('_mega_hold')]
+
+    if new_buy:
+        lines.append(f'🛒 <b>신규 매수 후보</b> (오늘 새로 진입)')
+        lines.append('━━━━━━━━━━━━━━━')
+        for idx, s in enumerate(new_buy):
+            name = _clean_company_name(s['name'], s['ticker'])
+            lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>')
+
+    if mega_in_slot:
+        lines.append('')
+        lines.append('━━━━━━━━━━━━━━━')
+        lines.append(f'🌟 <b>핵심 성장주 — 보유 유지</b>')
+        lines.append('  (이미 보유 중인 경우만 / 신규는 매수 후보로)')
+        lines.append('━━━━━━━━━━━━━━━')
+        for s in mega_in_slot:
+            name = _clean_company_name(s['name'], s['ticker'])
+            lines.append(f'<b>{name}({s["ticker"]})</b>')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
@@ -5125,12 +5139,13 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 1·2위 점수차 dynamic')
+    lines.append('📌 신규 진입자: 매수 후보만 (메가는 무시)')
+    lines.append('📌 이미 보유: 매수 후보 + 메가 holding')
+    lines.append('매수 비중: 1·2위 점수차 dynamic')
     lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
-    lines.append('매도: 10위 밖 or 실적하락')
-    lines.append('  🌟 핵심 성장주(성장 대비 저평가)는')
-    lines.append('     순위 밀려도 보유')
-    lines.append('  (저평가 해소되거나 실적 꺾이면 매도)')
+    lines.append('매도: 매수 후보 10위 밖 or 실적하락')
+    lines.append('🌟 메가 매도: PEG≥0.22 (저평가 해소)')
+    lines.append('  or 매출<25% or EPS 꺾임')
 
     return '\n'.join(lines)
 
@@ -5467,8 +5482,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
         lines.append(f'🌟 핵심 성장주: {" ".join(parts)}')
+        lines.append('  (이미 보유 중인 경우만 — 신규는 매수 후보로)')
         lines.append('  성장 대비 크게 저평가 → 순위 밀려도 보유')
-        lines.append('  (저평가 해소되거나 실적 꺾이면 매도)')
+        lines.append('  저평가 해소(PEG≥0.22) 또는 실적 꺾이면 매도')
 
     # ── 순위 이탈 (사유별 묶어서 표시) — 메가홀드 종목은 제외 ──
     if exit_reasons:
@@ -5490,12 +5506,13 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 1·2위 점수차 dynamic')
+    lines.append('📌 신규 진입자: 매수 후보만 (메가는 무시)')
+    lines.append('📌 이미 보유: 매수 후보 + 메가 holding')
+    lines.append('매수 비중: 1·2위 점수차 dynamic')
     lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
-    lines.append('매도: 10위 밖 or 실적하락')
-    lines.append('  🌟 핵심 성장주(성장 대비 저평가)는')
-    lines.append('     순위 밀려도 보유')
-    lines.append('  (저평가 해소되거나 실적 꺾이면 매도)')
+    lines.append('매도: 매수 후보 10위 밖 or 실적하락')
+    lines.append('🌟 메가 매도: PEG≥0.22 (저평가 해소)')
+    lines.append('  or 매출<25% or EPS 꺾임')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
     return '\n'.join(lines)
