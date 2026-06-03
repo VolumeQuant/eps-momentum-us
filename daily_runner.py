@@ -3829,20 +3829,26 @@ def check_mega_hold(ticker):
 
 
 def get_mega_hold_tickers(today_str=None):
-    """v86e+ (2026-06-02 v90): 현재 메가 시그니처(PEG<0.22) 보유 종목 전부, 순위 무관.
+    """v87 UX 재설계 (2026-06-03): 시스템 실 보유 중 메가만 반환.
 
     Returns: [(ticker, part2_rank or None), ...]  part2_rank 오름차순 정렬
 
-    v86→v86e+ 변화: NTM 조건 제거 + PEG 0.20 → 0.22 (v90 BT LOWO +4p robust 우월).
-    v86e++ (2026-06-03): 보유추정을 _recent_held_tickers 공용 헬퍼로 → carryover와 단일 소스.
+    UX 전문가 권고 (토스/카카오 핀테크 관점):
+    - 시뮬 풀(held_candidates)이 사용자 실 portfolio 아님
+    - UMBF(매수 0회), MU(매도됨) 같은 false positive → "약올림" 메시지
+    - replay 실 보유 종목만 표시 = 정직 + 신뢰
+
+    이전 (v86e++): held_candidates 풀 (최근 15일 part2_rank≤10 경험) → 잘못
+    변경 (v87): _replay_holdings() 실 보유 종목 ∩ 메가 시그니처
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # v86e++ (2026-06-03 정정): 현재 가치 기준 (PEG<0.22 + 성장≥25% + EPS안꺾임 + 최근상위권).
-        # 보유이력(replay) 기준은 데이터갭으로 보유 끊긴 MU를 부당 누락 → SNDK와 차별(모순).
-        # 같은 메가는 같게 — 보유이력 무관, 현재 핵심성장주면 전부 표시. (에너지 junk는 recency로 제외)
-        held_candidates = _recent_held_tickers(today_str)
+        # v87 (2026-06-03): replay 실 보유 종목만 (UMBF/MU false positive 제거)
+        try:
+            held_candidates = set(_replay_holdings(today_str))
+        except Exception:
+            held_candidates = set()
         cursor.execute('''
             SELECT ticker, price, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, rev_growth, part2_rank
             FROM ntm_screening
@@ -5019,15 +5025,16 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     except Exception:
         mega_list = []
     if mega_list:
-        # 종목명 매핑 (selected에 있으면 거기서, 없으면 ticker만)
+        # v87 UX (2026-06-03): 명령조 "보유 유지" → 사실 진술 "시스템 보유 중"
+        # 신규 사용자에게 보유 종목은 sunk alpha — 정보만 제공, 명령 X
         name_map = {s['ticker']: _clean_company_name(s['name'], s['ticker']) for s in (selected or [])}
-        # 매수후보에도 이름 정보 있을 수 있음 (KEYS 등)
         for s in (new_buy_top2 or []):
             name_map.setdefault(s['ticker'], _clean_company_name(s.get('name', s['ticker']), s['ticker']))
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
-        lines.append(f'🌟 <b>핵심 성장주 — 보유 유지</b>')
-        lines.append('  (이미 보유 중인 경우만 / 신규는 매수 후보로)')
+        lines.append(f'ℹ️ <b>참조: 시스템 보유 중인 메가</b>')
+        lines.append('  (시스템이 과거 매수 후 carryover 중)')
+        lines.append('  이미 매수하신 분만 참고 — 신규 매수는 위 후보에서')
         lines.append('━━━━━━━━━━━━━━━')
         for tk, p2 in mega_list:
             nm = name_map.get(tk, tk)
@@ -5172,11 +5179,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         rev = _safe_float(s.get('rev_growth'))
         earnings_tag = s.get('earnings_note', '')
 
-        # v87 (2026-06-03): 비중 명시 (신규 매수 = 50%/100%, 메가 = holding 표시)
+        # v87 UX (2026-06-03): 명령조 "holding" → 사실 진술 "메가 carryover"
         is_mega = s.get('_mega_hold') or (ticker not in new_buy_tks)
         if is_mega:
-            weight_tag = ' · 🌟 holding'
-            num_label = '🌟'  # 메가는 번호 대신 별 마크
+            weight_tag = ' · 메가 carryover (보유 중)'
+            num_label = 'ℹ️'  # 메가는 정보 마크 (보유 명령 X)
         else:
             w = s.get('weight', 0)
             weight_tag = f' · {int(w)}%' if w else ''
@@ -5199,10 +5206,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
         lines.append(' · '.join(growth_parts))
 
-        # 핵심 성장주(메가홀드) — 메시지 전체 일관성
+        # v87 UX (2026-06-03): "보유 유지" 명령 → "carryover 중" 사실 진술
         if s.get('_mega_hold'):
-            lines.append('🌟 핵심 성장주 — 압도적 성장 + 저평가')
-            lines.append('   (이미 보유 중인 경우만 — 신규는 매수 후보로)')
+            lines.append('ℹ️ PEG<0.22 메가 carryover 중')
+            lines.append('   (신규 매수는 위 후보에서 — 이건 참조용)')
 
         # L2: 안정성 (순위 · 의견 · 저평가 streak)
         rev_up = int(s.get('rev_up', 0) or 0)
@@ -5252,13 +5259,13 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('📌 신규 진입자: 매수 후보만 (메가는 무시)')
-    lines.append('📌 이미 보유: 매수 후보 + 메가 holding')
+    lines.append('📌 신규: 매수 후보만 (메가는 참조 — 사면 안 됨)')
+    lines.append('📌 기존 보유자: 매수 후보 + 메가 매도 트리거 확인')
     lines.append('매수 비중: 1·2위 점수차 dynamic')
     lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
     lines.append('매도: 매수 후보 10위 밖 or 실적하락')
-    lines.append('🌟 메가 매도: PEG≥0.22 (저평가 해소)')
-    lines.append('  or 매출<25% or EPS 꺾임')
+    lines.append('메가 매도: PEG≥0.22 or 매출<25% or EPS 꺾임')
+    lines.append('⚠️ 시뮬 누적수익률은 참조용 (실제 세금·슬리피지 미반영)')
 
     return '\n'.join(lines)
 
@@ -5594,10 +5601,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             parts.append(f'{tk}({rk})')
         lines.append('')
         lines.append('━━━━━━━━━━━━━━━')
-        lines.append(f'🌟 핵심 성장주: {" ".join(parts)}')
-        lines.append('  (이미 보유 중인 경우만 — 신규는 매수 후보로)')
-        lines.append('  성장 대비 크게 저평가 → 순위 밀려도 보유')
-        lines.append('  저평가 해소(PEG≥0.22) 또는 실적 꺾이면 매도')
+        lines.append(f'ℹ️ 시스템 보유 메가: {" ".join(parts)}')
+        lines.append('  (시스템이 과거 매수 후 carryover 중)')
+        lines.append('  이미 매수하신 분만 참고 — 신규 매수는 위 후보에서')
+        lines.append('  매도 트리거: PEG≥0.22 or 매출<25% or EPS 꺾임')
 
     # ── 순위 이탈 (사유별 묶어서 표시) — 메가홀드 종목은 제외 ──
     if exit_reasons:
@@ -5619,13 +5626,13 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('📌 신규 진입자: 매수 후보만 (메가는 무시)')
-    lines.append('📌 이미 보유: 매수 후보 + 메가 holding')
+    lines.append('📌 신규: 매수 후보만 (메가는 참조 — 사면 안 됨)')
+    lines.append('📌 기존 보유자: 매수 후보 + 메가 매도 트리거 확인')
     lines.append('매수 비중: 1·2위 점수차 dynamic')
     lines.append('  (격차≥15 → 1위 100%, 격차<15 → 50/50)')
     lines.append('매도: 매수 후보 10위 밖 or 실적하락')
-    lines.append('🌟 메가 매도: PEG≥0.22 (저평가 해소)')
-    lines.append('  or 매출<25% or EPS 꺾임')
+    lines.append('메가 매도: PEG≥0.22 or 매출<25% or EPS 꺾임')
+    lines.append('⚠️ 시뮬 누적수익률은 참조용 (실제 세금·슬리피지 미반영)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
     return '\n'.join(lines)
