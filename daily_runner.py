@@ -5202,7 +5202,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             rank_str = f'{r2_s}→{r1_s}→{r0}위'
         else:
             rank_str = f'-→-→?위'
-        rank_parts = [f'순위 {rank_str}']
+        rank_parts = [f'일별 {rank_str}']
         if rev_up or rev_down:
             rank_parts.append(f'의견 ↑{rev_up}↓{rev_down}')
         # 어닝 서프/공매도는 AI 내러티브에서 자연어로 표현 (v69)
@@ -5560,7 +5560,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
                 rank_str = f'{r2_s}→{r1_s}→{r0}위'
         else:
             rank_str = f'-→-→{rank}위'
-        rank_parts = [f'순위 {rank_str}', f'의견 ↑{rev_up}↓{rev_down}']
+        rank_parts = [f'일별 {rank_str}', f'의견 ↑{rev_up}↓{rev_down}']
         # 어닝 서프/공매도는 Signal 메시지의 AI 내러티브에서 표현 (v69)
         lines.append(' · '.join(rank_parts))
 
