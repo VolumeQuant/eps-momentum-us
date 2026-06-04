@@ -3980,6 +3980,12 @@ def classify_exit_reasons(exited_tickers, results_df):
         if t and t in exited_tickers:
             full_data[t] = row
 
+    # v111: '추세보유' 재분류는 실제 보유 종목에만 적용 (Top20 이탈≠보유 종목).
+    try:
+        _held_set = set(_replay_holdings())
+    except Exception:
+        _held_set = set()
+
     for t in sorted(exited_tickers, key=lambda x: exited_tickers[x]):
         cur_rank = part2_map.get(t)  # conviction 기반 순위
         is_eligible = t in composite_map  # 하드필터 통과 여부
@@ -4003,9 +4009,9 @@ def classify_exit_reasons(exited_tickers, results_df):
         # v80.10c (2026-05-11): ⏸️ 유예 분류 제거 — BT 결과 v80.10 환경에선 N=0 best.
         # check_breakout_hold 함수는 코드에 유지 (회귀 검증/약세장 재검토용).
 
-        # v111 (2026-06-03): 순위 밀렸어도 가격>MA12(상승추세)면 '추세보유'로 재분류(매도 아님).
-        # 추세둔화(min_seg<-2)는 위에서 이미 continue 처리되어 영향 없음 (EPS꺾임 매도는 유지).
-        if reason in ('순위밀림', '주가선반영') and _above_ma12(t):
+        # v111 (2026-06-03): 실제 보유 종목이 순위 밀렸어도 가격>MA12면 '추세보유'(매도 아님).
+        # 보유 안 하는 Top20 이탈 종목은 그냥 순위밀림 (보유한 것처럼 표시하면 모순).
+        if reason in ('순위밀림', '주가선반영') and t in _held_set and _above_ma12(t):
             reason = '추세보유'
 
         result.append((t, cur_rank, reason))
@@ -5132,7 +5138,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     if filter_count:
         lines.append(f'→ 매출·마진·업종 품질 필터 {filter_count}종목')
     lines.append(f'→ 저평가 상위 20종목 매일 모니터링')
-    lines.append(f'→ 3일 연속 상위 유지 {len(selected)}종목 선정')
+    # v111: 퍼널은 신규 스크리닝 결과(매수 후보) 수를 설명 (selected=추세보유는 별개 트랙).
+    _n_screened = len(new_buy_top2) if new_buy_top2 else len(selected)
+    lines.append(f'→ 3일 연속 상위 유지 {_n_screened}종목 선정')
 
     if alpha_signals is None:
         alpha_signals = {}
