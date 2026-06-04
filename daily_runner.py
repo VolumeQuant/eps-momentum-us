@@ -4456,7 +4456,7 @@ def _clean_company_name(name, ticker):
     if not name or name == ticker:
         return ticker
     # 법인격 접미사 (완전 + 부분 잘림 모두 대응)
-    suffixes = r',?\s*(?:Inc(?:orporat(?:ed?)?)?\.?|Corp(?:orati(?:on)?)?\.?|Comp(?:any)?|Co\.?|Ltd\.?|Limi(?:ted)?|PLC|plc|Hold(?:ings?)?\.?|Group|N\.?V\.?|(?<![A-Za-z])S\.?A\.?|(?<![A-Za-z])SE|(?<![A-Za-z])AG)\s*$'
+    suffixes = r',?\s*(?:Inc(?:orporat(?:ed?)?)?\.?|Corp(?:orati(?:on)?)?\.?|Comp(?:any)?|Co\.?|Ltd\.?|Limi(?:ted)?|PLC|plc|Hold(?:ings?)?\.?|Group|Technolog(?:y|ies)|N\.?V\.?|(?<![A-Za-z])S\.?A\.?|(?<![A-Za-z])SE|(?<![A-Za-z])AG)\s*$'
     cleaned = re.sub(suffixes, '', name, flags=re.IGNORECASE).strip()
     # 반복 적용 (접미사가 중첩된 경우: "Holdings, Inc.")
     cleaned = re.sub(suffixes, '', cleaned, flags=re.IGNORECASE).strip()
@@ -5025,7 +5025,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append('')
             lines.append(f'📈 <b>시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)</b>')
             lines.append(f'    같은 기간 S&P500은 {perf["spy_cum"]:+.1f}%')
-            lines.append(f'⚙️ 매일 저평가 Top 2 매수(50/50) · 상승추세면 보유, 깨지면 매도')
+            lines.append(f'⚙️ 저평가 Top2 매수 (50/50)')
+            lines.append(f'   추세 살아있으면 계속 보유')
     except Exception:
         pass
 
@@ -5047,7 +5048,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             name = _clean_company_name(s['name'], s['ticker'])
             w = s.get('weight', 0)
             w_tag = f' · {int(w)}%' if w else ''
-            lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{w_tag} · 신규 매수')
+            lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{w_tag}')
     else:
         lines.append('· 신규 매수 후보 없음 (보유 유지)')
 
@@ -5055,17 +5056,19 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # "일찍 안 팔기" 핵심. 신규 진입자는 무시(이미 올랐음), 보유자만 해당.
     if trend_in_slot:
         lines.append('')
-        lines.append('🌟 <b>추세 보유</b> (이미 보유 중인 경우만)')
+        lines.append('🌟 <b>추세 보유</b> (보유자만)')
         for s in trend_in_slot:
             name = _clean_company_name(s['name'], s['ticker'])
             rk = s.get('part2_rank')
             rk_tag = f'{int(rk)}위' if (rk is not None and rk <= 20) else '순위 밖'
-            lines.append(f'· {name}({s["ticker"]}) · {rk_tag} · 상승추세 지속')
-        lines.append('  → 순위 밀려도 상승추세면 보유, 추세 깨지면(MA12↓) 매도')
+            lines.append(f'· {name}({s["ticker"]}) · {rk_tag}')
+        lines.append('  → 추세 유지 시 보유 · 깨지면 매도')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
+    # v111: 신규 매수 후보만 대상 (분산 권유는 '오늘 살 것' 한정).
+    #   추세 보유(메가)는 이미 보유 중인 winner라 '택1' 권유 무의미 → 제외.
     try:
-        tickers_list = [s['ticker'] for s in selected]
+        tickers_list = [s['ticker'] for s in (new_buy_top2 or [])]
         # hist_all(1년치)에서 슬라이싱 — 추가 HTTP 호출 불필요
         close = None
         if hist_all is not None and 'Close' in hist_all.columns.get_level_values(0):
@@ -5168,7 +5171,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         # v111 (2026-06-03): 추세 보유(MA12) 종목은 "이미 보유한 경우만 유지" 표시.
         is_trend = s.get('_trend_hold') or (ticker not in new_buy_tks)
         if is_trend:
-            weight_tag = ' · 추세 보유 (이미 보유한 경우만 유지)'
+            weight_tag = ' · 추세 보유'
             num_label = 'ℹ️'
         else:
             w = s.get('weight', 0)
@@ -5194,8 +5197,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
 
         # v111 (2026-06-03): 추세 보유 안내
         if s.get('_trend_hold'):
-            lines.append('ℹ️ 상승추세 지속(가격&gt;MA12) → 순위 밀려도 보유')
-            lines.append('   (신규 매수는 위 후보에서 — 이건 보유자 참조용)')
+            lines.append('ℹ️ 추세 유지 → 순위 밀려도 보유')
 
         # L2: 안정성 (순위 · 의견 · 저평가 streak)
         rev_up = int(s.get('rev_up', 0) or 0)
@@ -5231,7 +5233,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         real_exits = [(t, r, reason) for t, r, reason in exit_reasons if reason != '추세보유']
         if trend_held_now:
             lines.append('')
-            lines.append(f'🌟 추세 보유 유지: {"·".join(trend_held_now)} (순위 밀렸으나 상승추세 지속, 보유자만)')
+            lines.append(f'🌟 추세 보유: {"·".join(trend_held_now)} (보유자만, 추세 유지)')
         reason_groups = defaultdict(list)
         for t, _, reason in real_exits:
             reason_groups[reason or '순위밀림'].append(t)
@@ -5252,11 +5254,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 저평가(EPS 상향) Top 2 (둘 다 있으면 50/50)')
-    lines.append('  · 후보 1종목뿐이면 단독 100%')
-    lines.append('매도: 실적 꺾임(EPS 하향) 또는 상승추세 붕괴(가격&lt;MA12)')
-    lines.append('  · 순위 밀려도 상승추세(가격&gt;MA12) 지속이면 계속 보유')
-    lines.append('  · "일찍 안 팔기" — 오르는 종목은 추세 깨질 때까지 보유')
+    lines.append('매수: 저평가 Top2 (50/50)')
+    lines.append('  · 1종목뿐이면 100%')
+    lines.append('매도: EPS 하향 또는 가격&lt;MA12')
+    lines.append('  · 추세 유지(&gt;MA12)면 계속 보유')
+    lines.append('  · 오르는 종목 일찍 안 팔기')
     lines.append('⚠️ 시뮬 누적수익률 (실제 세금·슬리피지 미반영)')
 
     return '\n'.join(lines)
@@ -5584,14 +5586,13 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     # ── 메가 영역 — v87 UX 재설계 (2026-06-03): 제거 ──
     # 사용자 분노: "지나간 홀드 종목 보여줘봤자 약올림" — 모든 고객 SNDK 매도 완료
     # 미래 carryover 안내는 footer 운영 규칙에
-    mega_set = set()  # 이탈 표시용 (메가 종목 이탈 표시 제외)
 
-    # ── 순위 이탈 (사유별 묶어서 표시) — 메가홀드 종목은 제외 ──
+    # ── 순위 이탈 (사유별 묶어서 표시) — v111: '추세보유'(보유 중)는 이탈 아님 ──
     if exit_reasons:
         from collections import defaultdict
         reason_groups = defaultdict(list)
         for t, _, reason in exit_reasons:
-            if reason == '메가홀드' or t in mega_set:
+            if reason == '추세보유':  # 보유 종목이 순위만 밀린 것 → 이탈 아님
                 continue
             reason_groups[reason or '순위밀림'].append(t)
         if reason_groups:
@@ -5606,11 +5607,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 저평가(EPS 상향) Top 2 (둘 다 있으면 50/50)')
-    lines.append('  · 후보 1종목뿐이면 단독 100%')
-    lines.append('매도: 실적 꺾임(EPS 하향) 또는 상승추세 붕괴(가격&lt;MA12)')
-    lines.append('  · 순위 밀려도 상승추세(가격&gt;MA12) 지속이면 계속 보유')
-    lines.append('  · "일찍 안 팔기" — 오르는 종목은 추세 깨질 때까지 보유')
+    lines.append('매수: 저평가 Top2 (50/50)')
+    lines.append('  · 1종목뿐이면 100%')
+    lines.append('매도: EPS 하향 또는 가격&lt;MA12')
+    lines.append('  · 추세 유지(&gt;MA12)면 계속 보유')
+    lines.append('  · 오르는 종목 일찍 안 팔기')
     lines.append('⚠️ 시뮬 누적수익률 (실제 세금·슬리피지 미반영)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
