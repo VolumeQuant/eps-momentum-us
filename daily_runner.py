@@ -3238,17 +3238,33 @@ def _recent_held_tickers(today_str=None, lookback=15, rank_thresh=10):
 
 
 def _replay_holdings(before_date=None):
-    """forward replay로 '오늘 직전까지 실제 보유 종목' 재구성 (무상태, BT==production).
+    """forward replay 보유 재구성 (v111 MA12-hold, 무상태, BT==production).
 
-    v86e++ (2026-06-03): recency proxy(part2 Top10 경험)는 실제 안 들고 있던 메가까지
-    과잉보유(UMBF 등) → 성능 replay({KEYS,SNDK})와 불일치. 이 함수는 _get_system_performance
-    와 동일 규칙으로 처음부터 replay → before_date 직전 거래일까지의 실제 보유집합 반환.
-    규칙: 진입 part2_rank≤2 (빈 슬롯), 이탈 min_seg<-2 OR (메가&rev_growth<0.25) OR
-          (rank>10 & not 메가). 메가=PEG<0.22. MAX 2슬롯.
+    v111 (2026-06-03): PEG 메가홀드 → MA12 추세홀드로 전면 교체.
+    규칙: 진입 part2_rank≤2 (빈 슬롯), MAX 2슬롯.
+      보유 유지: rank≤10 OR (rank>10 이지만 가격>MA12, 상승추세 지속)
+      이탈: min_seg<-2 (EPS 꺾임) OR (rank>10 AND 가격≤MA12, 추세 붕괴)
+      데이터 fetch 실패(가격 None)시 carryover (v113 robust 계승)
+    근거: 모든 winner(MU/SNDK/STX/LITE)가 순위 밖에서도 상승 지속 → 추세(MA12)로 보유.
+      BT: baseline 대비 +33p (100/100), 인접 MA10~15 고원, walk-forward 5/5, LOWO 무해.
+      PEG(메가)보다 broad(STX 등 비메가 winner 포착) + 고객 설득력(추세 직관).
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
+        # 전체 가격 캘린더 (MA12용 — 순위 밖 종목도 가격 필요)
+        alld = [r[0] for r in cur.execute('SELECT DISTINCT date FROM ntm_screening WHERE price IS NOT NULL ORDER BY date')]
+        didx = {d: i for i, d in enumerate(alld)}
+        pxh = {}
+        for tk, d, p in cur.execute('SELECT ticker,date,price FROM ntm_screening WHERE price IS NOT NULL'):
+            pxh.setdefault(tk, {})[d] = p
+        def _ma12(tk, d):
+            i = didx.get(d)
+            if i is None or i - 11 < 0:
+                return None
+            v = [pxh.get(tk, {}).get(alld[j]) for j in range(i - 11, i + 1)]
+            v = [x for x in v if x]
+            return sum(v) / len(v) if len(v) >= 6 else None
         if before_date:
             dts = [r[0] for r in cur.execute(
                 'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date < ? ORDER BY date',
@@ -3259,27 +3275,28 @@ def _replay_holdings(before_date=None):
         port = set()
         for d in dts:
             rows = cur.execute(
-                'SELECT ticker,part2_rank,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,rev_growth FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
+                'SELECT ticker,part2_rank,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
                 (d,)).fetchall()
             info = {}
-            for tk, p2, price, nc, n7, n30, n60, n90, rg in rows:
+            for tk, p2, nc, n7, n30, n60, n90 in rows:
                 segs = []
                 for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
                     segs.append((a - b) / abs(b) * 100 if b and abs(b) > 0.01 else 0)
-                peg = (price / nc) / (rg * 100) if (price and nc and nc > 0 and rg and rg > 0) else None
-                info[tk] = dict(p2=p2, peg=peg, minseg=min(segs) if segs else 0, rg=rg)
-            # 이탈
+                info[tk] = dict(p2=p2, minseg=min(segs) if segs else 0)
+            # 이탈 (MA12-hold)
             for tk in list(port):
                 it = info.get(tk)
-                if it is None:
-                    port.discard(tk); continue
-                mega = it['peg'] is not None and it['peg'] < 0.22
-                if it['minseg'] < -2:
-                    port.discard(tk); continue
-                if mega and it['rg'] is not None and it['rg'] < 0.25:
-                    port.discard(tk); continue
-                if (not mega) and it['p2'] > 10:
-                    port.discard(tk); continue
+                if it is not None and it['minseg'] < -2:
+                    port.discard(tk); continue  # EPS 꺾임 = 즉시 매도
+                p2 = it['p2'] if it else None
+                if p2 is None or p2 > 10:
+                    cp = pxh.get(tk, {}).get(d)
+                    if cp is None:
+                        continue  # 데이터 fetch 실패 → carryover (v113)
+                    m = _ma12(tk, d)
+                    if m is not None and cp > m:
+                        continue  # 가격 > MA12 = 상승추세 → 보유
+                    port.discard(tk)  # 추세 붕괴 → 매도
             # 진입 (빈 슬롯, rank≤2)
             if len(port) < 2:
                 for tk, p2 in sorted([(tk, it['p2']) for tk, it in info.items()
@@ -3292,6 +3309,31 @@ def _replay_holdings(before_date=None):
     except Exception as e:
         log(f"_replay_holdings 오류: {e}", "WARN")
         return set()
+
+
+def _above_ma12(ticker, today_str=None, n=12):
+    """현재가 > MA12 (상승추세 유지) 여부 — v111 추세홀드 판정.
+    데이터 fetch 실패(가격 부족)시 True 반환(carryover, v113 robust 계승)."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        if today_str:
+            rows = [r[0] for r in cur.execute(
+                'SELECT price FROM ntm_screening WHERE ticker=? AND price IS NOT NULL AND date<=? ORDER BY date DESC LIMIT ?',
+                (ticker, today_str, n))]
+        else:
+            rows = [r[0] for r in cur.execute(
+                'SELECT price FROM ntm_screening WHERE ticker=? AND price IS NOT NULL ORDER BY date DESC LIMIT ?',
+                (ticker, n))]
+        conn.close()
+        if len(rows) < 6:
+            return True  # 데이터 부족(갭) → carryover 유지
+        cp = rows[0]
+        m = sum(rows) / len(rows)
+        return cp > m
+    except Exception as e:
+        log(f"_above_ma12 {ticker} 오류: {e}", "WARN")
+        return True
 
 
 def _build_portfolio_entry(row, status_map, earnings_map):
@@ -3387,27 +3429,18 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     MAX_SLOTS = 2
     selected = []
 
-    # v86e+ (2026-06-02): EPS revision regime 분기 (mean reversion regime 외 종목 분리).
-    # 시스템 본질 = mean reversion. 슈퍼사이클 종목(MU/SNDK)은 EPS가 가격 영구 압도 → 다른 regime.
-    # 어제 보유(portfolio_log) 종목이 EPS revision regime(PEG<0.22) 유지 + 매도 트리거 안걸리면
-    # 순위 10위 밖이어도 selected에 먼저 넣어 슬롯 점유 → 신규는 남은 슬롯만.
-    # → portfolio_log(성능)·슬롯·이탈 전부 자동 정합.
-    # 매도 트리거 (regime exit, 둘 중 하나):
-    #   1. min_seg<-2 (EPS 꺾임 = regime exit)
-    #   2. rev_growth<0.25 (매출성장 둔화 = regime exit)
-    # BT 자율주행 (V87~V91): 시스템 본질 재설계 모든 시도 V86e+ 우월하지 못함.
-    # mathematical impossibility (단일 adj_gap으로 mean reversion + EPS revision regime 동시 처리 불가).
-    # V86e+ regime 분리가 베이지안 정보 가중으로 정당. BT +92.5p / LOWO +14.7p (95/100).
-    mega_held = []
-    # v86e++ (2026-06-03): 동결된 portfolio_log 대신 forward replay로 실제 보유 재구성.
-    # 동결 장부(_get_prev_portfolio: 3개월 stale) → recency proxy(메가 과잉보유) → replay 순으로
-    # 정정. _replay_holdings는 성능sim과 동일 규칙으로 '어제까지 실제 보유'를 무상태 재구성
-    # → carryover가 성능 replay와 동일 보유집합 사용 = BT==production 보장.
+    # v111 (2026-06-03): MA12 추세홀드 — PEG 메가홀드/v110 mega_score 전면 교체.
+    # 진입: part2_rank Top (EPS 상향 + 저평가 = 시스템 핵심 철학).
+    # 보유: 순위 10위 밖이어도 가격>MA12(상승추세 지속)면 유지 → "일찍 안 팔기".
+    # 매도: min_seg<-2(EPS꺾임) OR 가격≤MA12(추세 붕괴).
+    # 근거: 모든 winner(MU/SNDK/STX/LITE)가 순위 밖에서도 상승 지속 → 추세로 보유.
+    #   BT baseline 대비 +33p(100/100), 인접 MA10~15 고원, walk-forward 5/5, LOWO 무해(STX 등
+    #   비메가 winner 포착 — PEG보다 broad). 재점검: 슬롯2 / 50-50(LOWO robust) / exit10 확정.
+    #   PEG<0.18(메가)보다 고객 설득력 우월("상승추세면 보유, 깨지면 매도" 직관).
+    trend_held = []
     prev_held = _replay_holdings(today_str)
     if prev_held:
         cand_by_tk = {row['ticker']: row for _, row in candidates.iterrows()}
-        # v86e++ (2026-06-03): 결정적 순서 — 현재 part2_rank 오름차순(best rank 우선).
-        # set 순회는 비결정적 → 메가 >슬롯 시 어느 것이 홀드될지 불확정. rank 우선으로 고정.
         def _cur_rank(t):
             r = cand_by_tk.get(t)
             v = r.get('part2_rank') if r is not None else None
@@ -3417,46 +3450,21 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                 break
             row = cand_by_tk.get(t)
             if row is None:
-                # v113 (2026-06-03): Part 2 풀 밖이어도 메가 시그니처 유지 시 carryover.
-                # 5/28-5/29 cron yfinance 부분 fetch 실패로 MU MISSING → 매도 발동 사고 fix.
-                # check_mega_hold가 MAX(date) fallback으로 마지막 가용 데이터로 PEG 판정.
-                if not check_mega_hold(t):
-                    continue  # 메가 시그니처 아니면 자연 매도 (기존 logic 유지)
-                row = _fetch_last_full_row(t, today_str)
+                row = _fetch_last_full_row(t, today_str)  # 순위밖/데이터갭 — 마지막 가용 데이터
                 if row is None:
-                    continue  # 데이터 자체 없으면 매도
-                # 매도 트리거 별도 체크 (메가 holding 기준과 동일)
-                segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
-                if segs and min(segs) < -2:
-                    log(f"  🔓 메가홀드 해제 (Part2 풀 밖) {t}: min_seg<-2 → 매도")
                     continue
-                rev_g = row.get('rev_growth')
-                if rev_g is not None and float(rev_g) < 0.25:
-                    log(f"  🔓 메가홀드 해제 (Part2 풀 밖) {t}: rev_growth<25% → 매도")
-                    continue
-                entry = _build_portfolio_entry(row, status_map, earnings_map)
-                entry['_mega_hold'] = True
-                entry['_stale_data'] = True
-                selected.append(entry)
-                mega_held.append(t)
-                log(f"  🔒 메가홀드 유지 (Part2 풀 밖) {t}: PEG<0.18 carryover (v110b + v113 fetch-fail robust)")
-                continue
-            if not check_mega_hold(t):
-                continue
             segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
             if segs and min(segs) < -2:
-                log(f"  🔓 메가홀드 해제 {t}: min_seg<-2 (EPS 꺾임) → 매도")
+                log(f"  🔓 추세보유 해제 {t}: EPS 꺾임(min_seg<-2) → 매도")
                 continue
-            # v86e: rev_growth<25% 매도 트리거
-            rev_g = row.get('rev_growth')
-            if rev_g is not None and float(rev_g) < 0.25:
-                log(f"  🔓 메가홀드 해제 {t}: rev_growth<25% (매출 둔화) → 매도")
+            if not _above_ma12(t, today_str):
+                log(f"  🔓 추세보유 해제 {t}: 가격<MA12 (상승추세 붕괴) → 매도")
                 continue
             entry = _build_portfolio_entry(row, status_map, earnings_map)
-            entry['_mega_hold'] = True
+            entry['_trend_hold'] = True
             selected.append(entry)
-            mega_held.append(t)
-            log(f"  🔒 메가홀드 유지 {t}: 순위 밀려도 보유 (PEG<0.18 + 매출≥25%, w_rank={p2r_map.get(t, '?')})")
+            trend_held.append(t)
+            log(f"  📈 추세 보유 {t}: 순위 밀려도 가격>MA12 유지 (w_rank={p2r_map.get(t, '?')})")
 
     # v110 (2026-06-03): "각 분야 1등 사는" 시스템
     #   슬롯 1: part2_rank Top 1 (mean reversion 신호 1위)
@@ -3488,45 +3496,19 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             return False
         return True
 
-    # 슬롯 1: part2_rank Top 1 (mean reversion)
-    slot1_filled = False
+    # 신규 진입: part2_rank Top (빈 슬롯 채움 — EPS상향+저평가 mean reversion)
     for _, row in candidates.iterrows():
         if len(selected) >= MAX_SLOTS:
             break
         t = row['ticker']
-        if t in mega_held:
+        if t in trend_held or any(s['ticker'] == t for s in selected):
             continue
         if not _entry_pass(row, t):
             continue
         entry = _build_portfolio_entry(row, status_map, earnings_map)
-        entry['_entry_type'] = 'mean_reversion'
+        entry['_entry_type'] = 'new'
         selected.append(entry)
-        slot1_filled = True
-        log(f"  ✅ 슬롯 1 (mean reversion) {t}: part2 1위 진입")
-        break  # 슬롯 1 1개만
-
-    # 슬롯 2: mega_score Top 1 (메가 시그니처 PEG<0.25 + 매출≥25%)
-    if len(selected) < MAX_SLOTS:
-        mega_picks = []
-        for _, row in candidates.iterrows():
-            t = row['ticker']
-            if t in mega_held or any(s['ticker'] == t for s in selected):
-                continue
-            score = calc_mega_score(row.to_dict() if hasattr(row, 'to_dict') else dict(row))
-            if score is None:
-                continue
-            if not _entry_pass(row, t):
-                continue
-            mega_picks.append((score, t, row))
-        mega_picks.sort(key=lambda x: -x[0])
-        if mega_picks:
-            score, t, row = mega_picks[0]
-            entry = _build_portfolio_entry(row, status_map, earnings_map)
-            entry['_entry_type'] = 'mega'
-            selected.append(entry)
-            log(f"  ✅ 슬롯 2 (메가) {t}: mega_score={score:.1f} 진입")
-        else:
-            log(f"  ℹ️  슬롯 2: 메가 시그니처 부재 → 슬롯 1 단독 (V110a 100%)")
+        log(f"  ✅ 신규 진입 {t}: part2 {p2r_map.get(t, '?')}위")
 
     # v110 (2026-06-03): 50/50 고정 (각 분야 1등 entry, score 격차 무관 메가 비중 보존)
     #   슬롯 1 (part2) + 슬롯 2 (mega) 둘 다 차면 → 50/50
@@ -3535,54 +3517,30 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     n = len(selected)
     if n == 1:
         selected[0]['weight'] = 100
-        log(f"v110 비중: 1종목 단독 100% ({selected[0]['ticker']}, 메가 부재 또는 slot1 only)")
+        log(f"v111 비중: 1종목 100% ({selected[0]['ticker']})")
     elif n >= 2:
         selected[0]['weight'] = 50
         selected[1]['weight'] = 50
         for i in range(2, n):
             selected[i]['weight'] = 0
-        log(f"v110 비중: 50/50 (slot1 part2={selected[0]['ticker']}, slot2 mega={selected[1]['ticker']})")
+        log(f"v111 비중: 50/50 ({selected[0]['ticker']}, {selected[1]['ticker']})")
 
     log(f"디스플레이 {n}종목: " + ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
-    # v110 (2026-06-03): 신규 진입자용 매수후보 — "각 분야 1등" 동일 logic
-    #   slot 1: part2_rank Top 1 (mean reversion)
-    #   slot 2: mega_score Top 1 (메가 시그니처 PEG<0.25 + 매출≥25%)
-    #   비중: 둘 다 → 50/50 / 메가 부재 → slot 1 단독 100%
-    # 신규 진입자도 메가 entry 잡음 (V110 핵심: SNDK/UMBF 같은 메가 신규 매수 가능)
+    # v111: 신규 진입자용 매수후보 = part2_rank Top 2 (fresh 진입).
+    # 추세홀드는 보유자 전용(이미 탄 winner 유지), 신규는 오늘 part2 상위 픽 매수 → 추세 탑승.
     new_buy_top2 = []
-    # slot 1: part2 Top 1
     for _, row in candidates.iterrows():
-        if len(new_buy_top2) >= 1:
+        if len(new_buy_top2) >= 2:
             break
         t = row['ticker']
+        if any(s['ticker'] == t for s in new_buy_top2):
+            continue
         if not _entry_pass(row, t):
             continue
         entry = _build_portfolio_entry(row, status_map, earnings_map)
-        entry['_entry_type'] = 'mean_reversion'
+        entry['_entry_type'] = 'new'
         new_buy_top2.append(entry)
-        break
-    # slot 2: mega_score Top 1
-    if len(new_buy_top2) < 2:
-        mega_picks = []
-        for _, row in candidates.iterrows():
-            t = row['ticker']
-            if any(s['ticker'] == t for s in new_buy_top2):
-                continue
-            score = calc_mega_score(row.to_dict() if hasattr(row, 'to_dict') else dict(row))
-            if score is None:
-                continue
-            if not _entry_pass(row, t):
-                continue
-            mega_picks.append((score, t, row))
-        mega_picks.sort(key=lambda x: -x[0])
-        if mega_picks:
-            score, t, row = mega_picks[0]
-            entry = _build_portfolio_entry(row, status_map, earnings_map)
-            entry['_entry_type'] = 'mega'
-            new_buy_top2.append(entry)
-
-    # 비중 (selected와 동일 logic)
     nb_n = len(new_buy_top2)
     if nb_n == 1:
         new_buy_top2[0]['weight'] = 100
@@ -3943,47 +3901,28 @@ def calc_mega_score(row_dict):
 
 
 def get_mega_hold_tickers(today_str=None):
-    """v87 UX 재설계 (2026-06-03): 시스템 실 보유 중 메가만 반환.
+    """v111: MA12 추세 보유 종목 중 순위 밖(rank>10/None)인 것 — '추세 보유' 표시용.
 
     Returns: [(ticker, part2_rank or None), ...]  part2_rank 오름차순 정렬
 
-    UX 전문가 권고 (토스/카카오 핀테크 관점):
-    - 시뮬 풀(held_candidates)이 사용자 실 portfolio 아님
-    - UMBF(매수 0회), MU(매도됨) 같은 false positive → "약올림" 메시지
-    - replay 실 보유 종목만 표시 = 정직 + 신뢰
-
-    이전 (v86e++): held_candidates 풀 (최근 15일 part2_rank≤10 경험) → 잘못
-    변경 (v87): _replay_holdings() 실 보유 종목 ∩ 메가 시그니처
+    _replay_holdings(MA12)가 단일 소스 → 실제 보유와 표시 일치(BT==production).
+    rank≤10 보유는 일반 Top20에 나오므로, rank>10(순위 밀려도 추세로 보유 중)만 별도 표시.
     """
     try:
+        held = _replay_holdings(today_str)
+        if not held:
+            return []
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # v87 (2026-06-03): replay 실 보유 종목만 (UMBF/MU false positive 제거)
-        try:
-            held_candidates = set(_replay_holdings(today_str))
-        except Exception:
-            held_candidates = set()
-        cursor.execute('''
-            SELECT ticker, price, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, rev_growth, part2_rank
-            FROM ntm_screening
-            WHERE date=(SELECT MAX(date) FROM ntm_screening WHERE composite_rank IS NOT NULL)
-            AND ntm_current IS NOT NULL
-        ''')
+        last = cursor.execute(
+            'SELECT MAX(date) FROM ntm_screening WHERE composite_rank IS NOT NULL').fetchone()[0]
         out = []
-        for tk, price, nc, n7, n30, n60, n90, rg, p2 in cursor.fetchall():
-            if tk not in held_candidates:
-                continue
-            if not price or not nc or nc <= 0 or not rg or rg <= 0:
-                continue
-            peg = (price / nc) / (rg * 100)
-            if peg >= 0.22 or rg < 0.25:
-                continue
-            segs = []
-            for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
-                segs.append((a - b) / abs(b) * 100 if b and abs(b) > 0.01 else 0)
-            if segs and min(segs) < -2:
-                continue
-            out.append((tk, p2))
+        for tk in held:
+            r = cursor.execute(
+                'SELECT part2_rank FROM ntm_screening WHERE ticker=? AND date=?', (tk, last)).fetchone()
+            p2 = r[0] if r else None
+            if p2 is None or p2 > 10:  # 순위 밖 = 추세로 보유 중 (별도 표시)
+                out.append((tk, p2))
         conn.close()
         return sorted(out, key=lambda x: x[1] if x[1] is not None else 999)
     except Exception as e:
@@ -4064,10 +4003,10 @@ def classify_exit_reasons(exited_tickers, results_df):
         # v80.10c (2026-05-11): ⏸️ 유예 분류 제거 — BT 결과 v80.10 환경에선 N=0 best.
         # check_breakout_hold 함수는 코드에 유지 (회귀 검증/약세장 재검토용).
 
-        # B2 (v86, 2026-06-02): 메가 시그니처면 순위 기반 이탈 → '메가홀드'로 재분류.
+        # v111 (2026-06-03): 순위 밀렸어도 가격>MA12(상승추세)면 '추세보유'로 재분류(매도 아님).
         # 추세둔화(min_seg<-2)는 위에서 이미 continue 처리되어 영향 없음 (EPS꺾임 매도는 유지).
-        if reason in ('순위밀림', '주가선반영') and check_mega_hold(t):
-            reason = '메가홀드'
+        if reason in ('순위밀림', '주가선반영') and _above_ma12(t):
+            reason = '추세보유'
 
         result.append((t, cur_rank, reason))
 
@@ -4908,32 +4847,24 @@ def _get_system_performance():
             sys_nav *= (1 + day_ret / 100)
             spy_nav *= (1 + spy_ret / 100)
 
-            # 이탈 (v110 메가 carryover 시뮬 통합)
-            # 매도 트리거:
-            #   1. min_seg < -2 (EPS 꺾임)
-            #   2. 메가 (PEG<0.25 + 매출≥25%): rev_growth<0.25면 매도
-            #   3. 일반 (메가 아님): rank>10이면 매도 (메가는 carryover)
+            # 이탈 (v111 MA12 추세홀드): min_seg<-2(EPS꺾임) OR (rank>10 AND 가격≤MA12, 추세붕괴)
             for tk in list(portfolio.keys()):
                 ep = portfolio[tk]['entry_price']
                 cp = prices.get(tk)
                 if cp is None:
-                    continue  # v113: 데이터 없으면 carryover (매도 안 함)
+                    continue  # 데이터 fetch 실패 → carryover (v113 robust 계승)
                 rk = wgap_rank.get(tk)
                 ms = ticker_ms.get(tk, 0)
-                ret = (cp - ep) / ep * 100
-                info_tk = data.get(tk, {})
-                rg_tk = info_tk.get('rg')
-                nc_tk = info_tk.get('nc')
-                # v110 메가 정의: PEG<0.25 AND rev_growth≥0.25
-                peg_tk = (cp / nc_tk) / (rg_tk * 100) if (cp and nc_tk and nc_tk > 0 and rg_tk and rg_tk > 0) else None
-                is_mega_tk = peg_tk is not None and peg_tk < 0.18 and rg_tk is not None and rg_tk >= 0.25
+                ret = (cp - ep) / ep * 100 if ep else 0
                 sell = False
                 if ms < -2:
                     sell = True
-                elif is_mega_tk and rg_tk is not None and rg_tk < 0.25:
-                    sell = True
-                elif (rk is None or rk > 10) and not is_mega_tk:
-                    sell = True
+                elif rk is None or rk > 10:
+                    mv = [all_prices[all_dates[j]].get(tk) for j in range(max(0, i - 11), i + 1)]
+                    mv = [v for v in mv if v]
+                    m12 = sum(mv) / len(mv) if len(mv) >= 6 else None
+                    if not (m12 is not None and cp > m12):
+                        sell = True  # 가격≤MA12 = 추세 붕괴 → 매도 (>MA12면 보유)
                 if sell:
                     if ret > 0:
                         wins += 1
@@ -4941,63 +4872,22 @@ def _get_system_performance():
                         losses += 1
                     del portfolio[tk]
 
-            # v110 진입: slot 1 = part2 Top 1 (mean reversion) + slot 2 = mega_score Top 1
-            # 비중: 둘 다 → 50/50 / slot1만 (메가 부재) → 100%
+            # v111 진입: part2 Top (빈 슬롯, mean reversion). mega_score/composite게이트 제거.
             if len(portfolio) < 2:
-                # mega_score 계산 함수 (인라인)
-                def _mega_score_v110(tk):
-                    info = data.get(tk, {})
-                    p = prices.get(tk); nc = info.get('nc'); n90 = info.get('n90'); rg = info.get('rg')
-                    if not (p and nc and n90 and rg and nc > 0 and n90 > 0 and rg >= 0.25):
-                        return None
-                    peg = (p / nc) / (rg * 100)
-                    if peg >= 0.18:
-                        return None
-                    ntm_rev = (nc / n90 - 1) * 100
-                    return ntm_rev + rg * 100 + 50 / peg
-
-                # part2 Top 1 후보
-                p2_cand = next((tk for tk, _ in eligible
-                                if tk not in portfolio
-                                and wgap_rank.get(tk, 999) == 1
-                                and ticker_ms.get(tk, -999) >= 0), None)
-                # mega_score Top 1 후보 (메가 시그니처 + 진입 필터)
-                mega_cands = []
-                for tk, _ in eligible:
-                    if tk in portfolio or tk == p2_cand:
-                        continue
-                    if ticker_ms.get(tk, -999) < 0:
-                        continue
-                    if wgap_rank.get(tk, 999) > 30:
-                        continue  # composite Top 30 제한
-                    score = _mega_score_v110(tk)
-                    if score is None:
-                        continue
-                    mega_cands.append((score, tk))
-                mega_cands.sort(key=lambda x: -x[0])
-                mega_cand = mega_cands[0][1] if mega_cands else None
-
-                # 슬롯 채움 — V110a logic: 둘 다 → 50/50 / part2만 → 100%
                 used_idx = {info['slot_idx'] for info in portfolio.values()}
-                free_idx = sorted([i for i in range(2) if i not in used_idx])
-                if len(portfolio) == 0:
-                    if p2_cand and mega_cand:
-                        portfolio[p2_cand] = {'entry_price': prices.get(p2_cand), 'slot_idx': 0, 'weight': 50}
-                        portfolio[mega_cand] = {'entry_price': prices.get(mega_cand), 'slot_idx': 1, 'weight': 50}
-                    elif p2_cand:
-                        portfolio[p2_cand] = {'entry_price': prices.get(p2_cand), 'slot_idx': 0, 'weight': 100}
-                elif len(portfolio) == 1:
-                    # 빈 슬롯에 메가 또는 part2 추가
-                    # 우선순위: 1) 기존 슬롯이 part2면 mega 추가 / 2) 기존이 mega면 part2 추가
-                    existing_tk = list(portfolio.keys())[0]
-                    free = free_idx[0] if free_idx else 1
-                    if mega_cand and mega_cand != existing_tk:
-                        portfolio[mega_cand] = {'entry_price': prices.get(mega_cand), 'slot_idx': free, 'weight': 50}
-                        # 기존 슬롯 weight도 50으로 조정 (rebalance)
-                        portfolio[existing_tk]['weight'] = 50
-                    elif p2_cand and p2_cand != existing_tk:
-                        portfolio[p2_cand] = {'entry_price': prices.get(p2_cand), 'slot_idx': free, 'weight': 50}
-                        portfolio[existing_tk]['weight'] = 50
+                free_idx = sorted([si for si in range(2) if si not in used_idx])
+                cands = [tk for tk, _ in eligible
+                         if tk not in portfolio and ticker_ms.get(tk, -999) >= 0
+                         and wgap_rank.get(tk, 999) <= 3]
+                cands.sort(key=lambda t: wgap_rank.get(t, 999))
+                for tk in cands:
+                    if len(portfolio) >= 2:
+                        break
+                    idx = free_idx.pop(0) if free_idx else len(portfolio)
+                    portfolio[tk] = {'entry_price': prices.get(tk), 'slot_idx': idx, 'weight': 50}
+                pn = len(portfolio)  # 비중: n=1→100, n=2→50/50
+                for info in portfolio.values():
+                    info['weight'] = 100 if pn == 1 else 50
 
         conn.close()
         # n_days: 실제 day_ret 누적 일수 (첫 진입일은 day_ret=0이므로 -1)
@@ -5125,23 +5015,20 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append('')
             lines.append(f'📈 <b>시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)</b>')
             lines.append(f'    같은 기간 S&P500은 {perf["spy_cum"]:+.1f}%')
-            lines.append(f'⚙️ 매일 2종목 매수: 저평가 1위 + 초고성장주 1위 (50/50)')
+            lines.append(f'⚙️ 매일 저평가 Top 2 매수(50/50) · 상승추세면 보유, 깨지면 매도')
     except Exception:
         pass
 
     # ━━ 섹션 1: 결론 먼저 ━━
     # v87 (2026-06-03): 매수후보 vs 메가 영역 완전 분리.
-    # 매수후보 = new_buy_top2 (신규 진입자용 part2_rank Top 2, 메가 제외, dynamic weight)
-    # 메가 영역 = selected의 _mega_hold (이미 보유자만)
+    # v111 (2026-06-03): 신규 매수 후보 = new_buy_top2 (part2 Top, 50/50).
+    # 추세 보유 = selected의 _trend_hold (이미 보유자만 — MA12 상승추세 지속).
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
 
-    # 매수 후보 영역 — v87 UX 최종 (2026-06-03):
-    # 사용자 명령: "매수 후보에 holding 종목 생기면 그때 표시"
-    # 즉 selected에 메가 carryover 들어가면 같이 표시 (신규 매수 가이드 + 시뮬 holding 정보)
     if new_buy_top2 is None:
-        new_buy_top2 = [s for s in (selected or []) if not s.get('_mega_hold')]
-    mega_in_slot = [s for s in (selected or []) if s.get('_mega_hold')]
+        new_buy_top2 = [s for s in (selected or []) if not s.get('_trend_hold')]
+    trend_in_slot = [s for s in (selected or []) if s.get('_trend_hold')]
 
     lines.append(f'🛒 <b>오늘의 매수 후보</b>')
     lines.append('━━━━━━━━━━━━━━━')
@@ -5151,10 +5038,20 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             w = s.get('weight', 0)
             w_tag = f' · {int(w)}%' if w else ''
             lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{w_tag} · 신규 매수')
+    else:
+        lines.append('· 신규 매수 후보 없음 (보유 유지)')
 
-    # v110 (2026-06-04): 신규 진입자 입장에서 시뮬 holding 표시 제거.
-    # 신규 고객은 SNDK 안 갖고 있음 → "지나간 종목 보여줘봤자 약올림" (사용자 명령).
-    # 매수 후보만 표시.
+    # v111: 추세 보유 영역 — 보유 종목이 순위 밀려도 상승추세(>MA12)면 계속 보유.
+    # "일찍 안 팔기" 핵심. 신규 진입자는 무시(이미 올랐음), 보유자만 해당.
+    if trend_in_slot:
+        lines.append('')
+        lines.append('🌟 <b>추세 보유</b> (이미 보유 중인 경우만)')
+        for s in trend_in_slot:
+            name = _clean_company_name(s['name'], s['ticker'])
+            rk = s.get('part2_rank')
+            rk_tag = f'{int(rk)}위' if (rk is not None and rk <= 20) else '순위 밖'
+            lines.append(f'· {name}({s["ticker"]}) · {rk_tag} · 상승추세 지속')
+        lines.append('  → 순위 밀려도 상승추세면 보유, 추세 깨지면(MA12↓) 매도')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     try:
@@ -5256,10 +5153,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         rev = _safe_float(s.get('rev_growth'))
         earnings_tag = s.get('earnings_note', '')
 
-        # v110 (2026-06-04): "메가 carryover" → 일반 고객 표현 "초고성장주 보유"
-        is_mega = s.get('_mega_hold') or (ticker not in new_buy_tks)
-        if is_mega:
-            weight_tag = ' · 초고성장주 (이미 보유한 경우만 유지)'
+        # v111 (2026-06-03): 추세 보유(MA12) 종목은 "이미 보유한 경우만 유지" 표시.
+        is_trend = s.get('_trend_hold') or (ticker not in new_buy_tks)
+        if is_trend:
+            weight_tag = ' · 추세 보유 (이미 보유한 경우만 유지)'
             num_label = 'ℹ️'
         else:
             w = s.get('weight', 0)
@@ -5283,10 +5180,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
         lines.append(' · '.join(growth_parts))
 
-        # v110 (2026-06-04): 일반 고객 표현
-        if s.get('_mega_hold'):
-            lines.append('ℹ️ 초고성장주 시그니처 유지 (PEG&lt;0.18 + 매출 25%+)')
-            lines.append('   (신규 매수는 위 후보에서 — 이건 시스템 참조용)')
+        # v111 (2026-06-03): 추세 보유 안내
+        if s.get('_trend_hold'):
+            lines.append('ℹ️ 상승추세 지속(가격&gt;MA12) → 순위 밀려도 보유')
+            lines.append('   (신규 매수는 위 후보에서 — 이건 보유자 참조용)')
 
         # L2: 안정성 (순위 · 의견 · 저평가 streak)
         rev_up = int(s.get('rev_up', 0) or 0)
@@ -5317,14 +5214,21 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 이탈 알림 (사유별 묶어서 표시) ━━
     if exit_reasons:
         from collections import defaultdict
+        # v111: '추세보유'는 이탈 아님(순위 밀렸지만 가격>MA12 보유 중) → 별도 표시.
+        trend_held_now = [t for t, _, reason in exit_reasons if reason == '추세보유']
+        real_exits = [(t, r, reason) for t, r, reason in exit_reasons if reason != '추세보유']
+        if trend_held_now:
+            lines.append('')
+            lines.append(f'🌟 추세 보유 유지: {"·".join(trend_held_now)} (순위 밀렸으나 상승추세 지속, 보유자만)')
         reason_groups = defaultdict(list)
-        for t, _, reason in exit_reasons:
+        for t, _, reason in real_exits:
             reason_groups[reason or '순위밀림'].append(t)
         parts = []
         for reason, tickers in reason_groups.items():
             parts.append(f'{"·".join(tickers)}({reason})')
-        lines.append('')
-        lines.append(f'⚠️ 이탈: {" ".join(parts)}')
+        if parts:
+            lines.append('')
+            lines.append(f'⚠️ 이탈: {" ".join(parts)}')
         # MA120 이탈 + 어제 상위권 종목 → 반등 관심 대상
         if exited_tickers:
             for t, _, reason in exit_reasons:
@@ -5336,12 +5240,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('매수: 저평가 1위 + 초고성장주 1위 (둘 다 있으면 50/50)')
-    lines.append('  · 초고성장주 = PEG&lt;0.18 (극저평가) + 매출성장 25% 이상')
-    lines.append('  · 초고성장주 없으면 저평가 1위 단독 100%')
-    lines.append('매도: 순위 10위 밖 또는 실적 꺾임')
-    lines.append('  · 초고성장주는 순위 밀려도 보유 유지')
-    lines.append('  · 초고성장주 해제: 매출 25% 미만 또는 PEG 0.18 이상')
+    lines.append('매수: 저평가(EPS 상향) Top 2 (둘 다 있으면 50/50)')
+    lines.append('  · 후보 1종목뿐이면 단독 100%')
+    lines.append('매도: 실적 꺾임(EPS 하향) 또는 상승추세 붕괴(가격&lt;MA12)')
+    lines.append('  · 순위 밀려도 상승추세(가격&gt;MA12) 지속이면 계속 보유')
+    lines.append('  · "일찍 안 팔기" — 오르는 종목은 추세 깨질 때까지 보유')
     lines.append('⚠️ 시뮬 누적수익률 (실제 세금·슬리피지 미반영)')
 
     return '\n'.join(lines)
@@ -5691,12 +5594,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('매수: 저평가 1위 + 초고성장주 1위 (둘 다 있으면 50/50)')
-    lines.append('  · 초고성장주 = PEG&lt;0.18 (극저평가) + 매출성장 25% 이상')
-    lines.append('  · 초고성장주 없으면 저평가 1위 단독 100%')
-    lines.append('매도: 순위 10위 밖 또는 실적 꺾임')
-    lines.append('  · 초고성장주는 순위 밀려도 보유 유지')
-    lines.append('  · 초고성장주 해제: 매출 25% 미만 또는 PEG 0.18 이상')
+    lines.append('매수: 저평가(EPS 상향) Top 2 (둘 다 있으면 50/50)')
+    lines.append('  · 후보 1종목뿐이면 단독 100%')
+    lines.append('매도: 실적 꺾임(EPS 하향) 또는 상승추세 붕괴(가격&lt;MA12)')
+    lines.append('  · 순위 밀려도 상승추세(가격&gt;MA12) 지속이면 계속 보유')
+    lines.append('  · "일찍 안 팔기" — 오르는 종목은 추세 깨질 때까지 보유')
     lines.append('⚠️ 시뮬 누적수익률 (실제 세금·슬리피지 미반영)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
 
