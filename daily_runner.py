@@ -4544,7 +4544,7 @@ def _build_score_100_map(today_str=None):
     빈 날 → carry-forward (직전 가용 점수 이월), 최종 폴백 30점
     Returns: (w_score_map, score_display_map)
       - w_score_map: 3일 가중 점수 (높을수록 좋음, 순위/정렬용)
-      - score_display_map: 당일 z-score (표시용)
+      - score_display_map: 고정 스케일 0~100 (v112, 표시용 — 날짜 안정 + 강도 보존)
     """
     import numpy as np
     MISSING_PENALTY = 30
@@ -4620,11 +4620,15 @@ def _build_score_100_map(today_str=None):
             ws += score * weights[i]
         w_score_map[tk] = ws
 
-    # v79.1: 1위=100 환산 점수 (종목 간 격차 반영)
-    # w_gap 최대값 기준으로 전체를 0~100 스케일로 환산
-    # → "2위 60점, 3위 59점 = 거의 동점, 역전 가능" 직관적
-    max_wgap = max(w_score_map.values()) if w_score_map else 1
-    score_display_map = {tk: round(ws / max_wgap * 100, 1) for tk, ws in w_score_map.items()}
+    # v112 (2026-06-04): 고정 스케일 — 날짜 안정 + 강도 보존.
+    # 기존 ws/max*100은 분모가 "그날 최댓값"이라 같은 종목도 그날 1등이 누구냐에
+    # 따라 점수가 출렁임(15일간 최댓값 83~112 변동, +1.2σ 종목이 74~100점 왔다갔다).
+    # 고정 앵커: ws 30(하한/missing)→0, ws 100(+2.3σ)→100. 괴물주(MU급)는 100,
+    # 밋밋한 날 1등은 낮게 → 점수가 강도의 절대 정보를 담음. EDA+사용자 승인(B안).
+    score_display_map = {
+        tk: round(max(0.0, min(100.0, (ws - 30) / 70 * 100)), 1)
+        for tk, ws in w_score_map.items()
+    }
 
     conn.close()
     return w_score_map, score_display_map
