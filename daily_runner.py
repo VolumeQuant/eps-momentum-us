@@ -3241,10 +3241,9 @@ def _replay_holdings(before_date=None):
     """forward replay 보유 재구성 (v111 MA12-hold, 무상태, BT==production).
 
     v111 (2026-06-03): PEG 메가홀드 → MA12 추세홀드로 전면 교체.
-    v114 (2026-06-04, Alt-A): EPS꺾임 매도 제거 — MA12 단일규칙 (BT 현행과 +0.0p 동일).
     규칙: 진입 part2_rank≤2 (빈 슬롯), MAX 2슬롯.
       보유 유지: rank≤10 OR (rank>10 이지만 가격>MA12, 상승추세 지속)
-      이탈: rank>10 AND 가격≤MA12 (추세 붕괴) — 단일 조건
+      이탈: min_seg<-2(EPS꺾임, v55~ 안전망) OR (rank>10 AND 가격≤MA12, 추세 붕괴)
       데이터 fetch 실패(가격 None)시 carryover (v113 robust 계승)
     근거: 모든 winner(MU/SNDK/STX/LITE)가 순위 밖에서도 상승 지속 → 추세(MA12)로 보유.
       BT: baseline 대비 +33p (100/100), 인접 MA10~15 고원, walk-forward 5/5, LOWO 무해.
@@ -3284,9 +3283,11 @@ def _replay_holdings(before_date=None):
                 for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
                     segs.append((a - b) / abs(b) * 100 if b and abs(b) > 0.01 else 0)
                 info[tk] = dict(p2=p2, minseg=min(segs) if segs else 0)
-            # 이탈 (v114 Alt-A: MA12 단일규칙 — EPS꺾임 매도 제거, BT 현행과 동일 +0.0p)
+            # 이탈 (v111 MA12-hold): EPS꺾임(min_seg<-2) 즉시매도 OR (rank>10 AND 가격≤MA12)
             for tk in list(port):
                 it = info.get(tk)
+                if it is not None and it['minseg'] < -2:
+                    port.discard(tk); continue  # EPS 꺾임 = 즉시 매도 (v55~ 사이클천장 안전망)
                 p2 = it['p2'] if it else None
                 if p2 is None or p2 > 10:
                     cp = pxh.get(tk, {}).get(d)
@@ -3452,7 +3453,10 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                 row = _fetch_last_full_row(t, today_str)  # 순위밖/데이터갭 — 마지막 가용 데이터
                 if row is None:
                     continue
-            # v114 (Alt-A): MA12 단일규칙 — EPS꺾임 매도 제거. 가격<MA12만 추세보유 해제.
+            segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
+            if segs and min(segs) < -2:
+                log(f"  🔓 추세보유 해제 {t}: EPS 꺾임(min_seg<-2) → 매도")
+                continue
             if not _above_ma12(t, today_str):
                 log(f"  🔓 추세보유 해제 {t}: 가격<MA12 (상승추세 붕괴) → 매도")
                 continue
@@ -4853,16 +4857,19 @@ def _get_system_performance():
             sys_nav *= (1 + day_ret / 100)
             spy_nav *= (1 + spy_ret / 100)
 
-            # 이탈 (v114 Alt-A: MA12 단일규칙): rank>10 AND 가격≤MA12 (추세붕괴). EPS꺾임 매도 제거.
+            # 이탈 (v111 MA12 추세홀드): min_seg<-2(EPS꺾임) OR (rank>10 AND 가격≤MA12, 추세붕괴)
             for tk in list(portfolio.keys()):
                 ep = portfolio[tk]['entry_price']
                 cp = prices.get(tk)
                 if cp is None:
                     continue  # 데이터 fetch 실패 → carryover (v113 robust 계승)
                 rk = wgap_rank.get(tk)
+                ms = ticker_ms.get(tk, 0)
                 ret = (cp - ep) / ep * 100 if ep else 0
                 sell = False
-                if rk is None or rk > 10:
+                if ms < -2:
+                    sell = True
+                elif rk is None or rk > 10:
                     mv = [all_prices[all_dates[j]].get(tk) for j in range(max(0, i - 11), i + 1)]
                     mv = [v for v in mv if v]
                     m12 = sum(mv) / len(mv) if len(mv) >= 6 else None
@@ -4976,7 +4983,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append(f'사유: {reason}')
         lines.append('')
         lines.append('약세장 신호로 신규 매수를 멈춥니다.')
-        lines.append('보유 종목은 매도 기준(순위 10위 밖 + 가격&lt;MA12) 그대로 적용.')
+        lines.append('보유 종목은 매도 기준(순위 이탈 또는 실적 꺾임) 그대로 적용.')
         lines.append('현금 또는 <b>IEF</b>(미국 중기 국채 ETF) 보유 권장.')
         lines.append('안전 우선 시 <b>BIL</b>(단기 국채). ※ 금리 급등기엔 장기채 회피.')
         lines.append('S&P 500이 200일선을 회복(15일 확인)하면 자동으로 매수 재개.')
@@ -5237,8 +5244,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('매수: 저평가 Top2 (50/50)')
     lines.append('  · 1종목뿐이면 100%')
-    lines.append('매도: 순위 10위 밖 + 추세이탈(가격&lt;MA12)')
-    lines.append('  · 추세(&gt;MA12) 살아있으면 보유')
+    lines.append('매도: 순위 이탈 또는 실적 꺾임')
+    lines.append('  · 상승추세(&gt;MA12)면 보유')
     lines.append('  · 오르는 종목 일찍 안 팔기')
     lines.append('⚠️ 시뮬 누적수익률 (실제 세금·슬리피지 미반영)')
 
@@ -5590,8 +5597,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('📌 <b>운영 규칙</b>')
     lines.append('매수: 저평가 Top2 (50/50)')
     lines.append('  · 1종목뿐이면 100%')
-    lines.append('매도: 순위 10위 밖 + 추세이탈(가격&lt;MA12)')
-    lines.append('  · 추세(&gt;MA12) 살아있으면 보유')
+    lines.append('매도: 순위 이탈 또는 실적 꺾임')
+    lines.append('  · 상승추세(&gt;MA12)면 보유')
     lines.append('  · 오르는 종목 일찍 안 팔기')
     lines.append('⚠️ 시뮬 누적수익률 (실제 세금·슬리피지 미반영)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
