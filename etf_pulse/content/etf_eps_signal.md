@@ -7,31 +7,31 @@
 
 | 순위 | ETF | 가중 adj_gap | 매칭률 | 핵심 종목 |
 |------|-----|--------------|--------|-----------|
-| 1 | **XOP** | -24.97 | 29% | DINO, SM, APA |
-| 2 | **VDE** | -16.33 | 62% | XOM, CVX, COP |
-| 3 | **IYE** | -16.01 | 69% | XOM, CVX, COP |
-| 4 | **XLE** | -15.96 | 75% | XOM, CVX, COP |
-| 5 | **GDX** | -8.90 | 11% | NEM |
-| 6 | **CUT** | -7.78 | 31% | WY, PKG, AVY |
-| 7 | **NLR** | -7.62 | 26% | CEG, BWXT, PEG |
-| 8 | **IDU** | -6.31 | 53% | NEE, SO, DUK |
-| 9 | **METU** | -6.29 | 18% | META |
-| 10 | **VPU** | -6.18 | 53% | NEE, SO, DUK |
+| 1 | **XOP** | -24.00 | 29% | DINO, SM, APA |
+| 2 | **VDE** | -15.34 | 62% | XOM, CVX, COP |
+| 3 | **IYE** | -14.99 | 69% | XOM, CVX, COP |
+| 4 | **XLE** | -14.93 | 75% | XOM, CVX, COP |
+| 5 | **NLR** | -8.86 | 26% | CEG, BWXT, PEG |
+| 6 | **CUT** | -7.95 | 31% | WY, PKG, AVY |
+| 7 | **GDX** | -7.37 | 11% | NEM |
+| 8 | **IDU** | -5.90 | 53% | NEE, SO, DUK |
+| 9 | **VPU** | -5.84 | 53% | NEE, SO, DUK |
+| 10 | **XLU** | -5.76 | 58% | NEE, SO, DUK |
 
 ## 📈 고평가 ETF Top 10 (양수 큰 순)
 
 | 순위 | ETF | 가중 adj_gap | 매칭률 | 핵심 종목 |
 |------|-----|--------------|--------|-----------|
-| 1 | **XSD** | +95.28 | 34% | MXL, ALAB, AMD |
-| 2 | **BLOK** | +94.84 | 11% | CIFR, DELL, HOOD |
-| 3 | **MSTU** | +90.17 | 72% | MSTR |
-| 4 | **BITQ** | +82.35 | 20% | MSTR, COIN, CIFR |
-| 5 | **SOXL** | +55.86 | 23% | MU, AMD, AVGO |
-| 6 | **SOXX** | +54.10 | 62% | MU, AMD, AVGO |
-| 7 | **CIBR** | +42.66 | 63% | CRWD, PANW, FTNT |
-| 8 | **AIQ** | +41.91 | 31% | MU, AMD, INTC |
-| 9 | **JETS** | +39.98 | 49% | DAL, AAL, UAL |
-| 10 | **SCHM** | +38.51 | 13% | SNDK, CIEN, BE |
+| 1 | **XSD** | +94.56 | 34% | MXL, ALAB, AMD |
+| 2 | **MSTU** | +92.81 | 72% | MSTR |
+| 3 | **SOXX** | +46.74 | 62% | MU, AMD, AVGO |
+| 4 | **SOXL** | +40.05 | 23% | MU, AMD, AVGO |
+| 5 | **CIBR** | +39.33 | 63% | CRWD, PANW, FTNT |
+| 6 | **JETS** | +39.05 | 49% | DAL, AAL, UAL |
+| 7 | **TAN** | +34.56 | 34% | FSLR, NXT, ENPH |
+| 8 | **BITQ** | +34.44 | 20% | MSTR, COIN, CIFR |
+| 9 | **AIQ** | +33.85 | 31% | MU, AMD, INTC |
+| 10 | **SCHM** | +31.92 | 13% | SNDK, CIEN, BE |
 
 ---
 _각 ETF 보유종목의 EPS revision 가중 평균. mean reversion 신호._
