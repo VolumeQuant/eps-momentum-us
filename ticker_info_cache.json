@@ -5936,8 +5936,8 @@
     "industry": "기타"
   },
   "TTAN": {
-    "shortName": "TTAN",
-    "industry": "기타"
+    "shortName": "ServiceTitan, Inc.",
+    "industry": "응용SW"
   },
   "U": {
     "shortName": "Unity Software Inc.",
@@ -5977,6 +5977,10 @@
   },
   "SNAP": {
     "shortName": "SNAP",
+    "industry": "기타"
+  },
+  "RELX": {
+    "shortName": "RELX",
     "industry": "기타"
   }
 }
