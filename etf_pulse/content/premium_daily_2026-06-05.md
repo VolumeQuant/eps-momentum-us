@@ -39,19 +39,19 @@
 
 ## 📈 어제 수익률 Top 5
 
-- **SOXS** (income_lev): +31.54% (vol 2.8x)
-- **SQQQ** (income_lev): +14.38% (vol 1.8x)
-- **MSTZ** (income_lev): +13.06% (vol 1.6x)
-- **TZA** (income_lev): +10.59%
+- **SOXS** (income_lev): +31.54% (vol 2.9x)
+- **SQQQ** (income_lev): +14.38% (vol 1.9x)
+- **MSTZ** (income_lev): +13.06% (vol 1.7x)
+- **TZA** (income_lev): +10.59% (vol 1.5x)
 - **SPXU** (income_lev): +7.91%
 
 ## 🚀 5일 모멘텀 Top 5
 
 - **SQQQ**: +13.42% (5d)
 - **SOXS**: +8.06% (5d)
-- **IRBO**: +5.01% (5d)
 - **VXX**: +4.43% (5d)
 - **FAS**: +3.75% (5d)
+- **USO**: +3.04% (5d)
 
 ## 🧠 자동 인사이트
 
@@ -78,11 +78,11 @@
 
 각 ETF 보유종목 EPS revision 가중 평균 (음수 = 저평가)
 
-- **XOP**: 가중 adj_gap -24.00 (매칭 29%, Top: DINO, SM, APA)
-- **VDE**: 가중 adj_gap -15.34 (매칭 62%, Top: XOM, CVX, COP)
-- **IYE**: 가중 adj_gap -14.99 (매칭 69%, Top: XOM, CVX, COP)
-- **XLE**: 가중 adj_gap -14.93 (매칭 75%, Top: XOM, CVX, COP)
-- **NLR**: 가중 adj_gap -8.86 (매칭 26%, Top: CEG, BWXT, PEG)
+- **XOP**: 가중 adj_gap -25.58 (매칭 29%, Top: DINO, SM, APA)
+- **VDE**: 가중 adj_gap -16.16 (매칭 62%, Top: XOM, CVX, COP)
+- **IYE**: 가중 adj_gap -15.86 (매칭 69%, Top: XOM, CVX, COP)
+- **XLE**: 가중 adj_gap -15.83 (매칭 75%, Top: XOM, CVX, COP)
+- **GDX**: 가중 adj_gap -12.32 (매칭 11%, Top: NEM)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
