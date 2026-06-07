@@ -1,4 +1,4 @@
-# 🛡️ Market Regime 진단 — 2026-06-06
+# 🛡️ Market Regime 진단 — 2026-06-07
 
 ## 🔴 Risk-Off (방어 모드)
   - Risk-On 5일: -6.87%
