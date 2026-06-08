@@ -3995,7 +3995,7 @@ def classify_exit_reasons(exited_tickers, results_df):
         if row_data is not None:
             segs = [float(row_data.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
             if segs and min(segs) < -2:
-                reason = 'EPS둔화'
+                reason = '이익전망↓'
                 result.append((t, cur_rank, reason))
                 continue
         if ag is not None and ag > 5.0:
@@ -4062,7 +4062,7 @@ def _identify_filter_failure(row, ticker):
     ma60 = row.get('ma60')
     ma_val = (ma120 if ma120 is not None and pd.notna(ma120) else ma60) or 0
     if ma_val > 0 and price < ma_val:
-        return '장기추세↓'
+        return '120일선↓'
 
     ntm = row.get('ntm_cur') or row.get('ntm_current') or 0
     fwd_pe = price / ntm if ntm > 0 else 0
@@ -5236,7 +5236,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                 if reason == 'MA120↓':
                     prev_rank = exited_tickers.get(t)
                     if prev_rank is not None and prev_rank <= 10:
-                        lines.append(f'💡 {t} — 장기추세 이탈했지만 어제 {prev_rank}위, 반등 시 복귀 가능')
+                        lines.append(f'💡 {t} — 120일선 이탈했지만 어제 {prev_rank}위, 반등 시 복귀 가능')
 
     # ━━ 범례 + 면책 ━━
     lines.append('')
@@ -5244,9 +5244,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('<b>매수</b>: 저평가 1·2위 50/50')
     lines.append('   (1개만 통과 시 100%)')
     lines.append('<b>매도</b>')
-    lines.append('   ① 10위 밖 &amp; 가격&lt;12일평균')
-    lines.append('   ② 이익 전망 하향 (실적 둔화)')
-    lines.append('<b>보유</b>: 가격&gt;12일평균이면 유지')
+    lines.append('   ① 10위 밖 &amp; 가격&lt;12일선')
+    lines.append('   ② 이익전망↓ (실적 둔화)')
+    lines.append('<b>보유</b>: 가격&gt;12일선이면 유지')
     lines.append('   (순위 밀려도 추세면 안 팔기)')
     lines.append('⚠️ : 추세 약화 (보유시 주의)')
     lines.append('※ 시뮬 기준 (세금·수수료 미반영)')
@@ -5600,9 +5600,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('<b>매수</b>: 저평가 1·2위 50/50')
     lines.append('   (1개만 통과 시 100%)')
     lines.append('<b>매도</b>')
-    lines.append('   ① 10위 밖 &amp; 가격&lt;12일평균')
-    lines.append('   ② 이익 전망 하향 (실적 둔화)')
-    lines.append('<b>보유</b>: 가격&gt;12일평균이면 유지')
+    lines.append('   ① 10위 밖 &amp; 가격&lt;12일선')
+    lines.append('   ② 이익전망↓ (실적 둔화)')
+    lines.append('<b>보유</b>: 가격&gt;12일선이면 유지')
     lines.append('   (순위 밀려도 추세면 안 팔기)')
     lines.append('⚠️ : 추세 약화 (보유시 주의)')
     lines.append('※ 시뮬 기준 (세금·수수료 미반영)')
