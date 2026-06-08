@@ -3995,11 +3995,11 @@ def classify_exit_reasons(exited_tickers, results_df):
         if row_data is not None:
             segs = [float(row_data.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
             if segs and min(segs) < -2:
-                reason = '추세둔화'
+                reason = 'EPS둔화'
                 result.append((t, cur_rank, reason))
                 continue
         if ag is not None and ag > 5.0:
-            reason = '주가선반영'
+            reason = '과대평가'
         elif is_eligible:
             reason = '순위밀림'
         else:
@@ -4047,11 +4047,11 @@ def _identify_filter_failure(row, ticker):
 
     score = row.get('adj_score', 0) or 0
     if score <= 9:
-        return 'EPS↓'
+        return '이익전망↓'
 
     eps_90d = row.get('eps_change_90d', 0) or 0
     if eps_90d <= 0:
-        return 'EPS↓'
+        return '이익전망↓'
 
     price = row.get('price', 0) or 0
     if price < 10:
@@ -4062,7 +4062,7 @@ def _identify_filter_failure(row, ticker):
     ma60 = row.get('ma60')
     ma_val = (ma120 if ma120 is not None and pd.notna(ma120) else ma60) or 0
     if ma_val > 0 and price < ma_val:
-        return 'MA120↓'
+        return '장기추세↓'
 
     ntm = row.get('ntm_cur') or row.get('ntm_current') or 0
     fwd_pe = price / ntm if ntm > 0 else 0
@@ -5025,8 +5025,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append('')
             lines.append(f'📈 <b>시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)</b>')
             lines.append(f'    같은 기간 S&P500은 {perf["spy_cum"]:+.1f}%')
-            lines.append(f'⚙️ 저평가 Top2 매수 (50/50)')
-            lines.append(f'   추세 살아있으면 계속 보유')
+            lines.append(f'저평가 1·2위 50/50 매수, 추세 유지 시 보유')
     except Exception:
         pass
 
@@ -5237,7 +5236,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                 if reason == 'MA120↓':
                     prev_rank = exited_tickers.get(t)
                     if prev_rank is not None and prev_rank <= 10:
-                        lines.append(f'💡 {t} — MA120 이탈이지만 어제 {prev_rank}위, 반등 시 재진입 대상')
+                        lines.append(f'💡 {t} — 장기추세 이탈했지만 어제 {prev_rank}위, 반등 시 복귀 가능')
 
     # ━━ 범례 + 면책 ━━
     lines.append('')
@@ -5246,7 +5245,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('   (1개만 통과 시 100%)')
     lines.append('<b>매도</b>')
     lines.append('   ① 10위 밖 &amp; 가격&lt;12일평균')
-    lines.append('   ② EPS 꺾임')
+    lines.append('   ② 이익 전망 하향 (실적 둔화)')
     lines.append('<b>보유</b>: 가격&gt;12일평균이면 유지')
     lines.append('   (순위 밀려도 추세면 안 팔기)')
     lines.append('⚠️ : 추세 약화 (보유시 주의)')
@@ -5602,7 +5601,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('   (1개만 통과 시 100%)')
     lines.append('<b>매도</b>')
     lines.append('   ① 10위 밖 &amp; 가격&lt;12일평균')
-    lines.append('   ② EPS 꺾임')
+    lines.append('   ② 이익 전망 하향 (실적 둔화)')
     lines.append('<b>보유</b>: 가격&gt;12일평균이면 유지')
     lines.append('   (순위 밀려도 추세면 안 팔기)')
     lines.append('⚠️ : 추세 약화 (보유시 주의)')
