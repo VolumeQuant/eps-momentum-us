@@ -4011,7 +4011,7 @@ def classify_exit_reasons(exited_tickers, results_df):
 
         # v111 (2026-06-03): 실제 보유 종목이 순위 밀렸어도 가격>MA12면 '추세보유'(매도 아님).
         # 보유 안 하는 Top20 이탈 종목은 그냥 순위밀림 (보유한 것처럼 표시하면 모순).
-        if reason in ('순위밀림', '주가선반영') and t in _held_set and _above_ma12(t):
+        if reason in ('순위밀림', '과대평가') and t in _held_set and _above_ma12(t):
             reason = '추세보유'
 
         result.append((t, cur_rank, reason))
@@ -4983,7 +4983,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append(f'사유: {reason}')
         lines.append('')
         lines.append('약세장 신호로 신규 매수를 멈춥니다.')
-        lines.append('보유 종목은 매도 기준(순위 10위 밖 또는 EPS 전망 꺾임) 그대로 적용.')
+        lines.append('보유 종목은 매도 기준 그대로 적용 (10위 밖 &amp; 가격&lt;12일선 또는 이익전망↓).')
         lines.append('현금 또는 <b>IEF</b>(미국 중기 국채 ETF) 보유 권장.')
         lines.append('안전 우선 시 <b>BIL</b>(단기 국채). ※ 금리 급등기엔 장기채 회피.')
         lines.append('S&P 500이 200일선을 회복(15일 확인)하면 자동으로 매수 재개.')
@@ -5233,7 +5233,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         # MA120 이탈 + 어제 상위권 종목 → 반등 관심 대상
         if exited_tickers:
             for t, _, reason in exit_reasons:
-                if reason == 'MA120↓':
+                if reason == '120일선↓':
                     prev_rank = exited_tickers.get(t)
                     if prev_rank is not None and prev_rank <= 10:
                         lines.append(f'💡 {t} — 120일선 이탈했지만 어제 {prev_rank}위, 반등 시 복귀 가능')
