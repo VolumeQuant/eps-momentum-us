@@ -1759,7 +1759,62 @@ def save_part2_ranks(results_df, today_str):
     conn.commit()
     conn.close()
     log(f"Part 2 rank 저장: {len(top30_tickers)}개 종목 (w_gap Top 30, eligible {len(composite_ranks)}개)")
+    # v117 (2026-06-09): dollar_volume_30d 업데이트 — 시장 주도주 필터용
+    try:
+        update_dollar_volumes(today_str, top30_tickers)
+    except Exception as _e:
+        log(f"dollar_volume 업데이트 실패: {_e}", "WARN")
     return top30_tickers
+
+
+def update_dollar_volumes(today_str, ticker_list):
+    """v117 (2026-06-09): cr Top 30 종목의 직전 30일 거래대금 평균 ($M) DB 업데이트.
+
+    yfinance bulk fetch (45일 history) → 30일 rolling 평균 → ntm_screening.dollar_volume_30d
+    매일 cron save_part2_ranks 끝에 자동 호출.
+    """
+    if not ticker_list:
+        return
+    try:
+        import yfinance as yf
+        import pandas as pd
+        from datetime import datetime, timedelta
+        # 직전 45영업일 fetch (30일 평균 + buffer)
+        end_d = (datetime.strptime(today_str, '%Y-%m-%d') + timedelta(days=2)).strftime('%Y-%m-%d')
+        start_d = (datetime.strptime(today_str, '%Y-%m-%d') - timedelta(days=60)).strftime('%Y-%m-%d')
+        data = yf.download(' '.join(ticker_list), start=start_d, end=end_d,
+                          auto_adjust=False, progress=False, threads=True, group_by='ticker')
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        updated = 0
+        for tk in ticker_list:
+            try:
+                if isinstance(data.columns, pd.MultiIndex):
+                    df = data[tk] if tk in data.columns.get_level_values(0) else None
+                else:
+                    df = data
+                if df is None or df.empty:
+                    continue
+                # 오늘 이전 영업일만 (point-in-time)
+                df = df[df.index < pd.to_datetime(today_str)]
+                if len(df) < 5:
+                    continue
+                dv_M = (df['Volume'] * df['Close']) / 1e6
+                avg_dv = float(dv_M.tail(30).mean())
+                if pd.isna(avg_dv):
+                    continue
+                cursor.execute(
+                    'UPDATE ntm_screening SET dollar_volume_30d=? WHERE date=? AND ticker=?',
+                    (avg_dv, today_str, tk)
+                )
+                updated += 1
+            except Exception:
+                pass
+        conn.commit()
+        conn.close()
+        log(f"dollar_volume_30d 업데이트: {updated}/{len(ticker_list)} 종목")
+    except Exception as e:
+        log(f"update_dollar_volumes 오류: {e}", "WARN")
 
 
 def _apply_conviction(adj_gap, rev_up, num_analysts, ntm_current=None, ntm_90d=None,
@@ -3432,24 +3487,37 @@ def _build_portfolio_entry(row, status_map, earnings_map):
 _volume_dollar_cache = {}
 
 
-def _get_avg_dollar_volume_M(ticker, hist_all=None):
-    """일평균 거래대금 ($M) — averageDailyVolume3Month × current price 사용.
+def _get_avg_dollar_volume_M(ticker, hist_all=None, target_date=None):
+    """일평균 거래대금 ($M) — point-in-time (직전 30일 평균).
 
     v117 (2026-06-09): 시장 주도주 universe filter용.
-    BT 검증 (research/auto_bt_v114_plus_volume.py):
-      - v114 + $1B+ → calmar 5.70 → 5.93 (+14.5p, 양수 300/300)
-      - point-in-time BT (직전 30일 평균)도 동일 효과
-    AEIS/KEYS/HWM 같은 저거래량 비주도주 차단 → 시장 주도주만 매수.
+    BT 검증: v114 + $1B+ → calmar 5.93 (+14.5p, 양수 300/300)
 
-    fallback 우선순위:
-      1. hist_all (cron이 이미 fetch한 가격 history) — 비용 0
-      2. yfinance info.averageDailyVolume3Month × currentPrice — 1회 호출
-      3. 0 (실패 시 통과)
+    조회 우선순위:
+      1. DB ntm_screening.dollar_volume_30d (BT==production 정합)
+      2. hist_all (cron이 이미 fetch한 가격 history)
+      3. yfinance info (fallback)
     """
     if ticker in _volume_dollar_cache:
         return _volume_dollar_cache[ticker]
     try:
-        # 1) hist_all에서 최근 30일 거래대금 평균 (비용 0)
+        # 1) DB 조회 — target_date 또는 마지막 가용
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        if target_date:
+            row = cursor.execute(
+                'SELECT dollar_volume_30d FROM ntm_screening WHERE ticker=? AND date<=? AND dollar_volume_30d IS NOT NULL ORDER BY date DESC LIMIT 1',
+                (ticker, target_date)).fetchone()
+        else:
+            row = cursor.execute(
+                'SELECT dollar_volume_30d FROM ntm_screening WHERE ticker=? AND dollar_volume_30d IS NOT NULL ORDER BY date DESC LIMIT 1',
+                (ticker,)).fetchone()
+        conn.close()
+        if row and row[0] is not None:
+            v_M = float(row[0])
+            _volume_dollar_cache[ticker] = v_M
+            return v_M
+        # 2) hist_all fallback
         if hist_all is not None and 'Close' in hist_all.columns.get_level_values(0):
             try:
                 close = hist_all['Close'].get(ticker)
@@ -3462,7 +3530,7 @@ def _get_avg_dollar_volume_M(ticker, hist_all=None):
                         return v_M
             except Exception:
                 pass
-        # 2) yfinance fallback
+        # 3) yfinance fallback
         import yfinance as yf
         info = yf.Ticker(ticker).info
         avg_vol = info.get('averageDailyVolume3Month') or info.get('averageVolume', 0) or 0
@@ -4833,16 +4901,17 @@ def _get_system_performance():
             all_prices[d] = {r[0]: r[1] for r in rows}
 
         # 일별 데이터 로드 (v86e+ 메가 carryover 시뮬에 rev_growth 필요)
+        # v117 (2026-06-09): dollar_volume_30d 추가 — 시장 주도주 필터용 (시뮬↔production 정합)
         daily_data = {}
         for d in all_dates:
             rows = c.execute('''
-                SELECT ticker, price, part2_rank, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, rev_growth
+                SELECT ticker, price, part2_rank, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, rev_growth, dollar_volume_30d
                 FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL
             ''', (d,)).fetchall()
             daily_data[d] = {
                 r[0]: {'price': r[1], 'part2_rank': r[2],
                        'nc': r[3], 'n7': r[4], 'n30': r[5], 'n60': r[6], 'n90': r[7],
-                       'rg': r[8]}
+                       'rg': r[8], 'dv': r[9]}
                 for r in rows
             }
 
@@ -5008,12 +5077,14 @@ def _get_system_performance():
                     del portfolio[tk]
 
             # v111 진입: part2 Top (빈 슬롯, mean reversion). mega_score/composite게이트 제거.
+            # v117 (2026-06-09): 거래량 필터 ≥ $1B (시뮬↔production 정합)
             if len(portfolio) < 2:
                 used_idx = {info['slot_idx'] for info in portfolio.values()}
                 free_idx = sorted([si for si in range(2) if si not in used_idx])
                 cands = [tk for tk, _ in eligible
                          if tk not in portfolio and ticker_ms.get(tk, -999) >= 0
-                         and wgap_rank.get(tk, 999) <= 3]
+                         and wgap_rank.get(tk, 999) <= 3
+                         and (daily_data.get(date, {}).get(tk, {}).get('dv') or 0) >= 1000]
                 cands.sort(key=lambda t: wgap_rank.get(t, 999))
                 for tk in cands:
                     if len(portfolio) >= 2:
