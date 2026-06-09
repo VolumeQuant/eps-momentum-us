@@ -3689,11 +3689,18 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             return False
         return True
 
-    # 신규 진입: part2_rank Top (빈 슬롯 채움 — EPS상향+저평가 mean reversion)
+    # 신규 진입: part2_rank Top 3만 (BT 정합)
+    # v117b (2026-06-09): Top 3 한정 — BT(Top 3) vs production(Top 30) 불일치 fix
+    #   BT: Top 3 + $1B+ → +14.5p alpha (calmar 5.93)
+    #   기존 production: Top 30 + $1B+ → -0.3p (효과 없음, 약한 신호도 매수)
+    #   → BT 정합 위해 Top 3 한정 적용
     for _, row in candidates.iterrows():
         if len(selected) >= MAX_SLOTS:
             break
         t = row['ticker']
+        p2_rank = p2r_map.get(t, 999)
+        if p2_rank > 3:  # v117b: Top 3 한정
+            break  # candidates는 part2_rank 정렬이므로 break OK
         if t in trend_held or any(s['ticker'] == t for s in selected):
             continue
         if not _entry_pass(row, t):
@@ -3701,7 +3708,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
         entry = _build_portfolio_entry(row, status_map, earnings_map)
         entry['_entry_type'] = 'new'
         selected.append(entry)
-        log(f"  ✅ 신규 진입 {t}: part2 {p2r_map.get(t, '?')}위")
+        log(f"  ✅ 신규 진입 {t}: part2 {p2_rank}위")
 
     # v110 (2026-06-03): 50/50 고정 (각 분야 1등 entry, score 격차 무관 메가 비중 보존)
     #   슬롯 1 (part2) + 슬롯 2 (mega) 둘 다 차면 → 50/50
@@ -3722,11 +3729,15 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
 
     # v111: 신규 진입자용 매수후보 = part2_rank Top 2 (fresh 진입).
     # 추세홀드는 보유자 전용(이미 탄 winner 유지), 신규는 오늘 part2 상위 픽 매수 → 추세 탑승.
+    # v117b (2026-06-09): Top 3 한정 — BT 정합
     new_buy_top2 = []
     for _, row in candidates.iterrows():
         if len(new_buy_top2) >= 2:
             break
         t = row['ticker']
+        p2_rank = p2r_map.get(t, 999)
+        if p2_rank > 3:  # v117b: Top 3 한정
+            break
         if any(s['ticker'] == t for s in new_buy_top2):
             continue
         if not _entry_pass(row, t):
