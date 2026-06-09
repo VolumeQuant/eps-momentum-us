@@ -7,31 +7,31 @@
 
 | 순위 | ETF | 가중 adj_gap | 매칭률 | 핵심 종목 |
 |------|-----|--------------|--------|-----------|
-| 1 | **XOP** | -25.58 | 29% | DINO, SM, APA |
-| 2 | **VDE** | -16.16 | 62% | XOM, CVX, COP |
-| 3 | **IYE** | -15.86 | 69% | XOM, CVX, COP |
-| 4 | **XLE** | -15.83 | 75% | XOM, CVX, COP |
-| 5 | **GDX** | -12.32 | 11% | NEM |
-| 6 | **METU** | -10.65 | 18% | META |
-| 7 | **NLR** | -10.05 | 26% | CEG, BWXT, PEG |
-| 8 | **BOTZ** | -8.95 | 14% | NVDA, ISRG |
-| 9 | **CUT** | -7.38 | 31% | WY, PKG, AVY |
-| 10 | **VOX** | -7.10 | 69% | META, GOOGL, GOOG |
+| 1 | **XOP** | -23.05 | 29% | DINO, SM, APA |
+| 2 | **VDE** | -14.84 | 62% | XOM, CVX, COP |
+| 3 | **IYE** | -14.35 | 69% | XOM, CVX, COP |
+| 4 | **XLE** | -14.15 | 75% | XOM, CVX, COP |
+| 5 | **GDX** | -12.04 | 11% | NEM |
+| 6 | **METU** | -11.11 | 18% | META |
+| 7 | **NLR** | -9.70 | 26% | CEG, BWXT, PEG |
+| 8 | **MOO** | -8.90 | 39% | DE, CTVA, ADM |
+| 9 | **BOTZ** | -8.20 | 14% | NVDA, ISRG |
+| 10 | **VOX** | -7.67 | 69% | META, GOOGL, GOOG |
 
 ## 📈 고평가 ETF Top 10 (양수 큰 순)
 
 | 순위 | ETF | 가중 adj_gap | 매칭률 | 핵심 종목 |
 |------|-----|--------------|--------|-----------|
-| 1 | **MSTU** | +77.09 | 72% | MSTR |
-| 2 | **XSD** | +60.28 | 34% | MXL, ALAB, AMD |
-| 3 | **JETS** | +37.74 | 49% | DAL, AAL, UAL |
-| 4 | **CIBR** | +30.07 | 63% | CRWD, PANW, FTNT |
-| 5 | **SOXX** | +23.20 | 62% | MU, AMD, AVGO |
-| 6 | **HACK** | +23.07 | 56% | CRWD, PANW, AVGO |
-| 7 | **BITQ** | +21.37 | 20% | MSTR, COIN, CIFR |
-| 8 | **TAN** | +19.01 | 30% | FSLR, NXT, ENPH |
-| 9 | **AIQ** | +16.24 | 31% | MU, AMD, INTC |
-| 10 | **SOXL** | +15.65 | 23% | MU, AMD, AVGO |
+| 1 | **MSTU** | +93.13 | 72% | MSTR |
+| 2 | **XSD** | +66.02 | 34% | MXL, ALAB, AMD |
+| 3 | **JETS** | +42.05 | 49% | DAL, AAL, UAL |
+| 4 | **BITQ** | +30.54 | 20% | MSTR, COIN, CIFR |
+| 5 | **SOXX** | +30.38 | 62% | MU, AMD, AVGO |
+| 6 | **CIBR** | +28.19 | 63% | CRWD, PANW, FTNT |
+| 7 | **SOXL** | +22.35 | 23% | MU, AMD, AVGO |
+| 8 | **HACK** | +20.56 | 56% | CRWD, PANW, AVGO |
+| 9 | **AIQ** | +19.84 | 31% | MU, AMD, INTC |
+| 10 | **ARKW** | +17.77 | 39% | AMD, TSLA, HOOD |
 
 ---
 _각 ETF 보유종목의 EPS revision 가중 평균. mean reversion 신호._
