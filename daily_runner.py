@@ -3427,6 +3427,55 @@ def _build_portfolio_entry(row, status_map, earnings_map):
     }
 
 
+# v117 (2026-06-09): 거래량 필터 캐시 — 매수 후보 종목 거래대금 ($M) 메모리 캐시
+# yfinance HTTP 호출 비용 최소화 (당일 cron 내 종목당 1회만)
+_volume_dollar_cache = {}
+
+
+def _get_avg_dollar_volume_M(ticker, hist_all=None):
+    """일평균 거래대금 ($M) — averageDailyVolume3Month × current price 사용.
+
+    v117 (2026-06-09): 시장 주도주 universe filter용.
+    BT 검증 (research/auto_bt_v114_plus_volume.py):
+      - v114 + $1B+ → calmar 5.70 → 5.93 (+14.5p, 양수 300/300)
+      - point-in-time BT (직전 30일 평균)도 동일 효과
+    AEIS/KEYS/HWM 같은 저거래량 비주도주 차단 → 시장 주도주만 매수.
+
+    fallback 우선순위:
+      1. hist_all (cron이 이미 fetch한 가격 history) — 비용 0
+      2. yfinance info.averageDailyVolume3Month × currentPrice — 1회 호출
+      3. 0 (실패 시 통과)
+    """
+    if ticker in _volume_dollar_cache:
+        return _volume_dollar_cache[ticker]
+    try:
+        # 1) hist_all에서 최근 30일 거래대금 평균 (비용 0)
+        if hist_all is not None and 'Close' in hist_all.columns.get_level_values(0):
+            try:
+                close = hist_all['Close'].get(ticker)
+                volume = hist_all['Volume'].get(ticker) if 'Volume' in hist_all.columns.get_level_values(0) else None
+                if close is not None and volume is not None:
+                    df = (close * volume).dropna().tail(30)
+                    if len(df) >= 5:
+                        v_M = df.mean() / 1e6
+                        _volume_dollar_cache[ticker] = v_M
+                        return v_M
+            except Exception:
+                pass
+        # 2) yfinance fallback
+        import yfinance as yf
+        info = yf.Ticker(ticker).info
+        avg_vol = info.get('averageDailyVolume3Month') or info.get('averageVolume', 0) or 0
+        price = info.get('currentPrice') or info.get('regularMarketPrice', 0) or 0
+        v_M = avg_vol * price / 1e6
+        _volume_dollar_cache[ticker] = v_M
+        return v_M
+    except Exception as e:
+        log(f"_get_avg_dollar_volume_M {ticker} 오류: {e}", "WARN")
+        _volume_dollar_cache[ticker] = 0
+        return 0
+
+
 def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                         earnings_map=None, risk_status=None, score_100_map=None,
                         hist_all=None, today_str=None):
@@ -3562,6 +3611,13 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             return False
         if num_analysts < 3:
             log(f"  ⛔ 제외 {t}: 저커버리지")
+            return False
+        # v117 (2026-06-09): 거래량 universe filter — 일평균 거래대금 ≥ $1B
+        # BT (auto_bt_v114_plus_volume.py): calmar 5.70 → 5.93, +14.5p, 양수 300/300
+        # 비주도주 (AEIS $456M, KEYS $490M, HWM $595M) 차단 → 시장 주도주만 매수
+        avg_dv_M = _get_avg_dollar_volume_M(t, hist_all)
+        if avg_dv_M < 1000:
+            log(f"  ⛔ 제외 {t}: 거래대금 ${avg_dv_M:,.0f}M < $1B (저거래량 비주도주)")
             return False
         return True
 
@@ -5235,6 +5291,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     if filter_count:
         lines.append(f'→ 매출·마진·업종 품질 필터 {filter_count}종목')
     lines.append(f'→ 저평가 상위 20종목 매일 모니터링')
+    lines.append(f'→ 거래대금 $1B+ 시장 주도주 필터')
     # v111: 퍼널은 신규 스크리닝 결과(매수 후보) 수를 설명 (selected=추세보유는 별개 트랙).
     _n_screened = len(new_buy_top2) if new_buy_top2 else len(selected)
     lines.append(f'→ 3일 연속 상위 유지 {_n_screened}종목 선정')
@@ -5342,6 +5399,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('<b>매수</b>: 저평가 1·2위 50/50')
     lines.append('   (1개만 통과 시 100%)')
+    lines.append('   · 거래대금 $1B+ 종목만 (주도주 필터)')
     lines.append('<b>매도</b>')
     lines.append('   ① 10위 밖 &amp; 가격&lt;12일선')
     lines.append('   ② 이익전망↓ (실적 둔화)')
@@ -5698,6 +5756,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('📌 <b>운영 규칙</b>')
     lines.append('<b>매수</b>: 저평가 1·2위 50/50')
     lines.append('   (1개만 통과 시 100%)')
+    lines.append('   · 거래대금 $1B+ 종목만 (주도주 필터)')
     lines.append('<b>매도</b>')
     lines.append('   ① 10위 밖 &amp; 가격&lt;12일선')
     lines.append('   ② 이익전망↓ (실적 둔화)')
