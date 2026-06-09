@@ -5982,5 +5982,9 @@
   "RELX": {
     "shortName": "RELX",
     "industry": "기타"
+  },
+  "CBRS": {
+    "shortName": "CBRS",
+    "industry": "기타"
   }
 }
