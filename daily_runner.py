@@ -3237,17 +3237,27 @@ def _recent_held_tickers(today_str=None, lookback=15, rank_thresh=10):
         return set()
 
 
-def _replay_holdings(before_date=None):
-    """forward replay 보유 재구성 (v111 MA12-hold, 무상태, BT==production).
+# v115 (2026-06-09): 휩쏘 보험밸브 — 하루 -10%+ 패닉 급락으로 MA12 깨진 첫날은 1일 매도 유예.
+#   06-05 MU(-13%)/SNDK(-11%) 하루딥 휩쏘(MA12 깨짐→매도→직후 회복) 방어.
+#   BT: 측정효과 0(알파 아님, 손해도 0), gap>=8% 임계 plateau, LOWO 양수. EPS꺾임 룰과 동일한
+#   "무비용 보험" 논리(상승장이라 보험금 탈 일이 없었을 뿐). EPS꺾임(min_seg<-2) 즉시매도는 무관.
+WHIPSAW_GUARD_GAP = -0.10
+
+
+def _replay_holdings(before_date=None, return_detail=False):
+    """forward replay 보유 재구성 (v111 MA12-hold + v115 보험밸브, 무상태, BT==production).
 
     v111 (2026-06-03): PEG 메가홀드 → MA12 추세홀드로 전면 교체.
     규칙: 진입 part2_rank≤2 (빈 슬롯), MAX 2슬롯.
       보유 유지: rank≤10 OR (rank>10 이지만 가격>MA12, 상승추세 지속)
       이탈: min_seg<-2(EPS꺾임, v55~ 안전망) OR (rank>10 AND 가격≤MA12, 추세 붕괴)
+      v115 보험밸브: 추세 붕괴라도 하루 -10%+ 패닉 급락 첫날은 1일 유예(휩쏘 방지)
       데이터 fetch 실패(가격 None)시 carryover (v113 robust 계승)
     근거: 모든 winner(MU/SNDK/STX/LITE)가 순위 밖에서도 상승 지속 → 추세(MA12)로 보유.
       BT: baseline 대비 +33p (100/100), 인접 MA10~15 고원, walk-forward 5/5, LOWO 무해.
       PEG(메가)보다 broad(STX 등 비메가 winner 포착) + 고객 설득력(추세 직관).
+
+    return_detail=True 시 {ticker: (entry_date, entry_price)} 반환 (v115 보유 수익률 표시용).
     """
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -3273,6 +3283,8 @@ def _replay_holdings(before_date=None):
             dts = [r[0] for r in cur.execute(
                 'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date')]
         port = set()
+        entry_info = {}   # tk -> (entry_date, entry_price)  v115 보유 수익률 표시용
+        grace = set()     # tk -> v115 보험밸브 1일 유예 중
         for d in dts:
             rows = cur.execute(
                 'SELECT ticker,part2_rank,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
@@ -3283,11 +3295,13 @@ def _replay_holdings(before_date=None):
                 for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
                     segs.append((a - b) / abs(b) * 100 if b and abs(b) > 0.01 else 0)
                 info[tk] = dict(p2=p2, minseg=min(segs) if segs else 0)
-            # 이탈 (v111 MA12-hold): EPS꺾임(min_seg<-2) 즉시매도 OR (rank>10 AND 가격≤MA12)
+            # 이탈 (v111 MA12-hold + v115 보험밸브): EPS꺾임 즉시 OR (rank>10 AND 가격≤MA12),
+            #   단 하루 -10%+ 패닉 급락으로 깨진 첫날은 1일 유예(휩쏘 방지).
             for tk in list(port):
                 it = info.get(tk)
                 if it is not None and it['minseg'] < -2:
-                    port.discard(tk); continue  # EPS 꺾임 = 즉시 매도 (v55~ 사이클천장 안전망)
+                    port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)
+                    continue  # EPS 꺾임 = 즉시 매도 (v55~ 사이클천장 안전망, 밸브 무관)
                 p2 = it['p2'] if it else None
                 if p2 is None or p2 > 10:
                     cp = pxh.get(tk, {}).get(d)
@@ -3295,8 +3309,16 @@ def _replay_holdings(before_date=None):
                         continue  # 데이터 fetch 실패 → carryover (v113)
                     m = _ma12(tk, d)
                     if m is not None and cp > m:
-                        continue  # 가격 > MA12 = 상승추세 → 보유
-                    port.discard(tk)  # 추세 붕괴 → 매도
+                        grace.discard(tk); continue  # 가격 > MA12 = 상승추세 → 보유 (유예 해제)
+                    # 추세 붕괴 — v115 gap-10% 보험밸브
+                    i = didx.get(d)
+                    prev = pxh.get(tk, {}).get(alld[i - 1]) if (i is not None and i > 0) else None
+                    dayret = (cp / prev - 1) if prev else 0.0
+                    if dayret < WHIPSAW_GUARD_GAP and tk not in grace:
+                        grace.add(tk); continue  # 하루 -10%+ 패닉급락 첫날 → 1일 유예
+                    port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)  # 매도
+                else:
+                    grace.discard(tk)  # rank≤10 복귀 → 유예 해제
             # 진입 (빈 슬롯, rank≤2)
             if len(port) < 2:
                 for tk, p2 in sorted([(tk, it['p2']) for tk, it in info.items()
@@ -3304,7 +3326,10 @@ def _replay_holdings(before_date=None):
                     if len(port) >= 2:
                         break
                     port.add(tk)
+                    entry_info[tk] = (d, pxh.get(tk, {}).get(d))
         conn.close()
+        if return_detail:
+            return entry_info
         return port
     except Exception as e:
         log(f"_replay_holdings 오류: {e}", "WARN")
@@ -3334,6 +3359,29 @@ def _above_ma12(ticker, today_str=None, n=12):
     except Exception as e:
         log(f"_above_ma12 {ticker} 오류: {e}", "WARN")
         return True
+
+
+def _today_gap(ticker, today_str=None):
+    """오늘(또는 최신) 1거래일 수익률 — v115 보험밸브용. 데이터 부족 시 None.
+    하루 -10%+ 패닉 급락(휩쏘 신호) 판정에 사용."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        if today_str:
+            rows = [r[0] for r in cur.execute(
+                'SELECT price FROM ntm_screening WHERE ticker=? AND price IS NOT NULL AND date<=? ORDER BY date DESC LIMIT 2',
+                (ticker, today_str))]
+        else:
+            rows = [r[0] for r in cur.execute(
+                'SELECT price FROM ntm_screening WHERE ticker=? AND price IS NOT NULL ORDER BY date DESC LIMIT 2',
+                (ticker,))]
+        conn.close()
+        if len(rows) < 2 or not rows[1]:
+            return None
+        return rows[0] / rows[1] - 1
+    except Exception as e:
+        log(f"_today_gap {ticker} 오류: {e}", "WARN")
+        return None
 
 
 def _build_portfolio_entry(row, status_map, earnings_map):
@@ -3439,6 +3487,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     #   PEG<0.18(메가)보다 고객 설득력 우월("상승추세면 보유, 깨지면 매도" 직관).
     trend_held = []
     prev_held = _replay_holdings(today_str)
+    held_detail = _replay_holdings(today_str, return_detail=True)  # v115 진입가(보유 수익률 표시용)
     if prev_held:
         cand_by_tk = {row['ticker']: row for _, row in candidates.iterrows()}
         def _cur_rank(t):
@@ -3458,10 +3507,21 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                 log(f"  🔓 추세보유 해제 {t}: EPS 꺾임(min_seg<-2) → 매도")
                 continue
             if not _above_ma12(t, today_str):
-                log(f"  🔓 추세보유 해제 {t}: 가격<MA12 (상승추세 붕괴) → 매도")
-                continue
+                # v115 보험밸브: 하루 -10%+ 패닉 급락으로 깨진 경우 1일 매도 유예 (휩쏘 방지)
+                _gap = _today_gap(t, today_str)
+                if _gap is not None and _gap < WHIPSAW_GUARD_GAP:
+                    log(f"  🛟 보험밸브 {t}: 하루 {_gap*100:.1f}% 패닉급락 → 1일 매도 유예 (보유 유지)")
+                else:
+                    log(f"  🔓 추세보유 해제 {t}: 가격<MA12 (상승추세 붕괴) → 매도")
+                    continue
             entry = _build_portfolio_entry(row, status_map, earnings_map)
             entry['_trend_hold'] = True
+            # v115 보유 수익률 (진입가 대비) — 표시용
+            if held_detail and t in held_detail:
+                _ed, _ep = held_detail[t]
+                _cp = _safe_float(row.get('price'))
+                if _ep and _cp:
+                    entry['_hold_return'] = _cp / _ep - 1
             selected.append(entry)
             trend_held.append(t)
             log(f"  📈 추세 보유 {t}: 순위 밀려도 가격>MA12 유지 (w_rank={p2r_map.get(t, '?')})")
@@ -5051,9 +5111,18 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     else:
         lines.append('· 신규 매수 후보 없음 (보유 유지)')
 
-    # v114 (2026-06-04): 보유 종목(추세 보유) 표시 제거 — v110 지시 복원.
-    #   신규 진입자는 MU/SNDK 안 갖고 있어 "지나간 종목 약올림" → 매수 후보만 표시.
-    #   보유 로직 자체는 그대로(perf/replay), 메시지에서만 숨김.
+    # v115 (2026-06-09): 추세 보유 표시 복원 (v114에서 숨겼던 것).
+    #   계기: '랭킹 1등인데 왜 안 사냐'(슬롯이 보유 winner로 차서 신규 못 들어감) 혼란.
+    #   ⚠️ 신규 매수 후보 아님을 명시 — 보유는 낮은 진입가 기준 추세추종, 신규로 +100% 추격은 별개.
+    if trend_in_slot:
+        lines.append('')
+        lines.append('🌟 <b>추세 보유 중</b> (이미 보유 · 신규 매수 후보 아님)')
+        for s in trend_in_slot:
+            hold_name = _clean_company_name(s['name'], s['ticker'])
+            hr = s.get('_hold_return')
+            hr_tag = f' {hr*100:+.0f}%' if hr is not None else ''
+            lines.append(f'  · {hold_name}({s["ticker"]}){hr_tag}')
+        lines.append('  상승추세(&gt;MA12) 유지로 보유 · 신규 매수는 위 후보로')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     # v111: 신규 매수 후보만 대상 (분산 권유는 '오늘 살 것' 한정).
