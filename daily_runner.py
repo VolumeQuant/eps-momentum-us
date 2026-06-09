@@ -3243,8 +3243,14 @@ def _recent_held_tickers(today_str=None, lookback=15, rank_thresh=10):
 #   "무비용 보험" 논리(상승장이라 보험금 탈 일이 없었을 뿐). EPS꺾임(min_seg<-2) 즉시매도는 무관.
 WHIPSAW_GUARD_GAP = -0.10
 
+# v116 (2026-06-09): 전략 교체(v111/v115) = fresh start. 배포 전 시점은 재생성 DB가
+#   현재 로직으로 과거를 재구성한 것이라 "라이브 실제 보유"와 다름(재생성 DB ≠ 라이브 기록).
+#   → 보유/매도 표시는 이 날짜 이후 실제 진입만 집계(apply_epoch=True). 그 전엔 빈손(fresh start).
+#   성능(_get_system_performance)은 백테스트 track record라 epoch 미적용(전체 replay 유지).
+HOLDINGS_EPOCH = '2026-06-09'
 
-def _replay_holdings(before_date=None, return_detail=False):
+
+def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
     """forward replay 보유 재구성 (v111 MA12-hold + v115 보험밸브, 무상태, BT==production).
 
     v111 (2026-06-03): PEG 메가홀드 → MA12 추세홀드로 전면 교체.
@@ -3282,6 +3288,9 @@ def _replay_holdings(before_date=None, return_detail=False):
         else:
             dts = [r[0] for r in cur.execute(
                 'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date')]
+        if apply_epoch:
+            # v116 fresh start: 배포일 이후 진입만 집계 (그 전 재구성 보유는 라이브 허구)
+            dts = [d for d in dts if d >= HOLDINGS_EPOCH]
         port = set()
         entry_info = {}   # tk -> (entry_date, entry_price)  v115 보유 수익률 표시용
         grace = set()     # tk -> v115 보험밸브 1일 유예 중
@@ -3486,8 +3495,8 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     #   비메가 winner 포착 — PEG보다 broad). 재점검: 슬롯2 / 50-50(LOWO robust) / exit10 확정.
     #   PEG<0.18(메가)보다 고객 설득력 우월("상승추세면 보유, 깨지면 매도" 직관).
     trend_held = []
-    prev_held = _replay_holdings(today_str)
-    held_detail = _replay_holdings(today_str, return_detail=True)  # v115 진입가(보유 수익률 표시용)
+    prev_held = _replay_holdings(today_str, apply_epoch=True)  # v116 fresh start (배포일 이후 실제 보유만)
+    held_detail = _replay_holdings(today_str, return_detail=True, apply_epoch=True)  # v115 진입가(수익률 표시)
     if prev_held:
         cand_by_tk = {row['ticker']: row for _, row in candidates.iterrows()}
         def _cur_rank(t):
@@ -4042,7 +4051,7 @@ def classify_exit_reasons(exited_tickers, results_df):
 
     # v111: '추세보유' 재분류는 실제 보유 종목에만 적용 (Top20 이탈≠보유 종목).
     try:
-        _held_set = set(_replay_holdings())
+        _held_set = set(_replay_holdings(apply_epoch=True))  # v116 fresh start (표시 일관)
     except Exception:
         _held_set = set()
 
@@ -5015,7 +5024,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                           status_map=None, eps_screened=None, universe_size=None,
                           exited_tickers=None, risk_status=None,
                           score_100_map=None, score_display_map=None, alpha_signals=None,
-                          hist_all=None, new_buy_top2=None):
+                          hist_all=None, new_buy_top2=None, today_str=None):
     """v3 Message 1: Signal — "오늘 뭘 사야 하나"
 
     종목당 4줄: 정체(이름·업종·가격) / 증거(EPS·매출) / 순위 / AI 내러티브
@@ -5090,17 +5099,25 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         pass
 
     # ━━ 섹션 1: 결론 먼저 ━━
-    # v87 (2026-06-03): 매수후보 vs 메가 영역 완전 분리.
-    # v111 (2026-06-03): 신규 매수 후보 = new_buy_top2 (part2 Top, 50/50).
-    # 추세 보유 = selected의 _trend_hold (이미 보유자만 — MA12 상승추세 지속).
+    # v116 (2026-06-09): 기존 "오늘의 매수 후보" 명확 구조 유지 + 매도 한 줄 추가(Q2).
+    #   v116 1차 시도(시스템포트폴리오/신규-기존 분기)는 오히려 혼란(사용자 피드백) → 폐기.
+    #   단순 3리스트: 매수(오늘 살 것) / 보유(있으면 유지) / 매도(있으면 정리).
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
 
-    if new_buy_top2 is None:
-        new_buy_top2 = [s for s in (selected or []) if not s.get('_trend_hold')]
-    trend_in_slot = [s for s in (selected or []) if s.get('_trend_hold')]
+    _ts = today_str or (biz_day.strftime('%Y-%m-%d') if hasattr(biz_day, 'strftime') else None)
+    try:
+        _prev_held = _replay_holdings(_ts, apply_epoch=True) if _ts else set()
+    except Exception:
+        _prev_held = set()
+    sel = selected or []
+    held_in_slot = [s for s in sel if s.get('_trend_hold')]
+    sold_tks = [t for t in _prev_held if t not in {s['ticker'] for s in sel}]
 
-    lines.append(f'🛒 <b>오늘의 매수 후보</b>')
+    if new_buy_top2 is None:
+        new_buy_top2 = [s for s in sel if not s.get('_trend_hold')]
+
+    lines.append('🛒 <b>오늘의 매수 후보</b> (50/50)')
     lines.append('━━━━━━━━━━━━━━━')
     if new_buy_top2:
         for idx, s in enumerate(new_buy_top2):
@@ -5111,18 +5128,31 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     else:
         lines.append('· 신규 매수 후보 없음 (보유 유지)')
 
-    # v115 (2026-06-09): 추세 보유 표시 복원 (v114에서 숨겼던 것).
-    #   계기: '랭킹 1등인데 왜 안 사냐'(슬롯이 보유 winner로 차서 신규 못 들어감) 혼란.
-    #   ⚠️ 신규 매수 후보 아님을 명시 — 보유는 낮은 진입가 기준 추세추종, 신규로 +100% 추격은 별개.
-    if trend_in_slot:
+    # 보유 / 매도 (해당 종목 가진 경우만 — 새로 사는 사람은 위 매수 후보만 보면 됨)
+    if held_in_slot or sold_tks:
         lines.append('')
-        lines.append('🌟 <b>추세 보유 중</b> (이미 보유 · 신규 매수 후보 아님)')
-        for s in trend_in_slot:
-            hold_name = _clean_company_name(s['name'], s['ticker'])
-            hr = s.get('_hold_return')
-            hr_tag = f' {hr*100:+.0f}%' if hr is not None else ''
-            lines.append(f'  · {hold_name}({s["ticker"]}){hr_tag}')
-        lines.append('  상승추세(&gt;MA12) 유지로 보유 · 신규 매수는 위 후보로')
+    for s in held_in_slot:
+        nm = _clean_company_name(s['name'], s['ticker'])
+        hr = s.get('_hold_return')
+        hr_tag = f' {hr*100:+.0f}%' if hr is not None else ''
+        lines.append(f'🌟 보유: {nm}({s["ticker"]}){hr_tag} · 추세 유지')
+    if sold_tks:
+        _name_cache = {}
+        try:
+            import json as _json
+            with open(PROJECT_ROOT / 'ticker_info_cache.json', encoding='utf-8') as _f:
+                _name_cache = _json.load(_f)
+        except Exception:
+            _name_cache = {}
+        for t in sold_tks:
+            _ci = _name_cache.get(t, {})
+            nm = _clean_company_name(_ci.get('shortName', _ci.get('short_name', t)), t)
+            if _above_ma12(t, _ts):
+                reason = '실적 전망 꺾임'
+            else:
+                g = _today_gap(t, _ts)
+                reason = '반등했지만 12일선 회복 실패' if (g is not None and g > 0) else '추세 이탈 (12일선 아래)'
+            lines.append(f'🔴 매도: {nm}({t}) · {reason}')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
     # v111: 신규 매수 후보만 대상 (분산 권유는 '오늘 살 것' 한정).
@@ -6145,7 +6175,7 @@ def main():
             exited_tickers=exited_tickers, risk_status=risk_status,
             score_100_map=score_100_map, score_display_map=score_display_map,
             alpha_signals=alpha_signals, hist_all=hist_all,
-            new_buy_top2=new_buy_top2,
+            new_buy_top2=new_buy_top2, today_str=today_str,
         )
         if msg_signal:
             if send_to_channel:
