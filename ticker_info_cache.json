@@ -5188,8 +5188,8 @@
     "industry": "기타"
   },
   "LOAR": {
-    "shortName": "LOAR",
-    "industry": "기타"
+    "shortName": "Loar Holdings Inc.",
+    "industry": "방산"
   },
   "NICE": {
     "shortName": "NICE Ltd",
@@ -5985,6 +5985,14 @@
   },
   "CBRS": {
     "shortName": "CBRS",
+    "industry": "기타"
+  },
+  "DKNG": {
+    "shortName": "DKNG",
+    "industry": "기타"
+  },
+  "HRI": {
+    "shortName": "HRI",
     "industry": "기타"
   }
 }
