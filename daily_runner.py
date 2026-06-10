@@ -3359,38 +3359,43 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
                 for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
                     segs.append((a - b) / abs(b) * 100 if b and abs(b) > 0.01 else 0)
                 info[tk] = dict(p2=p2, minseg=min(segs) if segs else 0)
-            # 이탈 (v111 MA12-hold + v115 보험밸브): EPS꺾임 즉시 OR (rank>10 AND 가격≤MA12),
-            #   단 하루 -10%+ 패닉 급락으로 깨진 첫날은 1일 유예(휩쏘 방지).
+            # v118 (2026-06-11): 메가 carryover — PEG<0.18 + 매출≥25% 유지 시 무한 holding
+            #   사용자 요구: SNDK/MU 같은 메가 안 놓치기
+            #   BT (auto_bt_v118_g_detailed.py): calmar 6.39, Full +296%, SNDK +178%/MU +119% carryover
+            #   MA12 logic 제거. 메가는 PEG 시그니처만 보고 carryover.
+            #   비메가: rank>10 → 매도. EPS꺾임 → 즉시 매도.
             for tk in list(port):
                 it = info.get(tk)
                 if it is not None and it['minseg'] < -2:
                     port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)
-                    continue  # EPS 꺾임 = 즉시 매도 (v55~ 사이클천장 안전망, 밸브 무관)
+                    continue  # EPS 꺾임 = 즉시 매도
+                # v118: 메가 carryover (rank/MA12 무관)
+                if check_mega_hold(tk):
+                    grace.discard(tk)
+                    continue  # 메가 시그니처 유지 → 보유
+                # 비메가: rank>10이면 매도
                 p2 = it['p2'] if it else None
                 if p2 is None or p2 > 10:
-                    cp = pxh.get(tk, {}).get(d)
-                    if cp is None:
-                        continue  # 데이터 fetch 실패 → carryover (v113)
-                    m = _ma12(tk, d)
-                    if m is not None and cp > m:
-                        grace.discard(tk); continue  # 가격 > MA12 = 상승추세 → 보유 (유예 해제)
-                    # 추세 붕괴 — v115 gap-10% 보험밸브
-                    i = didx.get(d)
-                    prev = pxh.get(tk, {}).get(alld[i - 1]) if (i is not None and i > 0) else None
-                    dayret = (cp / prev - 1) if prev else 0.0
-                    if dayret < WHIPSAW_GUARD_GAP and tk not in grace:
-                        grace.add(tk); continue  # 하루 -10%+ 패닉급락 첫날 → 1일 유예
-                    port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)  # 매도
+                    port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)
                 else:
-                    grace.discard(tk)  # rank≤10 복귀 → 유예 해제
-            # 진입 (빈 슬롯, rank≤2)
+                    grace.discard(tk)
+            # 진입 v118: slot 1 part2 Top 1 + slot 2 mega Top 1
             if len(port) < 2:
-                for tk, p2 in sorted([(tk, it['p2']) for tk, it in info.items()
-                                      if tk not in port and it['p2'] <= 2], key=lambda x: x[1]):
-                    if len(port) >= 2:
-                        break
+                # slot 1: part2 Top 1 (없으면 Top 2)
+                p2_sorted = sorted([(tk, it['p2']) for tk, it in info.items()
+                                    if tk not in port and it['p2'] <= 3], key=lambda x: x[1])
+                if p2_sorted and len(port) < 2:
+                    tk = p2_sorted[0][0]
                     port.add(tk)
                     entry_info[tk] = (d, pxh.get(tk, {}).get(d))
+                # slot 2: mega Top 1 (메가 시그니처 종목 중)
+                if len(port) < 2:
+                    for tk in info:
+                        if tk in port: continue
+                        if check_mega_hold(tk):
+                            port.add(tk)
+                            entry_info[tk] = (d, pxh.get(tk, {}).get(d))
+                            break
         conn.close()
         if return_detail:
             return entry_info
@@ -3705,26 +3710,54 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             return False
         return True
 
-    # 신규 진입: part2_rank Top 3만 (BT 정합)
-    # v117b (2026-06-09): Top 3 한정 — BT(Top 3) vs production(Top 30) 불일치 fix
-    #   BT: Top 3 + $1B+ → +14.5p alpha (calmar 5.93)
-    #   기존 production: Top 30 + $1B+ → -0.3p (효과 없음, 약한 신호도 매수)
-    #   → BT 정합 위해 Top 3 한정 적용
+    # v118 (2026-06-11): mega entry + carryover — SNDK/MU 같은 메가 안 놓침
+    # BT (auto_bt_v118_g_detailed.py): calmar 6.39, Full +296%, 메가 carryover로 SNDK +178%/MU +119% 잡음
+    #   slot 1: part2 Top 1 (mean reversion)
+    #   slot 2: mega_score Top 1 메가 (PEG<0.18 + 매출≥25%)
+    #   메가 carryover (mega_held)는 이미 위에서 슬롯 차지 (매도 logic 별도)
+
+    # slot 1: part2 Top 1 (mean reversion)
+    slot1_filled = False
     for _, row in candidates.iterrows():
         if len(selected) >= MAX_SLOTS:
             break
         t = row['ticker']
         p2_rank = p2r_map.get(t, 999)
-        if p2_rank > 3:  # v117b: Top 3 한정
-            break  # candidates는 part2_rank 정렬이므로 break OK
+        if p2_rank > 3:
+            break
         if t in trend_held or any(s['ticker'] == t for s in selected):
             continue
         if not _entry_pass(row, t):
             continue
         entry = _build_portfolio_entry(row, status_map, earnings_map)
-        entry['_entry_type'] = 'new'
+        entry['_entry_type'] = 'new_mr'  # mean reversion
         selected.append(entry)
-        log(f"  ✅ 신규 진입 {t}: part2 {p2_rank}위")
+        slot1_filled = True
+        log(f"  ✅ slot 1 (part2 Top) {t}: rank {p2_rank}")
+        break
+
+    # slot 2: mega_score Top 1 (PEG<0.18 + 매출≥25%) — V118 핵심
+    if len(selected) < MAX_SLOTS:
+        mega_picks = []
+        for _, row in candidates.iterrows():
+            t = row['ticker']
+            if t in trend_held or any(s['ticker'] == t for s in selected):
+                continue
+            score = calc_mega_score(row.to_dict() if hasattr(row, 'to_dict') else dict(row))
+            if score is None:
+                continue
+            if not _entry_pass(row, t):
+                continue
+            mega_picks.append((score, t, row))
+        mega_picks.sort(key=lambda x: -x[0])
+        if mega_picks:
+            score, t, row = mega_picks[0]
+            entry = _build_portfolio_entry(row, status_map, earnings_map)
+            entry['_entry_type'] = 'new_mega'  # mega entry
+            selected.append(entry)
+            log(f"  ✅ slot 2 (mega Top) {t}: mega_score={score:.1f}")
+        else:
+            log(f"  ℹ️  slot 2: 메가 시그니처 부재")
 
     # v110 (2026-06-03): 50/50 고정 (각 분야 1등 entry, score 격차 무관 메가 비중 보존)
     #   슬롯 1 (part2) + 슬롯 2 (mega) 둘 다 차면 → 50/50
@@ -3743,24 +3776,42 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
 
     log(f"디스플레이 {n}종목: " + ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
-    # v111: 신규 진입자용 매수후보 = part2_rank Top 2 (fresh 진입).
-    # 추세홀드는 보유자 전용(이미 탄 winner 유지), 신규는 오늘 part2 상위 픽 매수 → 추세 탑승.
-    # v117b (2026-06-09): Top 3 한정 — BT 정합
+    # v118 (2026-06-11): 신규 진입자용 매수후보 — slot 1 part2 Top 1 + slot 2 mega Top 1
+    # BT (auto_bt_v118_g_detailed.py): calmar 6.39, SNDK/MU 같은 메가 안 놓침
     new_buy_top2 = []
+    # slot 1: part2 Top 1
     for _, row in candidates.iterrows():
-        if len(new_buy_top2) >= 2:
-            break
         t = row['ticker']
         p2_rank = p2r_map.get(t, 999)
-        if p2_rank > 3:  # v117b: Top 3 한정
+        if p2_rank > 3:
             break
         if any(s['ticker'] == t for s in new_buy_top2):
             continue
         if not _entry_pass(row, t):
             continue
         entry = _build_portfolio_entry(row, status_map, earnings_map)
-        entry['_entry_type'] = 'new'
+        entry['_entry_type'] = 'new_mr'
         new_buy_top2.append(entry)
+        break
+    # slot 2: mega_score Top 1
+    if len(new_buy_top2) < 2:
+        mega_picks = []
+        for _, row in candidates.iterrows():
+            t = row['ticker']
+            if any(s['ticker'] == t for s in new_buy_top2):
+                continue
+            score = calc_mega_score(row.to_dict() if hasattr(row, 'to_dict') else dict(row))
+            if score is None:
+                continue
+            if not _entry_pass(row, t):
+                continue
+            mega_picks.append((score, t, row))
+        mega_picks.sort(key=lambda x: -x[0])
+        if mega_picks:
+            score, t, row = mega_picks[0]
+            entry = _build_portfolio_entry(row, status_map, earnings_map)
+            entry['_entry_type'] = 'new_mega'
+            new_buy_top2.append(entry)
     nb_n = len(new_buy_top2)
     if nb_n == 1:
         new_buy_top2[0]['weight'] = 100
@@ -5078,47 +5129,77 @@ def _get_system_performance():
             sys_nav *= (1 + day_ret / 100)
             spy_nav *= (1 + spy_ret / 100)
 
-            # 이탈 (v111 MA12 추세홀드): min_seg<-2(EPS꺾임) OR (rank>10 AND 가격≤MA12, 추세붕괴)
+            # v118 (2026-06-11): 메가 carryover + 메가 entry — 시뮬↔production 정합
+            #   매도: EPS꺾임 / (메가 아님 + rank>10)
+            #   진입: slot 1 part2 Top 1 + slot 2 mega Top 1 (PEG<0.18 + 매출≥25%)
             for tk in list(portfolio.keys()):
                 ep = portfolio[tk]['entry_price']
                 cp = prices.get(tk)
                 if cp is None:
-                    continue  # 데이터 fetch 실패 → carryover (v113 robust 계승)
+                    continue  # 데이터 fetch 실패 → carryover (v113)
                 rk = wgap_rank.get(tk)
                 ms = ticker_ms.get(tk, 0)
+                info_tk = daily_data.get(date, {}).get(tk, {})
+                nc_tk = info_tk.get('nc'); rg_tk = info_tk.get('rg')
+                peg_tk = (cp / nc_tk) / (rg_tk * 100) if (cp and nc_tk and nc_tk > 0 and rg_tk and rg_tk > 0) else None
+                is_mega_now = peg_tk is not None and peg_tk < 0.18 and rg_tk is not None and rg_tk >= 0.25
                 ret = (cp - ep) / ep * 100 if ep else 0
                 sell = False
                 if ms < -2:
                     sell = True
+                elif is_mega_now:
+                    if rg_tk is not None and rg_tk < 0.25:
+                        sell = True
+                    # 메가 carryover: rank 무관 보유
                 elif rk is None or rk > 10:
-                    mv = [all_prices[all_dates[j]].get(tk) for j in range(max(0, i - 11), i + 1)]
-                    mv = [v for v in mv if v]
-                    m12 = sum(mv) / len(mv) if len(mv) >= 6 else None
-                    if not (m12 is not None and cp > m12):
-                        sell = True  # 가격≤MA12 = 추세 붕괴 → 매도 (>MA12면 보유)
+                    sell = True  # 비메가 + 순위 밖
                 if sell:
-                    if ret > 0:
-                        wins += 1
-                    else:
-                        losses += 1
+                    if ret > 0: wins += 1
+                    else: losses += 1
                     del portfolio[tk]
 
-            # v111 진입: part2 Top (빈 슬롯, mean reversion). mega_score/composite게이트 제거.
-            # v117 (2026-06-09): 거래량 필터 ≥ $1B (시뮬↔production 정합)
+            # v118 진입: slot 1 = part2 Top 1 + slot 2 = mega_score Top 1 + $1B+
             if len(portfolio) < 2:
                 used_idx = {info['slot_idx'] for info in portfolio.values()}
                 free_idx = sorted([si for si in range(2) if si not in used_idx])
-                cands = [tk for tk, _ in eligible
-                         if tk not in portfolio and ticker_ms.get(tk, -999) >= 0
-                         and wgap_rank.get(tk, 999) <= 3
-                         and (daily_data.get(date, {}).get(tk, {}).get('dv') or 0) >= 1000]
-                cands.sort(key=lambda t: wgap_rank.get(t, 999))
-                for tk in cands:
-                    if len(portfolio) >= 2:
-                        break
+                # slot 1 candidates: part2 Top 3 (mean reversion)
+                p2_cands = [tk for tk, _ in eligible
+                            if tk not in portfolio and ticker_ms.get(tk, -999) >= 0
+                            and wgap_rank.get(tk, 999) <= 3
+                            and (daily_data.get(date, {}).get(tk, {}).get('dv') or 0) >= 1000]
+                p2_cands.sort(key=lambda t: wgap_rank.get(t, 999))
+                # slot 2 candidates: 메가 시그니처
+                def _mega_score_calc(tk):
+                    info = daily_data.get(date, {}).get(tk, {})
+                    nc = info.get('nc'); n90 = info.get('n90'); rg = info.get('rg')
+                    cp = prices.get(tk)
+                    if not (cp and nc and n90 and rg and nc > 0 and n90 > 0 and rg >= 0.25):
+                        return None
+                    peg = (cp / nc) / (rg * 100)
+                    if peg >= 0.18: return None
+                    ntm_rev = (nc / n90 - 1) * 100
+                    return ntm_rev + rg * 100 + 50 / peg
+                mega_cands = []
+                for tk, _ in eligible:
+                    if tk in portfolio: continue
+                    if ticker_ms.get(tk, -999) < 0: continue
+                    if (daily_data.get(date, {}).get(tk, {}).get('dv') or 0) < 1000: continue
+                    s = _mega_score_calc(tk)
+                    if s is not None:
+                        mega_cands.append((s, tk))
+                mega_cands.sort(key=lambda x: -x[0])
+                # 채움: slot 1 = part2 Top / slot 2 = mega Top
+                if p2_cands and len(portfolio) < 2:
+                    tk = p2_cands[0]
                     idx = free_idx.pop(0) if free_idx else len(portfolio)
                     portfolio[tk] = {'entry_price': prices.get(tk), 'slot_idx': idx, 'weight': 50}
-                pn = len(portfolio)  # 비중: n=1→100, n=2→50/50
+                if mega_cands and len(portfolio) < 2:
+                    tk = mega_cands[0][1]
+                    if tk not in portfolio:
+                        idx = free_idx.pop(0) if free_idx else len(portfolio)
+                        portfolio[tk] = {'entry_price': prices.get(tk), 'slot_idx': idx, 'weight': 50}
+                # 비중 rebalance
+                pn = len(portfolio)
                 for info in portfolio.values():
                     info['weight'] = 100 if pn == 1 else 50
 
@@ -5248,7 +5329,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append('')
             lines.append(f'📈 <b>시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)</b>')
             lines.append(f'    같은 기간 S&P500은 {perf["spy_cum"]:+.1f}%')
-            lines.append(f'저평가 1·2위 50/50 매수, 추세 유지 시 보유')
+            lines.append(f'저평가 1위 + 메가 1위 50/50, 메가는 carryover (PEG&lt;0.18 매출≥25%)')
     except Exception:
         pass
 
@@ -5495,11 +5576,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('<b>매수</b>: 저평가 1·2위 50/50 (1개만 시 100%)')
+    lines.append('<b>매수</b>: 저평가 1위 + 메가 1위 50/50')
+    lines.append('   메가 = PEG&lt;0.18 + 매출성장 25%+ (초고성장+극저평가)')
     lines.append('   · 거래대금 $1B+ (주도주 필터)')
-    lines.append('<b>매도</b>: 순위 10위 밖 &amp; 추세 깨짐')
-    lines.append('   또는 이익전망↓ (실적 둔화)')
-    lines.append('<b>보유</b>: 추세 살아있으면 순위 밀려도 유지')
+    lines.append('<b>매도</b>: 비메가 순위 10위 밖 또는 이익전망↓')
+    lines.append('<b>보유</b>: 메가는 순위 무관 carryover (winner 안 놓침)')
     lines.append('⚠️ : 추세 약화 (보유시 주의)')
     lines.append('※ 시뮬 기준 (세금·수수료 미반영)')
 
@@ -5849,11 +5930,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('<b>매수</b>: 저평가 1·2위 50/50 (1개만 시 100%)')
+    lines.append('<b>매수</b>: 저평가 1위 + 메가 1위 50/50')
+    lines.append('   메가 = PEG&lt;0.18 + 매출성장 25%+ (초고성장+극저평가)')
     lines.append('   · 거래대금 $1B+ (주도주 필터)')
-    lines.append('<b>매도</b>: 순위 10위 밖 &amp; 추세 깨짐')
-    lines.append('   또는 이익전망↓ (실적 둔화)')
-    lines.append('<b>보유</b>: 추세 살아있으면 순위 밀려도 유지')
+    lines.append('<b>매도</b>: 비메가 순위 10위 밖 또는 이익전망↓')
+    lines.append('<b>보유</b>: 메가는 순위 무관 carryover (winner 안 놓침)')
     lines.append('⚠️ : 추세 약화 (보유시 주의)')
     lines.append('※ 시뮬 기준 (세금·수수료 미반영)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
