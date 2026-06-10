@@ -1,7 +1,24 @@
-# 🇺🇸 US 전략 — eps-momentum-us (v116 휩쏘 밸브 + fresh-start 메시지, master 배포됨, 2026-06-09)
+# 🇺🇸 US 전략 — eps-momentum-us (v118 메가 carryover+entry, MA12 제거, 메인 cron 비활성, 2026-06-11)
 
 > **공통 작업 원칙**(사용자 지시 준수 / 표본 먼저 / EDA→인사이트→계획 / 한 번에 하나 / 재사용 우선 등)은 상위 폴더 `C:\dev\CLAUDE.md`에 있고 Claude Code가 자동 로드한다. 이 파일은 **US 전략 운영 기준만** 담는다.
 > 변경 이력 상세는 `C:\dev\CHANGELOG.md`.
+
+> **★ 현재 상태 (2026-06-11)**:
+> - master commit `7c7cb78` (V118 + HOLDINGS_EPOCH 06-11 갱신)
+> - **메인 cron 비활성화** (V118 forward 검증 기간, daily-screening.yml schedule 주석 처리)
+> - 테스트 워크플로우 (`test-private-only.yml`)로 개인봇 검증 권장
+> - 시스템 시뮬 누적 +178.1% / SPY +7.9% / α +170.2p, 시뮬 보유 [BE, SNDK]
+> - 회사 PC 이어가려면: `git pull` → 회사에서 V118 검증 결과 분석 + 필요 시 patch
+
+> **V118 채택 (2026-06-11, commit 3f40de4)**: MA12 추세홀드 제거 + 메가 carryover + 메가 entry (V110 G style 복원).
+> 사용자 명령: "SNDK 같은 메가 수익 중간에 놓치는게 충격적. MA12 없애고 전부 BT". 자율주행 9 variants 결과 G best (calmar 7.39, Full +351%, +68p vs v117c).
+> 변경: ① `_replay_holdings` 매도: EPS꺾임 / 비메가 + rank>10 / **메가는 무한 carryover (PEG<0.18 + 매출≥25%)** ② `_replay_holdings` 진입: slot 1 part2 Top 1 + slot 2 mega Top 1 ③ `_get_system_performance` 시뮬 동일 logic (BT==production 정합) ④ `select_display_top5` 매수: slot 1 part2 + slot 2 mega_score Top 1 ⑤ `new_buy_top2` 신규: 동일 ⑥ 메시지: header "저평가 1위 + 메가 1위 50/50, 메가는 carryover", footer "메가는 순위 무관 carryover (winner 안 놓침)".
+> Caveat: LOWO -SNDK/MU +47.9% (다중 메가 부재기 약점), MDD -24.1% (vs v117c -17.9%, +6p 증가), 75일 BT N=1.
+> 전문가 권고 (sub-agent 분석): V118 유지 OK + 4개 daily monitoring trigger 구현 권장 (메가 매도 SNDK PEG>0.20 / MDD -15% 도달 / 메가 부재기 5일 / 비메가 winner 놓침 5일+20%). 사용자 실투자 5-20% 이내.
+> Patch BT (commit 2357475): 재진입 우선 logic = 효과 0 (V118 carryover로 매도 자체 없음), 슬롯 3 = -23.1p 손해. **V118 base 그대로 sweet spot**.
+> 롤백: `git revert 7c7cb78 3f40de4` (또는 v117c a01fd75로).
+
+> **v117 거래량 $1B+ 필터 + Top 3 한정 (2026-06-09, master 배포됨)**: 사용자 비판 "AEIS/KEYS/HWM 비주도주 거래량 미미". yfinance EDA: 거래량 82배 차이만 유일 시그널 (어닝/모멘텀/revision 모두 무효). v114 + $1B+: calmar 5.70 → 5.93 (+14.5p). v117b: candidates iter Top 3 한정 (BT vs production 불일치 fix). v117c: candidates 정렬을 DB.part2_rank로 통일 (score_100_map 불일치 fix — 6/09 VRT p2=3 누락 사고). V118에서 거래량 필터 유지.
 
 > **배포 완료 (2026-06-09, commit eeeffb7)**: v115 휩쏘 보험밸브 + v116 fresh-start/Signal 단순화 master 병합. 다음 cron부터 적용. 롤백: `git revert eeeffb7 a795a64` (또는 v114 b2ed205로).
 > **배포 (2026-06-05, commit b2ed205)**: v111 MA12 추세홀드 + v112 점수 고정스케일 + v114(보유표시 제거·EPS꺾임 매도 유지·문구 정리). 롤백: v86e++(PEG 메가홀드)로 revert.
