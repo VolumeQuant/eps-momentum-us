@@ -3298,11 +3298,12 @@ def _recent_held_tickers(today_str=None, lookback=15, rank_thresh=10):
 #   "무비용 보험" 논리(상승장이라 보험금 탈 일이 없었을 뿐). EPS꺾임(min_seg<-2) 즉시매도는 무관.
 WHIPSAW_GUARD_GAP = -0.10
 
-# v116 (2026-06-09): 전략 교체(v111/v115) = fresh start. 배포 전 시점은 재생성 DB가
-#   현재 로직으로 과거를 재구성한 것이라 "라이브 실제 보유"와 다름(재생성 DB ≠ 라이브 기록).
-#   → 보유/매도 표시는 이 날짜 이후 실제 진입만 집계(apply_epoch=True). 그 전엔 빈손(fresh start).
+# v118 (2026-06-11): V118 전략 교체 (메가 carryover + entry, MA12 제거) = fresh start.
+#   v116 epoch (06-09) → v118 epoch (06-11)로 갱신.
+#   사용자: "오늘 전략 바꿔서 오늘 시작 고객"
+#   → 보유/매도 표시는 이 날짜 이후 실제 진입만 집계(apply_epoch=True). 그 전엔 빈손.
 #   성능(_get_system_performance)은 백테스트 track record라 epoch 미적용(전체 replay 유지).
-HOLDINGS_EPOCH = '2026-06-09'
+HOLDINGS_EPOCH = '2026-06-11'
 
 
 def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
