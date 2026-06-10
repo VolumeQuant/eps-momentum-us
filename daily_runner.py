@@ -3580,16 +3580,32 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
         return min(segs) if segs else 0
     all_eligible = all_eligible[all_eligible.apply(_calc_min_seg, axis=1) >= -2].copy()
 
-    # v58: w_gap(score_100_map) 오름차순 정렬 — save_part2_ranks()와 동일 파이프라인
+    # v117c (2026-06-10): candidates 정렬 — DB의 part2_rank 사용 (BT 정합)
+    # 기존 score_100_map 정렬 → BT(DB.part2_rank)와 불일치 → 6/09 VRT(p2=3) 누락 사고
+    # save_part2_ranks가 DB에 저장한 part2_rank 그대로 사용 → BT==production 정합
     candidates = all_eligible.copy()
-    if score_100_map:
+    # DB에서 part2_rank 직접 조회 (today_str 기준)
+    try:
+        _conn = sqlite3.connect(DB_PATH)
+        _p2_rank_db = dict(_conn.execute(
+            'SELECT ticker, part2_rank FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
+            (today_str,)).fetchall())
+        _conn.close()
+    except Exception as _e:
+        _p2_rank_db = {}
+        log(f"part2_rank DB 조회 오류: {_e}", "WARN")
+    if _p2_rank_db:
+        candidates['_p2_rank'] = candidates['ticker'].map(lambda t: _p2_rank_db.get(t, 9999))
+        candidates = candidates.sort_values('_p2_rank', ascending=True).reset_index(drop=True)
+        p2r_map = dict(_p2_rank_db)  # DB 그대로
+    elif score_100_map:
+        # fallback: score_100_map (DB part2_rank 없을 때)
         candidates['_wgap'] = candidates['ticker'].map(lambda t: score_100_map.get(t, 0))
         candidates = candidates.sort_values('_wgap', ascending=False).reset_index(drop=True)
+        p2r_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(candidates.iterrows())}
     else:
         candidates = candidates.sort_values('adj_gap', ascending=True).reset_index(drop=True)
-
-    # w_gap 순위 맵 (1-based)
-    p2r_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(candidates.iterrows())}
+        p2r_map = {row['ticker']: i + 1 for i, (_, row) in enumerate(candidates.iterrows())}
 
     top_debug = [(row['ticker'], p2r_map.get(row['ticker'], 999),
                   round(float(score_100_map.get(row['ticker'], 0)) if score_100_map else float(row.get('adj_gap', 0) or 0), 1))
@@ -5479,14 +5495,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('<b>매수</b>: 저평가 1·2위 50/50')
-    lines.append('   (1개만 통과 시 100%)')
-    lines.append('   · 거래대금 $1B+ 종목만 (주도주 필터)')
-    lines.append('<b>매도</b>')
-    lines.append('   ① 10위 밖 &amp; 가격&lt;12일선')
-    lines.append('   ② 이익전망↓ (실적 둔화)')
-    lines.append('<b>보유</b>: 가격&gt;12일선이면 유지')
-    lines.append('   (순위 밀려도 추세면 안 팔기)')
+    lines.append('<b>매수</b>: 저평가 1·2위 50/50 (1개만 시 100%)')
+    lines.append('   · 거래대금 $1B+ (주도주 필터)')
+    lines.append('<b>매도</b>: 순위 10위 밖 &amp; 추세 깨짐')
+    lines.append('   또는 이익전망↓ (실적 둔화)')
+    lines.append('<b>보유</b>: 추세 살아있으면 순위 밀려도 유지')
     lines.append('⚠️ : 추세 약화 (보유시 주의)')
     lines.append('※ 시뮬 기준 (세금·수수료 미반영)')
 
@@ -5836,14 +5849,11 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('<b>매수</b>: 저평가 1·2위 50/50')
-    lines.append('   (1개만 통과 시 100%)')
-    lines.append('   · 거래대금 $1B+ 종목만 (주도주 필터)')
-    lines.append('<b>매도</b>')
-    lines.append('   ① 10위 밖 &amp; 가격&lt;12일선')
-    lines.append('   ② 이익전망↓ (실적 둔화)')
-    lines.append('<b>보유</b>: 가격&gt;12일선이면 유지')
-    lines.append('   (순위 밀려도 추세면 안 팔기)')
+    lines.append('<b>매수</b>: 저평가 1·2위 50/50 (1개만 시 100%)')
+    lines.append('   · 거래대금 $1B+ (주도주 필터)')
+    lines.append('<b>매도</b>: 순위 10위 밖 &amp; 추세 깨짐')
+    lines.append('   또는 이익전망↓ (실적 둔화)')
+    lines.append('<b>보유</b>: 추세 살아있으면 순위 밀려도 유지')
     lines.append('⚠️ : 추세 약화 (보유시 주의)')
     lines.append('※ 시뮬 기준 (세금·수수료 미반영)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')
