@@ -1424,11 +1424,6 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
         if len(dropped) > 0:
             log(f"dd_30_25 진입필터: {len(dropped)}개 제외 (30일 high -25%+ drawdown): "
                 f"{', '.join(dropped['ticker'].tolist()[:10])}{'...' if len(dropped) > 10 else ''}")
-            # v119 추적: 제외 종목의 실제 price/high30/dd 값 (DB와 어긋나는지 확인용)
-            for _, _dr in dropped.iterrows():
-                _h = _dr.get('high30'); _p = _dr.get('price')
-                _ddv = (_p / _h - 1) * 100 if (_h and _p) else 0
-                log(f"  dd_30_25 값추적 {_dr['ticker']}: price={_p} high30={_h} dd={_ddv:.1f}%")
         filtered = filtered[dd_pass].copy()
 
     eps_screened = len(filtered)  # EPS 상향 + 추세 필터 통과 수

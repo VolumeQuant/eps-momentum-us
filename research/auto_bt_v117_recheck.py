@@ -61,7 +61,7 @@ def gap(tk,i):
 def _peg(info):
     pe=info['price']/info['ntm'] if info.get('ntm',0)>0 else 999
     return pe/(info['rg']*100) if info.get('rg',0)>0 else 999
-def sim(vol_thr,entry_r=3,exclude=(),start=0,ma12_hold=True,eps_sell=True,peg_hold=None,pe_hold=None,slots=2,track=False):
+def sim(vol_thr,entry_r=3,exclude=(),start=0,ma12_hold=True,eps_sell=True,peg_hold=None,pe_hold=None,slots=2,entry_pe=False,dd_filter=True,track=False):
     held={};prev=None;val=1.0;peak=1.0;mdd=0;series=[]
     for i in range(start,len(dates)):
         d=dates[i]
@@ -98,23 +98,27 @@ def sim(vol_thr,entry_r=3,exclude=(),start=0,ma12_hold=True,eps_sell=True,peg_ho
             for tk,info in dd.items():
                 if tk in held or tk in exclude: continue
                 if info.get('min_seg',0)<0 or not info['price'] or not verified(tk,i): continue
-                if info.get('high30') and info['price']/info['high30']-1<-0.25: continue
-                p2=info.get('p2')
-                if p2 is None or p2>entry_r: continue
+                if dd_filter and info.get('high30') and info['price']/info['high30']-1<-0.25: continue
                 if vol_thr>0 and avg_vol_at(tk,d)<vol_thr: continue
-                cands.append((p2,tk))
+                p2=info.get('p2')
+                if p2 is None: continue
+                _pe=info['price']/info['ntm'] if info.get('ntm',0)>0 else 999
+                if p2<=entry_r:
+                    cands.append((0,p2,tk))   # 순위 Top 진입 (우선)
+                elif entry_pe and _pe<15:
+                    cands.append((1,p2,tk))   # (2)variant: 저평가(PER<15) winner 신규진입 (순위 무관)
             cands.sort();pick=cands[:slots-len(held)]
-            for _,tk in pick: held[tk]=(d,dd[tk]['price'],1.0/slots,False)
+            for _,_,tk in pick: held[tk]=(d,dd[tk]['price'],1.0/slots,False)
         if track: series.append(frozenset(held.keys()))
         prev=dict(held)
     if track: return (val-1)*100,mdd,series
     return (val-1)*100,mdd
 elig=list(range(2,len(dates)-MINH));seeds=[random.Random(s).sample(elig,SAMP) for s in range(N)]
-def run(vol_thr,entry_r,exclude=(),ma12=True,eps=True,peg=None,pe=None,slots=2):
+def run(vol_thr,entry_r,exclude=(),ma12=True,eps=True,peg=None,pe=None,slots=2,entry_pe=False,dd_filter=True):
     cs,ms=[],[]
     for ch in seeds:
         for s in ch:
-            c,m=sim(vol_thr,entry_r,exclude,s,ma12,eps,peg,pe,slots);cs.append(c);ms.append(m)
+            c,m=sim(vol_thr,entry_r,exclude,s,ma12,eps,peg,pe,slots,entry_pe,dd_filter);cs.append(c);ms.append(m)
     return cs,ms
 def track_metrics(vol_thr,entry_r):
     _,_,series=sim(vol_thr,entry_r,track=True)
@@ -145,18 +149,18 @@ try:
 except Exception as e: print('market fetch err',repr(e))
 
 # === slot 분산 검증: 제3방안(PE<15) × slot 2/3/4 ===
-print('\n=== slot 분산 검증: 제3방안(PE<15) × slot 2/3/4 (균등 1/slots, $1B) ===')
-print(f'{"slots":<7}{"전기간":>10}{"전MDD":>9}{"paired":>10}{"pMDD":>9}{"LOWO":>9}{"매매":>6}{"SNDK":>8}')
-for slots in [2,3,4]:
-    c,m,ser=sim(1000,3,(),0,False,True,None,15,slots,True)
-    cs,ms=run(1000,3,(),False,True,None,15,slots)
+print('\n=== 진입범위 전체 sweep Top3~Top20 (제3방안 v119, $1B, slot2) ===')
+print(f'{"entry_r":<9}{"전기간":>9}{"전MDD":>8}{"paired":>9}{"pMDD":>8}{"LOWO":>9}{"vsTop3":>9}{"0종목":>7}')
+resd={}
+for er in [3,5,8,10,15,20]:
+    c,m,ser=sim(1000,er,(),0,False,True,None,15,2,False,True,True)
+    cs,ms=run(1000,er,(),False,True,None,15,2,False,True)
     pavg=st.mean(cs);pmdd=st.mean(ms)
     worst=pavg
     for w in WINNERS:
-        a=st.mean(run(1000,3,(w,),False,True,None,15,slots)[0]);worst=min(worst,a)
-    prev=frozenset();trades=0
-    for s in ser: trades+=len(s-prev)+len(prev-s);prev=s
-    flags=['SNDK' in s for s in ser];exits=sum(1 for a,b in zip(flags,flags[1:]) if a and not b)
-    snk='끝까지' if (any(flags) and exits==0) else (f'{exits}회' if any(flags) else '미진입')
-    print(f'{slots:<7}{c:>+9.1f}%{m:>+8.1f}%{pavg:>+9.1f}%{pmdd:>+8.1f}%{worst:>+8.1f}%{trades:>6}{snk:>8}',flush=True)
-print('\n해석: slot up 으로 전기간/paired MDD가 -21.9%보다 유의미 하락 + 수익손실 작으면 분산 채택. LOWO도 봐야(집중일수록 단일종목 의존).')
+        a=st.mean(run(1000,er,(w,),False,True,None,15,2,False,True)[0]);worst=min(worst,a)
+    empty=sum(1 for s in ser if not s)
+    resd[er]=cs
+    vs3=st.mean([a-b for a,b in zip(cs,resd[3])]) if 3 in resd else 0
+    print(f'Top{er:<6}{c:>+8.1f}%{m:>+7.1f}%{pavg:>+8.1f}%{pmdd:>+7.1f}%{worst:>+8.1f}%{vs3:>+8.2f}p{empty:>5}일',flush=True)
+print('\n해석: paired·LOWO가 정점인 entry_r이 sweet spot. 너무 넓히면(Top15~20) 약한신호 진입→희석. vsTop3는 Top3대비 paired차.')
