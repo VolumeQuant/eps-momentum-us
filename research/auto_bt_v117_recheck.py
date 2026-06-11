@@ -15,7 +15,7 @@ for d in dates:
         tk=r[0];nc,n7,n30,n60,n90=(float(x) if x else 0 for x in r[5:10]);segs=[]
         for a,b in [(nc,n7),(n7,n30),(n30,n60),(n60,n90)]:
             segs.append(max(-100,min(100,(a-b)/abs(b)*100)) if b and abs(b)>0.01 else 0)
-        data[d][tk]=dict(p2=r[1],cr=r[2],price=r[3],score=r[4] or 0,min_seg=min(segs),high30=r[10],dv=r[11],ntm=nc,rg=r[12] or 0)
+        data[d][tk]=dict(p2=r[1],cr=r[2],price=r[3],score=r[4] or 0,min_seg=min(segs),seg1=segs[0],high30=r[10],dv=r[11],ntm=nc,rg=r[12] or 0)
 pf=defaultdict(dict)
 for tk,d,p in cur.execute('SELECT ticker,date,price FROM ntm_screening WHERE price IS NOT NULL'): pf[d][tk]=p
 con.close()
@@ -61,7 +61,7 @@ def gap(tk,i):
 def _peg(info):
     pe=info['price']/info['ntm'] if info.get('ntm',0)>0 else 999
     return pe/(info['rg']*100) if info.get('rg',0)>0 else 999
-def sim(vol_thr,entry_r=3,exclude=(),start=0,ma12_hold=True,eps_sell=True,peg_hold=None,pe_hold=None,slots=2,entry_pe=False,dd_filter=True,track=False):
+def sim(vol_thr,entry_r=3,exclude=(),start=0,ma12_hold=True,eps_sell=True,peg_hold=None,pe_hold=None,slots=2,entry_pe=False,dd_filter=True,trend_thr=None,track=False):
     held={};prev=None;val=1.0;peak=1.0;mdd=0;series=[]
     for i in range(start,len(dates)):
         d=dates[i]
@@ -98,6 +98,7 @@ def sim(vol_thr,entry_r=3,exclude=(),start=0,ma12_hold=True,eps_sell=True,peg_ho
             for tk,info in dd.items():
                 if tk in held or tk in exclude: continue
                 if info.get('min_seg',0)<0 or not info['price'] or not verified(tk,i): continue
+                if trend_thr is not None and info.get('seg1',0)<trend_thr: continue  # 둔화 진입차단
                 if dd_filter and info.get('high30') and info['price']/info['high30']-1<-0.25: continue
                 if vol_thr>0 and avg_vol_at(tk,d)<vol_thr: continue
                 p2=info.get('p2')
@@ -114,11 +115,11 @@ def sim(vol_thr,entry_r=3,exclude=(),start=0,ma12_hold=True,eps_sell=True,peg_ho
     if track: return (val-1)*100,mdd,series
     return (val-1)*100,mdd
 elig=list(range(2,len(dates)-MINH));seeds=[random.Random(s).sample(elig,SAMP) for s in range(N)]
-def run(vol_thr,entry_r,exclude=(),ma12=True,eps=True,peg=None,pe=None,slots=2,entry_pe=False,dd_filter=True):
+def run(vol_thr,entry_r,exclude=(),ma12=True,eps=True,peg=None,pe=None,slots=2,entry_pe=False,dd_filter=True,trend_thr=None):
     cs,ms=[],[]
     for ch in seeds:
         for s in ch:
-            c,m=sim(vol_thr,entry_r,exclude,s,ma12,eps,peg,pe,slots,entry_pe,dd_filter);cs.append(c);ms.append(m)
+            c,m=sim(vol_thr,entry_r,exclude,s,ma12,eps,peg,pe,slots,entry_pe,dd_filter,trend_thr);cs.append(c);ms.append(m)
     return cs,ms
 def track_metrics(vol_thr,entry_r):
     _,_,series=sim(vol_thr,entry_r,track=True)
@@ -149,18 +150,19 @@ try:
 except Exception as e: print('market fetch err',repr(e))
 
 # === slot 분산 검증: 제3방안(PE<15) × slot 2/3/4 ===
-print('\n=== 진입범위 전체 sweep Top3~Top20 (제3방안 v119, $1B, slot2) ===')
-print(f'{"entry_r":<9}{"전기간":>9}{"전MDD":>8}{"paired":>9}{"pMDD":>8}{"LOWO":>9}{"vsTop3":>9}{"0종목":>7}')
-resd={}
-for er in [3,5,8,10,15,20]:
-    c,m,ser=sim(1000,er,(),0,False,True,None,15,2,False,True,True)
-    cs,ms=run(1000,er,(),False,True,None,15,2,False,True)
+print('\n=== 둔화 진입차단 검증: seg1(최근7일 EPS추이) 임계 (Top5, $1B, v119) ===')
+print(f'{"진입조건":<22}{"전기간":>9}{"전MDD":>8}{"paired":>9}{"pMDD":>8}{"LOWO":>9}{"VRT":>7}{"0종목":>6}')
+def vrt_in(tt):
+    _,_,ser=sim(1000,5,(),0,False,True,None,15,2,False,True,tt,True)
+    return ('진입' if any('VRT' in s for s in ser) else '제외'), sum(1 for s in ser if not s)
+for lbl,tt in [('현행(min_seg>=0)',None),('seg1>=1%',1.0),('seg1>=2%',2.0),('seg1>=3%',3.0)]:
+    c,m,ser=sim(1000,5,(),0,False,True,None,15,2,False,True,tt,True)
+    cs,ms=run(1000,5,(),False,True,None,15,2,False,True,tt)
     pavg=st.mean(cs);pmdd=st.mean(ms)
     worst=pavg
     for w in WINNERS:
-        a=st.mean(run(1000,er,(w,),False,True,None,15,2,False,True)[0]);worst=min(worst,a)
+        a=st.mean(run(1000,5,(w,),False,True,None,15,2,False,True,tt)[0]);worst=min(worst,a)
     empty=sum(1 for s in ser if not s)
-    resd[er]=cs
-    vs3=st.mean([a-b for a,b in zip(cs,resd[3])]) if 3 in resd else 0
-    print(f'Top{er:<6}{c:>+8.1f}%{m:>+7.1f}%{pavg:>+8.1f}%{pmdd:>+7.1f}%{worst:>+8.1f}%{vs3:>+8.2f}p{empty:>5}일',flush=True)
-print('\n해석: paired·LOWO가 정점인 entry_r이 sweet spot. 너무 넓히면(Top15~20) 약한신호 진입→희석. vsTop3는 Top3대비 paired차.')
+    vrt='진입' if any('VRT' in s for s in ser) else '제외'
+    print(f'{lbl:<22}{c:>+8.1f}%{m:>+7.1f}%{pavg:>+8.1f}%{pmdd:>+7.1f}%{worst:>+8.1f}%{vrt:>7}{empty:>5}일',flush=True)
+print('\n해석: seg1 임계로 둔화종목(VRT) 차단 시 수익/LOWO 유지·개선이면 채택. 악화면 과거winner도 둔화구간 있어 차단=손해(기각).')
