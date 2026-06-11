@@ -3305,6 +3305,15 @@ WHIPSAW_GUARD_GAP = -0.10
 #   성능(_get_system_performance)은 백테스트 track record라 epoch 미적용(전체 replay 유지).
 HOLDINGS_EPOCH = '2026-06-11'
 
+# v119 (2026-06-11): 제3방안 — 밸류에이션(fwd_PE) 저평가 보유. 메가 carryover(PEG<0.18)/MA12 전면 교체.
+#   보유 규칙: EPS꺾임(min_seg<-2) 즉시매도 → 순위 10위 안이면 보유 → 10위 밖이면 fwd_PE<15(저평가)만 보유.
+#   fwd_PE = price / ntm_current. SNDK(PE 9)·MU(10) 끝까지 저평가라 carryover, 비싸지면(PE>=15) 자동매도.
+#   BT(research/auto_bt_v117_recheck.py): 전기간 +193%(v118 +168% 대비 +25p), MDD -21.9%(동일),
+#     LOWO +55.7%, SNDK 끝까지보유. 매도규칙 후보(단순/MA12/제3) 중 수익·calmar·회전 최고.
+#   PE<15 채택: PE<20과 수익 동일(+193%)이라 더 보수적(거품방어 강)인 15 선택. plateau 12~20.
+#   ⚠️ 4개월 N=1, "비싸지면 매도"는 이 기간 미발동(SNDK 끝까지 쌈). MDD는 메타배분(80:20)으로 별도 관리.
+PE_HOLD = 15.0
+
 
 def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
     """forward replay 보유 재구성 (v111 MA12-hold + v115 보험밸브, 무상태, BT==production).
@@ -3359,44 +3368,38 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
                 segs = []
                 for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
                     segs.append((a - b) / abs(b) * 100 if b and abs(b) > 0.01 else 0)
-                info[tk] = dict(p2=p2, minseg=min(segs) if segs else 0)
-            # v118 (2026-06-11): 메가 carryover — PEG<0.18 + 매출≥25% 유지 시 무한 holding
-            #   사용자 요구: SNDK/MU 같은 메가 안 놓치기
-            #   BT (auto_bt_v118_g_detailed.py): calmar 6.39, Full +296%, SNDK +178%/MU +119% carryover
-            #   MA12 logic 제거. 메가는 PEG 시그니처만 보고 carryover.
-            #   비메가: rank>10 → 매도. EPS꺾임 → 즉시 매도.
+                info[tk] = dict(p2=p2, minseg=min(segs) if segs else 0,
+                                nc=nc, price=pxh.get(tk, {}).get(d))
+            # v119 (2026-06-11): 제3방안 — fwd_PE<15 저평가 보유 (메가 carryover/MA12 전면 교체)
+            #   EPS꺾임(min_seg<-2) 즉시매도 → 10위 안 보유 → 10위 밖이면 PE<15만 보유.
+            #   BT(auto_bt_v117_recheck.py): 전기간 +193% / MDD -21.9% / SNDK 끝까지보유.
             for tk in list(port):
                 it = info.get(tk)
                 if it is not None and it['minseg'] < -2:
                     port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)
                     continue  # EPS 꺾임 = 즉시 매도
-                # v118: 메가 carryover (rank/MA12 무관)
-                if check_mega_hold(tk):
+                if it is None:
+                    continue  # 오늘 데이터 갭 → carryover (v113 robust)
+                p2 = it['p2']
+                if p2 is not None and p2 <= 10:
                     grace.discard(tk)
-                    continue  # 메가 시그니처 유지 → 보유
-                # 비메가: rank>10이면 매도
-                p2 = it['p2'] if it else None
-                if p2 is None or p2 > 10:
-                    port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)
-                else:
+                    continue  # 10위 안 = 보유
+                # 10위 밖: fwd_PE veto — 싸면(PE<15) 보유, 비싸면 매도 (BT 정합: 계산 불가 시 매도)
+                _pe = (it['price'] / it['nc']) if (it['price'] and it['nc'] and it['nc'] > 0) else 999
+                if _pe < PE_HOLD:
                     grace.discard(tk)
-            # 진입 v118: slot 1 part2 Top 1 + slot 2 mega Top 1
+                    continue  # 저평가 → 보유
+                port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)  # 비싸짐 → 매도
+            # 진입 v119: slot 1·2 모두 part2 Top (메가 전용 슬롯 제거 — BT 진입과 정합)
             if len(port) < 2:
-                # slot 1: part2 Top 1 (없으면 Top 2)
                 p2_sorted = sorted([(tk, it['p2']) for tk, it in info.items()
-                                    if tk not in port and it['p2'] <= 3], key=lambda x: x[1])
-                if p2_sorted and len(port) < 2:
-                    tk = p2_sorted[0][0]
+                                    if tk not in port and it['p2'] is not None and it['p2'] <= 3],
+                                   key=lambda x: x[1])
+                for tk, _ in p2_sorted:
+                    if len(port) >= 2:
+                        break
                     port.add(tk)
                     entry_info[tk] = (d, pxh.get(tk, {}).get(d))
-                # slot 2: mega Top 1 (메가 시그니처 종목 중)
-                if len(port) < 2:
-                    for tk in info:
-                        if tk in port: continue
-                        if check_mega_hold(tk):
-                            port.add(tk)
-                            entry_info[tk] = (d, pxh.get(tk, {}).get(d))
-                            break
         conn.close()
         if return_detail:
             return entry_info
@@ -3429,6 +3432,42 @@ def _above_ma12(ticker, today_str=None, n=12):
     except Exception as e:
         log(f"_above_ma12 {ticker} 오류: {e}", "WARN")
         return True
+
+
+def _below_pe_live(ticker, today_str=None):
+    """v119 제3방안: fwd_PE = price/ntm_current < PE_HOLD(15) → 저평가(보유).
+    데이터 없으면 False(매도쪽 — BT 정합 pe=999 취급)."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        if today_str:
+            r = cur.execute('SELECT price,ntm_current FROM ntm_screening WHERE ticker=? AND price IS NOT NULL AND date<=? ORDER BY date DESC LIMIT 1', (ticker, today_str)).fetchone()
+        else:
+            r = cur.execute('SELECT price,ntm_current FROM ntm_screening WHERE ticker=? AND price IS NOT NULL ORDER BY date DESC LIMIT 1', (ticker,)).fetchone()
+        conn.close()
+        if not r or not r[0] or not r[1] or r[1] <= 0:
+            return False
+        return (r[0] / r[1]) < PE_HOLD
+    except Exception as e:
+        log(f"_below_pe_live {ticker} 오류: {e}", "WARN")
+        return False
+
+
+def _live_pe(ticker, today_str=None):
+    """v119: 최신 fwd_PE 값 (표시/사유용). 데이터 없으면 None."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        if today_str:
+            r = cur.execute('SELECT price,ntm_current FROM ntm_screening WHERE ticker=? AND price IS NOT NULL AND date<=? ORDER BY date DESC LIMIT 1', (ticker, today_str)).fetchone()
+        else:
+            r = cur.execute('SELECT price,ntm_current FROM ntm_screening WHERE ticker=? AND price IS NOT NULL ORDER BY date DESC LIMIT 1', (ticker,)).fetchone()
+        conn.close()
+        if not r or not r[0] or not r[1] or r[1] <= 0:
+            return None
+        return r[0] / r[1]
+    except Exception:
+        return None
 
 
 def _today_gap(ticker, today_str=None):
@@ -3652,18 +3691,18 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                     continue
             segs = [float(row.get(c) or 0) for c in ('seg1', 'seg2', 'seg3', 'seg4')]
             if segs and min(segs) < -2:
-                log(f"  🔓 추세보유 해제 {t}: EPS 꺾임(min_seg<-2) → 매도")
+                log(f"  🔓 저평가보유 해제 {t}: EPS 꺾임(min_seg<-2) → 매도")
                 continue
-            if not _above_ma12(t, today_str):
-                # v115 보험밸브: 하루 -10%+ 패닉 급락으로 깨진 경우 1일 매도 유예 (휩쏘 방지)
-                _gap = _today_gap(t, today_str)
-                if _gap is not None and _gap < WHIPSAW_GUARD_GAP:
-                    log(f"  🛟 보험밸브 {t}: 하루 {_gap*100:.1f}% 패닉급락 → 1일 매도 유예 (보유 유지)")
-                else:
-                    log(f"  🔓 추세보유 해제 {t}: 가격<MA12 (상승추세 붕괴) → 매도")
-                    continue
+            # v119 제3방안: 10위 밖이면 fwd_PE veto (10위 안이면 어차피 보유, PE 무관)
+            _p2 = _cur_rank(t)
+            _price = _safe_float(row.get('price')); _nc = _safe_float(row.get('ntm_current'))
+            _pe = (_price / _nc) if (_price and _nc and _nc > 0) else 999
+            if _p2 > 10 and _pe >= PE_HOLD:
+                log(f"  🔓 저평가보유 해제 {t}: fwd_PE {_pe:.1f} ≥ {PE_HOLD:.0f} (비싸짐) → 매도")
+                continue
             entry = _build_portfolio_entry(row, status_map, earnings_map)
             entry['_trend_hold'] = True
+            entry['_hold_pe'] = _pe  # v119 저평가 보유 PE 표시용
             # v115 보유 수익률 (진입가 대비) — 표시용
             if held_detail and t in held_detail:
                 _ed, _ep = held_detail[t]
@@ -3672,7 +3711,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
                     entry['_hold_return'] = _cp / _ep - 1
             selected.append(entry)
             trend_held.append(t)
-            log(f"  📈 추세 보유 {t}: 순위 밀려도 가격>MA12 유지 (w_rank={p2r_map.get(t, '?')})")
+            log(f"  💎 저평가 보유 {t}: 순위 밀려도 fwd_PE {_pe:.1f}<{PE_HOLD:.0f} (w_rank={p2r_map.get(t, '?')})")
 
     # v110 (2026-06-03): "각 분야 1등 사는" 시스템
     #   슬롯 1: part2_rank Top 1 (mean reversion 신호 1위)
@@ -3711,14 +3750,9 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             return False
         return True
 
-    # v118 (2026-06-11): mega entry + carryover — SNDK/MU 같은 메가 안 놓침
-    # BT (auto_bt_v118_g_detailed.py): calmar 6.39, Full +296%, 메가 carryover로 SNDK +178%/MU +119% 잡음
-    #   slot 1: part2 Top 1 (mean reversion)
-    #   slot 2: mega_score Top 1 메가 (PEG<0.18 + 매출≥25%)
-    #   메가 carryover (mega_held)는 이미 위에서 슬롯 차지 (매도 logic 별도)
-
-    # slot 1: part2 Top 1 (mean reversion)
-    slot1_filled = False
+    # v119 제3방안: slot 1·2 모두 part2 Top (저평가+EPS상향 1·2위). 메가 전용 슬롯 제거.
+    #   진입은 순위 기반(part2 Top ≤3), 보유는 fwd_PE<15 veto (위 carryover에서 처리).
+    #   BT(auto_bt_v117_recheck.py): 전기간 +193% / SNDK·MU carryover.
     for _, row in candidates.iterrows():
         if len(selected) >= MAX_SLOTS:
             break
@@ -3731,34 +3765,9 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
         if not _entry_pass(row, t):
             continue
         entry = _build_portfolio_entry(row, status_map, earnings_map)
-        entry['_entry_type'] = 'new_mr'  # mean reversion
+        entry['_entry_type'] = 'new_mr'  # mean reversion (part2 Top)
         selected.append(entry)
-        slot1_filled = True
-        log(f"  ✅ slot 1 (part2 Top) {t}: rank {p2_rank}")
-        break
-
-    # slot 2: mega_score Top 1 (PEG<0.18 + 매출≥25%) — V118 핵심
-    if len(selected) < MAX_SLOTS:
-        mega_picks = []
-        for _, row in candidates.iterrows():
-            t = row['ticker']
-            if t in trend_held or any(s['ticker'] == t for s in selected):
-                continue
-            score = calc_mega_score(row.to_dict() if hasattr(row, 'to_dict') else dict(row))
-            if score is None:
-                continue
-            if not _entry_pass(row, t):
-                continue
-            mega_picks.append((score, t, row))
-        mega_picks.sort(key=lambda x: -x[0])
-        if mega_picks:
-            score, t, row = mega_picks[0]
-            entry = _build_portfolio_entry(row, status_map, earnings_map)
-            entry['_entry_type'] = 'new_mega'  # mega entry
-            selected.append(entry)
-            log(f"  ✅ slot 2 (mega Top) {t}: mega_score={score:.1f}")
-        else:
-            log(f"  ℹ️  slot 2: 메가 시그니처 부재")
+        log(f"  ✅ slot {len(selected)} (part2 Top) {t}: rank {p2_rank}")
 
     # v110 (2026-06-03): 50/50 고정 (각 분야 1등 entry, score 격차 무관 메가 비중 보존)
     #   슬롯 1 (part2) + 슬롯 2 (mega) 둘 다 차면 → 50/50
@@ -3777,11 +3786,11 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
 
     log(f"디스플레이 {n}종목: " + ", ".join(f"{s['ticker']}({s['weight']}%)" for s in selected))
 
-    # v118 (2026-06-11): 신규 진입자용 매수후보 — slot 1 part2 Top 1 + slot 2 mega Top 1
-    # BT (auto_bt_v118_g_detailed.py): calmar 6.39, SNDK/MU 같은 메가 안 놓침
+    # v119 제3방안: 신규 진입자용 매수후보 — slot 1·2 모두 part2 Top (메가 슬롯 제거)
     new_buy_top2 = []
-    # slot 1: part2 Top 1
     for _, row in candidates.iterrows():
+        if len(new_buy_top2) >= 2:
+            break
         t = row['ticker']
         p2_rank = p2r_map.get(t, 999)
         if p2_rank > 3:
@@ -3793,26 +3802,6 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
         entry = _build_portfolio_entry(row, status_map, earnings_map)
         entry['_entry_type'] = 'new_mr'
         new_buy_top2.append(entry)
-        break
-    # slot 2: mega_score Top 1
-    if len(new_buy_top2) < 2:
-        mega_picks = []
-        for _, row in candidates.iterrows():
-            t = row['ticker']
-            if any(s['ticker'] == t for s in new_buy_top2):
-                continue
-            score = calc_mega_score(row.to_dict() if hasattr(row, 'to_dict') else dict(row))
-            if score is None:
-                continue
-            if not _entry_pass(row, t):
-                continue
-            mega_picks.append((score, t, row))
-        mega_picks.sort(key=lambda x: -x[0])
-        if mega_picks:
-            score, t, row = mega_picks[0]
-            entry = _build_portfolio_entry(row, status_map, earnings_map)
-            entry['_entry_type'] = 'new_mega'
-            new_buy_top2.append(entry)
     nb_n = len(new_buy_top2)
     if nb_n == 1:
         new_buy_top2[0]['weight'] = 100
@@ -4252,7 +4241,7 @@ def classify_exit_reasons(exited_tickers, results_df):
         if t and t in exited_tickers:
             full_data[t] = row
 
-    # v111: '추세보유' 재분류는 실제 보유 종목에만 적용 (Top20 이탈≠보유 종목).
+    # v111: '저평가보유' 재분류는 실제 보유 종목에만 적용 (Top20 이탈≠보유 종목).
     try:
         _held_set = set(_replay_holdings(apply_epoch=True))  # v116 fresh start (표시 일관)
     except Exception:
@@ -4281,10 +4270,10 @@ def classify_exit_reasons(exited_tickers, results_df):
         # v80.10c (2026-05-11): ⏸️ 유예 분류 제거 — BT 결과 v80.10 환경에선 N=0 best.
         # check_breakout_hold 함수는 코드에 유지 (회귀 검증/약세장 재검토용).
 
-        # v111 (2026-06-03): 실제 보유 종목이 순위 밀렸어도 가격>MA12면 '추세보유'(매도 아님).
+        # v119 (2026-06-11): 실제 보유 종목이 순위 밀렸어도 fwd_PE<15(저평가)면 '저평가보유'(매도 아님).
         # 보유 안 하는 Top20 이탈 종목은 그냥 순위밀림 (보유한 것처럼 표시하면 모순).
-        if reason in ('순위밀림', '과대평가') and t in _held_set and _above_ma12(t):
-            reason = '추세보유'
+        if reason in ('순위밀림', '과대평가') and t in _held_set and _below_pe_live(t):
+            reason = '저평가보유'
 
         result.append((t, cur_rank, reason))
 
@@ -5098,14 +5087,16 @@ def _get_system_performance():
                 portfolio = {}
                 continue
 
-            w_gap = _w_gap(date)
             ticker_ms = {}
             for tk, info in data.items():
                 ticker_ms[tk] = _min_seg(info['nc'], info['n7'], info['n30'], info['n60'], info['n90'])
 
-            eligible = [(tk, w_gap.get(tk, 0)) for tk in data if ticker_ms.get(tk, 0) >= -2]
-            eligible.sort(key=lambda x: x[1], reverse=True)  # 점수 높을수록 상위
-            wgap_rank = {tk: r + 1 for r, (tk, _) in enumerate(eligible)}
+            # v119: 순위 = DB part2_rank 직접 사용 (BT/replay와 완전 정합 — _w_gap 재계산 제거).
+            #   기존엔 perf만 _w_gap을 재계산해 part2_rank와 어긋남 → 시뮬 보유가 BT와 달랐음(BE vs MU).
+            eligible = [(tk, info['part2_rank']) for tk, info in data.items()
+                        if ticker_ms.get(tk, 0) >= -2 and info.get('part2_rank')]
+            eligible.sort(key=lambda x: x[1])  # part2_rank 작을수록 상위
+            wgap_rank = {tk: info['part2_rank'] for tk, info in data.items() if info.get('part2_rank')}
 
             # v84 (2026-05-30): 진입 시점 score gap 기반 dynamic weight (2step_t15)
             #   portfolio[tk]['weight']에 진입 시 결정된 weight 저장됨 (sticky)
@@ -5130,75 +5121,52 @@ def _get_system_performance():
             sys_nav *= (1 + day_ret / 100)
             spy_nav *= (1 + spy_ret / 100)
 
-            # v118 (2026-06-11): 메가 carryover + 메가 entry — 시뮬↔production 정합
-            #   매도: EPS꺾임 / (메가 아님 + rank>10)
-            #   진입: slot 1 part2 Top 1 + slot 2 mega Top 1 (PEG<0.18 + 매출≥25%)
+            # v119 (2026-06-11): 제3방안 fwd_PE<15 저평가 보유 — 시뮬↔production 정합
+            #   매도: EPS꺾임(min_seg<-2) / (rank>10 AND fwd_PE>=15, 비싸짐)
+            #   진입: slot 1·2 모두 part2 Top (메가 전용 슬롯 제거) + $1B+
             for tk in list(portfolio.keys()):
                 ep = portfolio[tk]['entry_price']
+                info_tk = daily_data.get(date, {}).get(tk)
+                if info_tk is None:
+                    continue  # 오늘 part2_rank 없음 → carryover (BT/replay 정합)
                 cp = prices.get(tk)
                 if cp is None:
                     continue  # 데이터 fetch 실패 → carryover (v113)
                 rk = wgap_rank.get(tk)
                 ms = ticker_ms.get(tk, 0)
-                info_tk = daily_data.get(date, {}).get(tk, {})
-                nc_tk = info_tk.get('nc'); rg_tk = info_tk.get('rg')
-                peg_tk = (cp / nc_tk) / (rg_tk * 100) if (cp and nc_tk and nc_tk > 0 and rg_tk and rg_tk > 0) else None
-                is_mega_now = peg_tk is not None and peg_tk < 0.18 and rg_tk is not None and rg_tk >= 0.25
+                nc_tk = info_tk.get('nc')
                 ret = (cp - ep) / ep * 100 if ep else 0
                 sell = False
                 if ms < -2:
-                    sell = True
-                elif is_mega_now:
-                    if rg_tk is not None and rg_tk < 0.25:
-                        sell = True
-                    # 메가 carryover: rank 무관 보유
+                    sell = True  # EPS꺾임 즉시매도
                 elif rk is None or rk > 10:
-                    sell = True  # 비메가 + 순위 밖
+                    # 10위 밖: fwd_PE veto (BT 정합 — 계산 불가 시 pe=999 → 매도)
+                    pe_tk = (cp / nc_tk) if (cp and nc_tk and nc_tk > 0) else 999
+                    if pe_tk >= PE_HOLD:
+                        sell = True  # 비싸짐 → 매도
+                    # else 저평가(PE<15) → 보유
+                # rk<=10이면 보유
                 if sell:
                     if ret > 0: wins += 1
                     else: losses += 1
                     del portfolio[tk]
 
-            # v118 진입: slot 1 = part2 Top 1 + slot 2 = mega_score Top 1 + $1B+
+            # v119 진입: slot 1·2 모두 part2 Top 3 + $1B+ (메가 슬롯 제거, BT 진입과 정합)
             if len(portfolio) < 2:
                 used_idx = {info['slot_idx'] for info in portfolio.values()}
                 free_idx = sorted([si for si in range(2) if si not in used_idx])
-                # slot 1 candidates: part2 Top 3 (mean reversion)
                 p2_cands = [tk for tk, _ in eligible
                             if tk not in portfolio and ticker_ms.get(tk, -999) >= 0
                             and wgap_rank.get(tk, 999) <= 3
                             and (daily_data.get(date, {}).get(tk, {}).get('dv') or 0) >= 1000]
                 p2_cands.sort(key=lambda t: wgap_rank.get(t, 999))
-                # slot 2 candidates: 메가 시그니처
-                def _mega_score_calc(tk):
-                    info = daily_data.get(date, {}).get(tk, {})
-                    nc = info.get('nc'); n90 = info.get('n90'); rg = info.get('rg')
-                    cp = prices.get(tk)
-                    if not (cp and nc and n90 and rg and nc > 0 and n90 > 0 and rg >= 0.25):
-                        return None
-                    peg = (cp / nc) / (rg * 100)
-                    if peg >= 0.18: return None
-                    ntm_rev = (nc / n90 - 1) * 100
-                    return ntm_rev + rg * 100 + 50 / peg
-                mega_cands = []
-                for tk, _ in eligible:
-                    if tk in portfolio: continue
-                    if ticker_ms.get(tk, -999) < 0: continue
-                    if (daily_data.get(date, {}).get(tk, {}).get('dv') or 0) < 1000: continue
-                    s = _mega_score_calc(tk)
-                    if s is not None:
-                        mega_cands.append((s, tk))
-                mega_cands.sort(key=lambda x: -x[0])
-                # 채움: slot 1 = part2 Top / slot 2 = mega Top
-                if p2_cands and len(portfolio) < 2:
-                    tk = p2_cands[0]
+                for tk in p2_cands:
+                    if len(portfolio) >= 2:
+                        break
+                    if tk in portfolio:
+                        continue
                     idx = free_idx.pop(0) if free_idx else len(portfolio)
                     portfolio[tk] = {'entry_price': prices.get(tk), 'slot_idx': idx, 'weight': 50}
-                if mega_cands and len(portfolio) < 2:
-                    tk = mega_cands[0][1]
-                    if tk not in portfolio:
-                        idx = free_idx.pop(0) if free_idx else len(portfolio)
-                        portfolio[tk] = {'entry_price': prices.get(tk), 'slot_idx': idx, 'weight': 50}
                 # 비중 rebalance
                 pn = len(portfolio)
                 for info in portfolio.values():
@@ -5330,7 +5298,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append('')
             lines.append(f'📈 <b>시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)</b>')
             lines.append(f'    같은 기간 S&P500은 {perf["spy_cum"]:+.1f}%')
-            lines.append(f'저평가 1위 + 메가 1위 50/50, 메가는 carryover (PEG&lt;0.18 매출≥25%)')
+            lines.append(f'저평가·EPS상향 1·2위 50/50, 저평가(PE&lt;15) winner는 순위 밀려도 보유')
     except Exception:
         pass
 
@@ -5371,7 +5339,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         nm = _clean_company_name(s['name'], s['ticker'])
         hr = s.get('_hold_return')
         hr_tag = f' {hr*100:+.0f}%' if hr is not None else ''
-        lines.append(f'🌟 보유: {nm}({s["ticker"]}){hr_tag} · 추세 유지')
+        _phe = s.get('_hold_pe')
+        _pe_tag = f'PE {_phe:.0f} 저평가 유지' if (_phe is not None and _phe < 900) else '저평가 유지'
+        lines.append(f'🌟 보유: {nm}({s["ticker"]}){hr_tag} · {_pe_tag}')
     if sold_tks:
         _name_cache = {}
         try:
@@ -5383,11 +5353,24 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         for t in sold_tks:
             _ci = _name_cache.get(t, {})
             nm = _clean_company_name(_ci.get('shortName', _ci.get('short_name', t)), t)
-            if _above_ma12(t, _ts):
-                reason = '실적 전망 꺾임'
+            # v119 매도 사유: EPS꺾임 / 저평가 해소(PE↑) / 순위 이탈
+            _segr = None
+            try:
+                _cn = sqlite3.connect(DB_PATH); _cu = _cn.cursor()
+                _rr = _cu.execute('SELECT seg1,seg2,seg3,seg4 FROM ntm_screening WHERE ticker=? AND date<=? ORDER BY date DESC LIMIT 1', (t, _ts)).fetchone()
+                _cn.close()
+                if _rr:
+                    _ss = [x for x in _rr if x is not None]
+                    _segr = min(_ss) if _ss else None
+            except Exception:
+                pass
+            _per = _live_pe(t, _ts)
+            if _segr is not None and _segr < -2:
+                reason = '실적 전망 꺾임 (EPS 하향)'
+            elif _per is not None and _per >= PE_HOLD:
+                reason = f'저평가 해소 (PE {_per:.0f}, 비싸짐)'
             else:
-                g = _today_gap(t, _ts)
-                reason = '반등했지만 12일선 회복 실패' if (g is not None and g > 0) else '추세 이탈 (12일선 아래)'
+                reason = '순위 이탈'
             lines.append(f'🔴 매도: {nm}({t}) · {reason}')
 
     # 주가 상관관계 표시 (90일 일간수익률 기준, 0.65 이상 페어만)
@@ -5472,7 +5455,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'→ 매출·마진·업종 품질 필터 {filter_count}종목')
     lines.append(f'→ 저평가 상위 20종목 매일 모니터링')
     lines.append(f'→ 거래대금 $1B+ 시장 주도주 필터')
-    # v111: 퍼널은 신규 스크리닝 결과(매수 후보) 수를 설명 (selected=추세보유는 별개 트랙).
+    # v111: 퍼널은 신규 스크리닝 결과(매수 후보) 수를 설명 (selected=저평가보유는 별개 트랙).
     _n_screened = len(new_buy_top2) if new_buy_top2 else len(selected)
     lines.append(f'→ 3일 연속 상위 유지 {_n_screened}종목 선정')
 
@@ -5495,10 +5478,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         rev = _safe_float(s.get('rev_growth'))
         earnings_tag = s.get('earnings_note', '')
 
-        # v111 (2026-06-03): 추세 보유(MA12) 종목은 "이미 보유한 경우만 유지" 표시.
+        # v119 (2026-06-11): 저평가 보유(fwd_PE<15) 종목은 "이미 보유한 경우만 유지" 표시.
         is_trend = s.get('_trend_hold') or (ticker not in new_buy_tks)
         if is_trend:
-            weight_tag = ' · 추세 보유'
+            weight_tag = ' · 저평가 보유'
             num_label = 'ℹ️'
         else:
             w = s.get('weight', 0)
@@ -5522,9 +5505,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
         lines.append(' · '.join(growth_parts))
 
-        # v111 (2026-06-03): 추세 보유 안내
+        # v119 (2026-06-11): 저평가 보유 안내
         if s.get('_trend_hold'):
-            lines.append('ℹ️ 추세 유지 → 순위 밀려도 보유')
+            _phe = s.get('_hold_pe')
+            _pe_txt = f'(PE {_phe:.0f})' if (_phe is not None and _phe < 900) else ''
+            lines.append(f'ℹ️ 저평가 유지{_pe_txt} → 순위 밀려도 보유')
 
         # L2: 안정성 (순위 · 의견 · 저평가 streak)
         rev_up = int(s.get('rev_up', 0) or 0)
@@ -5555,8 +5540,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 이탈 알림 (사유별 묶어서 표시) ━━
     if exit_reasons:
         from collections import defaultdict
-        # v114: '추세보유'(순위 밀렸지만 가격>MA12 보유 중)는 이탈 아님 → 이탈 목록에서 제외(미표시).
-        real_exits = [(t, r, reason) for t, r, reason in exit_reasons if reason != '추세보유']
+        # v114: '저평가보유'(순위 밀렸지만 가격>MA12 보유 중)는 이탈 아님 → 이탈 목록에서 제외(미표시).
+        real_exits = [(t, r, reason) for t, r, reason in exit_reasons if reason != '저평가보유']
         reason_groups = defaultdict(list)
         for t, _, reason in real_exits:
             reason_groups[reason or '순위밀림'].append(t)
@@ -5577,11 +5562,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('<b>매수</b>: 저평가 1위 + 메가 1위 50/50')
-    lines.append('   메가 = PEG&lt;0.18 + 매출성장 25%+ (초고성장+극저평가)')
+    lines.append('<b>매수</b>: 저평가·EPS상향 1·2위 50/50')
     lines.append('   · 거래대금 $1B+ (주도주 필터)')
-    lines.append('<b>매도</b>: 비메가 순위 10위 밖 또는 이익전망↓')
-    lines.append('<b>보유</b>: 메가는 순위 무관 carryover (winner 안 놓침)')
+    lines.append('<b>매도</b>: 순위 10위 밖 + 고평가(PE 15↑) 또는 이익전망↓')
+    lines.append('<b>보유</b>: 순위 밀려도 저평가(PE&lt;15)면 보유, 비싸지면 매도 (winner 안 놓침)')
     lines.append('⚠️ : 추세 약화 (보유시 주의)')
     lines.append('※ 시뮬 기준 (세금·수수료 미반영)')
 
@@ -5911,12 +5895,12 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     # 사용자 분노: "지나간 홀드 종목 보여줘봤자 약올림" — 모든 고객 SNDK 매도 완료
     # 미래 carryover 안내는 footer 운영 규칙에
 
-    # ── 순위 이탈 (사유별 묶어서 표시) — v111: '추세보유'(보유 중)는 이탈 아님 ──
+    # ── 순위 이탈 (사유별 묶어서 표시) — v111: '저평가보유'(보유 중)는 이탈 아님 ──
     if exit_reasons:
         from collections import defaultdict
         reason_groups = defaultdict(list)
         for t, _, reason in exit_reasons:
-            if reason == '추세보유':  # 보유 종목이 순위만 밀린 것 → 이탈 아님
+            if reason == '저평가보유':  # 보유 종목이 순위만 밀린 것 → 이탈 아님
                 continue
             reason_groups[reason or '순위밀림'].append(t)
         if reason_groups:
@@ -5931,11 +5915,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>운영 규칙</b>')
-    lines.append('<b>매수</b>: 저평가 1위 + 메가 1위 50/50')
-    lines.append('   메가 = PEG&lt;0.18 + 매출성장 25%+ (초고성장+극저평가)')
+    lines.append('<b>매수</b>: 저평가·EPS상향 1·2위 50/50')
     lines.append('   · 거래대금 $1B+ (주도주 필터)')
-    lines.append('<b>매도</b>: 비메가 순위 10위 밖 또는 이익전망↓')
-    lines.append('<b>보유</b>: 메가는 순위 무관 carryover (winner 안 놓침)')
+    lines.append('<b>매도</b>: 순위 10위 밖 + 고평가(PE 15↑) 또는 이익전망↓')
+    lines.append('<b>보유</b>: 순위 밀려도 저평가(PE&lt;15)면 보유, 비싸지면 매도 (winner 안 놓침)')
     lines.append('⚠️ : 추세 약화 (보유시 주의)')
     lines.append('※ 시뮬 기준 (세금·수수료 미반영)')
     lines.append('⚠️: 추세 약화, 보유시 추이 확인')

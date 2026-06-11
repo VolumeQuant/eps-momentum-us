@@ -1,16 +1,27 @@
-# 🇺🇸 US 전략 — eps-momentum-us (v118 메가 carryover+entry, MA12 제거, 메인 cron 비활성, 2026-06-11)
+# 🇺🇸 US 전략 — eps-momentum-us (v119 제3방안 fwd_PE<15 저평가 보유, 메인 cron 비활성, 2026-06-11)
 
 > **공통 작업 원칙**(사용자 지시 준수 / 표본 먼저 / EDA→인사이트→계획 / 한 번에 하나 / 재사용 우선 등)은 상위 폴더 `C:\dev\CLAUDE.md`에 있고 Claude Code가 자동 로드한다. 이 파일은 **US 전략 운영 기준만** 담는다.
 > 변경 이력 상세는 `C:\dev\CHANGELOG.md`.
 
 > **★ 현재 상태 (2026-06-11)**:
-> - master commit `7c7cb78` (V118 + HOLDINGS_EPOCH 06-11 갱신)
-> - **메인 cron 비활성화** (V118 forward 검증 기간, daily-screening.yml schedule 주석 처리)
-> - 테스트 워크플로우 (`test-private-only.yml`)로 개인봇 검증 권장
-> - 시스템 시뮬 누적 +178.1% / SPY +7.9% / α +170.2p, 시뮬 보유 [BE, SNDK]
-> - 회사 PC 이어가려면: `git pull` → 회사에서 V118 검증 결과 분석 + 필요 시 patch
+> - **V119 제3방안(fwd_PE<15 저평가 보유) 작업 완료 — 테스트워크플로우 메시지 검증 단계**
+> - **메인 cron 비활성화** (forward 검증 기간, daily-screening.yml schedule 주석 처리)
+> - 테스트 워크플로우 (`test-private-only.yml`)로 개인봇 검증
+> - 시스템 시뮬 누적 **+193.3%** / SPY +7.9% / α +185.4p, 시뮬 보유 **[MU, SNDK]** (BT와 정확 일치)
+> - 다음: 테스트워크플로우 메시지 OK → 메인 cron 재개 결정
+> - 회사 PC 이어가려면: `git pull` → V119 forward 검증 분석
 
-> **V118 채택 (2026-06-11, commit 3f40de4)**: MA12 추세홀드 제거 + 메가 carryover + 메가 entry (V110 G style 복원).
+> **V119 채택 — 제3방안 fwd_PE<15 저평가 보유 (2026-06-11, 테스트워크플로우 검증 중)**: V118 메가 carryover(PEG<0.18+매출25%)/MA12 전면 교체.
+> 계기: 사용자 "SNDK 놓침 충격. 제3의 방안? SNDK가 실제 고평가된 적 있나(EPS 그대론데 가격만 오름)?" → 검증: SNDK는 EPS 86→176 2배 + **PE 9~11 박스(전 기간 저평가)** = 순위만 밀렸지 팔 이유 없었음. v117 순위10밖 매도가 비합리.
+> 산식 정밀검증(research/auto_bt_v117_recheck.py): 매출PEG vs fwd_PE 단독 = **완전 동일**(SNDK PE9·PEG0.037 둘 다 저평가). **fwd_PE 단독 채택** — 매출성장 추정 불필요(일회성 매출 착시 無)+단순. PE<15(plateau 12~20, PE<20과 수익 동일 +193%, 더 보수적=거품방어 강).
+> BT 매도규칙 비교(전기간 single-path): 단순 +166%/SNDK놓침, MA12 +168%/SNDK놓침, **제3방안 +193%/SNDK끝까지/calmar8.81/회전6**(수익·calmar·회전 최고). **MDD는 4방안 다 -21.9%(매도규칙 무관, 집중도가 결정)** → MDD는 메타배분(80:20=계좌-17.5%)으로 별도관리. slot3 분산 = -90p 수익붕괴+MDD악화(알파=소수winner집중, 분산이 죽임) 기각.
+> 매도: EPS꺾임(min_seg<-2) 즉시 → 10위 안 보유 → 10위 밖이면 **fwd_PE<15만 보유**(비싸지면 매도). 진입: slot1·2 모두 part2 Top(메가슬롯 제거). 휩쏘보험 제거(PE는 가격급락시 더 싸져 보유강화).
+> 변경 8곳: PE_HOLD=15+_below_pe_live/_live_pe / _replay_holdings / _get_system_performance(+순위 **part2_rank 통일** — 기존 _w_gap 재계산이 BT와 어긋나 보유 BE/NVDA로 튀던 버그 fix) / select_display_top5 / new_buy_top2 / classify_exit_reasons / 메시지(매도사유·🌟저평가보유 PE표시·Watchlist "저평가 유지(PE X)→순위밀려도 보유"·footer).
+> **BT==production 정합 확인**: _replay {MU,SNDK}, perf +193.3%/{MU,SNDK} = BT 전기간 정확 일치.
+> ⚠️ 4개월 N=1 단일regime(시장은 3월-9%조정·6월하락 있는 변동성장, 본격약세장 아님), "비싸지면 매도"는 이 기간 미발동(SNDK 끝까지 쌈). 약세장은 국면오버레이(S&P200DMA+VIX→IEF)가 별도 처리. dead: check_mega_hold/calc_mega_score/get_mega_hold_tickers/_above_ma12/_today_gap/_w_gap(호출0, 회귀용 잔존).
+> 롤백: `git revert <v119커밋>` (또는 v118 3f40de4로).
+
+> **V118 채택 (2026-06-11, commit 3f40de4) — V119로 대체됨**: MA12 추세홀드 제거 + 메가 carryover + 메가 entry (V110 G style 복원).
 > 사용자 명령: "SNDK 같은 메가 수익 중간에 놓치는게 충격적. MA12 없애고 전부 BT". 자율주행 9 variants 결과 G best (calmar 7.39, Full +351%, +68p vs v117c).
 > 변경: ① `_replay_holdings` 매도: EPS꺾임 / 비메가 + rank>10 / **메가는 무한 carryover (PEG<0.18 + 매출≥25%)** ② `_replay_holdings` 진입: slot 1 part2 Top 1 + slot 2 mega Top 1 ③ `_get_system_performance` 시뮬 동일 logic (BT==production 정합) ④ `select_display_top5` 매수: slot 1 part2 + slot 2 mega_score Top 1 ⑤ `new_buy_top2` 신규: 동일 ⑥ 메시지: header "저평가 1위 + 메가 1위 50/50, 메가는 carryover", footer "메가는 순위 무관 carryover (winner 안 놓침)".
 > Caveat: LOWO -SNDK/MU +47.9% (다중 메가 부재기 약점), MDD -24.1% (vs v117c -17.9%, +6p 증가), 75일 BT N=1.
