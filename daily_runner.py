@@ -4946,14 +4946,21 @@ def _regime_defense_series(all_dates):
         return {d: False for d in all_dates}, {d: 0.0 for d in all_dates}
 
 
-def _get_system_performance():
-    """시스템 누적 성과 계산 (DB 데이터 기반, defense 일자 IEF 반영)"""
+def _get_system_performance(apply_epoch=False):
+    """시스템 누적 성과 계산 (DB 데이터 기반, defense 일자 IEF 반영).
+
+    v119 (2026-06-11): apply_epoch=True 시 배포일(HOLDINGS_EPOCH) 이후 실제 성과만 계산.
+      메시지 표시는 epoch 적용(fresh-start와 일관 — 못 사는 SNDK 백테스트 수익 자랑 제거).
+      BT 검증용은 apply_epoch=False(전체 replay).
+    """
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         all_dates = [r[0] for r in c.execute(
             'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL ORDER BY date'
         ).fetchall()]
+        if apply_epoch:
+            all_dates = [d for d in all_dates if d >= HOLDINGS_EPOCH]
         if len(all_dates) < 3:
             conn.close()
             return None
@@ -5291,9 +5298,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append('🔄 <b>방어 → 공격 전환 — 매수 재개</b>')
         lines.append('S&P 500이 200일선을 회복했습니다. 아래 후보로 복귀합니다.')
 
-    # ━━ 시스템 성과 ━━
+    # ━━ 시스템 성과 ━━ (v119: 배포일 이후 실제 성과만 — 백테스트 자랑 제거)
     try:
-        perf = _get_system_performance()
+        perf = _get_system_performance(apply_epoch=True)
         if perf and perf['n_days'] >= 5:
             lines.append('')
             lines.append(f'📈 <b>시스템 누적 {perf["sys_cum"]:+.1f}%</b> ({perf["n_days"]}거래일)')
