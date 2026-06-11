@@ -762,8 +762,16 @@ def run_ntm_collection(config):
                     ma60_val = float(hist.rolling(window=60).mean().iloc[-1])
                     if len(hist) >= 120:
                         ma120_val = float(hist.rolling(window=120).mean().iloc[-1])
-                    # v84 (2026-05-30): 30거래일 high (dd_30_25 진입 필터용)
-                    high30_val = float(hist.tail(30).max()) if len(hist) >= 30 else None
+                    # v119 (2026-06-11): high30 = DB 누적 가격 기반 결정적 계산.
+                    # 기존 hist.tail(30)은 fetch 시점마다 30거래일 윈도우가 밀려 경계종목(VRT 등)이
+                    # 실행마다 dd_30_25 제외/통과가 흔들림(비결정적). DB 과거가격은 고정 → 결정적 + BT 정합.
+                    _dbpx = [r[0] for r in cursor.execute(
+                        "SELECT price FROM ntm_screening WHERE ticker=? AND date<? AND price IS NOT NULL ORDER BY date DESC LIMIT 29",
+                        (ticker, today_str)).fetchall()]
+                    if len(_dbpx) >= 29:
+                        high30_val = max(_dbpx + [current_price])
+                    else:
+                        high30_val = float(hist.tail(30).max()) if len(hist) >= 30 else None  # cold start fallback
                     hist_dt = hist.index.tz_localize(None) if hist.index.tz else hist.index
 
                     # 각 시점의 주가 찾기
@@ -932,8 +940,14 @@ def run_ntm_collection(config):
                     p_now = float(hist.iloc[-1])
                     ma60_val = float(hist.rolling(window=60).mean().iloc[-1])
                     ma120_val = float(hist.rolling(window=120).mean().iloc[-1]) if len(hist) >= 120 else None
-                    # v84: 30거래일 high (dd_30_25 진입 필터용)
-                    high30_val = float(hist.tail(30).max()) if len(hist) >= 30 else None
+                    # v119 (2026-06-11): high30 = DB 누적 가격 기반 결정적 계산 (carry-forward 경로)
+                    _dbpx = [r[0] for r in cur_cf.execute(
+                        "SELECT price FROM ntm_screening WHERE ticker=? AND date<? AND price IS NOT NULL ORDER BY date DESC LIMIT 29",
+                        (ticker, today_str)).fetchall()]
+                    if len(_dbpx) >= 29:
+                        high30_val = max(_dbpx + [p_now])
+                    else:
+                        high30_val = float(hist.tail(30).max()) if len(hist) >= 30 else None  # cold start fallback
 
                     # 3) 스코어 재계산 (전일 EPS 기반)
                     score, seg1, seg2, seg3, seg4, is_turnaround, adj_score, direction = calculate_ntm_score(ntm)
