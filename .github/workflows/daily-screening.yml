@@ -1,12 +1,11 @@
 name: Daily EPS Momentum Screening
 
 on:
-  # v118 (2026-06-11): cron 일시 비활성화 — V118 forward 검증 기간.
-  # 사용자 명령: 메인 채널 발송 cron 끄고 테스트 워크플로우로 검증.
-  # 복구 시: 아래 schedule 주석 해제.
-  # schedule:
-  #   - cron: '58 20 * * 1-5'  # 화~토 KST 05:58 = 월~금 UTC 20:58
-  workflow_dispatch:  # 수동 실행만 가능
+  # v119 (2026-06-11): cron 재개 — 제3방안(PE<15 저평가 보유) + Top5 진입 + high30 결정적 수정
+  #   테스트워크플로우 검증 완료(BE+VRT 진입, 전송 정상, 에러 없음) 후 메인 채널 발송 활성화.
+  schedule:
+    - cron: '58 20 * * 1-5'  # 화~토 KST 05:58 = 월~금 UTC 20:58
+  workflow_dispatch:  # 수동 실행도 가능
 
 # v80.7 (2026-05-02): yfinance rate limit 회피 — 테스트 워크플로우와 동시 실행 시
 # IP 기반 throttling으로 대량 수집 실패 발생 (5/2 사고: 333개 실패 → SNDK/VIRT 5/1
