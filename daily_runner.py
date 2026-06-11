@@ -438,6 +438,18 @@ def run_ntm_collection(config):
     import yfinance as yf
     import pandas as pd
 
+    # IP rate-limit 우회용 프록시 (선택). YF_PROXY 환경변수 설정 시 모든 yfinance 요청에 적용.
+    # 야후가 GitHub Actions 데이터센터 IP를 일시 차단(5/28 n=600·6/11 n=30 사고)할 때 residential
+    # proxy로 우회. yfinance 0.2.65+는 기본 curl_cffi impersonate=chrome(봇위장)이라 fingerprint는
+    # 이미 해결됨 → 남은 실패 원인은 IP 차단뿐이므로 proxy가 유일한 근본 해법. 미설정 시 동작 변화 없음.
+    _yf_proxy = os.environ.get('YF_PROXY', '').strip()
+    if _yf_proxy:
+        try:
+            yf.set_config(proxy=_yf_proxy)
+            log(f"yfinance 프록시 적용 (YF_PROXY): ...{_yf_proxy[-12:]}")
+        except Exception as _e:
+            log(f"yfinance 프록시 설정 실패: {_e}", "WARN")
+
     # v83.1: HISTORICAL MODE — fetch SKIP + DB로 재구성
     today_str_env = os.environ.get('MARKET_DATE', '').strip()
     if is_historical_mode():
