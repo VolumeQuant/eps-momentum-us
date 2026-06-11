@@ -5444,8 +5444,8 @@
     "industry": "기타"
   },
   "AIR": {
-    "shortName": "AIR",
-    "industry": "기타"
+    "shortName": "AAR Corp.",
+    "industry": "방산"
   },
   "ARGX": {
     "shortName": "argenx SE",
@@ -5572,8 +5572,8 @@
     "industry": "기타"
   },
   "RACE": {
-    "shortName": "RACE",
-    "industry": "기타"
+    "shortName": "Ferrari N.V.",
+    "industry": "자동차"
   },
   "RAL": {
     "shortName": "Ralliant Corporation",
@@ -5994,5 +5994,25 @@
   "HRI": {
     "shortName": "HRI",
     "industry": "기타"
+  },
+  "AMRX": {
+    "shortName": "Amneal Pharmaceuticals, Inc.",
+    "industry": "특수제약"
+  },
+  "CECO": {
+    "shortName": "CECO Environmental Corp.",
+    "industry": "환경"
+  },
+  "HNGE": {
+    "shortName": "Hinge Health, Inc.",
+    "industry": "의료정보"
+  },
+  "LGND": {
+    "shortName": "Ligand Pharmaceuticals Incorpor",
+    "industry": "바이오"
+  },
+  "MTRN": {
+    "shortName": "Materion Corporation",
+    "industry": "산업금속"
   }
 }
