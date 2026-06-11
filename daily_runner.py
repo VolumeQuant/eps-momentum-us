@@ -3412,7 +3412,7 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
             # 진입 v119: slot 1·2 모두 part2 Top (메가 전용 슬롯 제거 — BT 진입과 정합)
             if len(port) < 2:
                 p2_sorted = sorted([(tk, it['p2']) for tk, it in info.items()
-                                    if tk not in port and it['p2'] is not None and it['p2'] <= 3],
+                                    if tk not in port and it['p2'] is not None and it['p2'] <= 5],
                                    key=lambda x: x[1])
                 for tk, _ in p2_sorted:
                     if len(port) >= 2:
@@ -3777,7 +3777,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             break
         t = row['ticker']
         p2_rank = p2r_map.get(t, 999)
-        if p2_rank > 3:
+        if p2_rank > 5:
             break
         if t in trend_held or any(s['ticker'] == t for s in selected):
             continue
@@ -3812,7 +3812,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             break
         t = row['ticker']
         p2_rank = p2r_map.get(t, 999)
-        if p2_rank > 3:
+        if p2_rank > 5:
             break
         if any(s['ticker'] == t for s in new_buy_top2):
             continue
@@ -5183,7 +5183,7 @@ def _get_system_performance(apply_epoch=False):
                 free_idx = sorted([si for si in range(2) if si not in used_idx])
                 p2_cands = [tk for tk, _ in eligible
                             if tk not in portfolio and ticker_ms.get(tk, -999) >= 0
-                            and wgap_rank.get(tk, 999) <= 3
+                            and wgap_rank.get(tk, 999) <= 5
                             and (daily_data.get(date, {}).get(tk, {}).get('dv') or 0) >= 1000]
                 p2_cands.sort(key=lambda t: wgap_rank.get(t, 999))
                 for tk in p2_cands:
