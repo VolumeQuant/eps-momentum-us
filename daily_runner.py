@@ -4574,7 +4574,7 @@ def run_ai_analysis(config, selected, biz_day, risk_status=None, market_lines=No
 
 [시스템 배경]
 이 종목들은 "애널리스트 EPS 전망이 상향되는데 주가가 덜 오른 종목"을 찾는 시스템이 선정한 매수 후보야.
-괴리(adj_gap)가 음수일수록 EPS 대비 주가가 저평가 상태라는 뜻이야.
+괴리(adj_gap)가 음수일수록 'EPS 전망 상향 대비 주가가 덜 올라 매력적인' 상태야(상대적 매력이지, 절대 PER이 싸다는 뜻은 아님 — 고PER 성장주도 포함).
 
 [형식]
 종목별 2~3문장(150~200자). 종목 사이에 [SEP] 표시.
@@ -5277,7 +5277,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append(f'사유: {reason}')
         lines.append('')
         lines.append('약세장 신호로 신규 매수를 멈춥니다.')
-        lines.append('보유 종목은 매도 기준 그대로 적용 (10위 밖 &amp; 가격&lt;12일선 또는 이익전망↓).')
+        lines.append('보유 종목은 매도 기준 그대로 적용 (10위 밖 &amp; PER 15↑ 또는 이익전망↓).')
         lines.append('현금 또는 <b>IEF</b>(미국 중기 국채 ETF) 보유 권장.')
         lines.append('안전 우선 시 <b>BIL</b>(단기 국채). ※ 금리 급등기엔 장기채 회피.')
         lines.append('S&P 500이 200일선을 회복(15일 확인)하면 자동으로 매수 재개.')
@@ -5469,7 +5469,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append(f'→ 애널리스트 이익 전망 상향 {eps_screened}종목')
     if filter_count:
         lines.append(f'→ 매출·마진·업종 품질 필터 {filter_count}종목')
-    lines.append(f'→ 저평가 상위 20종목 매일 모니터링')
+    lines.append(f'→ 매력도 상위 20종목 매일 모니터링')
     lines.append(f'→ 거래대금 $1B+ 시장 주도주 필터')
     # v111: 퍼널은 신규 스크리닝 결과(매수 후보) 수를 설명 (selected=저평가보유는 별개 트랙).
     _n_screened = len(new_buy_top2) if new_buy_top2 else len(selected)
@@ -5579,7 +5579,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>매매 규칙</b> (최대 2종목 · 각 50%)')
-    lines.append('<b>매수</b>: 이익전망↑ + 저평가 상위 2 ($1B+)')
+    lines.append('<b>매수</b>: 이익전망↑ + 매력도 상위 2 ($1B+)')
     lines.append('<b>보유</b>: 순위 10위 안, 또는 저평가(PER&lt;15)')
     lines.append('<b>매도</b>: 순위 10위 밖 + 비싸짐(PER 15↑)')
     lines.append('         또는 이익전망 꺾임')
@@ -5930,7 +5930,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>매매 규칙</b> (최대 2종목 · 각 50%)')
-    lines.append('<b>매수</b>: 이익전망↑ + 저평가 상위 2 ($1B+)')
+    lines.append('<b>매수</b>: 이익전망↑ + 매력도 상위 2 ($1B+)')
     lines.append('<b>보유</b>: 순위 10위 안, 또는 저평가(PER&lt;15)')
     lines.append('<b>매도</b>: 순위 10위 밖 + 비싸짐(PER 15↑)')
     lines.append('         또는 이익전망 꺾임')
