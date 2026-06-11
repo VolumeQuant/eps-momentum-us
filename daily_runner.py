@@ -525,11 +525,14 @@ def run_ntm_collection(config):
             ticker_cache = {}
 
     # Step 2: 가격 데이터 일괄 다운로드 (retry 1회)
+    # threads=2 (2026-06-11): threads=True는 1240종목을 한꺼번에 burst → 야후 YFRateLimitError(429)
+    #   유발(6/11 테스트 n=30 사고의 1차 트리거). 동시 요청을 2개로 제한해 burst 완화 → 차단 빈도↓.
+    #   반환 구조 동일(MultiIndex), 소요 ~2분(허용). 더 강한 대응은 YF_PROXY(commit e20b8c7) 참고.
     log("가격 데이터 일괄 다운로드 중...")
     hist_all = None
     for _dl_attempt in range(2):
         try:
-            hist_all = yf.download(all_tickers, period='1y', threads=True, progress=False)
+            hist_all = yf.download(all_tickers, period='1y', threads=2, progress=False)
             log("가격 다운로드 완료")
             break
         except Exception as e:
