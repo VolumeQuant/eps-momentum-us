@@ -603,13 +603,13 @@ def run_ntm_collection(config):
         except Exception as e:
             return ticker, {'error': str(e)}
 
-    log(f"NTM EPS 병렬 수집 중 (3스레드, {len(eps_tickers)}종목)...")
+    log(f"NTM EPS 병렬 수집 중 (2스레드, {len(eps_tickers)}종목)...")
     _t_eps = __import__('time').time()
     _prefetched = {}
     BATCH_SIZE = 30
     for batch_start in range(0, len(eps_tickers), BATCH_SIZE):
         batch = eps_tickers[batch_start:batch_start + BATCH_SIZE]
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=2) as executor:
             futures = {executor.submit(_prefetch_eps, t): t for t in batch}
             for future in as_completed(futures):
                 result = future.result()
@@ -626,7 +626,7 @@ def run_ntm_collection(config):
         __import__('time').sleep(10)
         for batch_start in range(0, len(error_tickers), BATCH_SIZE):
             batch = error_tickers[batch_start:batch_start + BATCH_SIZE]
-            with ThreadPoolExecutor(max_workers=3) as executor:
+            with ThreadPoolExecutor(max_workers=2) as executor:
                 futures = {executor.submit(_prefetch_eps, t): t for t in batch}
                 for future in as_completed(futures):
                     t, data = future.result()
@@ -645,7 +645,7 @@ def run_ntm_collection(config):
             for _retry_round in range(1, 4):
                 __import__('time').sleep(5)
                 _still_bad = []
-                with ThreadPoolExecutor(max_workers=3) as executor:
+                with ThreadPoolExecutor(max_workers=2) as executor:
                     futures = {executor.submit(_prefetch_eps, t): t for t in _top20_failed}
                     for future in as_completed(futures):
                         t, data = future.result()
