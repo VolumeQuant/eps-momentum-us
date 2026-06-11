@@ -4260,7 +4260,7 @@ def classify_exit_reasons(exited_tickers, results_df):
                 result.append((t, cur_rank, reason))
                 continue
         if ag is not None and ag > 5.0:
-            reason = '과대평가'
+            reason = '주가급등'
         elif is_eligible:
             reason = '순위밀림'
         else:
@@ -4272,7 +4272,7 @@ def classify_exit_reasons(exited_tickers, results_df):
 
         # v119 (2026-06-11): 실제 보유 종목이 순위 밀렸어도 fwd_PE<15(저평가)면 '저평가보유'(매도 아님).
         # 보유 안 하는 Top20 이탈 종목은 그냥 순위밀림 (보유한 것처럼 표시하면 모순).
-        if reason in ('순위밀림', '과대평가') and t in _held_set and _below_pe_live(t):
+        if reason in ('순위밀림', '주가급등') and t in _held_set and _below_pe_live(t):
             reason = '저평가보유'
 
         result.append((t, cur_rank, reason))
@@ -5296,9 +5296,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         perf = _get_system_performance()
         if perf and perf['n_days'] >= 5:
             lines.append('')
-            lines.append(f'📈 <b>시스템 누적 수익률 {perf["sys_cum"]:+.1f}% ({perf["n_days"]}거래일)</b>')
-            lines.append(f'    같은 기간 S&P500은 {perf["spy_cum"]:+.1f}%')
-            lines.append(f'저평가·EPS상향 1·2위 50/50, 저평가(PE&lt;15) winner는 순위 밀려도 보유')
+            lines.append(f'📈 <b>시스템 누적 {perf["sys_cum"]:+.1f}%</b> ({perf["n_days"]}거래일)')
+            lines.append(f'    S&P500 {perf["spy_cum"]:+.1f}% · 시뮬 기준')
     except Exception:
         pass
 
@@ -5321,7 +5320,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     if new_buy_top2 is None:
         new_buy_top2 = [s for s in sel if not s.get('_trend_hold')]
 
-    lines.append('🛒 <b>오늘의 매수 후보</b> (50/50)')
+    _nb_n = len(new_buy_top2) if new_buy_top2 else 0
+    _w_hdr = ' (각 50%)' if _nb_n >= 2 else (' (100%)' if _nb_n == 1 else '')
+    lines.append(f'🛒 <b>오늘의 매수 후보</b>{_w_hdr}')
     lines.append('━━━━━━━━━━━━━━━')
     if new_buy_top2:
         for idx, s in enumerate(new_buy_top2):
@@ -5332,17 +5333,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     else:
         lines.append('· 신규 매수 후보 없음 (보유 유지)')
 
-    # 보유 / 매도 (해당 종목 가진 경우만 — 새로 사는 사람은 위 매수 후보만 보면 됨)
-    if held_in_slot or sold_tks:
-        lines.append('')
-    for s in held_in_slot:
-        nm = _clean_company_name(s['name'], s['ticker'])
-        hr = s.get('_hold_return')
-        hr_tag = f' {hr*100:+.0f}%' if hr is not None else ''
-        _phe = s.get('_hold_pe')
-        _pe_tag = f'PE {_phe:.0f} 저평가 유지' if (_phe is not None and _phe < 900) else '저평가 유지'
-        lines.append(f'🌟 보유: {nm}({s["ticker"]}){hr_tag} · {_pe_tag}')
+    # v119 (2026-06-11): 보유 표시 제거 (B안) — 새 고객은 "오늘 살 것"만 보면 됨.
+    #   🌟 보유줄은 "지금 못 사는 종목(순위 밖 보유)"이라 신규 진입자에게 혼란 → 제거.
+    #   매도(🔴)는 실제 매도 발생 시에만 보유자 안내용으로 유지.
     if sold_tks:
+        lines.append('')
         _name_cache = {}
         try:
             import json as _json
@@ -5366,9 +5361,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                 pass
             _per = _live_pe(t, _ts)
             if _segr is not None and _segr < -2:
-                reason = '실적 전망 꺾임 (EPS 하향)'
+                reason = '이익전망 꺾임'
             elif _per is not None and _per >= PE_HOLD:
-                reason = f'저평가 해소 (PE {_per:.0f}, 비싸짐)'
+                reason = f'PER {_per:.0f}배로 비싸짐'
             else:
                 reason = '순위 이탈'
             lines.append(f'🔴 매도: {nm}({t}) · {reason}')
@@ -5508,8 +5503,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         # v119 (2026-06-11): 저평가 보유 안내
         if s.get('_trend_hold'):
             _phe = s.get('_hold_pe')
-            _pe_txt = f'(PE {_phe:.0f})' if (_phe is not None and _phe < 900) else ''
-            lines.append(f'ℹ️ 저평가 유지{_pe_txt} → 순위 밀려도 보유')
+            _pe_txt = f' PER {_phe:.0f}배' if (_phe is not None and _phe < 900) else ''
+            lines.append(f'ℹ️ 저평가{_pe_txt} → 순위 밀려도 보유')
 
         # L2: 안정성 (순위 · 의견 · 저평가 streak)
         rev_up = int(s.get('rev_up', 0) or 0)
@@ -5562,12 +5557,11 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     # ━━ 범례 + 면책 ━━
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('<b>매수</b>: 저평가·EPS상향 1·2위 50/50')
-    lines.append('   · 거래대금 $1B+ (주도주 필터)')
-    lines.append('<b>매도</b>: 순위 10위 밖 + 고평가(PE 15↑) 또는 이익전망↓')
-    lines.append('<b>보유</b>: 순위 밀려도 저평가(PE&lt;15)면 보유, 비싸지면 매도 (winner 안 놓침)')
-    lines.append('⚠️ : 추세 약화 (보유시 주의)')
-    lines.append('※ 시뮬 기준 (세금·수수료 미반영)')
+    lines.append('📌 <b>매매 규칙</b>')
+    lines.append('🛒 매수: 이익전망↑ + 저평가 1·2위')
+    lines.append('🌟 보유: 순위 밀려도 저평가면 계속')
+    lines.append('🔴 매도: 순위 이탈 + 비싸짐(PER 15배↑)')
+    lines.append('    또는 이익전망 꺾임')
 
     return '\n'.join(lines)
 
@@ -5811,7 +5805,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             sec_parts.append(f'기타 {etc_count}')
         lines.append(' | '.join(sec_parts))
 
-    lines.append('✅ 검증완료 ⏳ 관찰중 🆕 신규 ⚠️ 추세주의')
+    lines.append('✅ 검증완료 ⏳ 관찰중 🆕 신규 ⚠️ 전망둔화')
     lines.append('EPS추이(90→60→30→7일 변화율)')
     lines.append('🔥&gt;20% ☀️5~20% 🌤️1~5% ☁️±1% 🌧️&lt;-1%')
     lines.append('━━━━━━━━━━━━━━━')
@@ -5914,14 +5908,12 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     # ── 범례 ──
     lines.append('')
     lines.append('━━━━━━━━━━━━━━━')
-    lines.append('📌 <b>운영 규칙</b>')
-    lines.append('<b>매수</b>: 저평가·EPS상향 1·2위 50/50')
-    lines.append('   · 거래대금 $1B+ (주도주 필터)')
-    lines.append('<b>매도</b>: 순위 10위 밖 + 고평가(PE 15↑) 또는 이익전망↓')
-    lines.append('<b>보유</b>: 순위 밀려도 저평가(PE&lt;15)면 보유, 비싸지면 매도 (winner 안 놓침)')
-    lines.append('⚠️ : 추세 약화 (보유시 주의)')
-    lines.append('※ 시뮬 기준 (세금·수수료 미반영)')
-    lines.append('⚠️: 추세 약화, 보유시 추이 확인')
+    lines.append('📌 <b>매매 규칙</b>')
+    lines.append('🛒 매수: 이익전망↑ + 저평가 1·2위')
+    lines.append('🌟 보유: 순위 밀려도 저평가면 계속')
+    lines.append('🔴 매도: 순위 이탈 + 비싸짐(PER 15배↑)')
+    lines.append('    또는 이익전망 꺾임')
+    lines.append('※ 누적수익률은 시뮬 기준 (세금·수수료 미반영)')
 
     return '\n'.join(lines)
 
