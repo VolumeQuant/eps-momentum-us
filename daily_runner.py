@@ -352,9 +352,10 @@ def load_historical_results_df(target_date):
 
     # seg1~4: NTM 변화율 segment (calculate_ntm_score와 동일 로직)
     def _calc_seg(a, b):
-        if b is not None and abs(b) > 0.01:
-            return max(-100.0, min(100.0, (a - b) / abs(b) * 100))
-        return 0.0
+        # v120 (2026-06-12): 양끝 가드 — 스냅샷이 글리치로 0이면 세그먼트 무효(가짜 EPS꺾임 방지)
+        if a is None or b is None or abs(a) <= 0.01 or abs(b) <= 0.01:
+            return 0.0
+        return max(-100.0, min(100.0, (a - b) / abs(b) * 100))
     df['seg1'] = df.apply(lambda r: _calc_seg(r['ntm_current'] or 0, r['ntm_7d'] or 0), axis=1)
     df['seg2'] = df.apply(lambda r: _calc_seg(r['ntm_7d'] or 0, r['ntm_30d'] or 0), axis=1)
     df['seg3'] = df.apply(lambda r: _calc_seg(r['ntm_30d'] or 0, r['ntm_60d'] or 0), axis=1)
@@ -1117,7 +1118,7 @@ def run_ntm_collection(config):
     return results_df, turnaround_df, stats, today_str, hist_all
 
 
-def _validate_collection_health(stats, min_collected=900, max_error_rate=0.30):
+def _validate_collection_health(stats, min_collected=900, max_error_rate=0.15, min_ratio=0.85):
     """수집 건강성 검증 (v86e++ 2026-06-03) — KR <150 안전망 이식 + US 적응.
 
     2026-05-28~29 사고: yfinance 대량 실패(에러 676/1272=53%, 수집 600/315 vs 정상 ~1240)인데
@@ -1133,9 +1134,14 @@ def _validate_collection_health(stats, min_collected=900, max_error_rate=0.30):
         err_rate = (errors / universe) if universe else 1.0
         if collected < min_collected:
             return False, f"수집 종목 {collected} < {min_collected} (정상 ~1240, 5/28사고=600)"
+        # v120 (2026-06-12): 상대 기준 추가 — 6/12 사고(912/1259=72%, 에러26.7%)가 옛 가드(30%)를
+        #   턱걸이 통과해 BE 글리치 가짜신호 발송. universe 대비 비율·에러율 둘 다 조여 degraded 차단
+        #   → 30분 재시도(자가복구, 6/11 실증)로 유도. 정상 cron(~98% 수집)엔 영향 0.
+        if universe and collected < universe * min_ratio:
+            return False, f"수집 {collected}/{universe} ({collected/universe*100:.0f}%) < {min_ratio*100:.0f}% (degraded)"
         if err_rate > max_error_rate:
-            return False, f"에러율 {err_rate*100:.0f}% > {max_error_rate*100:.0f}% (5/28사고=53%)"
-        return True, f"수집 {collected}, 에러율 {err_rate*100:.0f}% — 정상"
+            return False, f"에러율 {err_rate*100:.0f}% > {max_error_rate*100:.0f}% (degraded, 5/28사고=53%)"
+        return True, f"수집 {collected}/{universe}, 에러율 {err_rate*100:.0f}% — 정상"
     except Exception as e:
         return False, f"건강성 검증 오류: {e}"
 

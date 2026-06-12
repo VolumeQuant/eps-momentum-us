@@ -390,11 +390,18 @@ def calculate_ntm_score(ntm_values):
     is_turnaround = abs(nc) < MIN_NTM_EPS or abs(n90) < MIN_NTM_EPS
 
     # 각 segment 변화율 계산 (±100% 캡으로 이상치 방지)
+    # v120 (2026-06-12): 양끝 가드 — yfinance가 중간 NTM 스냅샷을 0으로 반환하는 글리치 방지.
+    #   사례: BE 30daysAgo 추정치=0 → seg3=(0-1.8)/1.8=-100% → 가짜 'EPS꺾임' 오매도(6/12 사고).
+    #   둘 중 하나라도 ~0(결측/글리치)이면 세그먼트 무효(0). 정상 데이터엔 영향 0.
     SEG_CAP = 100
-    seg1 = max(-SEG_CAP, min(SEG_CAP, (nc - n7) / abs(n7) * 100)) if n7 != 0 else 0
-    seg2 = max(-SEG_CAP, min(SEG_CAP, (n7 - n30) / abs(n30) * 100)) if n30 != 0 else 0
-    seg3 = max(-SEG_CAP, min(SEG_CAP, (n30 - n60) / abs(n60) * 100)) if n60 != 0 else 0
-    seg4 = max(-SEG_CAP, min(SEG_CAP, (n60 - n90) / abs(n90) * 100)) if n90 != 0 else 0
+    def _seg(new, old):
+        if abs(new) < 0.01 or abs(old) < 0.01:
+            return 0
+        return max(-SEG_CAP, min(SEG_CAP, (new - old) / abs(old) * 100))
+    seg1 = _seg(nc, n7)
+    seg2 = _seg(n7, n30)
+    seg3 = _seg(n30, n60)
+    seg4 = _seg(n60, n90)
 
     score = seg1 + seg2 + seg3 + seg4
 
