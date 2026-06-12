@@ -5072,8 +5072,8 @@
     "industry": "기타"
   },
   "DB": {
-    "shortName": "DB",
-    "industry": "기타"
+    "shortName": "Deutsche Bank AG",
+    "industry": "지역은행"
   },
   "LBRDK": {
     "shortName": "Liberty Broadband Corporation",
@@ -6014,5 +6014,9 @@
   "MTRN": {
     "shortName": "Materion Corporation",
     "industry": "산업금속"
+  },
+  "SPCX": {
+    "shortName": "SPCX",
+    "industry": "기타"
   }
 }
