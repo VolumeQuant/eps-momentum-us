@@ -3396,15 +3396,15 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
         grace = set()     # tk -> v115 보험밸브 1일 유예 중
         for d in dts:
             rows = cur.execute(
-                'SELECT ticker,part2_rank,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
+                'SELECT ticker,part2_rank,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,dollar_volume_30d,high30 FROM ntm_screening WHERE date=? AND part2_rank IS NOT NULL',
                 (d,)).fetchall()
             info = {}
-            for tk, p2, nc, n7, n30, n60, n90 in rows:
+            for tk, p2, nc, n7, n30, n60, n90, dv, h30 in rows:
                 segs = []
                 for a, b in [(nc, n7), (n7, n30), (n30, n60), (n60, n90)]:
                     segs.append((a - b) / abs(b) * 100 if b and abs(b) > 0.01 else 0)
                 info[tk] = dict(p2=p2, minseg=min(segs) if segs else 0,
-                                nc=nc, price=pxh.get(tk, {}).get(d))
+                                nc=nc, price=pxh.get(tk, {}).get(d), dv=dv, high30=h30)
             # v119 (2026-06-11): 제3방안 — fwd_PE<15 저평가 보유 (메가 carryover/MA12 전면 교체)
             #   EPS꺾임(min_seg<-2) 즉시매도 → 10위 안 보유 → 10위 밖이면 PE<15만 보유.
             #   BT(auto_bt_v117_recheck.py): 전기간 +193% / MDD -21.9% / SNDK 끝까지보유.
@@ -3427,8 +3427,19 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
                 port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)  # 비싸짐 → 매도
             # 진입 v119: slot 1·2 모두 part2 Top (메가 전용 슬롯 제거 — BT 진입과 정합)
             if len(port) < 2:
+                # v120c (2026-06-13): 진입필터 정합 — _get_system_performance와 동일하게
+                #   {min_seg≥0, part2≤5, $1B 거래대금}. 기존엔 part2≤5만 봐서 KEYS/AEIS(순위 상위지만
+                #   $1B 미달)를 시뮬보유 → 사지도 않은 종목에 가짜 '매도' 신호(6/13 사고).
+                def _replay_entry_ok(it):
+                    if it['p2'] is None or it['p2'] > 5:
+                        return False
+                    if it.get('minseg', 0) < 0:        # EPS 추세 건강
+                        return False
+                    if (it.get('dv') or 0) < 1000:     # 거래대금 $1B+ (시장 주도주)
+                        return False
+                    return True
                 p2_sorted = sorted([(tk, it['p2']) for tk, it in info.items()
-                                    if tk not in port and it['p2'] is not None and it['p2'] <= 5],
+                                    if tk not in port and _replay_entry_ok(it)],
                                    key=lambda x: x[1])
                 for tk, _ in p2_sorted:
                     if len(port) >= 2:
@@ -6461,6 +6472,20 @@ def main():
         # 시스템 로그 → 개인봇에만
         send_telegram_long(msg_log, config, chat_id=private_id)
         log("시스템 로그 전송 완료 → 개인봇")
+
+        # v120 (2026-06-12): 로컬 실행(집 PC 테스트) 시 결과를 텍스트 파일로 저장.
+        #   is_github=False(로컬)에서만. 채널 미발송 + 단순 신호 확인용. GitHub 영향 0.
+        if not is_github:
+            try:
+                import re as _re
+                def _plain(m):
+                    m = _re.sub(r'<[^>]+>', '', m or '')
+                    return m.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+                with open('signal_local.txt', 'w', encoding='utf-8') as _f:
+                    _f.write('\n\n'.join(_plain(m) for m in [msg_signal, msg_ai_risk, msg_watchlist, msg_log] if m))
+                log("📄 로컬 결과 저장: signal_local.txt (집 PC 테스트용, 채널 미발송)")
+            except Exception as _e:
+                log(f"signal_local.txt 저장 실패: {_e}", "WARN")
 
     # 5. Git commit/push
     git_commit_push(config)
