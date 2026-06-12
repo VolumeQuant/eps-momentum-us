@@ -358,6 +358,19 @@ def calculate_ntm_eps(stock, today=None):
 
         ntm[key] = (overlap_0y / total_overlap) * v0 + (overlap_1y / total_overlap) * v1
 
+    # v120b (2026-06-12): yfinance 글리치 가드 — eps_trend의 중간 스냅샷(7d/30d/60d)이 0 또는
+    #   부분값으로 깨지는 경우(예: BE 30daysAgo 추정치=0/0.5 → ntm_30d 비정상 → seg -100% →
+    #   가짜 'EPS꺾임' 오매도/순위탈락). 중간 스냅샷이 양쪽 이웃보다 40%+ 낮은 '하향 스파이크'면
+    #   이웃 평균으로 보간. NTM 추정치의 V자 급락-반등은 비현실적 = 글리치. 정상 추세엔 영향 0.
+    #   (exact-0/부분값 모두 처리. fetch마다 글리치 값이 달라지는 비결정성 대응.)
+    _order = ['current', '7d', '30d', '60d', '90d']
+    _orig = {k: ntm[k] for k in _order}
+    for _i in (1, 2, 3):
+        _x, _L, _R = _orig[_order[_i]], _orig[_order[_i - 1]], _orig[_order[_i + 1]]
+        _lo = min(abs(_L), abs(_R))
+        if _lo > 0.01 and abs(_x) < _lo * 0.6:
+            ntm[_order[_i]] = (_L + _R) / 2.0
+
     return ntm
 
 
