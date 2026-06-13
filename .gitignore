@@ -55,3 +55,6 @@ research/*.bak.db
 
 # 임시 로그
 wf_log.txt
+
+# 집 PC 로컬 테스트 결과 (v120)
+signal_local.txt
