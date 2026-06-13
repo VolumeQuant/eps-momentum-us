@@ -40,10 +40,10 @@
 ## 📈 어제 수익률 Top 5
 
 - **MSTU** (income_lev): +6.02%
-- **NUGT** (esg): +5.72%
-- **IRBO** (themes): +5.70%
+- **NUGT** (esg): +5.72% (vol 1.5x)
 - **SOXL** (income_lev): +4.77%
 - **FAS** (income_lev): +4.15%
+- **TSLL** (income_lev): +3.58%
 
 ## 🚀 5일 모멘텀 Top 5
 
@@ -55,7 +55,7 @@
 
 ## 🧠 자동 인사이트
 
-- **인컴/레버리지** 영역 ETF 3개가 수익률 Top 5에 동시 진입 → 테마 회전 신호
+- **인컴/레버리지** 영역 ETF 4개가 수익률 Top 5에 동시 진입 → 테마 회전 신호
 - **MSTU (MSTR 2X 레버리지)** +6.02% — 기초자산 큰 움직임
 - **MSTZ (MSTR 2X 인버스)** -6.35% — 기초자산 큰 움직임
 - **원자재/헷지 카테고리 약세** (-0.66%) → 리스크 온 분위기
@@ -79,11 +79,11 @@
 
 각 ETF 보유종목 EPS revision 가중 평균 (음수 = 저평가)
 
-- **XOP**: 가중 adj_gap -21.83 (매칭 29%, Top: DINO, SM, APA)
-- **VDE**: 가중 adj_gap -16.01 (매칭 62%, Top: XOM, CVX, COP)
-- **IYE**: 가중 adj_gap -15.48 (매칭 69%, Top: XOM, CVX, COP)
-- **XLE**: 가중 adj_gap -15.25 (매칭 75%, Top: XOM, CVX, COP)
-- **GDX**: 가중 adj_gap -11.25 (매칭 11%, Top: NEM)
+- **XOP**: 가중 adj_gap -19.38 (매칭 29%, Top: DINO, SM, APA)
+- **VDE**: 가중 adj_gap -15.67 (매칭 62%, Top: XOM, CVX, COP)
+- **IYE**: 가중 adj_gap -15.13 (매칭 69%, Top: XOM, CVX, COP)
+- **XLE**: 가중 adj_gap -14.90 (매칭 75%, Top: XOM, CVX, COP)
+- **METU**: 가중 adj_gap -11.81 (매칭 18%, Top: META)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
