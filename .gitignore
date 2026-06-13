@@ -58,3 +58,4 @@ wf_log.txt
 
 # 집 PC 로컬 테스트 결과 (v120)
 signal_local.txt
+research/_price_hist_cache.parquet
