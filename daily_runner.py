@@ -2767,7 +2767,7 @@ REGIME_OVERLAY_DISABLE = os.environ.get('REGIME_OVERLAY_DISABLE', '') == '1'
 #   검증(phase13, 26년 QQQ프록시): Calmar 0.63→0.71, MDD-23→-20%, 2018Q4 -16%→-7%·2025 -18%→-9%
 #   조기탐지, LOWO(2020/2025 제외) 0.69→0.75 통과, 2008/2022 무손상(느린약세장 텀구조 미발화),
 #   인접(1.03~1.10)·비용 통과. 킬스위치 REGIME_TS_DISABLE=1. VIX3M 수집실패 시 현행 폴백.
-REGIME_TS_THRESH = float(os.environ.get('REGIME_TS_THRESH', '1.05'))
+REGIME_TS_THRESH = float(os.environ.get('REGIME_TS_THRESH', '1.08'))   # v121b: 1.05→1.08 (헛방어 차단). 진짜폭락 텀구조 1.25+(2018/2020/2025), 약한scare 1.06(2026-3월 휩쏘)→1.08이 깨끗이 분리. phase13 인접서 1.08 ex-V Calmar 0.80(최고).
 REGIME_TS_CONFIRM = int(os.environ.get('REGIME_TS_CONFIRM', '2'))
 REGIME_TS_DISABLE = os.environ.get('REGIME_TS_DISABLE', '') == '1'
 
