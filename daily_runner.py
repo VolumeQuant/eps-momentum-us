@@ -2870,6 +2870,20 @@ def get_market_regime():
         else:
             ma_defense = _confirm_regime(below_recent, REGIME_MA_CONFIRM)
 
+        # 200일선 위 연속일수(재진입 카운트다운용)
+        days_above = 0
+        for v in reversed(below.values):
+            if not v:
+                days_above += 1
+            else:
+                break
+        # VIX>36 연속일수
+        vix_over = 0
+        for x in reversed((vcl > REGIME_VIX_THRESH).values):
+            if x:
+                vix_over += 1
+            else:
+                break
         reasons = []
         if ma_defense:
             if ts_accel and ts_now:
@@ -2878,10 +2892,18 @@ def get_market_regime():
                 reasons.append(f'S&P 200일선 이탈 {days_below}일')
         if vix_defense:
             reasons.append(f'VIX 급등({vix_now:.0f}>{REGIME_VIX_THRESH:.0f})')
+        # ★ 조기경보 (Day-1, 매매 변화 없음 — 표시 전용). 신호가 쌓이는 중인지 카운트다운.
+        warn = []
+        if not ma_defense and days_below >= 1:
+            warn.append(f'S&P 200일선 아래 <b>{days_below}/{REGIME_MA_CONFIRM}일째</b> ({REGIME_MA_CONFIRM}일 도달 시 방어 전환)')
+        if not vix_defense and vix_now > REGIME_VIX_THRESH:
+            warn.append(f'VIX <b>{vix_now:.0f}</b> (36 초과 — {REGIME_VIX_CONFIRM}일 지속 시 방어)')
+        early_warn = ' / '.join(warn)
         return {
             'regime': 'defense' if (ma_defense or vix_defense) else 'boost',
             'reason': ' + '.join(reasons) if reasons else '정상 (S&P 200일선 위, VIX 안정)',
             'spx': spx_now, 'ma200': ma_now, 'vix': vix_now, 'days_below': days_below,
+            'days_above': days_above, 'vix_over': vix_over, 'early_warn': early_warn,
         }
     except Exception as e:
         log(f"regime 판단 실패 (boost 유지): {e}", level="WARN")
@@ -5369,6 +5391,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append('보유 종목은 매도 기준 그대로 적용 (10위 밖 &amp; PER 30↑ 또는 이익전망↓).')
         lines.append('현금 또는 <b>IEF</b>(미국 중기 국채 ETF) 보유 권장.')
         lines.append('안전 우선 시 <b>BIL</b>(단기 국채). ※ 금리 급등기엔 장기채 회피.')
+        _da = regime.get('days_above', 0) if regime else 0
+        if _da >= 1:
+            lines.append(f'📊 현재 200일선 위 <b>{_da}/{REGIME_MA_CONFIRM}일째</b> — 회복 카운트다운(15일 도달 시 매수 재개).')
         lines.append('S&P 500이 200일선을 회복(15일 확인)하면 자동으로 매수 재개.')
         return '\n'.join(lines)
 
@@ -5400,6 +5425,13 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append('')
         lines.append('🔄 <b>방어 → 공격 전환 — 매수 재개</b>')
         lines.append('S&P 500이 200일선을 회복했습니다. 아래 후보로 복귀합니다.')
+
+    # ★ 조기경보 (Day-1부터 표시, 매매 변화 없음 — 미리 대비용)
+    _ew = _rg.get('early_warn') if _rg else ''
+    if _ew:
+        lines.append('')
+        lines.append(f'⚠️ <b>약세장 조기경보</b>: {_ew}')
+        lines.append('   <i>(아직 전량보유 유지 — 확인일 도달 시 자동 방어 전환. 미리 대비만)</i>')
 
     # ━━ 시스템 성과 ━━ (v119: 배포일 이후 실제 성과만 — 백테스트 자랑 제거)
     try:

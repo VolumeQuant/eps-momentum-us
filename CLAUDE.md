@@ -7,6 +7,8 @@
 > **★ v119b: PE_HOLD 15→30 완화 — 적용완료 (2026-06-14, commit/push 됨)**: fwd_PER = price/ntm_current (forward 12M, 후행 아님). top20 중 **18/20이 fwd_PE 15+**(NVDA19.9·AVGO23.3·AMZN26·LLY28). PE<15는 SNDK/MU(PE9~11) 시클리컬 과적합→우량메가 carryover 미발동. 스윕(research/opt_exwinner.py SNDK/MU제외 robust): **PE15=PE30 무비용**(robust 39.5%≈38.2%·메가포함 126.5% 동일), **MDD PE무관 −19% 동일**. PE30=NVDA/AVGO/AMZN/LLY 잡고 froth(BE83/VRT40) 배제. **PE40은 비채택**(robust +50.2% 보이나 비단조 노이즈+메가포함 −12%p). 적용=PE_HOLD 상수 1줄(15→30, 모든 로직 전파)+메시지 3곳(PER15↑→30↑)+주석. **매도 트리거 2개**: ①rank>10 AND fwd_PER≥30 ②EPS꺾임(min_seg<-2) 즉시. 롤백=PE_HOLD 30→15. ⚠️ 미래 winner가 싼 시클리컬 회귀면 PE15 유리(시장관 베팅). 봇 send_per_check.
 > **★ US 4팩터 별도연구(2026-06-13, 미배포)**: `C:\dev\claude-code\us-4factor`(GitHub VolumeQuant/us-4factor private). KR형 V/Q/G/M, SEC EDGAR 장기재무, 7년BT Calmar1.16(SPY상회·KR3.86 못미침·강세장의존·생존편향). EPS와 융합=신호불가(거의 직교)·2슬리브 병렬만. 메인 EPS와 별개·연구용.
 
+> **★ Day-1 조기경보 + 국면지수 검증 (2026-06-14)**: ① 약세장 신호(200일선 이탈/VIX36) 쌓이는 **1일째부터 메시지에 조기경보 표시**(get_market_regime early_warn/days_above, 매매는 그대로 15일/2일 확인 — 표시만, 대비용). ② **국면 기준지수 S&P500이 최적**(나스닥100 비교: NDX Calmar0.45/MDD-31%/전환32 vs SP500 0.60/-23%/24 — NDX 변동커 휩쏘多). 현행 S&P500 유지.
+
 > **공통 작업 원칙**(사용자 지시 준수 / 표본 먼저 / EDA→인사이트→계획 / 한 번에 하나 / 재사용 우선 등)은 상위 폴더 `C:\dev\CLAUDE.md`에 있고 Claude Code가 자동 로드한다. 이 파일은 **US 전략 운영 기준만** 담는다.
 > 변경 이력 상세는 `C:\dev\CHANGELOG.md`.
 
