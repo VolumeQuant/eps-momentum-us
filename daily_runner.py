@@ -2761,6 +2761,15 @@ REGIME_MA_CONFIRM = int(os.environ.get('REGIME_MA_CONFIRM', '15'))
 REGIME_VIX_THRESH = float(os.environ.get('REGIME_VIX_THRESH', '36'))
 REGIME_VIX_CONFIRM = int(os.environ.get('REGIME_VIX_CONFIRM', '2'))
 REGIME_OVERLAY_DISABLE = os.environ.get('REGIME_OVERLAY_DISABLE', '') == '1'
+# ★ v121: VIX 텀구조(VIX/VIX3M) 빠른 진입 가속 (2026-06-14, 전문가자문+검증).
+#   단기공포(VIX)가 3개월공포(VIX3M)보다 먼저 폭발=백워데이션 → 빠른 약세장 선행경보.
+#   MA200 아래일 때 텀구조 역전 N일 → 15일 안 기다리고 조기 방어(재진입은 15일 그대로).
+#   검증(phase13, 26년 QQQ프록시): Calmar 0.63→0.71, MDD-23→-20%, 2018Q4 -16%→-7%·2025 -18%→-9%
+#   조기탐지, LOWO(2020/2025 제외) 0.69→0.75 통과, 2008/2022 무손상(느린약세장 텀구조 미발화),
+#   인접(1.03~1.10)·비용 통과. 킬스위치 REGIME_TS_DISABLE=1. VIX3M 수집실패 시 현행 폴백.
+REGIME_TS_THRESH = float(os.environ.get('REGIME_TS_THRESH', '1.05'))
+REGIME_TS_CONFIRM = int(os.environ.get('REGIME_TS_CONFIRM', '2'))
+REGIME_TS_DISABLE = os.environ.get('REGIME_TS_DISABLE', '') == '1'
 
 
 def _confirm_regime(raw_seq, n):
@@ -2781,6 +2790,22 @@ def _confirm_regime(raw_seq, n):
     return state
 
 
+def _confirm_regime_ts(below_seq, tsinv_seq, ma_n, ts_n):
+    """MA200 확인 + VIX텀구조 가속. below_seq/tsinv_seq: bool 시퀀스(오래된→최신, 동일길이).
+    진입: below 15일 OR (텀구조역전 AND below) ts_n일. 퇴출: above 15일(히스테리시스). stateless 재계산."""
+    state = False
+    sd = sb = tsc = 0
+    for b, ti in zip(below_seq, tsinv_seq):
+        sd = sd + 1 if b else 0
+        sb = 0 if b else sb + 1
+        tsc = tsc + 1 if (ti and b) else 0   # 텀구조 역전 AND 200선 아래
+        if not state and (sd >= ma_n or tsc >= ts_n):
+            state = True
+        elif state and sb >= ma_n:
+            state = False
+    return state
+
+
 def get_market_regime():
     """국면 판단 — SPX<MA200(확인) OR VIX>thresh(확인) → defense.
 
@@ -2796,6 +2821,7 @@ def get_market_regime():
                 'spx': None, 'ma200': None, 'vix': None, 'days_below': 0}
     try:
         import yfinance as yf
+        import pandas as pd
         spx = yf.download('^GSPC', period='2y', auto_adjust=True, progress=False)
         cl = spx['Close']
         if hasattr(cl, 'columns'):
@@ -2803,7 +2829,7 @@ def get_market_regime():
         cl = cl.dropna()
         ma = cl.rolling(REGIME_MA_PERIOD).mean()
         below = (cl < ma).dropna()
-        ma_defense = _confirm_regime(list(below.values[-260:]), REGIME_MA_CONFIRM)
+        below_recent = list(below.values[-260:])
         spx_now, ma_now = float(cl.iloc[-1]), float(ma.iloc[-1])
         days_below = 0
         for v in reversed(below.values):
@@ -2812,17 +2838,40 @@ def get_market_regime():
             else:
                 break
 
-        vix_df = yf.download('^VIX', period='1mo', auto_adjust=True, progress=False)
+        vix_df = yf.download('^VIX', period='2y', auto_adjust=True, progress=False)
         vcl = vix_df['Close']
         if hasattr(vcl, 'columns'):
             vcl = vcl.iloc[:, 0]
         vcl = vcl.dropna()
         vix_now = float(vcl.iloc[-1])
-        vix_defense = _confirm_regime(list((vcl > REGIME_VIX_THRESH).values), REGIME_VIX_CONFIRM)
+        vix_defense = _confirm_regime(list((vcl > REGIME_VIX_THRESH).values[-260:]), REGIME_VIX_CONFIRM)
+        # ★ v121: VIX 텀구조(VIX/VIX3M) 가속 진입 — 빠른 약세장 조기탐지. 실패 시 MA200만 폴백.
+        ts_accel = False
+        ts_now = None
+        if not REGIME_TS_DISABLE:
+            try:
+                v3_df = yf.download('^VIX3M', period='2y', auto_adjust=True, progress=False)
+                v3 = v3_df['Close']
+                if hasattr(v3, 'columns'):
+                    v3 = v3.iloc[:, 0]
+                v3 = v3.dropna()
+                ratio = (vcl.reindex(below.index).ffill() / v3.reindex(below.index).ffill())
+                ts_now = float(ratio.iloc[-1]) if pd.notna(ratio.iloc[-1]) else None
+                tsinv_recent = list((ratio > REGIME_TS_THRESH).fillna(False).values[-260:])
+                ma_defense = _confirm_regime_ts(below_recent, tsinv_recent, REGIME_MA_CONFIRM, REGIME_TS_CONFIRM)
+                ts_accel = ma_defense and not _confirm_regime(below_recent, REGIME_MA_CONFIRM)
+            except Exception as e:
+                log(f"VIX3M 텀구조 수집 실패 (MA200만 사용): {e}", level="WARN")
+                ma_defense = _confirm_regime(below_recent, REGIME_MA_CONFIRM)
+        else:
+            ma_defense = _confirm_regime(below_recent, REGIME_MA_CONFIRM)
 
         reasons = []
         if ma_defense:
-            reasons.append(f'S&P 200일선 이탈 {days_below}일')
+            if ts_accel and ts_now:
+                reasons.append(f'VIX 텀구조 역전({ts_now:.2f}) + S&P 200일선 이탈 {days_below}일 (빠른 약세장 조기탐지)')
+            else:
+                reasons.append(f'S&P 200일선 이탈 {days_below}일')
         if vix_defense:
             reasons.append(f'VIX 급등({vix_now:.0f}>{REGIME_VIX_THRESH:.0f})')
         return {
