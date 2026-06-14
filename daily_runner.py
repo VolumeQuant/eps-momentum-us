@@ -3341,13 +3341,17 @@ WHIPSAW_GUARD_GAP = -0.10
 HOLDINGS_EPOCH = '2026-06-11'
 
 # v119 (2026-06-11): 제3방안 — 밸류에이션(fwd_PE) 저평가 보유. 메가 carryover(PEG<0.18)/MA12 전면 교체.
-#   보유 규칙: EPS꺾임(min_seg<-2) 즉시매도 → 순위 10위 안이면 보유 → 10위 밖이면 fwd_PE<15(저평가)만 보유.
-#   fwd_PE = price / ntm_current. SNDK(PE 9)·MU(10) 끝까지 저평가라 carryover, 비싸지면(PE>=15) 자동매도.
+#   보유 규칙: EPS꺾임(min_seg<-2) 즉시매도 → 순위 10위 안이면 보유 → 10위 밖이면 fwd_PE<PE_HOLD(저평가)만 보유.
+#   fwd_PE = price / ntm_current. SNDK(PE 9)·MU(10) 끝까지 저평가라 carryover, 비싸지면(PE>=PE_HOLD) 자동매도.
 #   BT(research/auto_bt_v117_recheck.py): 전기간 +193%(v118 +168% 대비 +25p), MDD -21.9%(동일),
 #     LOWO +55.7%, SNDK 끝까지보유. 매도규칙 후보(단순/MA12/제3) 중 수익·calmar·회전 최고.
-#   PE<15 채택: PE<20과 수익 동일(+193%)이라 더 보수적(거품방어 강)인 15 선택. plateau 12~20.
-#   ⚠️ 4개월 N=1, "비싸지면 매도"는 이 기간 미발동(SNDK 끝까지 쌈). MDD는 메타배분(80:20)으로 별도 관리.
-PE_HOLD = 15.0
+# ★ v119b (2026-06-14): PE_HOLD 15→30 완화 (사용자 결정). 근거: 현재 시장 리더십이 고PER 성장
+#   (top20 중 18/20이 PE15+: NVDA19.9·AVGO23.3·AMZN26·LLY28). PE<15는 SNDK/MU(PE9~11) 시클리컬에
+#   과적합돼 우량메가 carryover 미발동. 스윕(research/opt_exwinner.py): PE15=PE30 수익 동급(무비용,
+#   robust 39.5%≈38.2%·메가포함 126.5% 동일)인데 PE30은 NVDA/AVGO/AMZN/LLY 잡고 froth(BE83/VRT40)는 배제.
+#   MDD는 PE_HOLD 무관(-19% 동일). PE40+은 비단조 노이즈+메가포함 -12%p라 비채택.
+#   ⚠️ 미래 winner가 싼 시클리컬이면 PE15가 유리(시장관 베팅). 롤백=PE_HOLD 30→15.
+PE_HOLD = 30.0
 
 
 def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
@@ -3405,8 +3409,8 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
                     segs.append((a - b) / abs(b) * 100 if b and abs(b) > 0.01 else 0)
                 info[tk] = dict(p2=p2, minseg=min(segs) if segs else 0,
                                 nc=nc, price=pxh.get(tk, {}).get(d), dv=dv, high30=h30)
-            # v119 (2026-06-11): 제3방안 — fwd_PE<15 저평가 보유 (메가 carryover/MA12 전면 교체)
-            #   EPS꺾임(min_seg<-2) 즉시매도 → 10위 안 보유 → 10위 밖이면 PE<15만 보유.
+            # v119 (2026-06-11): 제3방안 — fwd_PE<PE_HOLD 저평가 보유 (메가 carryover/MA12 전면 교체)
+            #   EPS꺾임(min_seg<-2) 즉시매도 → 10위 안 보유 → 10위 밖이면 PE<PE_HOLD만 보유.
             #   BT(auto_bt_v117_recheck.py): 전기간 +193% / MDD -21.9% / SNDK 끝까지보유.
             for tk in list(port):
                 it = info.get(tk)
@@ -3419,7 +3423,7 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
                 if p2 is not None and p2 <= 10:
                     grace.discard(tk)
                     continue  # 10위 안 = 보유
-                # 10위 밖: fwd_PE veto — 싸면(PE<15) 보유, 비싸면 매도 (BT 정합: 계산 불가 시 매도)
+                # 10위 밖: fwd_PE veto — 싸면(PE<PE_HOLD) 보유, 비싸면 매도 (BT 정합: 계산 불가 시 매도)
                 _pe = (it['price'] / it['nc']) if (it['price'] and it['nc'] and it['nc'] > 0) else 999
                 if _pe < PE_HOLD:
                     grace.discard(tk)
@@ -3481,7 +3485,7 @@ def _above_ma12(ticker, today_str=None, n=12):
 
 
 def _below_pe_live(ticker, today_str=None):
-    """v119 제3방안: fwd_PE = price/ntm_current < PE_HOLD(15) → 저평가(보유).
+    """v119 제3방안: fwd_PE = price/ntm_current < PE_HOLD → 저평가(보유).
     데이터 없으면 False(매도쪽 — BT 정합 pe=999 취급)."""
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -3797,7 +3801,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
         return True
 
     # v119 제3방안: slot 1·2 모두 part2 Top (저평가+EPS상향 1·2위). 메가 전용 슬롯 제거.
-    #   진입은 순위 기반(part2 Top ≤3), 보유는 fwd_PE<15 veto (위 carryover에서 처리).
+    #   진입은 순위 기반(part2 Top ≤3), 보유는 fwd_PE<PE_HOLD veto (위 carryover에서 처리).
     #   BT(auto_bt_v117_recheck.py): 전기간 +193% / SNDK·MU carryover.
     for _, row in candidates.iterrows():
         if len(selected) >= MAX_SLOTS:
@@ -4316,7 +4320,7 @@ def classify_exit_reasons(exited_tickers, results_df):
         # v80.10c (2026-05-11): ⏸️ 유예 분류 제거 — BT 결과 v80.10 환경에선 N=0 best.
         # check_breakout_hold 함수는 코드에 유지 (회귀 검증/약세장 재검토용).
 
-        # v119 (2026-06-11): 실제 보유 종목이 순위 밀렸어도 fwd_PE<15(저평가)면 '저평가보유'(매도 아님).
+        # v119 (2026-06-11): 실제 보유 종목이 순위 밀렸어도 fwd_PE<PE_HOLD(저평가)면 '저평가보유'(매도 아님).
         # 보유 안 하는 Top20 이탈 종목은 그냥 순위밀림 (보유한 것처럼 표시하면 모순).
         if reason in ('순위밀림', '주가급등') and t in _held_set and _below_pe_live(t):
             reason = '저평가보유'
@@ -5174,8 +5178,8 @@ def _get_system_performance(apply_epoch=False):
             sys_nav *= (1 + day_ret / 100)
             spy_nav *= (1 + spy_ret / 100)
 
-            # v119 (2026-06-11): 제3방안 fwd_PE<15 저평가 보유 — 시뮬↔production 정합
-            #   매도: EPS꺾임(min_seg<-2) / (rank>10 AND fwd_PE>=15, 비싸짐)
+            # v119 (2026-06-11): 제3방안 fwd_PE<PE_HOLD 저평가 보유 — 시뮬↔production 정합
+            #   매도: EPS꺾임(min_seg<-2) / (rank>10 AND fwd_PE>=PE_HOLD, 비싸짐)
             #   진입: slot 1·2 모두 part2 Top (메가 전용 슬롯 제거) + $1B+
             for tk in list(portfolio.keys()):
                 ep = portfolio[tk]['entry_price']
@@ -5197,7 +5201,7 @@ def _get_system_performance(apply_epoch=False):
                     pe_tk = (cp / nc_tk) if (cp and nc_tk and nc_tk > 0) else 999
                     if pe_tk >= PE_HOLD:
                         sell = True  # 비싸짐 → 매도
-                    # else 저평가(PE<15) → 보유
+                    # else 저평가(PE<PE_HOLD) → 보유
                 # rk<=10이면 보유
                 if sell:
                     if ret > 0: wins += 1
@@ -5309,7 +5313,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append(f'사유: {reason}')
         lines.append('')
         lines.append('약세장 신호로 신규 매수를 멈춥니다.')
-        lines.append('보유 종목은 매도 기준 그대로 적용 (10위 밖 &amp; PER 15↑ 또는 이익전망↓).')
+        lines.append('보유 종목은 매도 기준 그대로 적용 (10위 밖 &amp; PER 30↑ 또는 이익전망↓).')
         lines.append('현금 또는 <b>IEF</b>(미국 중기 국채 ETF) 보유 권장.')
         lines.append('안전 우선 시 <b>BIL</b>(단기 국채). ※ 금리 급등기엔 장기채 회피.')
         lines.append('S&P 500이 200일선을 회복(15일 확인)하면 자동으로 매수 재개.')
@@ -5526,7 +5530,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         rev = _safe_float(s.get('rev_growth'))
         earnings_tag = s.get('earnings_note', '')
 
-        # v119 (2026-06-11): 저평가 보유(fwd_PE<15) 종목은 "이미 보유한 경우만 유지" 표시.
+        # v119 (2026-06-11): 저평가 보유(fwd_PE<PE_HOLD) 종목은 "이미 보유한 경우만 유지" 표시.
         is_trend = s.get('_trend_hold') or (ticker not in new_buy_tks)
         if is_trend:
             weight_tag = ' · 저평가 보유'
@@ -5613,7 +5617,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('📌 <b>매매 규칙</b> (최대 2종목 · 각 50%)')
     lines.append('<b>매수</b>: 이익전망↑ + 매력도 상위 2 ($1B+)')
     lines.append('<b>보유</b>: 순위 10위 안, 또는 저평가(PER&lt;15)')
-    lines.append('<b>매도</b>: 순위 10위 밖 + 비싸짐(PER 15↑)')
+    lines.append('<b>매도</b>: 순위 10위 밖 + 비싸짐(PER 30↑)')
     lines.append('         또는 이익전망 꺾임')
 
     return '\n'.join(lines)
@@ -5964,7 +5968,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('📌 <b>매매 규칙</b> (최대 2종목 · 각 50%)')
     lines.append('<b>매수</b>: 이익전망↑ + 매력도 상위 2 ($1B+)')
     lines.append('<b>보유</b>: 순위 10위 안, 또는 저평가(PER&lt;15)')
-    lines.append('<b>매도</b>: 순위 10위 밖 + 비싸짐(PER 15↑)')
+    lines.append('<b>매도</b>: 순위 10위 밖 + 비싸짐(PER 30↑)')
     lines.append('         또는 이익전망 꺾임')
     lines.append('※ 누적수익률은 시뮬 기준 (세금·수수료 미반영)')
 
