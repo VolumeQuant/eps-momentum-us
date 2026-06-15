@@ -5701,7 +5701,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>매매 규칙</b> (최대 2종목 · 각 50%)')
     lines.append('<b>매수</b>: 이익전망↑ + 매력도 상위 2 ($1B+)')
-    lines.append('<b>보유</b>: 순위 10위 안, 또는 저평가(PER&lt;15)')
+    lines.append('<b>보유</b>: 순위 10위 안, 또는 저평가(PER&lt;30)')
     lines.append('<b>매도</b>: 순위 10위 밖 + 비싸짐(PER 30↑)')
     lines.append('         또는 이익전망 꺾임')
 
@@ -6052,7 +6052,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>매매 규칙</b> (최대 2종목 · 각 50%)')
     lines.append('<b>매수</b>: 이익전망↑ + 매력도 상위 2 ($1B+)')
-    lines.append('<b>보유</b>: 순위 10위 안, 또는 저평가(PER&lt;15)')
+    lines.append('<b>보유</b>: 순위 10위 안, 또는 저평가(PER&lt;30)')
     lines.append('<b>매도</b>: 순위 10위 밖 + 비싸짐(PER 30↑)')
     lines.append('         또는 이익전망 꺾임')
     lines.append('※ 누적수익률은 시뮬 기준 (세금·수수료 미반영)')
