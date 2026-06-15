@@ -150,19 +150,20 @@ try:
 except Exception as e: print('market fetch err',repr(e))
 
 # === slot 분산 검증: 제3방안(PE<15) × slot 2/3/4 ===
-print('\n=== 둔화 진입차단 검증: seg1(최근7일 EPS추이) 임계 (Top5, $1B, v119) ===')
-print(f'{"진입조건":<22}{"전기간":>9}{"전MDD":>8}{"paired":>9}{"pMDD":>8}{"LOWO":>9}{"VRT":>7}{"0종목":>6}')
-def vrt_in(tt):
-    _,_,ser=sim(1000,5,(),0,False,True,None,15,2,False,True,tt,True)
-    return ('진입' if any('VRT' in s for s in ser) else '제외'), sum(1 for s in ser if not s)
-for lbl,tt in [('현행(min_seg>=0)',None),('seg1>=1%',1.0),('seg1>=2%',2.0),('seg1>=3%',3.0)]:
-    c,m,ser=sim(1000,5,(),0,False,True,None,15,2,False,True,tt,True)
-    cs,ms=run(1000,5,(),False,True,None,15,2,False,True,tt)
+print('\n=== 보유 PER 기준 재검증: PE_HOLD 15 vs 30 (Top5, $1B, LOWO로 노이즈 판별) ===')
+print(f'{"PE_HOLD":<9}{"전기간":>9}{"전MDD":>8}{"paired":>9}{"pMDD":>8}{"LOWO":>10}')
+resd={}
+for ph in [15,20,25,30,40]:
+    c,m,ser=sim(1000,5,(),0,False,True,None,ph,2,False,True,None,True)
+    cs,ms=run(1000,5,(),False,True,None,ph,2,False,True)
     pavg=st.mean(cs);pmdd=st.mean(ms)
-    worst=pavg
+    worst=pavg;wj=''
     for w in WINNERS:
-        a=st.mean(run(1000,5,(w,),False,True,None,15,2,False,True,tt)[0]);worst=min(worst,a)
-    empty=sum(1 for s in ser if not s)
-    vrt='진입' if any('VRT' in s for s in ser) else '제외'
-    print(f'{lbl:<22}{c:>+8.1f}%{m:>+7.1f}%{pavg:>+8.1f}%{pmdd:>+7.1f}%{worst:>+8.1f}%{vrt:>7}{empty:>5}일',flush=True)
-print('\n해석: seg1 임계로 둔화종목(VRT) 차단 시 수익/LOWO 유지·개선이면 채택. 악화면 과거winner도 둔화구간 있어 차단=손해(기각).')
+        a=st.mean(run(1000,5,(w,),False,True,None,ph,2,False,True)[0])
+        if a<worst: worst=a;wj=w
+    resd[ph]=cs
+    print(f'{ph:<9}{c:>+8.1f}%{m:>+7.1f}%{pavg:>+8.1f}%{pmdd:>+7.1f}%{worst:>+7.1f}%(-{wj})',flush=True)
+d=[a-b for a,b in zip(resd[30],resd[15])]
+w=sum(1 for x in d if x>0.01);t=sum(1 for x in d if abs(x)<=0.01);l=sum(1 for x in d if x<-0.01)
+print(f'\nPE30 - PE15 (paired 300, 같은 시작일): 평균 {st.mean(d):+.2f}%p, PE30승 {w}/똑같음 {t}/PE15승 {l}')
+print('해석: PE30 LOWO(괄호=worst 제외종목)가 PE15보다 높으면 robust(30 채택). 특정 winner 제외시 이득 사라지면 노이즈(15 유지).')
