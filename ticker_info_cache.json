@@ -6018,5 +6018,29 @@
   "SPCX": {
     "shortName": "SPCX",
     "industry": "기타"
+  },
+  "LNC": {
+    "shortName": "LNC",
+    "industry": "기타"
+  },
+  "TVTX": {
+    "shortName": "Travere Therapeutics, Inc.",
+    "industry": "바이오"
+  },
+  "TWST": {
+    "shortName": "TWST",
+    "industry": "기타"
+  },
+  "UCTT": {
+    "shortName": "Ultra Clean Holdings, Inc.",
+    "industry": "반도체장비"
+  },
+  "VECO": {
+    "shortName": "Veeco Instruments Inc.",
+    "industry": "반도체장비"
+  },
+  "W": {
+    "shortName": "W",
+    "industry": "기타"
   }
 }
