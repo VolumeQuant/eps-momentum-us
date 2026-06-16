@@ -3803,9 +3803,10 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
     if prev_held:
         cand_by_tk = {row['ticker']: row for _, row in candidates.iterrows()}
         def _cur_rank(t):
-            r = cand_by_tk.get(t)
-            v = r.get('part2_rank') if r is not None else None
-            return v if v is not None else 9999
+            # ★버그픽스(2026-06-17): candidates엔 순위가 '_p2_rank'(3768행)로 들어있는데
+            #   기존 'part2_rank' 컬럼을 읽어 항상 None→9999 반환 → 10위 안 보유종목도
+            #   PE≥PE_HOLD면 veto 발동(BE 06-16 사고). p2r_map(DB 권위 순위) 직접 사용.
+            return p2r_map.get(t, 9999)
         for t in sorted(prev_held, key=_cur_rank):
             if len(selected) >= MAX_SLOTS:
                 break
