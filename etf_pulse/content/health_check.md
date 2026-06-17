@@ -1,7 +1,7 @@
-# 🏥 ETF Pulse Health Check — 2026-06-16 22:54
+# 🏥 ETF Pulse Health Check — 2026-06-17 22:46
 
 ## ℹ️ Info
-- 모든 항목 정상 (2026-06-16, 256 ETF)
+- 모든 항목 정상 (2026-06-17, 256 ETF)
 
 ---
 _Total: 0 critical / 0 warning / 1 info_
