@@ -23,6 +23,9 @@ nul
 # Config (contains secrets)
 config.json
 
+# 로컬 실행 시크릿 (절대 커밋 금지)
+secrets.local.bat
+
 # Claude Code (contains credentials in command history)
 .claude/
 
