@@ -4924,8 +4924,8 @@
     "industry": "석유종합"
   },
   "TV": {
-    "shortName": "TV",
-    "industry": "기타"
+    "shortName": "Grupo Televisa S.A.B.",
+    "industry": "통신"
   },
   "TW": {
     "shortName": "Tradeweb Markets Inc.",
@@ -6049,6 +6049,10 @@
   },
   "TBBB": {
     "shortName": "TBBB",
+    "industry": "기타"
+  },
+  "RYTM": {
+    "shortName": "RYTM",
     "industry": "기타"
   }
 }
