@@ -6052,7 +6052,19 @@
     "industry": "기타"
   },
   "RYTM": {
-    "shortName": "RYTM",
+    "shortName": "Rhythm Pharmaceuticals, Inc.",
+    "industry": "바이오"
+  },
+  "ENVA": {
+    "shortName": "ENVA",
     "industry": "기타"
+  },
+  "FTDR": {
+    "shortName": "FTDR",
+    "industry": "기타"
+  },
+  "SEZL": {
+    "shortName": "Sezzle Inc.",
+    "industry": "신용서비스"
   }
 }
