@@ -3427,6 +3427,12 @@ HOLDINGS_EPOCH = '2026-06-11'
 #   MDD는 PE_HOLD 무관(-19% 동일). PE40+은 비단조 노이즈+메가포함 -12%p라 비채택.
 #   ⚠️ 미래 winner가 싼 시클리컬이면 PE15가 유리(시장관 베팅). 롤백=PE_HOLD 30→15.
 PE_HOLD = 30.0
+# ★ EXIT_RANK 10→12 (2026-06-19): 보유 hold 경계. rank>EXIT_RANK AND fwd_PE>=PE_HOLD → 매도.
+#   근거: 87일 BT에서 H12가 전기간(+256.7 vs +240.8)·paired·LOWO 모두 ≥ H10, MDD 동일(-21.9%),
+#   walk-forward 어느 서브구간도 안 짐(3월 조정구간 +5.0%p 우위 = 강세장 전용 아님, 오히려 조정에서 이김).
+#   이득은 LITE 집중(1종목)이라 "검증완료" 아닌 "promising". 지속형 약세장 미검증(국면 오버레이가 tail 방어).
+#   BE 06-17 매도(rank12)는 H12였으면 보유였을 일관 예시(근거 아님). 롤백=EXIT_RANK 12→10.
+EXIT_RANK = 12
 
 
 def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
@@ -3495,10 +3501,10 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
                 if it is None:
                     continue  # 오늘 데이터 갭 → carryover (v113 robust)
                 p2 = it['p2']
-                if p2 is not None and p2 <= 10:
+                if p2 is not None and p2 <= EXIT_RANK:
                     grace.discard(tk)
-                    continue  # 10위 안 = 보유
-                # 10위 밖: fwd_PE veto — 싸면(PE<PE_HOLD) 보유, 비싸면 매도 (BT 정합: 계산 불가 시 매도)
+                    continue  # EXIT_RANK 안 = 보유
+                # EXIT_RANK 밖: fwd_PE veto — 싸면(PE<PE_HOLD) 보유, 비싸면 매도 (BT 정합: 계산 불가 시 매도)
                 _pe = (it['price'] / it['nc']) if (it['price'] and it['nc'] and it['nc'] > 0) else 999
                 if _pe < PE_HOLD:
                     grace.discard(tk)
@@ -3823,7 +3829,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             _p2 = _cur_rank(t)
             _price = _safe_float(row.get('price')); _nc = _safe_float(row.get('ntm_current'))
             _pe = (_price / _nc) if (_price and _nc and _nc > 0) else 999
-            if _p2 > 10 and _pe >= PE_HOLD:
+            if _p2 > EXIT_RANK and _pe >= PE_HOLD:
                 log(f"  🔓 저평가보유 해제 {t}: fwd_PE {_pe:.1f} ≥ {PE_HOLD:.0f} (비싸짐) → 매도")
                 continue
             entry = _build_portfolio_entry(row, status_map, earnings_map)
@@ -4308,7 +4314,7 @@ def get_mega_hold_tickers(today_str=None):
             r = cursor.execute(
                 'SELECT part2_rank FROM ntm_screening WHERE ticker=? AND date=?', (tk, last)).fetchone()
             p2 = r[0] if r else None
-            if p2 is None or p2 > 10:  # 순위 밖 = 추세로 보유 중 (별도 표시)
+            if p2 is None or p2 > EXIT_RANK:  # 순위 밖 = 추세로 보유 중 (별도 표시)
                 out.append((tk, p2))
         conn.close()
         return sorted(out, key=lambda x: x[1] if x[1] is not None else 999)
@@ -5272,13 +5278,13 @@ def _get_system_performance(apply_epoch=False):
                 sell = False
                 if ms < -2:
                     sell = True  # EPS꺾임 즉시매도
-                elif rk is None or rk > 10:
-                    # 10위 밖: fwd_PE veto (BT 정합 — 계산 불가 시 pe=999 → 매도)
+                elif rk is None or rk > EXIT_RANK:
+                    # EXIT_RANK 밖: fwd_PE veto (BT 정합 — 계산 불가 시 pe=999 → 매도)
                     pe_tk = (cp / nc_tk) if (cp and nc_tk and nc_tk > 0) else 999
                     if pe_tk >= PE_HOLD:
                         sell = True  # 비싸짐 → 매도
                     # else 저평가(PE<PE_HOLD) → 보유
-                # rk<=10이면 보유
+                # rk<=EXIT_RANK이면 보유
                 if sell:
                     if ret > 0: wins += 1
                     else: losses += 1
@@ -5389,7 +5395,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             lines.append(f'사유: {reason}')
         lines.append('')
         lines.append('약세장 신호로 신규 매수를 멈춥니다.')
-        lines.append('보유 종목은 매도 기준 그대로 적용 (10위 밖 &amp; PER 30↑ 또는 이익전망↓).')
+        lines.append('보유 종목은 매도 기준 그대로 적용 (12위 밖 &amp; PER 30↑ 또는 이익전망↓).')
         lines.append('현금 또는 <b>IEF</b>(미국 중기 국채 ETF) 보유 권장.')
         lines.append('안전 우선 시 <b>BIL</b>(단기 국채). ※ 금리 급등기엔 장기채 회피.')
         _da = regime.get('days_above', 0) if regime else 0
@@ -5702,8 +5708,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>매매 규칙</b> (최대 2종목 · 각 50%)')
     lines.append('<b>매수</b>: 이익전망↑ + 매력도 상위 2 ($1B+)')
-    lines.append('<b>보유</b>: 순위 10위 안, 또는 저평가(PER&lt;30)')
-    lines.append('<b>매도</b>: 순위 10위 밖 + 비싸짐(PER 30↑)')
+    lines.append('<b>보유</b>: 순위 12위 안, 또는 저평가(PER&lt;30)')
+    lines.append('<b>매도</b>: 순위 12위 밖 + 비싸짐(PER 30↑)')
     lines.append('         또는 이익전망 꺾임')
 
     return '\n'.join(lines)
@@ -6021,8 +6027,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
         # 어닝 서프/공매도는 Signal 메시지의 AI 내러티브에서 표현 (v69)
         lines.append(' · '.join(rank_parts))
 
-        # 매도 기준선 (10위 아래 = 퇴출 대상, v80.10)
-        if rank == 10 and num_stocks > 10:
+        # 매도 기준선 (EXIT_RANK 아래 = 퇴출 대상)
+        if rank == EXIT_RANK and num_stocks > EXIT_RANK:
             lines.append('── 매도 기준선 ──')
         # 점선 구분선
         elif rank < num_stocks:
@@ -6053,8 +6059,8 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('━━━━━━━━━━━━━━━')
     lines.append('📌 <b>매매 규칙</b> (최대 2종목 · 각 50%)')
     lines.append('<b>매수</b>: 이익전망↑ + 매력도 상위 2 ($1B+)')
-    lines.append('<b>보유</b>: 순위 10위 안, 또는 저평가(PER&lt;30)')
-    lines.append('<b>매도</b>: 순위 10위 밖 + 비싸짐(PER 30↑)')
+    lines.append('<b>보유</b>: 순위 12위 안, 또는 저평가(PER&lt;30)')
+    lines.append('<b>매도</b>: 순위 12위 밖 + 비싸짐(PER 30↑)')
     lines.append('         또는 이익전망 꺾임')
     lines.append('※ 누적수익률은 시뮬 기준 (세금·수수료 미반영)')
 
