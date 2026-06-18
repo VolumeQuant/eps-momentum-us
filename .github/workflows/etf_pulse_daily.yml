@@ -1,9 +1,11 @@
 name: ETF Pulse Daily
 
-# 매일 한국 시간 06:00 = UTC 21:00 (전일)
+# 매일 한국 시간 10:00 = UTC 01:00
+# (2026-06-19: 21:00→01:00 4시간 미룸 — EPS daily-screening(20:58 UTC)과 yfinance 동시접근
+#  충돌로 야후 rate-limit 가중되던 문제 해소. 둘이 ~2분 차로 동시 실행되던 것 분리.)
 on:
   schedule:
-    - cron: '0 21 * * *'
+    - cron: '0 1 * * *'
   workflow_dispatch:  # 수동 실행 가능
 
 permissions:
