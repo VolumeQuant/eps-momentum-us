@@ -7,31 +7,31 @@
 
 | 순위 | ETF | 가중 adj_gap | 매칭률 | 핵심 종목 |
 |------|-----|--------------|--------|-----------|
-| 1 | **XOP** | -23.19 | 29% | DINO, SM, APA |
-| 2 | **VDE** | -17.52 | 64% | XOM, CVX, COP |
-| 3 | **IYE** | -17.39 | 69% | XOM, CVX, COP |
-| 4 | **XLE** | -17.31 | 75% | XOM, CVX, COP |
-| 5 | **BOTZ** | -9.03 | 14% | NVDA, ISRG |
-| 6 | **METU** | -8.24 | 18% | META |
-| 7 | **VOX** | -6.42 | 69% | META, GOOGL, GOOG |
-| 8 | **MOO** | -6.30 | 39% | DE, CTVA, ADM |
-| 9 | **NVDX** | -5.56 | 79% | NVDA |
-| 10 | **AMLP** | -5.42 | 79% | PAA, WES, SUN |
+| 1 | **XOP** | -24.21 | 29% | DINO, SM, APA |
+| 2 | **VDE** | -18.61 | 64% | XOM, CVX, COP |
+| 3 | **IYE** | -18.47 | 69% | XOM, CVX, COP |
+| 4 | **XLE** | -18.42 | 75% | XOM, CVX, COP |
+| 5 | **MOO** | -6.97 | 39% | DE, CTVA, ADM |
+| 6 | **METU** | -6.88 | 18% | META |
+| 7 | **OIH** | -6.86 | 63% | SLB, BKR, HAL |
+| 8 | **BOTZ** | -6.71 | 14% | NVDA, ISRG |
+| 9 | **VOX** | -5.78 | 69% | META, GOOGL, GOOG |
+| 10 | **AMLP** | -5.55 | 79% | PAA, WES, SUN |
 
 ## 📈 고평가 ETF Top 10 (양수 큰 순)
 
 | 순위 | ETF | 가중 adj_gap | 매칭률 | 핵심 종목 |
 |------|-----|--------------|--------|-----------|
-| 1 | **MSTU** | +90.92 | 72% | MSTR |
-| 2 | **XSD** | +72.04 | 34% | MXL, ALAB, AMD |
-| 3 | **VO** | +41.80 | 11% | STX, WDC, VRT |
-| 4 | **JETS** | +41.77 | 49% | DAL, AAL, UAL |
-| 5 | **SOXL** | +39.74 | 23% | MU, AMD, AVGO |
-| 6 | **SOXX** | +37.29 | 62% | MU, AMD, AVGO |
-| 7 | **BITQ** | +30.70 | 20% | MSTR, COIN, CIFR |
-| 8 | **CIBR** | +29.96 | 63% | CRWD, PANW, FTNT |
-| 9 | **AIQ** | +28.51 | 31% | MU, AMD, INTC |
-| 10 | **ARKW** | +25.08 | 39% | AMD, TSLA, HOOD |
+| 1 | **XSD** | +87.49 | 34% | MXL, ALAB, AMD |
+| 2 | **MSTU** | +84.06 | 72% | MSTR |
+| 3 | **SOXL** | +51.62 | 23% | MU, AMD, AVGO |
+| 4 | **SOXX** | +47.04 | 62% | MU, AMD, AVGO |
+| 5 | **JETS** | +43.78 | 49% | DAL, AAL, UAL |
+| 6 | **VO** | +43.00 | 11% | STX, WDC, VRT |
+| 7 | **AIQ** | +36.95 | 31% | MU, AMD, INTC |
+| 8 | **CIBR** | +31.50 | 63% | CRWD, PANW, FTNT |
+| 9 | **SMH** | +31.48 | 73% | NVDA, TSM, MU |
+| 10 | **BITQ** | +28.95 | 20% | MSTR, COIN, CIFR |
 
 ---
 _각 ETF 보유종목의 EPS revision 가중 평균. mean reversion 신호._

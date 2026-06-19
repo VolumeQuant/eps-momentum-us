@@ -40,7 +40,7 @@
 ## 📈 어제 수익률 Top 5
 
 - **MSTZ** (income_lev): +10.28%
-- **LABU** (income_lev): +8.55% (vol 1.7x)
+- **LABU** (income_lev): +8.55% (vol 1.5x)
 - **VXX** (commodity_hedge): +4.30%
 - **VIXY** (commodity_hedge): +4.03%
 - **SPXU** (income_lev): +3.77%
@@ -79,11 +79,11 @@
 
 각 ETF 보유종목 EPS revision 가중 평균 (음수 = 저평가)
 
-- **XOP**: 가중 adj_gap -24.91 (매칭 29%, Top: DINO, SM, APA)
-- **VDE**: 가중 adj_gap -18.16 (매칭 64%, Top: XOM, CVX, COP)
-- **IYE**: 가중 adj_gap -17.97 (매칭 69%, Top: XOM, CVX, COP)
-- **XLE**: 가중 adj_gap -17.84 (매칭 75%, Top: XOM, CVX, COP)
-- **BOTZ**: 가중 adj_gap -7.58 (매칭 14%, Top: NVDA, ISRG)
+- **XOP**: 가중 adj_gap -24.21 (매칭 29%, Top: DINO, SM, APA)
+- **VDE**: 가중 adj_gap -18.61 (매칭 64%, Top: XOM, CVX, COP)
+- **IYE**: 가중 adj_gap -18.47 (매칭 69%, Top: XOM, CVX, COP)
+- **XLE**: 가중 adj_gap -18.42 (매칭 75%, Top: XOM, CVX, COP)
+- **MOO**: 가중 adj_gap -6.97 (매칭 39%, Top: DE, CTVA, ADM)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
