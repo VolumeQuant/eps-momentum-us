@@ -2877,15 +2877,17 @@ def get_market_regime():
     """국면 판단 — SPX<MA200(확인) OR VIX>thresh(확인) → defense.
 
     stateless: 매 실행마다 ~2년 히스토리에서 confirm 재계산 (상태파일 불필요).
-    Returns: {regime:'boost'|'defense', reason, spx, ma200, vix, days_below}
+    Returns: {regime:'boost'|'half_defense'|'defense', equity_weight:1.0/0.5/0.0, reason, spx, ma200, vix, days_below, breadth}
+      half_defense = 브레드스 단독(조기경보) → 50% 주식. defense = MA200/VIX → 0% 주식. (C1, 2026-06-20)
     """
     if REGIME_OVERLAY_DISABLE:
         return {'regime': 'boost', 'reason': 'overlay disabled',
                 'spx': None, 'ma200': None, 'vix': None, 'days_below': 0}
     forced = os.environ.get('REGIME_FORCE', '').strip().lower()
-    if forced in ('boost', 'defense'):
-        return {'regime': forced, 'reason': f'[테스트 강제 {forced} 모드]',
-                'spx': None, 'ma200': None, 'vix': None, 'days_below': 0}
+    if forced in ('boost', 'defense', 'half_defense'):
+        _fw = {'boost': 1.0, 'half_defense': 0.5, 'defense': 0.0}[forced]
+        return {'regime': forced, 'equity_weight': _fw, 'reason': f'[테스트 강제 {forced} 모드]',
+                'spx': None, 'ma200': None, 'vix': None, 'days_below': 0, 'breadth': None}
     try:
         import yfinance as yf
         import pandas as pd
@@ -2974,8 +2976,19 @@ def get_market_regime():
         if not breadth_defense and breadth_now is not None and breadth_now < 0.55:
             warn.append(f'섹터 브레드스 <b>{breadth_now*100:.0f}%</b> ({REGIME_BREADTH_THR*100:.0f}%↓ {REGIME_BREADTH_NE}일 지속 시 조기방어)')
         early_warn = ' / '.join(warn)
+        # ★ C1 3-state (2026-06-20): 확실한 위험(MA200/VIX)=전량방어(0%), 애매한 조기경보(브레드스 단독)
+        #   =절반방어(50%). 저정밀(25%) 신호에 베팅크기를 맞춤 → binary보다 robust·덜 regret(opt_c.py).
+        full_defense = ma_defense or vix_defense
+        half_defense = breadth_defense and not full_defense
+        if full_defense:
+            _regime, _eqw = 'defense', 0.0
+        elif half_defense:
+            _regime, _eqw = 'half_defense', 0.5
+        else:
+            _regime, _eqw = 'boost', 1.0
         return {
-            'regime': 'defense' if (ma_defense or vix_defense or breadth_defense) else 'boost',
+            'regime': _regime,
+            'equity_weight': _eqw,
             'reason': ' + '.join(reasons) if reasons else '정상 (S&P 200일선 위, VIX 안정)',
             'spx': spx_now, 'ma200': ma_now, 'vix': vix_now, 'days_below': days_below,
             'days_above': days_above, 'vix_over': vix_over, 'early_warn': early_warn,
@@ -3003,7 +3016,7 @@ def _detect_regime_transition(current_regime):
         pass
     transition = None
     if prev and prev != current_regime:
-        transition = 'to_defense' if current_regime == 'defense' else 'to_boost'
+        transition = 'to_defense' if current_regime in ('defense', 'half_defense') else 'to_boost'
     try:
         _REGIME_STATE_PATH.write_text(json.dumps({'regime': current_regime}), encoding='utf-8')
     except Exception:
@@ -3094,7 +3107,13 @@ def get_market_risk_status():
     regime = get_market_regime()
     if regime:
         regime['transition'] = _detect_regime_transition(regime.get('regime', 'boost'))
-    portfolio_mode = 'defense' if (regime and regime.get('regime') == 'defense') else 'normal'
+    _rg = regime.get('regime') if regime else None
+    if _rg == 'defense':
+        portfolio_mode = 'defense'
+    elif _rg == 'half_defense':
+        portfolio_mode = 'half_defense'   # 절반 방어 — 후보는 추천하되 50% 비중
+    else:
+        portfolio_mode = 'normal'
 
     log(f"Concordance: {concordance} (q_days={hy.get('q_days', 'N/A') if hy else 'N/A'}) → {final_action} "
         f"[regime: {regime.get('regime') if regime else '?'} "
@@ -5107,7 +5126,8 @@ def _regime_defense_series(all_dates):
     """성과 계산용 — all_dates 각 날짜의 defense 여부 + IEF 일수익률.
 
     get_market_regime과 동일 신호 (SPX<MA200 10d OR VIX>36 2d), 전 구간 시리즈로.
-    Returns: (defense_by_date {date:bool}, ief_ret_by_date {date:float}). 실패 시 전부 boost.
+    Returns: (equity_weight_by_date {date:float 1.0/0.5/0.0}, ief_ret_by_date {date:float}).
+      1.0=정상 / 0.5=브레드스 단독 절반방어 / 0.0=MA200·VIX 전량방어. 실패 시 전부 1.0.
     """
     try:
         import yfinance as yf
@@ -5145,8 +5165,9 @@ def _regime_defense_series(all_dates):
         ma = spx.rolling(REGIME_MA_PERIOD).mean()
         ma_def = _ser((spx < ma).fillna(False), REGIME_MA_CONFIRM)
         vix_def = _ser((vix.reindex(spx.index).ffill() > REGIME_VIX_THRESH).fillna(False), REGIME_VIX_CONFIRM)
-        defense = (ma_def | vix_def)
-        # ★ 섹터 브레드스 조기방어 (2026-06-20) — production get_market_regime과 동일 신호로 정합.
+        full_def = (ma_def | vix_def)   # 확실한 위험 = 전량 방어
+        breadth_series = pd.Series(False, index=spx.index)   # 브레드스 단독 = 절반 방어
+        # ★ 섹터 브레드스 조기방어 (2026-06-20, C1 50% 스케일) — production get_market_regime과 정합.
         if not REGIME_BREADTH_DISABLE:
             try:
                 import numpy as _np
@@ -5164,18 +5185,23 @@ def _regime_defense_series(all_dates):
                 if _avail is not None:
                     _frac = (_above / _avail.replace(0, _np.nan))
                     _braw = (_frac < REGIME_BREADTH_THR).reindex(spx.index).fillna(False)
-                    defense = (defense | _ser_asym(_braw, REGIME_BREADTH_NE, REGIME_BREADTH_NX))
+                    breadth_series = _ser_asym(_braw, REGIME_BREADTH_NE, REGIME_BREADTH_NX)
             except Exception as _be:
                 log(f"성과 sim 섹터 브레드스 실패 (MA/VIX만): {_be}", level="WARN")
+        # 주식 가중치: 전량방어 0.0 / 브레드스단독 0.5 / 정상 1.0
+        half_def = breadth_series & (~full_def)
+        eq_w = pd.Series(1.0, index=spx.index)
+        eq_w = eq_w.where(~half_def, 0.5)
+        eq_w = eq_w.where(~full_def, 0.0)
         ief_r = ief.reindex(spx.index).ffill().pct_change()
-        defense.index = defense.index.strftime('%Y-%m-%d')
+        eq_w.index = eq_w.index.strftime('%Y-%m-%d')
         ief_r.index = ief_r.index.strftime('%Y-%m-%d')
-        dmap = {d: bool(defense.get(d, False)) for d in all_dates}
+        wmap = {d: float(eq_w.get(d, 1.0)) for d in all_dates}
         imap = {d: float(ief_r.get(d, 0.0) or 0.0) for d in all_dates}
-        return dmap, imap
+        return wmap, imap
     except Exception as e:
         log(f"성과 regime 계산 실패 (boost 가정): {e}", level="WARN")
-        return {d: False for d in all_dates}, {d: 0.0 for d in all_dates}
+        return {d: 1.0 for d in all_dates}, {d: 0.0 for d in all_dates}
 
 
 def _get_system_performance(apply_epoch=False):
@@ -5199,7 +5225,7 @@ def _get_system_performance(apply_epoch=False):
 
         # 국면 오버레이 (2026-05-27): defense 일자엔 IEF 보유 수익으로 계산.
         #   현재 데이터 전부 boost라 영향 0, 미래 약세장이 쌓이면 자동 반영.
-        regime_def, ief_ret = _regime_defense_series(all_dates)
+        regime_w, ief_ret = _regime_defense_series(all_dates)
 
         # 전체 가격 로드
         all_prices = {}
@@ -5317,8 +5343,10 @@ def _get_system_performance(apply_epoch=False):
             prices = all_prices.get(date, {})
             prev_prices = all_prices.get(prev_date, {})
 
-            # 방어 국면: 주식 청산 + IEF 보유 수익 (현재 전부 boost라 미발동)
-            if regime_def.get(date, False):
+            # 주식 가중치 (C1 50% 스케일): 1.0 정상 / 0.5 절반방어(브레드스 단독) / 0.0 전량방어(MA200·VIX)
+            w_eq = regime_w.get(date, 1.0)
+            # 전량 방어: 주식 청산 + IEF 100% (현재 전부 boost라 미발동)
+            if w_eq <= 0.0:
                 sys_nav *= (1 + ief_ret.get(date, 0.0))
                 sc, sp = spy_prices.get(date), spy_prices.get(prev_date)
                 if sc and sp and sp > 0:
@@ -5357,7 +5385,10 @@ def _get_system_performance(apply_epoch=False):
                 if sc and sp and sp > 0:
                     spy_ret = (sc - sp) / sp * 100
 
-            sys_nav *= (1 + day_ret / 100)
+            if w_eq >= 1.0:
+                sys_nav *= (1 + day_ret / 100)
+            else:  # 절반 방어: w_eq 주식 + (1-w_eq) IEF 블렌드
+                sys_nav *= (1 + w_eq * (day_ret / 100) + (1 - w_eq) * ief_ret.get(date, 0.0))
             spy_nav *= (1 + spy_ret / 100)
 
             # v119 (2026-06-11): 제3방안 fwd_PE<PE_HOLD 저평가 보유 — 시뮬↔production 정합
@@ -5510,6 +5541,22 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
         lines.append('🚫 <b>시장 경고 — 스크리닝 일시 중단</b>')
         lines.append(final_action)
         return '\n'.join(lines)
+
+    # ── 절반 방어 (half_defense, C1 50% 스케일) — 후보는 표시하되 비중 절반 ──
+    if portfolio_mode == 'half_defense':
+        regime = risk_status.get('regime') if risk_status else None
+        reason = regime.get('reason', '') if regime else ''
+        transition = regime.get('transition') if regime else None
+        lines.append('')
+        if transition == 'to_defense':
+            lines.append('🔄 <b>공격 → 절반 방어 전환</b>')
+        lines.append('🟡 <b>절반 방어 국면 — 시스템 비중 50% 주식 / 50% 안전자산</b>')
+        if reason:
+            lines.append(f'사유: {reason}')
+        lines.append('섹터 참여가 좁아진 <b>조기경보</b>입니다 (200일선·VIX는 아직 정상).')
+        lines.append('아래 후보를 <b>평소의 절반 비중</b>으로만 매수, 나머지는 현금/단기국채(BIL).')
+        lines.append('브레드스가 회복되면 자동으로 정상 비중 복귀.')
+        # return 하지 않음 — 아래 후보 종목 계속 렌더링
 
     # ── 상위권 유지 종목 없음 ──
     if not selected:
