@@ -5577,8 +5577,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     _rg = risk_status.get('regime') if risk_status else None
     if _rg and _rg.get('transition') == 'to_boost':
         lines.append('')
-        lines.append('🔄 <b>방어 → 공격 전환 — 매수 재개</b>')
-        lines.append('S&P 500이 200일선을 회복했습니다. 아래 후보로 복귀합니다.')
+        lines.append('🔄 <b>방어 → 공격 전환 — 정상 비중 재개</b>')
+        lines.append('위험 신호(200일선·VIX·섹터 브레드스)가 모두 해소되어 정상 매수로 복귀합니다.')
 
     # ★ 조기경보 (Day-1부터 표시, 매매 변화 없음 — 미리 대비용)
     _ew = _rg.get('early_warn') if _rg else ''
