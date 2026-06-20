@@ -7,16 +7,16 @@
 ## 🛡️ Market Regime
 
 ## 🟢 Risk-On (강세장)
-  - Risk-On 5일: +2.31%
+  - Risk-On 5일: +2.36%
   - Risk-Off 5일: -1.75%
   - Cyclical - Defensive: +0.96%
-  - 종합 점수: +4.55
+  - 종합 점수: +4.59
 
 ## 🚀 Risk-On 지표
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| SPY (S&P 500) | +1.24% | 1.06% |
+| SPY (S&P 500) | +1.50% | 1.09% |
 | QQQ (Nasdaq) | +3.33% | 1.94% |
 | SOXX (Semis) | +9.18% | 4.39% |
 | ARKK (ARK Innovation) | +6.24% | 2.27% |
@@ -80,11 +80,11 @@
 
 각 ETF 보유종목 EPS revision 가중 평균 (음수 = 저평가)
 
-- **XOP**: 가중 adj_gap -23.19 (매칭 29%, Top: DINO, SM, APA)
-- **VDE**: 가중 adj_gap -17.52 (매칭 64%, Top: XOM, CVX, COP)
-- **IYE**: 가중 adj_gap -17.39 (매칭 69%, Top: XOM, CVX, COP)
-- **XLE**: 가중 adj_gap -17.31 (매칭 75%, Top: XOM, CVX, COP)
-- **BOTZ**: 가중 adj_gap -9.03 (매칭 14%, Top: NVDA, ISRG)
+- **XOP**: 가중 adj_gap -23.97 (매칭 29%, Top: DINO, SM, APA)
+- **VDE**: 가중 adj_gap -18.96 (매칭 64%, Top: XOM, CVX, COP)
+- **IYE**: 가중 adj_gap -18.83 (매칭 69%, Top: XOM, CVX, COP)
+- **XLE**: 가중 adj_gap -18.80 (매칭 75%, Top: XOM, CVX, COP)
+- **OIH**: 가중 adj_gap -8.80 (매칭 63%, Top: SLB, BKR, HAL)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
