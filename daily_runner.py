@@ -2775,6 +2775,69 @@ REGIME_TS_CONFIRM = int(os.environ.get('REGIME_TS_CONFIRM', '2'))
 #   → 라이브는 검증된 binary(S&P200DMA 15일 OR VIX36 2일)로 복귀.
 REGIME_TS_DISABLE = os.environ.get('REGIME_TS_DISABLE', '1') == '1'
 
+# ★ 섹터 브레드스 조기방어 (2026-06-20, research/early_warn 검증·사용자 승인 배포).
+#   11개 SPDR 섹터 중 '자기 200DMA 위' 비율 < 0.45 (3일 확인 진입 / 15일 확인 퇴출) → 현행 게이트에 OR.
+#   왜: 느린 천장 초기레그 갭(2000 닷컴 8주 −36%·2018Q4·2022 첫레그)에서 게이트가 0% 작동 → 브레드스는
+#   참여 협소를 먼저 잡음(2000 고점 −3.4%서 진입). 26y 실데이터(지수·섹터·VIX, EPS無관): MDD −36.5→−27.4,
+#   Calmar 0.36→0.44, WF최소 0.34→0.40, LOWO 0.37→0.46, 인접CV 0.070, OOS·leave-one-bear-out 통과.
+#   리스크: 메가캡 협소장(2023류) 위양성(전체 성과는 그래도 우월). 킬스위치 REGIME_BREADTH_DISABLE=1.
+#   섹터 수집 실패 시 None 폴백 → 현행 MA200/VIX 게이트만(안전). 현재 브레드스 ~82%=정상(배포 즉시 영향 0).
+REGIME_BREADTH_DISABLE = os.environ.get('REGIME_BREADTH_DISABLE', '') == '1'
+REGIME_BREADTH_THR = float(os.environ.get('REGIME_BREADTH_THR', '0.45'))
+REGIME_BREADTH_NE = int(os.environ.get('REGIME_BREADTH_NE', '3'))
+REGIME_BREADTH_NX = int(os.environ.get('REGIME_BREADTH_NX', '15'))
+SECTOR_ETFS = ['XLK', 'XLF', 'XLE', 'XLV', 'XLI', 'XLB', 'XLP', 'XLU', 'XLY', 'XLRE', 'XLC']
+
+
+def _confirm_asym(raw_seq, ne, nx):
+    """오래된→최신 bool 시퀀스 → 최신 defense 여부. 진입 ne일·퇴출 nx일 연속(히스테리시스)."""
+    state, sd, sb = False, 0, 0
+    for d in raw_seq:
+        sd = sd + 1 if d else 0
+        sb = 0 if d else sb + 1
+        if not state and sd >= ne:
+            state = True
+        elif state and sb >= nx:
+            state = False
+    return state
+
+
+def _sector_breadth_frac_series():
+    """11개 SPDR 섹터의 '자기 200DMA 위' 비율 시계열(0~1). 배치 다운로드 1회(rate-limit 최소화).
+    중도 상장 섹터(XLRE 2015·XLC 2018)는 분모(avail)에서 동적 제외 → 생존편향 없음. 실패 시 None."""
+    try:
+        import yfinance as yf
+        import pandas as pd
+        import numpy as np
+        df = yf.download(SECTOR_ETFS, period='2y', auto_adjust=True, progress=False, threads=2)
+        close = df['Close'] if 'Close' in getattr(df, 'columns', []) else df
+        avail = above = None
+        for c in close.columns:
+            s = close[c].dropna()
+            if len(s) < 200:
+                continue
+            ma200 = s.rolling(200).mean()
+            a = (s > ma200)
+            ok = s.notna() & ma200.notna()
+            above = a.astype(float).where(ok, 0) if above is None else above.add(a.astype(float).where(ok, 0), fill_value=0)
+            avail = ok.astype(float) if avail is None else avail.add(ok.astype(float), fill_value=0)
+        if avail is None:
+            return None
+        return (above / avail.replace(0, np.nan)).dropna()
+    except Exception as e:
+        log(f"섹터 브레드스 수집 실패 (현행 게이트만 사용): {e}", level="WARN")
+        return None
+
+
+def _compute_sector_breadth():
+    """현재 섹터 브레드스 비율 + 조기방어 여부. Returns (breadth_now: float, defense: bool) 또는 None."""
+    frac = _sector_breadth_frac_series()
+    if frac is None or len(frac) < REGIME_BREADTH_NE:
+        return None
+    raw = (frac < REGIME_BREADTH_THR)
+    defense = _confirm_asym(list(raw.values[-300:]), REGIME_BREADTH_NE, REGIME_BREADTH_NX)
+    return float(frac.iloc[-1]), bool(defense)
+
 
 def _confirm_regime(raw_seq, n):
     """raw(bool 시퀀스, 오래된→최신) → 최신 시점 defense 여부 (n일 연속 확인, 히스테리시스)."""
@@ -2870,6 +2933,14 @@ def get_market_regime():
         else:
             ma_defense = _confirm_regime(below_recent, REGIME_MA_CONFIRM)
 
+        # ★ 섹터 브레드스 조기방어 (2026-06-20). 수집 실패 시 None → 현행 게이트만.
+        breadth_defense = False
+        breadth_now = None
+        if not REGIME_BREADTH_DISABLE:
+            _bres = _compute_sector_breadth()
+            if _bres is not None:
+                breadth_now, breadth_defense = _bres
+
         # 200일선 위 연속일수(재진입 카운트다운용)
         days_above = 0
         for v in reversed(below.values):
@@ -2892,18 +2963,23 @@ def get_market_regime():
                 reasons.append(f'S&P 200일선 이탈 {days_below}일')
         if vix_defense:
             reasons.append(f'VIX 급등({vix_now:.0f}>{REGIME_VIX_THRESH:.0f})')
+        if breadth_defense and breadth_now is not None:
+            reasons.append(f'섹터 참여 협소 (브레드스 {breadth_now*100:.0f}%<{REGIME_BREADTH_THR*100:.0f}% — 업종 절반↑ 200일선 이탈)')
         # ★ 조기경보 (Day-1, 매매 변화 없음 — 표시 전용). 신호가 쌓이는 중인지 카운트다운.
         warn = []
         if not ma_defense and days_below >= 1:
             warn.append(f'S&P 200일선 아래 <b>{days_below}/{REGIME_MA_CONFIRM}일째</b> ({REGIME_MA_CONFIRM}일 도달 시 방어 전환)')
         if not vix_defense and vix_now > REGIME_VIX_THRESH:
             warn.append(f'VIX <b>{vix_now:.0f}</b> (36 초과 — {REGIME_VIX_CONFIRM}일 지속 시 방어)')
+        if not breadth_defense and breadth_now is not None and breadth_now < 0.55:
+            warn.append(f'섹터 브레드스 <b>{breadth_now*100:.0f}%</b> ({REGIME_BREADTH_THR*100:.0f}%↓ {REGIME_BREADTH_NE}일 지속 시 조기방어)')
         early_warn = ' / '.join(warn)
         return {
-            'regime': 'defense' if (ma_defense or vix_defense) else 'boost',
+            'regime': 'defense' if (ma_defense or vix_defense or breadth_defense) else 'boost',
             'reason': ' + '.join(reasons) if reasons else '정상 (S&P 200일선 위, VIX 안정)',
             'spx': spx_now, 'ma200': ma_now, 'vix': vix_now, 'days_below': days_below,
             'days_above': days_above, 'vix_over': vix_over, 'early_warn': early_warn,
+            'breadth': breadth_now,
         }
     except Exception as e:
         log(f"regime 판단 실패 (boost 유지): {e}", level="WARN")
@@ -5049,15 +5125,18 @@ def _regime_defense_series(all_dates):
             return cl.dropna()
 
         def _ser(raw, n):
+            return _ser_asym(raw, n, n)
+
+        def _ser_asym(raw, ne, nx):
             out, state, sd, sb = [], False, 0, 0
             for d in raw.values:
                 if bool(d):
                     sd += 1; sb = 0
                 else:
                     sb += 1; sd = 0
-                if not state and sd >= n:
+                if not state and sd >= ne:
                     state = True
-                elif state and sb >= n:
+                elif state and sb >= nx:
                     state = False
                 out.append(state)
             return pd.Series(out, index=raw.index)
@@ -5067,6 +5146,27 @@ def _regime_defense_series(all_dates):
         ma_def = _ser((spx < ma).fillna(False), REGIME_MA_CONFIRM)
         vix_def = _ser((vix.reindex(spx.index).ffill() > REGIME_VIX_THRESH).fillna(False), REGIME_VIX_CONFIRM)
         defense = (ma_def | vix_def)
+        # ★ 섹터 브레드스 조기방어 (2026-06-20) — production get_market_regime과 동일 신호로 정합.
+        if not REGIME_BREADTH_DISABLE:
+            try:
+                import numpy as _np
+                bdf = yf.download(SECTOR_ETFS, start=start, end=end, auto_adjust=True, progress=False, threads=2)
+                bclose = bdf['Close'] if 'Close' in getattr(bdf, 'columns', []) else bdf
+                _avail = _above = None
+                for _cc in bclose.columns:
+                    _s = bclose[_cc].dropna()
+                    if len(_s) < 200:
+                        continue
+                    _m2 = _s.rolling(200).mean()
+                    _a = (_s > _m2); _ok = _s.notna() & _m2.notna()
+                    _above = _a.astype(float).where(_ok, 0) if _above is None else _above.add(_a.astype(float).where(_ok, 0), fill_value=0)
+                    _avail = _ok.astype(float) if _avail is None else _avail.add(_ok.astype(float), fill_value=0)
+                if _avail is not None:
+                    _frac = (_above / _avail.replace(0, _np.nan))
+                    _braw = (_frac < REGIME_BREADTH_THR).reindex(spx.index).fillna(False)
+                    defense = (defense | _ser_asym(_braw, REGIME_BREADTH_NE, REGIME_BREADTH_NX))
+            except Exception as _be:
+                log(f"성과 sim 섹터 브레드스 실패 (MA/VIX만): {_be}", level="WARN")
         ief_r = ief.reindex(spx.index).ffill().pct_change()
         defense.index = defense.index.strftime('%Y-%m-%d')
         ief_r.index = ief_r.index.strftime('%Y-%m-%d')
