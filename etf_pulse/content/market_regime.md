@@ -1,4 +1,4 @@
-# 🛡️ Market Regime 진단 — 2026-06-20
+# 🛡️ Market Regime 진단 — 2026-06-21
 
 ## 🟢 Risk-On (강세장)
   - Risk-On 5일: +2.36%
