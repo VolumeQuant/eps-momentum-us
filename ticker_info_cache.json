@@ -6070,5 +6070,9 @@
   "ORKA": {
     "shortName": "Oruka Therapeutics, Inc.",
     "industry": "바이오"
+  },
+  "CHT": {
+    "shortName": "Chunghwa Telecom Co., Ltd.",
+    "industry": "통신"
   }
 }
