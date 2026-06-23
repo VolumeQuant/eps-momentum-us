@@ -7,31 +7,31 @@
 
 | 순위 | ETF | 가중 adj_gap | 매칭률 | 핵심 종목 |
 |------|-----|--------------|--------|-----------|
-| 1 | **XOP** | -23.97 | 29% | DINO, SM, APA |
-| 2 | **VDE** | -18.96 | 64% | XOM, CVX, COP |
-| 3 | **IYE** | -18.83 | 69% | XOM, CVX, COP |
-| 4 | **XLE** | -18.80 | 75% | XOM, CVX, COP |
-| 5 | **OIH** | -8.80 | 63% | SLB, BKR, HAL |
-| 6 | **METU** | -7.48 | 18% | META |
-| 7 | **MOO** | -6.98 | 39% | DE, CTVA, ADM |
-| 8 | **BOTZ** | -6.35 | 14% | NVDA, ISRG |
-| 9 | **VOX** | -5.98 | 69% | META, GOOGL, GOOG |
-| 10 | **AMLP** | -5.30 | 79% | PAA, WES, SUN |
+| 1 | **XOP** | -22.47 | 29% | DINO, SM, APA |
+| 2 | **VDE** | -17.87 | 64% | XOM, CVX, COP |
+| 3 | **IYE** | -17.73 | 69% | XOM, CVX, COP |
+| 4 | **XLE** | -17.70 | 75% | XOM, CVX, COP |
+| 5 | **METU** | -10.27 | 18% | META |
+| 6 | **OIH** | -8.85 | 63% | SLB, BKR, HAL |
+| 7 | **BOTZ** | -8.35 | 14% | NVDA, ISRG |
+| 8 | **VOX** | -8.02 | 69% | META, GOOGL, GOOG |
+| 9 | **GDX** | -7.88 | 11% | NEM |
+| 10 | **MOO** | -7.63 | 39% | DE, CTVA, ADM |
 
 ## 📈 고평가 ETF Top 10 (양수 큰 순)
 
 | 순위 | ETF | 가중 adj_gap | 매칭률 | 핵심 종목 |
 |------|-----|--------------|--------|-----------|
-| 1 | **XSD** | +92.40 | 34% | MXL, ALAB, AMD |
-| 2 | **MSTU** | +82.55 | 72% | MSTR |
-| 3 | **SOXL** | +63.07 | 23% | MU, AMD, AVGO |
-| 4 | **SOXX** | +57.50 | 62% | MU, AMD, AVGO |
-| 5 | **VO** | +44.74 | 11% | STX, WDC, VRT |
-| 6 | **AIQ** | +42.49 | 31% | MU, AMD, INTC |
-| 7 | **CGGO** | +35.40 | 25% | TSM, MU, AVGO |
-| 8 | **SMH** | +34.31 | 73% | NVDA, TSM, MU |
-| 9 | **MTUM** | +33.70 | 40% | MU, AMD, AVGO |
-| 10 | **JETS** | +33.29 | 49% | DAL, AAL, UAL |
+| 1 | **XSD** | +97.61 | 34% | MXL, ALAB, AMD |
+| 2 | **MSTU** | +77.24 | 72% | MSTR |
+| 3 | **SOXL** | +66.48 | 23% | MU, AMD, AVGO |
+| 4 | **SOXX** | +56.92 | 62% | MU, AMD, AVGO |
+| 5 | **AIQ** | +43.77 | 31% | MU, AMD, INTC |
+| 6 | **VO** | +39.98 | 11% | STX, WDC, VRT |
+| 7 | **CGGO** | +36.60 | 25% | TSM, MU, AVGO |
+| 8 | **MTUM** | +35.86 | 40% | MU, AMD, AVGO |
+| 9 | **SMH** | +34.54 | 73% | NVDA, TSM, MU |
+| 10 | **JETS** | +32.85 | 49% | DAL, AAL, UAL |
 
 ---
 _각 ETF 보유종목의 EPS revision 가중 평균. mean reversion 신호._
