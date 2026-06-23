@@ -156,7 +156,7 @@ def init_ntm_database():
     for col, col_type in [('adj_score', 'REAL'), ('adj_gap', 'REAL'),
                           ('price', 'REAL'), ('ma60', 'REAL'), ('ma120', 'REAL'), ('part2_rank', 'INTEGER'),
                           ('rev_up30', 'INTEGER'), ('rev_down30', 'INTEGER'), ('num_analysts', 'INTEGER'),
-                          ('high30', 'REAL')]:
+                          ('high30', 'REAL'), ('vol_ratio', 'REAL')]:
         try:
             cursor.execute(f'ALTER TABLE ntm_screening ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
@@ -765,10 +765,20 @@ def run_ntm_collection(config):
             current_price = None
             ma60_val = None
             ma120_val = None
+            vol_ratio_val = None  # 당일 거래량 / 직전 20일 평균 (개미털기 유예 판별용, forward-only)
 
             try:
                 if hist_all is not None:
                     hist = hist_all['Close'][ticker].dropna()
+                    # vol_ratio: 당일 거래량 서지 (저볼륨<1.0x 이탈=개미털기 후보)
+                    try:
+                        _vser = hist_all['Volume'][ticker].dropna()
+                        if len(_vser) >= 21:
+                            _vavg = _vser.iloc[-21:-1].mean()
+                            if _vavg and _vavg > 0:
+                                vol_ratio_val = float(_vser.iloc[-1] / _vavg)
+                    except Exception:
+                        pass
                 else:
                     hist = pd.Series(dtype=float)
 
@@ -904,10 +914,10 @@ def run_ntm_collection(config):
             cursor.execute('''
                 UPDATE ntm_screening
                 SET adj_score=?, adj_gap=?, price=?, ma60=?, ma120=?,
-                    rev_up30=?, rev_down30=?, num_analysts=?, eps_chg_weighted=?, high30=?
+                    rev_up30=?, rev_down30=?, num_analysts=?, eps_chg_weighted=?, high30=?, vol_ratio=?
                 WHERE date=? AND ticker=?
             ''', (adj_score, adj_gap, current_price, ma60_val, ma120_val,
-                  rev_up30, rev_down30, num_analysts, eps_chg_weighted, high30_val,
+                  rev_up30, rev_down30, num_analysts, eps_chg_weighted, high30_val, vol_ratio_val,
                   today_str, ticker))
 
             if is_turnaround:
@@ -956,6 +966,15 @@ def run_ntm_collection(config):
                     p_now = float(hist.iloc[-1])
                     ma60_val = float(hist.rolling(window=60).mean().iloc[-1])
                     ma120_val = float(hist.rolling(window=120).mean().iloc[-1]) if len(hist) >= 120 else None
+                    vol_ratio_val = None  # 거래량 서지 (개미털기 유예 판별용, forward-only)
+                    try:
+                        _vser = hist_all['Volume'][ticker].dropna()
+                        if len(_vser) >= 21:
+                            _vavg = _vser.iloc[-21:-1].mean()
+                            if _vavg and _vavg > 0:
+                                vol_ratio_val = float(_vser.iloc[-1] / _vavg)
+                    except Exception:
+                        pass
                     # v119 (2026-06-11): high30 = DB 누적 가격 기반 결정적 계산 (carry-forward 경로)
                     _dbpx = [r[0] for r in cur_cf.execute(
                         "SELECT price FROM ntm_screening WHERE ticker=? AND date<? AND price IS NOT NULL ORDER BY date DESC LIMIT 29",
@@ -1033,10 +1052,10 @@ def run_ntm_collection(config):
                     cur_cf.execute('''
                         UPDATE ntm_screening
                         SET adj_score=?, adj_gap=?, price=?, ma60=?, ma120=?,
-                            rev_up30=?, rev_down30=?, num_analysts=?, high30=?
+                            rev_up30=?, rev_down30=?, num_analysts=?, high30=?, vol_ratio=?
                         WHERE date=? AND ticker=?
                     ''', (adj_score, adj_gap, p_now, ma60_val, ma120_val,
-                          prev[5], prev[6], prev[7], high30_val,
+                          prev[5], prev[6], prev[7], high30_val, vol_ratio_val,
                           today_str, ticker))
 
                     # 6) results 리스트에 추가
@@ -1425,13 +1444,19 @@ def get_part2_candidates(df, top_n=None, return_counts=False):
         ma_col = df['ma120'].where(df['ma120'].notna(), df['ma60'])
     else:
         ma_col = df['ma60']
+    # 개미털기 유예: MA120 아래여도 저볼륨 이탈 반등 후보(_GRACE_TICKERS)는 eligible 유지
+    # (다른 필터-펀더멘털/dd_30_25/min_seg-는 그대로 적용, MA 게이트만 면제)
+    if _GRACE_TICKERS:
+        grace_mask = df['ticker'].isin(_GRACE_TICKERS)
+    else:
+        grace_mask = pd.Series(False, index=df.index)
     filtered = df[
         (df['adj_score'] > 9) &
         (df['adj_gap'].notna()) &
         (df['fwd_pe'].notna()) & (df['fwd_pe'] > 0) &
         (df['eps_change_90d'] > 0) &
         (df['price'].notna()) & (df['price'] >= 10) &
-        (ma_col.notna()) & (df['price'] > ma_col)
+        (ma_col.notna()) & ((df['price'] > ma_col) | grace_mask)
     ].copy()
 
     # v84 (2026-05-30): dd_30_25 진입 필터 — 30일 high 대비 -25%+ drawdown 제외
@@ -1727,6 +1752,59 @@ def get_forward_test_summary(today_str):
     }
 
 
+GRACE_DAYS = 20  # 개미털기 유예 윈도우 (영업일). BT _bt_targeted_grace: 10/20/40 동급
+_GRACE_TICKERS = set()  # 매 run save_part2_ranks에서 갱신 — MA120 아래지만 유예 유지 종목
+
+
+def compute_grace_tickers(cursor, today_str):
+    """개미털기 유예 대상 산출 (forward-only, BT _bt_targeted_grace 로직 일치).
+    조건: 현재 MA120 아래 + 그 이탈이 (저볼륨<1.0x 서지 + 직전 part2_rank<=8 + 올라오던중) + N영업일내.
+    저볼륨 이탈 반등주(개미털기)만 순위에서 안 빼고 warm 유지(강제매수 아님 — winner 슬롯 불간섭).
+    킬스위치 GRACE_DISABLE=1 → 빈 set(현행 동작). vol_ratio 없는 과거 이탈은 자동 제외(forward-only)."""
+    import os
+    if os.environ.get('GRACE_DISABLE') == '1':
+        return set()
+    # 효율: 최근 ~40일 내 part2_rank<=8 였던 종목만 후보 (top8 미접근은 조건 미달)
+    recent = [r[0] for r in cursor.execute(
+        "SELECT DISTINCT ticker FROM ntm_screening "
+        "WHERE date<? AND date>=date(?, '-40 days') AND part2_rank<=8",
+        (today_str, today_str)).fetchall()]
+    grace = set()
+    for tk in recent:
+        hist = cursor.execute(
+            "SELECT price, ma120, ma60, part2_rank, vol_ratio FROM ntm_screening "
+            "WHERE ticker=? AND date<=? ORDER BY date DESC LIMIT ?",
+            (tk, today_str, GRACE_DAYS + 6)).fetchall()
+        if not hist:
+            continue
+        p0, m120_0, m60_0 = hist[0][0], hist[0][1], hist[0][2]
+        m0 = m120_0 if m120_0 is not None else m60_0
+        if p0 is None or m0 is None or p0 > m0:
+            continue  # 오늘 MA 위 = 정상, 유예 불필요
+        # 연속 below 스트릭 + break day(가장 오래된 연속 below)
+        streak = 0
+        break_idx = None
+        for j, (p, m120, m60, p2, vr) in enumerate(hist):
+            m = m120 if m120 is not None else m60
+            if p is None or m is None or p > m:
+                break
+            streak += 1
+            break_idx = j
+        if break_idx is None or streak > GRACE_DAYS or break_idx + 4 >= len(hist):
+            continue
+        break_vr = hist[break_idx][4]  # 이탈일 거래량 서지
+        if break_vr is None or break_vr >= 1.0:
+            continue  # 고볼륨 이탈 = 진짜 하락 (AMZN 1.41x 여기서 탈락) / vol_ratio 없음 = forward-only 제외
+        pre_rank = hist[break_idx + 1][3]   # 이탈 직전 순위
+        pre4_rank = hist[break_idx + 4][3]  # 3영업일 더 전
+        if pre_rank is None or pre_rank > 8:
+            continue  # 근접 top8 아님
+        if pre4_rank is None or not (pre_rank < pre4_rank):
+            continue  # 올라오던중(순위 개선) 아님
+        grace.add(tk)
+    return grace
+
+
 def save_part2_ranks(results_df, today_str):
     """Part 2 eligible 종목 저장 — composite_rank + w_gap Top 30 (v58)
 
@@ -1734,6 +1812,19 @@ def save_part2_ranks(results_df, today_str):
     2. w_gap(3일 가중 adj_gap) 오름차순 상위 30개 → part2_rank 저장
     Returns: Top 30 티커 리스트 (w_gap 순)
     """
+    # 개미털기 유예 산출 (이번 run 전체 get_part2_candidates에 적용 — 전역)
+    global _GRACE_TICKERS
+    try:
+        _gconn = sqlite3.connect(DB_PATH)
+        _GRACE_TICKERS = compute_grace_tickers(_gconn.cursor(), today_str)
+        _gconn.close()
+    except Exception as e:
+        _GRACE_TICKERS = set()
+        log(f"개미털기 유예 계산 실패(무시, 현행 동작): {e}", "WARN")
+    if _GRACE_TICKERS:
+        log(f"개미털기 유예 {len(_GRACE_TICKERS)}종목 (MA120 아래지만 저볼륨 이탈로 eligible 유지): "
+            f"{', '.join(sorted(_GRACE_TICKERS))}")
+
     all_candidates = get_part2_candidates(results_df, top_n=None)
     if all_candidates.empty:
         log("Part 2 후보 0개 — part2_rank 저장 스킵")
