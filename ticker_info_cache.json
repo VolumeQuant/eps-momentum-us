@@ -4684,8 +4684,8 @@
     "industry": "기타"
   },
   "REYN": {
-    "shortName": "REYN",
-    "industry": "기타"
+    "shortName": "Reynolds Consumer Products Inc.",
+    "industry": "포장재"
   },
   "REZI": {
     "shortName": "Resideo Technologies, Inc.",
@@ -5124,8 +5124,8 @@
     "industry": "통신"
   },
   "WCN": {
-    "shortName": "WCN",
-    "industry": "기타"
+    "shortName": "Waste Connections, Inc.",
+    "industry": "폐기물"
   },
   "WFG": {
     "shortName": "WFG",
@@ -5592,8 +5592,8 @@
     "industry": "기타"
   },
   "OMF": {
-    "shortName": "OMF",
-    "industry": "기타"
+    "shortName": "OneMain Holdings, Inc.",
+    "industry": "신용서비스"
   },
   "QRVO": {
     "shortName": "Qorvo, Inc.",
@@ -6074,5 +6074,9 @@
   "CHT": {
     "shortName": "Chunghwa Telecom Co., Ltd.",
     "industry": "통신"
+  },
+  "GLBE": {
+    "shortName": "Global-E Online Ltd.",
+    "industry": "온라인유통"
   }
 }
