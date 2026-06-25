@@ -6078,5 +6078,21 @@
   "GLBE": {
     "shortName": "Global-E Online Ltd.",
     "industry": "온라인유통"
+  },
+  "BLLN": {
+    "shortName": "BLLN",
+    "industry": "기타"
+  },
+  "EBC": {
+    "shortName": "EBC",
+    "industry": "기타"
+  },
+  "MMYT": {
+    "shortName": "MMYT",
+    "industry": "기타"
+  },
+  "TEM": {
+    "shortName": "TEM",
+    "industry": "기타"
   }
 }
