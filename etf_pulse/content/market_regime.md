@@ -1,47 +1,47 @@
-# 🛡️ Market Regime 진단 — 2026-06-24
+# 🛡️ Market Regime 진단 — 2026-06-25
 
 ## 🔴 Risk-Off (방어 모드)
-  - Risk-On 5일: -4.71%
-  - Risk-Off 5일: +0.10%
-  - Cyclical - Defensive: -0.11%
-  - 종합 점수: -4.88
+  - Risk-On 5일: -3.41%
+  - Risk-Off 5일: -0.52%
+  - Cyclical - Defensive: -1.57%
+  - 종합 점수: -3.67
 
 ## 🚀 Risk-On 지표
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| SPY (S&P 500) | -2.57% | 0.88% |
-| QQQ (Nasdaq) | -3.94% | 1.93% |
-| SOXX (Semis) | -3.31% | 5.42% |
-| ARKK (ARK Innovation) | -3.70% | 1.60% |
-| KWEB (China Tech) | -8.25% | 0.86% |
-| IBIT (Bitcoin) | -6.51% | 1.97% |
+| SPY (S&P 500) | -2.02% | 0.90% |
+| QQQ (Nasdaq) | -2.47% | 1.85% |
+| SOXX (Semis) | +2.30% | 4.75% |
+| ARKK (ARK Innovation) | -2.95% | 1.63% |
+| KWEB (China Tech) | -6.25% | 0.69% |
+| IBIT (Bitcoin) | -9.08% | 2.27% |
 
 ## 🛡️ Risk-Off 지표
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| TLT (Long Treasury) | +0.56% | 0.47% |
-| SHY (Short Treasury) | -0.17% | 0.16% |
-| GLD (Gold) | -4.92% | 0.95% |
-| JEPI (Covered Call) | -0.96% | 0.47% |
-| VIXY (VIX) | +6.01% | 3.12% |
+| TLT (Long Treasury) | +1.38% | 0.69% |
+| SHY (Short Treasury) | -0.07% | 0.17% |
+| GLD (Gold) | -8.22% | 0.99% |
+| JEPI (Covered Call) | -0.86% | 0.50% |
+| VIXY (VIX) | +5.15% | 3.17% |
 
 ## 🏭 Cyclical (경기민감)
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| XLE (Energy) | -1.23% | 1.12% |
-| XLF (Financials) | +0.96% | 0.84% |
-| XLI (Industrials) | -0.02% | 1.05% |
+| XLE (Energy) | -2.52% | 1.25% |
+| XLF (Financials) | -0.81% | 0.55% |
+| XLI (Industrials) | +0.48% | 1.13% |
 
 ## 🏥 Defensive (방어주)
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| XLP (Staples) | -1.34% | 1.33% |
-| XLU (Utilities) | +1.39% | 0.81% |
-| XLV (Healthcare) | +0.00% | 1.06% |
+| XLP (Staples) | -0.61% | 1.40% |
+| XLU (Utilities) | +1.72% | 0.85% |
+| XLV (Healthcare) | +0.74% | 1.11% |
 
 ## 💡 자동 추천
 
