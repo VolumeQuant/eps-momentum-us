@@ -2871,13 +2871,55 @@ REGIME_TS_DISABLE = os.environ.get('REGIME_TS_DISABLE', '1') == '1'
 #   왜: 느린 천장 초기레그 갭(2000 닷컴 8주 −36%·2018Q4·2022 첫레그)에서 게이트가 0% 작동 → 브레드스는
 #   참여 협소를 먼저 잡음(2000 고점 −3.4%서 진입). 26y 실데이터(지수·섹터·VIX, EPS無관): MDD −36.5→−27.4,
 #   Calmar 0.36→0.44, WF최소 0.34→0.40, LOWO 0.37→0.46, 인접CV 0.070, OOS·leave-one-bear-out 통과.
-#   리스크: 메가캡 협소장(2023류) 위양성(전체 성과는 그래도 우월). 킬스위치 REGIME_BREADTH_DISABLE=1.
-#   섹터 수집 실패 시 None 폴백 → 현행 MA200/VIX 게이트만(안전). 현재 브레드스 ~82%=정상(배포 즉시 영향 0).
-REGIME_BREADTH_DISABLE = os.environ.get('REGIME_BREADTH_DISABLE', '') == '1'
+#   ★ 2026-06-25: HY-OAS 트로프-브레이크아웃이 더 강함(Cal 0.62 vs breadth 0.44, MDD -22 vs -27)으로 검증돼
+#   브레드스는 기본 OFF로 강등(둘 결합 시 0.54로 오히려 희석). 코드·검증 보존, 켜려면 REGIME_BREADTH_DISABLE=0.
+REGIME_BREADTH_DISABLE = os.environ.get('REGIME_BREADTH_DISABLE', '1') == '1'   # ← 기본 OFF (HY-OAS가 대체)
 REGIME_BREADTH_THR = float(os.environ.get('REGIME_BREADTH_THR', '0.45'))
 REGIME_BREADTH_NE = int(os.environ.get('REGIME_BREADTH_NE', '3'))
 REGIME_BREADTH_NX = int(os.environ.get('REGIME_BREADTH_NX', '15'))
 SECTOR_ETFS = ['XLK', 'XLF', 'XLE', 'XLV', 'XLI', 'XLB', 'XLP', 'XLU', 'XLY', 'XLRE', 'XLC']
+
+# ★ HY-OAS 트로프-브레이크아웃 조기방어 (2026-06-25, research/early_warn 검증·사용자 승인).
+#   하이일드 신용스프레드(BAMLH0A0HYM2)가 6개월 저점 대비 +margin%p 상승 AND 상승중 → 전량방어 OR.
+#   왜: 신용시장이 주식보다 먼저 리프라이싱(2008 -10%·2000 -13%서 발동, baseline -14%보다 빠름).
+#   30년 PIT 검증: Cal 0.36→0.57, MDD -36.5→-22, leave-one-bear-out 6/7(2008빼도 통과), OOS·plateau·LOWO 통과.
+#   look-ahead無(시장가격). 킬스위치 REGIME_HYOAS_DISABLE=1. FRED 수집 실패 시 None 폴백(현행 게이트만).
+REGIME_HYOAS_DISABLE = os.environ.get('REGIME_HYOAS_DISABLE', '') == '1'
+REGIME_HYOAS_MARGIN = float(os.environ.get('REGIME_HYOAS_MARGIN', '1.0'))   # 6개월저점 대비 +%p (plateau 0.6~1.1)
+REGIME_HYOAS_NE = int(os.environ.get('REGIME_HYOAS_NE', '5'))
+REGIME_HYOAS_NX = int(os.environ.get('REGIME_HYOAS_NX', '20'))
+
+
+def _compute_hy_oas_defense():
+    """HY-OAS 트로프-브레이크아웃 방어신호. Returns (oas_now, trough_6m, defense) 또는 None.
+    FRED(pandas_datareader 또는 캐시 data_cache/hy_spread.parquet)서 최근 HY-OAS 로드."""
+    if REGIME_HYOAS_DISABLE:
+        return None
+    try:
+        import pandas as pd
+        oas = None
+        # 1순위: 프로덕션 캐시(fetch_hy_quadrant가 갱신, 30년). 2순위: FRED 직접.
+        cache = Path(__file__).parent / 'data_cache' / 'hy_spread.parquet'
+        if cache.exists():
+            try:
+                df = pd.read_parquet(cache, engine='fastparquet')
+                oas = df['hy_spread'].dropna()
+            except Exception:
+                oas = None
+        if oas is None or len(oas) < 130 or (pd.Timestamp.now() - oas.index[-1]).days > 7:
+            import pandas_datareader.data as web
+            from datetime import datetime, timedelta
+            oas = web.DataReader('BAMLH0A0HYM2', 'fred',
+                                 datetime.now() - timedelta(days=600), datetime.now()).iloc[:, 0].dropna()
+        if len(oas) < 130:
+            return None
+        trough = oas.rolling(126).min()
+        raw = ((oas - trough) >= REGIME_HYOAS_MARGIN) & (oas > oas.shift(20))
+        defense = _confirm_asym(list(raw.fillna(False).values[-300:]), REGIME_HYOAS_NE, REGIME_HYOAS_NX)
+        return float(oas.iloc[-1]), float(trough.iloc[-1]), bool(defense)
+    except Exception as e:
+        log(f"HY-OAS 수집 실패 (현행 게이트만 사용): {e}", level="WARN")
+        return None
 
 
 def _confirm_asym(raw_seq, ne, nx):
@@ -3026,13 +3068,21 @@ def get_market_regime():
         else:
             ma_defense = _confirm_regime(below_recent, REGIME_MA_CONFIRM)
 
-        # ★ 섹터 브레드스 조기방어 (2026-06-20). 수집 실패 시 None → 현행 게이트만.
+        # ★ 섹터 브레드스 조기방어 (2026-06-20, 기본 OFF — HY-OAS가 대체). 수집 실패 시 None.
         breadth_defense = False
         breadth_now = None
         if not REGIME_BREADTH_DISABLE:
             _bres = _compute_sector_breadth()
             if _bres is not None:
                 breadth_now, breadth_defense = _bres
+
+        # ★ HY-OAS 트로프-브레이크아웃 조기방어 (2026-06-25, 주력). 수집 실패 시 None → 현행 게이트만.
+        hyoas_defense = False
+        hyoas_now = hyoas_trough = None
+        if not REGIME_HYOAS_DISABLE:
+            _hres = _compute_hy_oas_defense()
+            if _hres is not None:
+                hyoas_now, hyoas_trough, hyoas_defense = _hres
 
         # 200일선 위 연속일수(재진입 카운트다운용)
         days_above = 0
@@ -3057,20 +3107,21 @@ def get_market_regime():
         if vix_defense:
             reasons.append(f'VIX 급등({vix_now:.0f}>{REGIME_VIX_THRESH:.0f})')
         if breadth_defense and breadth_now is not None:
-            reasons.append(f'섹터 참여 협소 (브레드스 {breadth_now*100:.0f}%<{REGIME_BREADTH_THR*100:.0f}% — 업종 절반↑ 200일선 이탈)')
+            reasons.append(f'섹터 참여 협소 (브레드스 {breadth_now*100:.0f}%<{REGIME_BREADTH_THR*100:.0f}%)')
+        if hyoas_defense and hyoas_now is not None:
+            reasons.append(f'신용 스프레드 급등 (HY-OAS {hyoas_now:.2f}%, 6개월저점 +{hyoas_now-hyoas_trough:.2f}%p — 신용시장 경고)')
         # ★ 조기경보 (Day-1, 매매 변화 없음 — 표시 전용). 신호가 쌓이는 중인지 카운트다운.
         warn = []
         if not ma_defense and days_below >= 1:
             warn.append(f'S&P 200일선 아래 <b>{days_below}/{REGIME_MA_CONFIRM}일째</b> ({REGIME_MA_CONFIRM}일 도달 시 방어 전환)')
         if not vix_defense and vix_now > REGIME_VIX_THRESH:
             warn.append(f'VIX <b>{vix_now:.0f}</b> (36 초과 — {REGIME_VIX_CONFIRM}일 지속 시 방어)')
-        if not breadth_defense and breadth_now is not None and breadth_now < 0.55:
-            warn.append(f'섹터 브레드스 <b>{breadth_now*100:.0f}%</b> ({REGIME_BREADTH_THR*100:.0f}%↓ {REGIME_BREADTH_NE}일 지속 시 조기방어)')
+        if not hyoas_defense and hyoas_now is not None and hyoas_trough is not None and (hyoas_now - hyoas_trough) >= REGIME_HYOAS_MARGIN * 0.6:
+            warn.append(f'HY-OAS <b>{hyoas_now:.2f}%</b> (6개월저점 +{hyoas_now-hyoas_trough:.2f}%p — +{REGIME_HYOAS_MARGIN:.1f} 도달 시 방어)')
         early_warn = ' / '.join(warn)
-        # ★ C1 3-state (2026-06-20): 확실한 위험(MA200/VIX)=전량방어(0%), 애매한 조기경보(브레드스 단독)
-        #   =절반방어(50%). 저정밀(25%) 신호에 베팅크기를 맞춤 → binary보다 robust·덜 regret(opt_c.py).
-        full_defense = ma_defense or vix_defense
-        half_defense = breadth_defense and not full_defense
+        # ★ 2026-06-25: HY-OAS(신용)+MA200+VIX = 전량방어(binary). 브레드스는 OFF(HY-OAS가 더 강함).
+        full_defense = ma_defense or vix_defense or hyoas_defense
+        half_defense = breadth_defense and not full_defense   # breadth OFF면 항상 False(=binary)
         if full_defense:
             _regime, _eqw = 'defense', 0.0
         elif half_defense:
@@ -3080,10 +3131,10 @@ def get_market_regime():
         return {
             'regime': _regime,
             'equity_weight': _eqw,
-            'reason': ' + '.join(reasons) if reasons else '정상 (S&P 200일선 위, VIX 안정)',
+            'reason': ' + '.join(reasons) if reasons else '정상 (S&P 200일선 위, VIX 안정, 신용 안정)',
             'spx': spx_now, 'ma200': ma_now, 'vix': vix_now, 'days_below': days_below,
             'days_above': days_above, 'vix_over': vix_over, 'early_warn': early_warn,
-            'breadth': breadth_now,
+            'breadth': breadth_now, 'hy_oas': hyoas_now,
         }
     except Exception as e:
         log(f"regime 판단 실패 (boost 유지): {e}", level="WARN")
@@ -5257,7 +5308,18 @@ def _regime_defense_series(all_dates):
         ma_def = _ser((spx < ma).fillna(False), REGIME_MA_CONFIRM)
         vix_def = _ser((vix.reindex(spx.index).ffill() > REGIME_VIX_THRESH).fillna(False), REGIME_VIX_CONFIRM)
         full_def = (ma_def | vix_def)   # 확실한 위험 = 전량 방어
-        breadth_series = pd.Series(False, index=spx.index)   # 브레드스 단독 = 절반 방어
+        # ★ HY-OAS 트로프-브레이크아웃 (2026-06-25) — production get_market_regime과 정합. 캐시(30년) 사용.
+        if not REGIME_HYOAS_DISABLE:
+            try:
+                _cache = Path(__file__).parent / 'data_cache' / 'hy_spread.parquet'
+                _oas = pd.read_parquet(_cache, engine='fastparquet')['hy_spread']
+                _oas = _oas.reindex(spx.index, method='ffill')
+                _tr = _oas.rolling(126).min()
+                _hraw = (((_oas - _tr) >= REGIME_HYOAS_MARGIN) & (_oas > _oas.shift(20))).fillna(False)
+                full_def = full_def | _ser_asym(_hraw, REGIME_HYOAS_NE, REGIME_HYOAS_NX)
+            except Exception as _he:
+                log(f"성과 sim HY-OAS 실패 (MA/VIX만): {_he}", level="WARN")
+        breadth_series = pd.Series(False, index=spx.index)   # 브레드스 단독 = 절반 방어(기본 OFF)
         # ★ 섹터 브레드스 조기방어 (2026-06-20, C1 50% 스케일) — production get_market_regime과 정합.
         if not REGIME_BREADTH_DISABLE:
             try:
