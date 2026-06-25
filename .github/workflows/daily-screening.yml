@@ -58,6 +58,16 @@ jobs:
         TZ: 'America/New_York'
         MESSAGE_VERSION: 'v3'  # v3 고정 (v2 제거됨)
 
+    # 기대성장(gap) 분산 Sleeve — 별도 시스템 (2026-06-25 빌드).
+    # DB 갱신 후 실행. 현재 페이퍼 검증 단계라 개인봇 발송(--send=개인봇 기본).
+    # 채널 공개 전환 시 '--send --public'으로 변경. 킬스위치 SLEEVE_DISABLE=1.
+    - name: Run Forward-Growth Gap Sleeve (paper, 개인봇)
+      run: |
+        python gap_sleeve.py --send || echo "gap_sleeve 실패(무시, 메인 파이프라인 무관)"
+      env:
+        TZ: 'America/New_York'
+        # SLEEVE_DISABLE: '1'   # 중단하려면 주석 해제
+
     - name: Commit and push results
       run: |
         git add -A
