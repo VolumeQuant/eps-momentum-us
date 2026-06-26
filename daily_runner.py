@@ -3671,6 +3671,63 @@ PE_HOLD = 30.0
 #   BE 06-17 매도(rank12)는 H12였으면 보유였을 일관 예시(근거 아님). 롤백=EXIT_RANK 12→10.
 EXIT_RANK = 12
 
+# ── gap 진입게이트 (2026-06-26, 배포준비·기본 OFF, 사용자 토글) ──────────────
+#   gap = ntm_current / TTM실적EPS = 기대성장 = trailing_PE / forward_PE.
+#   "계산되는데 gap < THR면 신규진입 컷, 데이터 없으면(None) 통과"(=의심의 이익).
+#   missing=pass 핵심: SNDK처럼 TTM EPS 공백인 슈퍼위너를 학살 안 함(+191% 보존).
+#   검증(research/gate_wider_2026_06_26.py·slot_gate_sweep_2026_06_26.py):
+#     · 91일 faithful: 2슬롯 게이트無 +257% → gap≥3.0 +281%(+24p), MDD≈동일
+#     · 누적LOWO(회사PC방식): -MU·SNDK +53~59p / +STX +37~43p / +LITE +9~29p = robust(단일종목 운 아님)
+#     · 슬롯 직접스윕: 우리 좁은 리비전시스템은 슬롯↑수익↓(1>2>3>5), 2슬롯+게이트가 최적
+#   ⚠️ 91일 단일강세장 in-sample + 8년 broad는 proxy(look-ahead/노이즈) → marginal이라 기본 OFF.
+#   켜기: ENTRY_GAP_GATE=1 (THR 조정 ENTRY_GAP_THR=3.0). 라이브·시뮬·replay 3곳 정합.
+ENTRY_GAP_GATE = os.environ.get('ENTRY_GAP_GATE', '0') == '1'
+ENTRY_GAP_THR = float(os.environ.get('ENTRY_GAP_THR', '3.0'))
+_TRAILING_EPS_CACHE = None
+
+
+def _load_trailing_eps():
+    """data_cache/trailing_eps_ttm.json (PIT TTM EPS, 게이트 검증 동일 소스) lazy 로드."""
+    global _TRAILING_EPS_CACHE
+    if _TRAILING_EPS_CACHE is None:
+        try:
+            p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             'data_cache', 'trailing_eps_ttm.json')
+            with open(p, encoding='utf-8') as f:
+                _TRAILING_EPS_CACHE = json.load(f)
+        except Exception as e:
+            log(f"trailing_eps_ttm 로드 실패(게이트 무력화·전부통과): {e}", "WARN")
+            _TRAILING_EPS_CACHE = {}
+    return _TRAILING_EPS_CACHE
+
+
+def _pit_trailing_eps(ticker, date_str=None):
+    """PIT TTM EPS. date_str None=최신값(라이브), 있으면 그 날짜 이하 마지막 공시값(BT 정합)."""
+    rec = _load_trailing_eps().get(ticker)
+    if not rec:
+        return None
+    if date_str is None:
+        return rec[-1][1] if rec else None
+    v = None
+    for rd, e in rec:
+        if rd <= date_str:
+            v = e
+        else:
+            break
+    return v
+
+
+def _entry_gap_ok(ticker, ntm_current, date_str=None):
+    """gap 진입게이트(기본 OFF). 계산되는데 gap<THR면 False(컷), 데이터공백이면 True(통과)."""
+    if not ENTRY_GAP_GATE:
+        return True
+    if not (ntm_current and ntm_current > 0):
+        return True  # NTM 없음 = 계산불가 = 통과
+    te = _pit_trailing_eps(ticker, date_str)
+    if not (te and te > 0):
+        return True  # TTM 공백 = 통과 (SNDK류 슈퍼위너 보존)
+    return (ntm_current / te) >= ENTRY_GAP_THR
+
 
 def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
     """forward replay 보유 재구성 (v111 MA12-hold + v115 보험밸브, 무상태, BT==production).
@@ -3761,7 +3818,8 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
                         return False
                     return True
                 p2_sorted = sorted([(tk, it['p2']) for tk, it in info.items()
-                                    if tk not in port and _replay_entry_ok(it)],
+                                    if tk not in port and _replay_entry_ok(it)
+                                    and _entry_gap_ok(tk, it.get('nc'), d)],
                                    key=lambda x: x[1])
                 for tk, _ in p2_sorted:
                     if len(port) >= 2:
@@ -4116,6 +4174,10 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
         avg_dv_M = _get_avg_dollar_volume_M(t, hist_all)
         if avg_dv_M < 1000:
             log(f"  ⛔ 제외 {t}: 거래대금 ${avg_dv_M:,.0f}M < $1B (저거래량 비주도주)")
+            return False
+        # gap 진입게이트 (기본 OFF, ENTRY_GAP_GATE=1로 켬). missing=pass.
+        if not _entry_gap_ok(t, row.get('ntm_current'), today_str):
+            log(f"  ⛔ 제외 {t}: gap<{ENTRY_GAP_THR} (기대성장 미달, gap게이트)")
             return False
         return True
 
@@ -5581,7 +5643,8 @@ def _get_system_performance(apply_epoch=False):
                 p2_cands = [tk for tk, _ in eligible
                             if tk not in portfolio and ticker_ms.get(tk, -999) >= 0
                             and wgap_rank.get(tk, 999) <= 5
-                            and (daily_data.get(date, {}).get(tk, {}).get('dv') or 0) >= 1000]
+                            and (daily_data.get(date, {}).get(tk, {}).get('dv') or 0) >= 1000
+                            and _entry_gap_ok(tk, daily_data.get(date, {}).get(tk, {}).get('nc'), date)]
                 p2_cands.sort(key=lambda t: wgap_rank.get(t, 999))
                 for tk in p2_cands:
                     if len(portfolio) >= 2:
