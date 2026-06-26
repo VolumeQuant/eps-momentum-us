@@ -59,6 +59,7 @@ jobs:
           MARKET_DATE: ${{ github.event.inputs.market_date }}
           MESSAGE_VERSION: ${{ github.event.inputs.message_version }}
           REGIME_FORCE: ${{ github.event.inputs.regime_force }}
+          ENTRY_GAP_GATE: '1'   # gap≥3.0 진입게이트 ON (production과 동일)
           # TELEGRAM_CHAT_ID 미설정 → 채널 전송 안함, 개인봇만
         run: python daily_runner.py
 
