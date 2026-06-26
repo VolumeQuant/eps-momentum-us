@@ -3729,6 +3729,24 @@ def _entry_gap_ok(ticker, ntm_current, date_str=None):
     return (ntm_current / te) >= ENTRY_GAP_THR
 
 
+def _live_ntm_current(ticker, today_str=None):
+    """라이브 게이트용 ntm_current — DB 권위값(BT/sim/replay와 동일 소스).
+    라이브 results_df는 canonical 컬럼이 'ntm_cur'이고 carry-forward 행은 'ntm_current'가 None일 수
+    있어(2026-06-26 게이트 무력화 버그) row 대신 DB를 직접 조회해 BT==production 정합 보장."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        if today_str:
+            r = cur.execute('SELECT ntm_current FROM ntm_screening WHERE ticker=? AND ntm_current IS NOT NULL AND date<=? ORDER BY date DESC LIMIT 1', (ticker, today_str)).fetchone()
+        else:
+            r = cur.execute('SELECT ntm_current FROM ntm_screening WHERE ticker=? AND ntm_current IS NOT NULL ORDER BY date DESC LIMIT 1', (ticker,)).fetchone()
+        conn.close()
+        return r[0] if r else None
+    except Exception as e:
+        log(f"_live_ntm_current {ticker} 오류: {e}", "WARN")
+        return None
+
+
 def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
     """forward replay 보유 재구성 (v111 MA12-hold + v115 보험밸브, 무상태, BT==production).
 
@@ -4176,7 +4194,7 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
             log(f"  ⛔ 제외 {t}: 거래대금 ${avg_dv_M:,.0f}M < $1B (저거래량 비주도주)")
             return False
         # gap 진입게이트 (기본 OFF, ENTRY_GAP_GATE=1로 켬). missing=pass.
-        if not _entry_gap_ok(t, row.get('ntm_current'), today_str):
+        if not _entry_gap_ok(t, _live_ntm_current(t, today_str), today_str):
             log(f"  ⛔ 제외 {t}: gap<{ENTRY_GAP_THR} (기대성장 미달, gap게이트)")
             return False
         return True
