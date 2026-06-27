@@ -6094,5 +6094,13 @@
   "TEM": {
     "shortName": "TEM",
     "industry": "기타"
+  },
+  "ACIW": {
+    "shortName": "ACIW",
+    "industry": "기타"
+  },
+  "MANE": {
+    "shortName": "Veradermics, Incorporated",
+    "industry": "바이오"
   }
 }

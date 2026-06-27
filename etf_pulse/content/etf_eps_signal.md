@@ -7,31 +7,31 @@
 
 | 순위 | ETF | 가중 adj_gap | 매칭률 | 핵심 종목 |
 |------|-----|--------------|--------|-----------|
-| 1 | **XOP** | -14.85 | 29% | DINO, SM, APA |
-| 2 | **VDE** | -13.76 | 64% | XOM, CVX, COP |
-| 3 | **IYE** | -13.47 | 69% | XOM, CVX, COP |
-| 4 | **XLE** | -13.37 | 75% | XOM, CVX, COP |
-| 5 | **GDX** | -9.89 | 11% | NEM |
-| 6 | **BOTZ** | -9.87 | 14% | NVDA, ISRG |
-| 7 | **NVDX** | -8.80 | 79% | NVDA |
-| 8 | **OIH** | -8.69 | 63% | SLB, BKR, HAL |
-| 9 | **METU** | -7.85 | 18% | META |
-| 10 | **VOX** | -6.83 | 69% | META, GOOGL, GOOG |
+| 1 | **XOP** | -14.96 | 29% | DINO, SM, APA |
+| 2 | **VDE** | -13.85 | 64% | XOM, CVX, COP |
+| 3 | **IYE** | -13.53 | 69% | XOM, CVX, COP |
+| 4 | **XLE** | -13.41 | 75% | XOM, CVX, COP |
+| 5 | **BOTZ** | -9.97 | 14% | NVDA, ISRG |
+| 6 | **NVDX** | -9.71 | 79% | NVDA |
+| 7 | **GDX** | -9.37 | 11% | NEM |
+| 8 | **OIH** | -8.50 | 63% | SLB, BKR, HAL |
+| 9 | **METU** | -7.52 | 18% | META |
+| 10 | **VOX** | -6.77 | 69% | META, GOOGL, GOOG |
 
 ## 📈 고평가 ETF Top 10 (양수 큰 순)
 
 | 순위 | ETF | 가중 adj_gap | 매칭률 | 핵심 종목 |
 |------|-----|--------------|--------|-----------|
-| 1 | **XSD** | +90.13 | 34% | MXL, ALAB, AMD |
-| 2 | **SOXL** | +57.17 | 23% | MU, AMD, AVGO |
-| 3 | **SOXX** | +48.81 | 62% | MU, AMD, AVGO |
-| 4 | **JETS** | +43.45 | 49% | DAL, AAL, UAL |
-| 5 | **MSTU** | +36.75 | 72% | MSTR |
-| 6 | **AIQ** | +35.96 | 31% | MU, AMD, INTC |
-| 7 | **CIBR** | +35.15 | 63% | CRWD, PANW, FTNT |
-| 8 | **MTUM** | +32.77 | 40% | MU, AMD, AVGO |
-| 9 | **VO** | +32.23 | 11% | STX, WDC, VRT |
-| 10 | **SCHM** | +30.58 | 13% | SNDK, CIEN, BE |
+| 1 | **XSD** | +92.41 | 34% | MXL, ALAB, AMD |
+| 2 | **SOXL** | +56.91 | 23% | MU, AMD, AVGO |
+| 3 | **JETS** | +46.92 | 49% | DAL, AAL, UAL |
+| 4 | **SOXX** | +46.48 | 62% | MU, AMD, AVGO |
+| 5 | **CIBR** | +36.43 | 63% | CRWD, PANW, FTNT |
+| 6 | **MSTU** | +35.99 | 72% | MSTR |
+| 7 | **AIQ** | +35.76 | 31% | MU, AMD, INTC |
+| 8 | **MTUM** | +31.90 | 40% | MU, AMD, AVGO |
+| 9 | **HACK** | +29.24 | 56% | CRWD, PANW, AVGO |
+| 10 | **SMH** | +26.53 | 73% | NVDA, TSM, MU |
 
 ---
 _각 ETF 보유종목의 EPS revision 가중 평균. mean reversion 신호._
