@@ -57,7 +57,8 @@ jobs:
       env:
         TZ: 'America/New_York'
         MESSAGE_VERSION: 'v3'  # v3 고정 (v2 제거됨)
-        ENTRY_GAP_GATE: '0'    # gap게이트 OFF (2026-06-28 재검토: 인접성 fragile·OFF가 분산 우위로 OFF복귀). 켜려면 '1'.
+        ENTRY_GAP_GATE: '1'    # gap게이트 ON, THR 2.5 (2026-06-28 그리드: 2.5~3.5 평지 robust·2.5는 분산우위). 끄기 '0'.
+        ENTRY_GAP_THR: '2.5'
 
     # 기대성장(gap) 분산 Sleeve — 별도 시스템 (2026-06-25 빌드).
     # DB 갱신 후 실행. 현재 페이퍼 검증 단계라 개인봇 발송(--send=개인봇 기본).

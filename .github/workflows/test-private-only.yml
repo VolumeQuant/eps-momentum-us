@@ -59,7 +59,8 @@ jobs:
           MARKET_DATE: ${{ github.event.inputs.market_date }}
           MESSAGE_VERSION: ${{ github.event.inputs.message_version }}
           REGIME_FORCE: ${{ github.event.inputs.regime_force }}
-          ENTRY_GAP_GATE: '0'   # gap게이트 OFF (production과 동일)
+          ENTRY_GAP_GATE: '1'   # gap게이트 ON
+          ENTRY_GAP_THR: '2.5'  # 임계 2.5 (그리드 평지 robust + 분산우위)
           # TELEGRAM_CHAT_ID 미설정 → 채널 전송 안함, 개인봇만
         run: python daily_runner.py
 
