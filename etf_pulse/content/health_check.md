@@ -1,7 +1,10 @@
-# 🏥 ETF Pulse Health Check — 2026-06-27 04:45
+# 🏥 ETF Pulse Health Check — 2026-06-28 05:12
 
-## ℹ️ Info
-- 모든 항목 정상 (2026-06-26, 256 ETF)
+## 🚨 Critical
+- 2026-06-26 ETF 수 127 (예상 200+)
+
+## ⚠️ Warning
+- holdings 확보 0 ETF (예상 150+)
 
 ---
-_Total: 0 critical / 0 warning / 1 info_
+_Total: 1 critical / 1 warning / 0 info_
