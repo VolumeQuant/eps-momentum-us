@@ -6102,5 +6102,29 @@
   "MANE": {
     "shortName": "Veradermics, Incorporated",
     "industry": "바이오"
+  },
+  "DFTX": {
+    "shortName": "DFTX",
+    "industry": "기타"
+  },
+  "HONA": {
+    "shortName": "HONA",
+    "industry": "기타"
+  },
+  "INIO": {
+    "shortName": "INIO",
+    "industry": "기타"
+  },
+  "LYFT": {
+    "shortName": "LYFT",
+    "industry": "기타"
+  },
+  "QNT": {
+    "shortName": "QNT",
+    "industry": "기타"
+  },
+  "TOST": {
+    "shortName": "Toast, Inc.",
+    "industry": "인프라SW"
   }
 }
