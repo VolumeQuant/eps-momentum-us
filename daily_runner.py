@@ -3749,6 +3749,33 @@ def _live_ntm_current(ticker, today_str=None):
         return None
 
 
+def _fwdper_gap_display(ticker):
+    """표시 전용(매매 무관) fwd_PER·gap 문자열.
+    fwd_PER = price / ntm_current(선행이익).  gap = PER / fwd_PER = ntm_current / TTM실적EPS = 기대성장.
+    DB 권위 price·ntm_current(게이트와 동일 소스) + PIT TTM(trailing_eps_ttm). 데이터 공백이면 gap '-'."""
+    ds = os.environ.get('MARKET_DATE', '').strip() or None
+    try:
+        conn = sqlite3.connect(DB_PATH); cur = conn.cursor()
+        if ds:
+            r = cur.execute('SELECT price, ntm_current FROM ntm_screening WHERE ticker=? AND ntm_current IS NOT NULL AND price>0 AND date<=? ORDER BY date DESC LIMIT 1', (ticker, ds)).fetchone()
+        else:
+            r = cur.execute('SELECT price, ntm_current FROM ntm_screening WHERE ticker=? AND ntm_current IS NOT NULL AND price>0 ORDER BY date DESC LIMIT 1', (ticker,)).fetchone()
+        conn.close()
+    except Exception as e:
+        log(f"_fwdper_gap_display {ticker} 오류: {e}", "WARN")
+        return None
+    if not r:
+        return None
+    px, nc = r
+    if not (px and nc and nc > 0):
+        return None
+    fpe = px / nc
+    te = _pit_trailing_eps(ticker, ds)
+    gap = (nc / te) if (te and te > 0) else None
+    gtxt = f'{gap:.1f}배' if gap is not None else '-'
+    return f'선행PER {fpe:.0f} · gap {gtxt}'
+
+
 def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
     """forward replay 보유 재구성 (v111 MA12-hold + v115 보험밸브, 무상태, BT==production).
 
@@ -6030,6 +6057,9 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             growth_parts.append(f'EPS 전망 {int(round(eps_chg)):+d}%')
         if rev:
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
+        _fg = _fwdper_gap_display(ticker)  # 표시 전용 fwd_PER·gap(기대성장)
+        if _fg:
+            growth_parts.append(_fg)
         lines.append(' · '.join(growth_parts))
 
         # v119 (2026-06-11): 저평가 보유 안내
@@ -6389,6 +6419,9 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             growth_parts.append(f'매출성장 {int(round(rev_g * 100)):+d}%')
         if score_display_map and ticker in score_display_map:
             growth_parts.append(f'{score_display_map[ticker]}점')
+        _fg = _fwdper_gap_display(ticker)  # 표시 전용 fwd_PER·gap(기대성장)
+        if _fg:
+            growth_parts.append(_fg)
         lines.append(' · '.join(growth_parts))
 
         # L3: 의견 + 순위
