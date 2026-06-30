@@ -3685,6 +3685,8 @@ EXIT_RANK = 12
 #   켜기: ENTRY_GAP_GATE=1 (THR 조정 ENTRY_GAP_THR=3.0). 라이브·시뮬·replay 3곳 정합.
 ENTRY_GAP_GATE = os.environ.get('ENTRY_GAP_GATE', '0') == '1'
 ENTRY_GAP_THR = float(os.environ.get('ENTRY_GAP_THR', '3.0'))
+# v117 거래대금 필터 임계 ($M, 기본 $1B=1000). 시장 주도주만 — 저거래량 비주도주 제외.
+MIN_DOLLAR_VOL_M = float(os.environ.get('MIN_DOLLAR_VOL_M', '1000'))
 _TRAILING_EPS_CACHE = None
 
 
@@ -3861,7 +3863,7 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
                         return False
                     if it.get('minseg', 0) < 0:        # EPS 추세 건강
                         return False
-                    if (it.get('dv') or 0) < 1000:     # 거래대금 $1B+ (시장 주도주)
+                    if (it.get('dv') or 0) < MIN_DOLLAR_VOL_M:     # 거래대금 $1B+ (시장 주도주)
                         return False
                     return True
                 p2_sorted = sorted([(tk, it['p2']) for tk, it in info.items()
@@ -4219,8 +4221,8 @@ def select_display_top5(results_df, status_map=None, weighted_ranks=None,
         # BT (auto_bt_v114_plus_volume.py): calmar 5.70 → 5.93, +14.5p, 양수 300/300
         # 비주도주 (AEIS $456M, KEYS $490M, HWM $595M) 차단 → 시장 주도주만 매수
         avg_dv_M = _get_avg_dollar_volume_M(t, hist_all)
-        if avg_dv_M < 1000:
-            log(f"  ⛔ 제외 {t}: 거래대금 ${avg_dv_M:,.0f}M < $1B (저거래량 비주도주)")
+        if avg_dv_M < MIN_DOLLAR_VOL_M:
+            log(f"  ⛔ 제외 {t}: 거래대금 ${avg_dv_M:,.0f}M < ${MIN_DOLLAR_VOL_M:,.0f}M (저거래량 비주도주)")
             return False
         # gap 진입게이트 (기본 OFF, ENTRY_GAP_GATE=1로 켬). missing=pass.
         if not _entry_gap_ok(t, _live_ntm_current(t, today_str), today_str):
@@ -5690,7 +5692,7 @@ def _get_system_performance(apply_epoch=False):
                 p2_cands = [tk for tk, _ in eligible
                             if tk not in portfolio and ticker_ms.get(tk, -999) >= 0
                             and wgap_rank.get(tk, 999) <= 5
-                            and (daily_data.get(date, {}).get(tk, {}).get('dv') or 0) >= 1000
+                            and (daily_data.get(date, {}).get(tk, {}).get('dv') or 0) >= MIN_DOLLAR_VOL_M
                             and _entry_gap_ok(tk, daily_data.get(date, {}).get(tk, {}).get('nc'), date)]
                 p2_cands.sort(key=lambda t: wgap_rank.get(t, 999))
                 for tk in p2_cands:
