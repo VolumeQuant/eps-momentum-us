@@ -3674,7 +3674,9 @@ EXIT_RANK = 12
 # ── gap 진입게이트 (2026-06-26, 배포준비·기본 OFF, 사용자 토글) ──────────────
 #   gap = ntm_current / TTM실적EPS = 기대성장 = trailing_PE / forward_PE.
 #   "계산되는데 gap < THR면 신규진입 컷, 데이터 없으면(None) 통과"(=의심의 이익).
-#   missing=pass 핵심: SNDK처럼 TTM EPS 공백인 슈퍼위너를 학살 안 함(+191% 보존).
+#   missing=pass 핵심: TTM EPS 공백 슈퍼위너를 학살 안 함(진입 데이터도착 전만 적용).
+#   ※2026-06-29 검증: SNDK는 이제 trailing_eps_ttm에 등재(te=28.77)되어 missing이 아니라
+#     실제 gap 6.33(≥THR)으로 통과·보존됨. missing=pass는 진입 데이터 도착 전 며칠만 작동.
 #   검증(research/gate_wider_2026_06_26.py·slot_gate_sweep_2026_06_26.py):
 #     · 91일 faithful: 2슬롯 게이트無 +257% → gap≥3.0 +281%(+24p), MDD≈동일
 #     · 누적LOWO(회사PC방식): -MU·SNDK +53~59p / +STX +37~43p / +LITE +9~29p = robust(단일종목 운 아님)
