@@ -70,6 +70,15 @@ jobs:
         TZ: 'America/New_York'
         # SLEEVE_DISABLE: '1'   # 중단하려면 주석 해제
 
+    # 안전장치(gap·거래량)에 막히는 고순위 종목 페이퍼 추적 (TSEM 등, forward-only 관찰)
+    # 매일 상태를 paper_track_log.csv에 누적 → 막힌 날들의 forward 수익으로 '과한 차단인지' 판정.
+    - name: Run blocked-candidate paper tracker (개인봇)
+      run: |
+        python research/paper_tracker_blocked.py --send || echo "paper_tracker 실패(무시, 매매 무관)"
+      env:
+        TZ: 'America/New_York'
+        WATCH_TICKERS: 'TSEM'   # 감시 종목(쉼표구분). 추가하려면 'TSEM,XXX'
+
     - name: Commit and push results
       run: |
         git add -A
