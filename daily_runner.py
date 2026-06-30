@@ -3687,6 +3687,11 @@ ENTRY_GAP_GATE = os.environ.get('ENTRY_GAP_GATE', '0') == '1'
 ENTRY_GAP_THR = float(os.environ.get('ENTRY_GAP_THR', '3.0'))
 # v117 거래대금 필터 임계 ($M, 기본 $1B=1000). 시장 주도주만 — 저거래량 비주도주 제외.
 MIN_DOLLAR_VOL_M = float(os.environ.get('MIN_DOLLAR_VOL_M', '1000'))
+# 연구용: BT에서 특정 종목을 유니버스 전체에서 제외(LOWO/슬롯해방 실험). 기본 빈셋(무영향).
+_BT_EXCLUDE = set()
+# 연구용: BT 날짜범위 제한(walk-forward 기간분할). 기본 None(전체기간, 무영향).
+_BT_DATE_START = None
+_BT_DATE_END = None
 _TRAILING_EPS_CACHE = None
 
 
@@ -5483,6 +5488,10 @@ def _get_system_performance(apply_epoch=False):
         ).fetchall()]
         if apply_epoch:
             all_dates = [d for d in all_dates if d >= HOLDINGS_EPOCH]
+        if _BT_DATE_START:
+            all_dates = [d for d in all_dates if d >= _BT_DATE_START]
+        if _BT_DATE_END:
+            all_dates = [d for d in all_dates if d <= _BT_DATE_END]
         if len(all_dates) < 3:
             conn.close()
             return None
@@ -5625,7 +5634,7 @@ def _get_system_performance(apply_epoch=False):
             # v119: 순위 = DB part2_rank 직접 사용 (BT/replay와 완전 정합 — _w_gap 재계산 제거).
             #   기존엔 perf만 _w_gap을 재계산해 part2_rank와 어긋남 → 시뮬 보유가 BT와 달랐음(BE vs MU).
             eligible = [(tk, info['part2_rank']) for tk, info in data.items()
-                        if ticker_ms.get(tk, 0) >= -2 and info.get('part2_rank')]
+                        if ticker_ms.get(tk, 0) >= -2 and info.get('part2_rank') and tk not in _BT_EXCLUDE]
             eligible.sort(key=lambda x: x[1])  # part2_rank 작을수록 상위
             wgap_rank = {tk: info['part2_rank'] for tk, info in data.items() if info.get('part2_rank')}
 
