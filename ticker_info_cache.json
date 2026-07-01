@@ -6126,5 +6126,25 @@
   "TOST": {
     "shortName": "Toast, Inc.",
     "industry": "인프라SW"
+  },
+  "MQ": {
+    "shortName": "MQ",
+    "industry": "기타"
+  },
+  "RBLX": {
+    "shortName": "RBLX",
+    "industry": "기타"
+  },
+  "SE": {
+    "shortName": "SE",
+    "industry": "기타"
+  },
+  "TFSL": {
+    "shortName": "TFSL",
+    "industry": "기타"
+  },
+  "VEEV": {
+    "shortName": "VEEV",
+    "industry": "기타"
   }
 }
