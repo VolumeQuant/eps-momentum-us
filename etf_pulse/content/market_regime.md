@@ -1,52 +1,52 @@
-# 🛡️ Market Regime 진단 — 2026-06-30
+# 🛡️ Market Regime 진단 — 2026-07-01
 
-## 🔴 Risk-Off (방어 모드)
-  - Risk-On 5일: -2.41%
-  - Risk-Off 5일: -0.41%
-  - Cyclical - Defensive: -4.24%
-  - 종합 점수: -4.12
+## 🟡 Mild Risk-On (약한 강세)
+  - Risk-On 5일: +1.83%
+  - Risk-Off 5일: -1.65%
+  - Cyclical - Defensive: -1.04%
+  - 종합 점수: +2.96
 
 ## 🚀 Risk-On 지표
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| SPY (S&P 500) | -0.43% | 1.03% |
-| QQQ (Nasdaq) | -1.80% | 1.95% |
-| SOXX (Semis) | -5.76% | 4.90% |
-| ARKK (ARK Innovation) | +2.86% | 1.89% |
-| KWEB (China Tech) | -2.95% | 1.76% |
-| IBIT (Bitcoin) | -6.41% | 2.10% |
+| SPY (S&P 500) | +1.80% | 0.80% |
+| QQQ (Nasdaq) | +3.20% | 1.40% |
+| SOXX (Semis) | +6.42% | 3.87% |
+| ARKK (ARK Innovation) | +5.33% | 1.34% |
+| KWEB (China Tech) | -0.02% | 1.59% |
+| IBIT (Bitcoin) | -5.76% | 1.99% |
 
 ## 🛡️ Risk-Off 지표
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| TLT (Long Treasury) | +1.58% | 0.53% |
-| SHY (Short Treasury) | +0.32% | 0.06% |
-| GLD (Gold) | -4.17% | 1.63% |
-| JEPI (Covered Call) | +0.66% | 0.33% |
-| VIXY (VIX) | -0.45% | 3.07% |
+| TLT (Long Treasury) | +0.27% | 0.81% |
+| SHY (Short Treasury) | +0.17% | 0.08% |
+| GLD (Gold) | -2.33% | 1.55% |
+| JEPI (Covered Call) | +1.16% | 0.19% |
+| VIXY (VIX) | -7.52% | 1.60% |
 
 ## 🏭 Cyclical (경기민감)
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| XLE (Energy) | -0.87% | 0.94% |
-| XLF (Financials) | +0.04% | 0.34% |
-| XLI (Industrials) | +0.59% | 1.63% |
+| XLE (Energy) | -2.49% | 0.85% |
+| XLF (Financials) | -0.50% | 0.30% |
+| XLI (Industrials) | +3.95% | 1.27% |
 
 ## 🏥 Defensive (방어주)
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| XLP (Staples) | +2.66% | 0.92% |
-| XLU (Utilities) | +2.88% | 0.50% |
-| XLV (Healthcare) | +6.94% | 0.94% |
+| XLP (Staples) | -0.76% | 0.93% |
+| XLU (Utilities) | +0.62% | 0.94% |
+| XLV (Healthcare) | +4.24% | 1.42% |
 
 ## 💡 자동 추천
 
-- ⚠️ 약세 분위기 → **방어 ETF 비중 ↑** (TLT/GLD/JEPI 등)
-- 인버스 ETF (SH/SDS) 헤지 검토 (단, 장기 보유 X — decay)
+- 강세장 분위기 → **공격적 포트폴리오 적정** (QQQ/SOXX/ARK 등 비중 ↑)
+- 단, 너무 한쪽 쏠리면 변동성 폭증 주의 → 일부 GLD/TLT 헤지 권장
 
 ---
 _시장 진단 — 자동 데이터 분석. 투자 추천 아님._
