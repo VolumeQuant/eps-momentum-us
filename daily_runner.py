@@ -3807,6 +3807,10 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
         pxh = {}
         for tk, d, p in cur.execute('SELECT ticker,date,price FROM ntm_screening WHERE price IS NOT NULL'):
             pxh.setdefault(tk, {})[d] = p
+        # ntm_current 전체(탈락종목 PE veto용 — MA120 탈락 vs 데이터갭 구분)
+        ntmh = {}
+        for tk, d, nc in cur.execute('SELECT ticker,date,ntm_current FROM ntm_screening WHERE ntm_current IS NOT NULL'):
+            ntmh.setdefault(tk, {})[d] = nc
         def _ma12(tk, d):
             i = didx.get(d)
             if i is None or i - 11 < 0:
@@ -3847,7 +3851,16 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
                     port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)
                     continue  # EPS 꺾임 = 즉시 매도
                 if it is None:
-                    continue  # 오늘 데이터 갭 → carryover (v113 robust)
+                    # 랭킹 탈락(MA120 이탈 등)과 진짜 데이터갭 구분:
+                    #   가격+ntm 있으면 = 탈락(갭 아님) → v119 rank>EXIT veto 적용(비싸면 매도).
+                    #   데이터 없으면 = 갭 → carryover (v113 robust).
+                    _dpx = pxh.get(tk, {}).get(d); _dnc = ntmh.get(tk, {}).get(d)
+                    if _dpx and _dnc and _dnc > 0:
+                        if (_dpx / _dnc) >= PE_HOLD:
+                            port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)  # 탈락+비쌈 → 매도
+                        # else 저평가 탈락 → 보유(carryover)
+                    continue  # 갭이면 carryover
+
                 p2 = it['p2']
                 if p2 is not None and p2 <= EXIT_RANK:
                     grace.discard(tk)
