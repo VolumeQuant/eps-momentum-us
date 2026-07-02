@@ -6136,8 +6136,8 @@
     "industry": "기타"
   },
   "SE": {
-    "shortName": "SE",
-    "industry": "기타"
+    "shortName": "Sea Limited",
+    "industry": "온라인유통"
   },
   "TFSL": {
     "shortName": "TFSL",
@@ -6145,6 +6145,14 @@
   },
   "VEEV": {
     "shortName": "VEEV",
+    "industry": "기타"
+  },
+  "GMAB": {
+    "shortName": "GMAB",
+    "industry": "기타"
+  },
+  "GRAB": {
+    "shortName": "GRAB",
     "industry": "기타"
   }
 }
