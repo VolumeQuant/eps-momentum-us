@@ -5948,7 +5948,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             if _segr is not None and _segr < -2:
                 reason = '이익전망 꺾임'
             elif _per is not None and _per >= PE_HOLD:
-                reason = f'순위이탈·PER {_per:.0f}배'
+                reason = f'순위이탈·PER{_per:.0f}'
             else:
                 reason = '순위 이탈'
             lines.append(f'🔴 매도: {nm}({t}) · {reason}')
@@ -6083,10 +6083,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             growth_parts.append(f'EPS 전망 {int(round(eps_chg)):+d}%')
         if rev:
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
-        _fg = _fwdper_gap_display(ticker)  # 표시 전용 fwd_PER·gap(기대성장)
-        if _fg:
-            growth_parts.append(_fg)
         lines.append(' · '.join(growth_parts))
+        _fg = _fwdper_gap_display(ticker)  # fwd_PER·gap — 별도 줄(모바일 폭)
+        if _fg:
+            lines.append(_fg)
 
         # v119 (2026-06-11): 저평가 보유 안내
         if s.get('_trend_hold'):
@@ -6445,10 +6445,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             growth_parts.append(f'매출성장 {int(round(rev_g * 100)):+d}%')
         if score_display_map and ticker in score_display_map:
             growth_parts.append(f'{score_display_map[ticker]}점')
-        _fg = _fwdper_gap_display(ticker)  # 표시 전용 fwd_PER·gap(기대성장)
-        if _fg:
-            growth_parts.append(_fg)
         lines.append(' · '.join(growth_parts))
+        _fg = _fwdper_gap_display(ticker)  # fwd_PER·gap — 별도 줄(모바일 폭)
+        if _fg:
+            lines.append(_fg)
 
         # L3: 의견 + 순위
         w_info = weighted_ranks.get(ticker)
