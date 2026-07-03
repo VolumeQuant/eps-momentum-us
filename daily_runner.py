@@ -5948,7 +5948,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             if _segr is not None and _segr < -2:
                 reason = '이익전망 꺾임'
             elif _per is not None and _per >= PE_HOLD:
-                reason = f'순위 이탈 + PER {_per:.0f}배(저평가 아님)'
+                reason = f'순위이탈·PER {_per:.0f}배'
             else:
                 reason = '순위 이탈'
             lines.append(f'🔴 매도: {nm}({t}) · {reason}')
@@ -6140,7 +6140,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                 if reason == '120일선↓':
                     prev_rank = exited_tickers.get(t)
                     if prev_rank is not None and prev_rank <= 10:
-                        lines.append(f'💡 {t} — 매도(120일선 이탈), 어제 {prev_rank}위 → 120일선 회복 시 재매수 후보')
+                        lines.append(f'💡 {t} — 매도, 회복 시 재매수 후보')
 
     # ━━ 범례 + 면책 ━━
     lines.append('')
