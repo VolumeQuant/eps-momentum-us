@@ -4770,7 +4770,9 @@ def classify_exit_reasons(exited_tickers, results_df):
 
         # v119 (2026-06-11): 실제 보유 종목이 순위 밀렸어도 fwd_PE<PE_HOLD(저평가)면 '저평가보유'(매도 아님).
         # 보유 안 하는 Top20 이탈 종목은 그냥 순위밀림 (보유한 것처럼 표시하면 모순).
-        if reason in ('순위밀림', '주가급등') and t in _held_set and _below_pe_live(t):
+        # v119 fix: MA120 이탈('120일선↓')이라도 실제 보유 + 저평가(PE<30)면 '저평가보유'(매도 아님).
+        #   AVGO처럼 MA120 깨졌어도 싸서 들고 가는 종목을 '이탈'로 오표시하던 버그.
+        if reason in ('순위밀림', '주가급등', '120일선↓') and t in _held_set and _below_pe_live(t):
             reason = '저평가보유'
 
         result.append((t, cur_rank, reason))
@@ -5914,7 +5916,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             w_tag = f' · {int(w)}%' if w else ''
             lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{w_tag}')
     else:
-        lines.append('· 신규 매수 후보 없음 (보유 유지)')
+        lines.append('· 신규 매수 후보 없음')
 
     # v119 (2026-06-11): 보유 표시 제거 (B안) — 새 고객은 "오늘 살 것"만 보면 됨.
     #   🌟 보유줄은 "지금 못 사는 종목(순위 밖 보유)"이라 신규 진입자에게 혼란 → 제거.
@@ -6138,7 +6140,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                 if reason == '120일선↓':
                     prev_rank = exited_tickers.get(t)
                     if prev_rank is not None and prev_rank <= 10:
-                        lines.append(f'💡 {t} — 120일선 이탈했지만 어제 {prev_rank}위, 반등 시 복귀 가능')
+                        lines.append(f'💡 {t} — 매도(120일선 이탈), 어제 {prev_rank}위 → 120일선 회복 시 재매수 후보')
 
     # ━━ 범례 + 면책 ━━
     lines.append('')
