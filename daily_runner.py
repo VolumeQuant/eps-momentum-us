@@ -3961,6 +3961,84 @@ def _vm_paper_state(today_str):
     }
 
 
+def _vm_stock_card(ticker, today_str):
+    """신규 편입 종목의 건강성 데이터 카드(DB, 결정적) — AI 없이도 나오는 부분."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        r = conn.execute(
+            'SELECT num_analysts, rev_up30, rev_down30, rev_growth, roe, free_cashflow, '
+            'operating_margin, market_cap FROM ntm_screening WHERE ticker=? AND date<=? '
+            'ORDER BY date DESC LIMIT 1', (ticker, today_str)).fetchone()
+        conn.close()
+    except Exception:
+        return None
+    if not r:
+        return None
+    na, up, dn, rg, roe, fcf, om, mc = r
+    parts = []
+    if na:
+        parts.append(f'분석가 {na}명(30일 ↑{up or 0}/↓{dn or 0})')
+    if rg is not None:
+        parts.append(f'매출성장 {rg * 100:+.0f}%')
+    if roe is not None:
+        parts.append(f'ROE {roe * 100:.0f}%')
+    if fcf:
+        parts.append(f'FCF ${fcf / 1e9:.1f}B')
+    if om is not None:
+        parts.append(f'영업마진 {om * 100:.0f}%')
+    if mc:
+        parts.append(f'시총 ${mc / 1e9:.0f}B')
+    return ' · '.join(parts) if parts else None
+
+
+def _vm_ai_briefs(entries, today_str):
+    """신규 편입 종목 AI 브리핑 — 단일 Gemini 호출(검색 grounding), {ticker: 2~3문장}.
+
+    목적: 사용자가 새 종목을 일일이 검색하지 않게 ①무슨 회사인지 ②왜 지금 전망이
+    급상향되는지 ③리스크 하나를 요약. 실패 시 빈 dict(데이터 카드만 표시)."""
+    api_key = os.environ.get('GEMINI_API_KEY', '')
+    if not api_key or not entries:
+        return {}
+    try:
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=api_key, http_options={'timeout': 120_000})
+        tool = types.Tool(google_search=types.GoogleSearch())
+        data_lines = []
+        for tk, r90, fpe, gap in entries:
+            card = _vm_stock_card(tk, today_str) or ''
+            gtxt = f'{gap:.1f}x' if gap is not None else '데이터공백'
+            data_lines.append(f'- {tk}: 90일 이익전망 상향 +{r90:.0f}%, 선행PER {fpe:.0f}, '
+                              f'기대성장(선행/과거EPS) {gtxt}, {card}')
+        prompt = (
+            '미국 주식 퀀트 시스템(가치+이익전망 모멘텀)이 오늘 새로 편입한 종목이다. '
+            '각 종목마다 정확히 3문장으로, 한국어로: '
+            '①무슨 회사고 무엇으로 돈 버는지 ②최근 애널리스트 이익전망이 급상향되는 구체적 이유'
+            '(최근 실적발표·수주·가격동향 등을 검색해 확인) ③주의할 리스크 하나. '
+            '과장 없이 사실만, 종목당 200자 이내. 형식: "TICKER: 문장들" 한 줄씩.\n'
+            '시스템이 포착한 데이터:\n' + '\n'.join(data_lines))
+        old_to = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(90)
+        try:
+            resp = client.models.generate_content(
+                model='gemini-2.5-flash', contents=prompt,
+                config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
+        finally:
+            socket.setdefaulttimeout(old_to)
+        text = resp.text or ''
+        out = {}
+        for tk, _, _, _ in entries:
+            for ln in text.splitlines():
+                s = ln.strip().lstrip('-*• ')
+                if s.upper().startswith(tk.upper() + ':'):
+                    out[tk] = s.split(':', 1)[1].strip()
+                    break
+        return out
+    except Exception as e:
+        log(f"신설계 AI 브리핑 실패(데이터 카드만 표시): {e}", "WARN")
+        return {}
+
+
 def _vm_paper_section(today_str):
     """Signal 메시지용 신설계 관찰 섹션(라인 리스트). 실패/비활성 시 빈 리스트 — 본문 불침범."""
     if os.environ.get('VM_PAPER_DISABLE', '0') == '1':
@@ -3977,7 +4055,8 @@ def _vm_paper_section(today_str):
              '싸고(PER&lt;30)+성장(2.5x+) 중 전망상향 Top5 · 주1회 교체']
     for i, (tk, r90, fpe, gap) in enumerate(st['cur'], 1):
         gtxt = f' · 성장 {gap:.1f}x' if gap is not None else ''
-        lines.append(f' {i}. {tk} 전망상향 +{r90:.0f}% · PER {fpe:.0f}{gtxt}')
+        mark = ' 🆕' if (st['is_rebal_day'] and tk in st['added']) else ''
+        lines.append(f' {i}. {tk} 전망상향 +{r90:.0f}% · PER {fpe:.0f}{gtxt}{mark}')
     if st['is_rebal_day'] and (st['added'] or st['removed']):
         diff = []
         if st['added']:
@@ -3985,6 +4064,17 @@ def _vm_paper_section(today_str):
         if st['removed']:
             diff.append('🔴 제외 ' + '·'.join(st['removed']))
         lines.append(' ' + ' / '.join(diff))
+        # 신규 편입 종목 브리핑: 데이터 카드(DB) + AI 내러티브(실패 시 카드만)
+        new_entries = [e for e in st['cur'] if e[0] in st['added']]
+        briefs = _vm_ai_briefs(new_entries, today_str)
+        for tk, r90, fpe, gap in new_entries:
+            lines.append('')
+            lines.append(f' 🆕 <b>{tk}</b> — 새 종목 브리핑')
+            card = _vm_stock_card(tk, today_str)
+            if card:
+                lines.append(f'  {card}')
+            if briefs.get(tk):
+                lines.append(f'  {briefs[tk]}')
     tail = f'페이퍼 누적 {st["ret"]:+.1f}% (시작 {VM_PAPER_START})'
     tail += ' · 오늘 리밸' if st['is_rebal_day'] else f' · 다음 리밸 {st["next_in"]}거래일 후'
     lines.append(tail)
