@@ -5848,8 +5848,8 @@
     "industry": "기타"
   },
   "SPOT": {
-    "shortName": "SPOT",
-    "industry": "기타"
+    "shortName": "Spotify Technology S.A.",
+    "industry": "인터넷"
   },
   "BNY": {
     "shortName": "The Bank of New York Mellon Cor",
@@ -5988,8 +5988,8 @@
     "industry": "기타"
   },
   "DKNG": {
-    "shortName": "DKNG",
-    "industry": "기타"
+    "shortName": "DraftKings Inc.",
+    "industry": "도박"
   },
   "HRI": {
     "shortName": "HRI",
@@ -6096,8 +6096,8 @@
     "industry": "기타"
   },
   "ACIW": {
-    "shortName": "ACIW",
-    "industry": "기타"
+    "shortName": "ACI Worldwide, Inc.",
+    "industry": "인프라SW"
   },
   "MANE": {
     "shortName": "Veradermics, Incorporated",
@@ -6136,15 +6136,23 @@
     "industry": "기타"
   },
   "SE": {
-    "shortName": "SE",
-    "industry": "기타"
+    "shortName": "Sea Limited",
+    "industry": "온라인유통"
   },
   "TFSL": {
     "shortName": "TFSL",
     "industry": "기타"
   },
   "VEEV": {
-    "shortName": "VEEV",
+    "shortName": "Veeva Systems Inc.",
+    "industry": "의료정보"
+  },
+  "GMAB": {
+    "shortName": "Genmab A/S",
+    "industry": "바이오"
+  },
+  "GRAB": {
+    "shortName": "GRAB",
     "industry": "기타"
   }
 }

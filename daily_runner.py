@@ -3807,6 +3807,10 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
         pxh = {}
         for tk, d, p in cur.execute('SELECT ticker,date,price FROM ntm_screening WHERE price IS NOT NULL'):
             pxh.setdefault(tk, {})[d] = p
+        # ntm_current 전체(탈락종목 PE veto용 — MA120 탈락 vs 데이터갭 구분)
+        ntmh = {}
+        for tk, d, nc in cur.execute('SELECT ticker,date,ntm_current FROM ntm_screening WHERE ntm_current IS NOT NULL'):
+            ntmh.setdefault(tk, {})[d] = nc
         def _ma12(tk, d):
             i = didx.get(d)
             if i is None or i - 11 < 0:
@@ -3847,7 +3851,16 @@ def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
                     port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)
                     continue  # EPS 꺾임 = 즉시 매도
                 if it is None:
-                    continue  # 오늘 데이터 갭 → carryover (v113 robust)
+                    # 랭킹 탈락(MA120 이탈 등)과 진짜 데이터갭 구분:
+                    #   가격+ntm 있으면 = 탈락(갭 아님) → v119 rank>EXIT veto 적용(비싸면 매도).
+                    #   데이터 없으면 = 갭 → carryover (v113 robust).
+                    _dpx = pxh.get(tk, {}).get(d); _dnc = ntmh.get(tk, {}).get(d)
+                    if _dpx and _dnc and _dnc > 0:
+                        if (_dpx / _dnc) >= PE_HOLD:
+                            port.discard(tk); entry_info.pop(tk, None); grace.discard(tk)  # 탈락+비쌈 → 매도
+                        # else 저평가 탈락 → 보유(carryover)
+                    continue  # 갭이면 carryover
+
                 p2 = it['p2']
                 if p2 is not None and p2 <= EXIT_RANK:
                     grace.discard(tk)
@@ -4757,7 +4770,9 @@ def classify_exit_reasons(exited_tickers, results_df):
 
         # v119 (2026-06-11): 실제 보유 종목이 순위 밀렸어도 fwd_PE<PE_HOLD(저평가)면 '저평가보유'(매도 아님).
         # 보유 안 하는 Top20 이탈 종목은 그냥 순위밀림 (보유한 것처럼 표시하면 모순).
-        if reason in ('순위밀림', '주가급등') and t in _held_set and _below_pe_live(t):
+        # v119 fix: MA120 이탈('120일선↓')이라도 실제 보유 + 저평가(PE<30)면 '저평가보유'(매도 아님).
+        #   AVGO처럼 MA120 깨졌어도 싸서 들고 가는 종목을 '이탈'로 오표시하던 버그.
+        if reason in ('순위밀림', '주가급등', '120일선↓') and t in _held_set and _below_pe_live(t):
             reason = '저평가보유'
 
         result.append((t, cur_rank, reason))
@@ -5901,7 +5916,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             w_tag = f' · {int(w)}%' if w else ''
             lines.append(f'<b>{idx+1}. {name}({s["ticker"]})</b>{w_tag}')
     else:
-        lines.append('· 신규 매수 후보 없음 (보유 유지)')
+        lines.append('· 신규 매수 후보 없음')
 
     # v119 (2026-06-11): 보유 표시 제거 (B안) — 새 고객은 "오늘 살 것"만 보면 됨.
     #   🌟 보유줄은 "지금 못 사는 종목(순위 밖 보유)"이라 신규 진입자에게 혼란 → 제거.
@@ -5933,7 +5948,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             if _segr is not None and _segr < -2:
                 reason = '이익전망 꺾임'
             elif _per is not None and _per >= PE_HOLD:
-                reason = f'PER {_per:.0f}배로 비싸짐'
+                reason = f'순위이탈·PER{_per:.0f}'
             else:
                 reason = '순위 이탈'
             lines.append(f'🔴 매도: {nm}({t}) · {reason}')
@@ -6068,10 +6083,10 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
             growth_parts.append(f'EPS 전망 {int(round(eps_chg)):+d}%')
         if rev:
             growth_parts.append(f'매출성장 {int(round(rev * 100)):+d}%')
-        _fg = _fwdper_gap_display(ticker)  # 표시 전용 fwd_PER·gap(기대성장)
-        if _fg:
-            growth_parts.append(_fg)
         lines.append(' · '.join(growth_parts))
+        _fg = _fwdper_gap_display(ticker)  # fwd_PER·gap — 별도 줄(모바일 폭)
+        if _fg:
+            lines.append(_fg)
 
         # v119 (2026-06-11): 저평가 보유 안내
         if s.get('_trend_hold'):
@@ -6125,7 +6140,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                 if reason == '120일선↓':
                     prev_rank = exited_tickers.get(t)
                     if prev_rank is not None and prev_rank <= 10:
-                        lines.append(f'💡 {t} — 120일선 이탈했지만 어제 {prev_rank}위, 반등 시 복귀 가능')
+                        lines.append(f'💡 {t} — 매도, 회복 시 재매수 후보')
 
     # ━━ 범례 + 면책 ━━
     lines.append('')
@@ -6133,7 +6148,7 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
     lines.append('📌 <b>매매 규칙</b> (최대 2종목 · 각 50%)')
     lines.append('<b>매수</b>: 이익전망↑ + 매력도 상위 2 ($1B+)')
     lines.append('<b>보유</b>: 순위 12위 안, 또는 저평가(PER&lt;30)')
-    lines.append('<b>매도</b>: 순위 12위 밖 + 비싸짐(PER 30↑)')
+    lines.append('<b>매도</b>: 순위 12위 밖 + PER 30↑')
     lines.append('         또는 이익전망 꺾임')
 
     return '\n'.join(lines)
@@ -6430,10 +6445,10 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
             growth_parts.append(f'매출성장 {int(round(rev_g * 100)):+d}%')
         if score_display_map and ticker in score_display_map:
             growth_parts.append(f'{score_display_map[ticker]}점')
-        _fg = _fwdper_gap_display(ticker)  # 표시 전용 fwd_PER·gap(기대성장)
-        if _fg:
-            growth_parts.append(_fg)
         lines.append(' · '.join(growth_parts))
+        _fg = _fwdper_gap_display(ticker)  # fwd_PER·gap — 별도 줄(모바일 폭)
+        if _fg:
+            lines.append(_fg)
 
         # L3: 의견 + 순위
         w_info = weighted_ranks.get(ticker)
@@ -6487,7 +6502,7 @@ def create_watchlist_message(results_df, status_map, exit_reasons, today_tickers
     lines.append('📌 <b>매매 규칙</b> (최대 2종목 · 각 50%)')
     lines.append('<b>매수</b>: 이익전망↑ + 매력도 상위 2 ($1B+)')
     lines.append('<b>보유</b>: 순위 12위 안, 또는 저평가(PER&lt;30)')
-    lines.append('<b>매도</b>: 순위 12위 밖 + 비싸짐(PER 30↑)')
+    lines.append('<b>매도</b>: 순위 12위 밖 + PER 30↑')
     lines.append('         또는 이익전망 꺾임')
     lines.append('※ 누적수익률은 시뮬 기준 (세금·수수료 미반영)')
 

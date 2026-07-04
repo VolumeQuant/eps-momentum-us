@@ -7,31 +7,31 @@
 
 | 순위 | ETF | 가중 adj_gap | 매칭률 | 핵심 종목 |
 |------|-----|--------------|--------|-----------|
-| 1 | **XME** | -12.95 | 39% | CLF, NUE, STLD |
-| 2 | **GDX** | -12.62 | 11% | NEM |
-| 3 | **VDE** | -11.89 | 38% | CVX, COP, SLB |
-| 4 | **IYE** | -11.77 | 43% | CVX, COP, SLB |
-| 5 | **XLE** | -11.61 | 48% | CVX, COP, SLB |
-| 6 | **XOP** | -11.16 | 23% | DINO, APA, MPC |
-| 7 | **OIH** | -9.71 | 53% | SLB, BKR, HAL |
-| 8 | **NLR** | -8.24 | 26% | CEG, BWXT, PEG |
-| 9 | **BOTZ** | -7.43 | 14% | NVDA, ISRG |
-| 10 | **NVDX** | -5.90 | 79% | NVDA |
+| 1 | **VDE** | -11.78 | 64% | XOM, CVX, COP |
+| 2 | **IYE** | -11.60 | 69% | XOM, CVX, COP |
+| 3 | **XLE** | -11.50 | 75% | XOM, CVX, COP |
+| 4 | **XOP** | -11.22 | 29% | DINO, SM, APA |
+| 5 | **OIH** | -10.38 | 54% | SLB, BKR, HAL |
+| 6 | **XME** | -10.30 | 39% | CLF, NUE, STLD |
+| 7 | **BLOK** | -9.88 | 11% | CIFR, DELL, HOOD |
+| 8 | **GDX** | -8.88 | 11% | NEM |
+| 9 | **NLR** | -6.72 | 26% | CEG, BWXT, PEG |
+| 10 | **NVDX** | -6.48 | 79% | NVDA |
 
 ## 📈 고평가 ETF Top 10 (양수 큰 순)
 
 | 순위 | ETF | 가중 adj_gap | 매칭률 | 핵심 종목 |
 |------|-----|--------------|--------|-----------|
-| 1 | **MSTU** | +115.00 | 72% | MSTR |
-| 2 | **XSD** | +85.83 | 34% | MXL, ALAB, AMD |
-| 3 | **CIBR** | +42.05 | 63% | CRWD, PANW, FTNT |
-| 4 | **BITQ** | +34.55 | 20% | MSTR, COIN, CIFR |
-| 5 | **HACK** | +34.48 | 56% | CRWD, PANW, AVGO |
-| 6 | **SOXL** | +33.68 | 23% | MU, AMD, AVGO |
-| 7 | **JETS** | +32.11 | 49% | DAL, AAL, UAL |
-| 8 | **SOXX** | +31.34 | 62% | MU, AMD, AVGO |
-| 9 | **ARKW** | +26.07 | 39% | AMD, TSLA, HOOD |
-| 10 | **AIQ** | +22.32 | 31% | MU, AMD, INTC |
+| 1 | **MSTU** | +123.55 | 72% | MSTR |
+| 2 | **XSD** | +62.11 | 34% | MXL, ALAB, AMD |
+| 3 | **CIBR** | +40.44 | 63% | CRWD, PANW, FTNT |
+| 4 | **BITQ** | +35.13 | 20% | MSTR, COIN, CIFR |
+| 5 | **HACK** | +33.01 | 56% | CRWD, PANW, AVGO |
+| 6 | **SOXL** | +23.88 | 23% | MU, AMD, AVGO |
+| 7 | **SOXX** | +22.50 | 62% | MU, AMD, AVGO |
+| 8 | **ARKW** | +22.08 | 39% | AMD, TSLA, HOOD |
+| 9 | **JETS** | +20.18 | 49% | DAL, AAL, UAL |
+| 10 | **ARKK** | +18.06 | 37% | TSLA, AMD, HOOD |
 
 ---
 _각 ETF 보유종목의 EPS revision 가중 평균. mean reversion 신호._
