@@ -4013,8 +4013,8 @@ def _vm_ai_briefs(entries, today_str):
             data_lines.append(f'- {tk}: 90일 이익전망 상향 +{r90:.0f}%, 선행PER {fpe:.0f}, '
                               f'기대성장(선행/과거EPS) {gtxt}, {card}')
         prompt = (
-            '미국 주식 퀀트 시스템(가치+이익전망 모멘텀)이 오늘 새로 편입한 종목이다. '
-            '각 종목마다 정확히 3문장으로, 한국어로: '
+            '미국 주식 퀀트 시스템(가치+이익전망 모멘텀)이 현재 보유 중인 종목들이다. '
+            '오늘 처음 합류하는 투자자를 위해 각 종목마다 정확히 3문장으로, 한국어로: '
             '①무슨 회사고 무엇으로 돈 버는지 ②최근 애널리스트 이익전망이 급상향되는 구체적 이유'
             '(최근 실적발표·수주·가격동향 등을 검색해 확인) ③주의할 리스크 하나. '
             '과장 없이 사실만. 모바일 메신저용이니 각 문장은 45자 이내로 짧게, '
@@ -4057,33 +4057,33 @@ def _vm_paper_section(today_str):
              '🧪 <b>신설계 관찰</b> (페이퍼 · 매매신호 아님)',
              '싸고(PER&lt;30)+성장(2.5x+) 종목 중',
              '전망상향 Top5 · 주1회 교체']
+    # 매일 전 종목 브리핑 (2026-07-05 사용자 요청: 오늘 처음 합류하는 고객용)
+    import re as _re
+    briefs = _vm_ai_briefs(st['cur'], today_str)
     for i, (tk, r90, fpe, gap) in enumerate(st['cur'], 1):
         gtxt = f' · 성장 {gap:.1f}x' if gap is not None else ''
         mark = ' 🆕' if (st['is_rebal_day'] and tk in st['added']) else ''
-        lines.append(f' {i}. {tk} 전망상향 +{r90:.0f}% · PER {fpe:.0f}{gtxt}{mark}')
+        lines.append('')
+        lines.append(f'<b>{i}. {tk}</b> 전망상향 +{r90:.0f}%{mark}')
+        lines.append(f'   PER {fpe:.0f}{gtxt}')
+        for card_line in _vm_stock_card(tk, today_str):
+            lines.append(f'   {card_line}')
+        if briefs.get(tk):
+            # 문장 단위 줄바꿈 — 텔레그램 강제 줄바꿈(장문 한 줄) 방지
+            for sent in _re.split(r'(?<=\.)\s+', briefs[tk]):
+                if sent.strip():
+                    lines.append(f'   {sent.strip()}')
     if st['is_rebal_day'] and (st['added'] or st['removed']):
         diff = []
         if st['added']:
             diff.append('🟢 편입 ' + '·'.join(st['added']))
         if st['removed']:
             diff.append('🔴 제외 ' + '·'.join(st['removed']))
+        lines.append('')
         lines.append(' ' + ' / '.join(diff))
-        # 신규 편입 종목 브리핑: 데이터 카드(DB) + AI 내러티브(실패 시 카드만)
-        import re as _re
-        new_entries = [e for e in st['cur'] if e[0] in st['added']]
-        briefs = _vm_ai_briefs(new_entries, today_str)
-        for tk, r90, fpe, gap in new_entries:
-            lines.append('')
-            lines.append(f' 🆕 <b>{tk}</b> — 새 종목 브리핑')
-            for card_line in _vm_stock_card(tk, today_str):
-                lines.append(f'  {card_line}')
-            if briefs.get(tk):
-                # 문장 단위 줄바꿈 — 텔레그램 강제 줄바꿈(장문 한 줄) 방지
-                for sent in _re.split(r'(?<=\.)\s+', briefs[tk]):
-                    if sent.strip():
-                        lines.append(f'  {sent.strip()}')
     tail = f'페이퍼 {st["ret"]:+.1f}% ({VM_PAPER_START[5:]}~)'
     tail += ' · 오늘 리밸' if st['is_rebal_day'] else f' · 다음 리밸 {st["next_in"]}거래일 후'
+    lines.append('')
     lines.append(tail)
     return lines
 
