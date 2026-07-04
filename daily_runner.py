@@ -534,6 +534,7 @@ def run_ntm_collection(config):
     for _dl_attempt in range(2):
         try:
             hist_all = yf.download(all_tickers, period='1y', threads=2, progress=False)
+            _HIST_ALL_DV['df'] = hist_all  # dv 전종목 기록용 재사용 (update_dollar_volumes, 추가 API 0회)
             log("가격 다운로드 완료")
             break
         except Exception as e:
@@ -1886,56 +1887,108 @@ def save_part2_ranks(results_df, today_str):
     conn.close()
     log(f"Part 2 rank 저장: {len(top30_tickers)}개 종목 (w_gap Top 30, eligible {len(composite_ranks)}개)")
     # v117 (2026-06-09): dollar_volume_30d 업데이트 — 시장 주도주 필터용
+    # dv 파이프라인 수리 (2026-07-04): top30만 기록 → 오늘 행 전체(전종목)로 확장.
+    #   순위 밖 초유동성 종목(MU $56.6B/일)이 dv=None → $1B 필터에 '데이터없음'으로
+    #   영영 차단되던 구멍 봉합. 현행 매매 로직은 랭크 종목 dv만 소비 → 행동변화 0.
     try:
-        update_dollar_volumes(today_str, top30_tickers)
+        _c_dv = sqlite3.connect(DB_PATH)
+        _dv_targets = [r[0] for r in _c_dv.execute(
+            'SELECT ticker FROM ntm_screening WHERE date=?', (today_str,))]
+        _c_dv.close()
+    except Exception:
+        _dv_targets = []
+    try:
+        update_dollar_volumes(today_str, _dv_targets or top30_tickers)
     except Exception as _e:
         log(f"dollar_volume 업데이트 실패: {_e}", "WARN")
     return top30_tickers
 
 
-def update_dollar_volumes(today_str, ticker_list):
-    """v117 (2026-06-09): cr Top 30 종목의 직전 30일 거래대금 평균 ($M) DB 업데이트.
+# dv 파이프라인 수리 (2026-07-04): 일일 수집의 전종목 1y 히스토리를 dv 계산에 재사용하는 캐시.
+# 수집 함수가 hist_all 다운로드 성공 시 채움 → update_dollar_volumes가 추가 API 없이 소비.
+_HIST_ALL_DV = {'df': None}
 
-    yfinance bulk fetch (45일 history) → 30일 rolling 평균 → ntm_screening.dollar_volume_30d
-    매일 cron save_part2_ranks 끝에 자동 호출.
+
+def update_dollar_volumes(today_str, ticker_list):
+    """직전 30일 거래대금 평균($M)을 ntm_screening.dollar_volume_30d에 기록.
+
+    v117 (2026-06-09): cr Top 30만 기록 → 순위 밖 종목은 dv=None으로 남아 $1B 필터가
+      초유동성 대형주(MU $56.6B/일)를 '데이터없음'으로 영영 차단하는 구멍이 있었음.
+    2026-07-04 수리: 오늘 행 전체(전종목)로 확장. _HIST_ALL_DV(수집 시 이미 받은 전종목
+      1y 히스토리) 재사용 = 추가 API 0회. 캐시에 없는 종목만 yfinance 폴백 fetch.
+      캐시 Close는 auto_adjust 조정가라 구버전(raw Close) 대비 배당 수준(<1%) 오차 —
+      $1B 임계 필터 용도에 무해. 매일 cron save_part2_ranks 끝에 자동 호출.
     """
     if not ticker_list:
         return
     try:
-        import yfinance as yf
         import pandas as pd
-        from datetime import datetime, timedelta
-        # 직전 45영업일 fetch (30일 평균 + buffer)
-        end_d = (datetime.strptime(today_str, '%Y-%m-%d') + timedelta(days=2)).strftime('%Y-%m-%d')
-        start_d = (datetime.strptime(today_str, '%Y-%m-%d') - timedelta(days=60)).strftime('%Y-%m-%d')
-        data = yf.download(' '.join(ticker_list), start=start_d, end=end_d,
-                          auto_adjust=False, progress=False, threads=True, group_by='ticker')
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         updated = 0
-        for tk in ticker_list:
+        remainder = list(ticker_list)
+        hist = _HIST_ALL_DV.get('df')
+        if hist is not None and not getattr(hist, 'empty', True) and isinstance(hist.columns, pd.MultiIndex):
+            lv0 = hist.columns.get_level_values(0)
+            if 'Close' in lv0 and 'Volume' in lv0:
+                close_all, vol_all = hist['Close'], hist['Volume']
+                cutoff = pd.to_datetime(today_str)
+                remainder = []
+                for tk in ticker_list:
+                    try:
+                        if tk not in close_all.columns or tk not in vol_all.columns:
+                            remainder.append(tk)
+                            continue
+                        dv_M = (close_all[tk] * vol_all[tk]).dropna() / 1e6
+                        dv_M = dv_M[dv_M.index < cutoff]  # 오늘 이전 영업일만 (point-in-time)
+                        if len(dv_M) < 5:
+                            remainder.append(tk)
+                            continue
+                        avg_dv = float(dv_M.tail(30).mean())
+                        if pd.isna(avg_dv):
+                            remainder.append(tk)
+                            continue
+                        cursor.execute(
+                            'UPDATE ntm_screening SET dollar_volume_30d=? WHERE date=? AND ticker=?',
+                            (avg_dv, today_str, tk)
+                        )
+                        updated += 1
+                    except Exception:
+                        remainder.append(tk)
+        if remainder:
             try:
-                if isinstance(data.columns, pd.MultiIndex):
-                    df = data[tk] if tk in data.columns.get_level_values(0) else None
-                else:
-                    df = data
-                if df is None or df.empty:
-                    continue
-                # 오늘 이전 영업일만 (point-in-time)
-                df = df[df.index < pd.to_datetime(today_str)]
-                if len(df) < 5:
-                    continue
-                dv_M = (df['Volume'] * df['Close']) / 1e6
-                avg_dv = float(dv_M.tail(30).mean())
-                if pd.isna(avg_dv):
-                    continue
-                cursor.execute(
-                    'UPDATE ntm_screening SET dollar_volume_30d=? WHERE date=? AND ticker=?',
-                    (avg_dv, today_str, tk)
-                )
-                updated += 1
-            except Exception:
-                pass
+                import yfinance as yf
+                from datetime import datetime, timedelta
+                # 직전 45영업일 fetch (30일 평균 + buffer). threads=2: burst 429 방지 (L529 참고)
+                end_d = (datetime.strptime(today_str, '%Y-%m-%d') + timedelta(days=2)).strftime('%Y-%m-%d')
+                start_d = (datetime.strptime(today_str, '%Y-%m-%d') - timedelta(days=60)).strftime('%Y-%m-%d')
+                data = yf.download(' '.join(remainder), start=start_d, end=end_d,
+                                  auto_adjust=False, progress=False, threads=2, group_by='ticker')
+                for tk in remainder:
+                    try:
+                        if isinstance(data.columns, pd.MultiIndex):
+                            df = data[tk] if tk in data.columns.get_level_values(0) else None
+                        else:
+                            df = data
+                        if df is None or df.empty:
+                            continue
+                        # 오늘 이전 영업일만 (point-in-time)
+                        df = df[df.index < pd.to_datetime(today_str)]
+                        if len(df) < 5:
+                            continue
+                        dv_M = (df['Volume'] * df['Close']) / 1e6
+                        avg_dv = float(dv_M.tail(30).mean())
+                        if pd.isna(avg_dv):
+                            continue
+                        cursor.execute(
+                            'UPDATE ntm_screening SET dollar_volume_30d=? WHERE date=? AND ticker=?',
+                            (avg_dv, today_str, tk)
+                        )
+                        updated += 1
+                    except Exception:
+                        pass
+            except Exception as e:
+                log(f"dv 폴백 fetch 오류: {e}", "WARN")
         conn.commit()
         conn.close()
         log(f"dollar_volume_30d 업데이트: {updated}/{len(ticker_list)} 종목")
