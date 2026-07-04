@@ -3962,7 +3962,9 @@ def _vm_paper_state(today_str):
 
 
 def _vm_stock_card(ticker, today_str):
-    """신규 편입 종목의 건강성 데이터 카드(DB, 결정적) — AI 없이도 나오는 부분."""
+    """신규 편입 종목의 건강성 데이터 카드(DB, 결정적) — AI 없이도 나오는 부분.
+
+    반환: 짧은 줄 리스트(텔레그램 모바일 폭 ~35자, 강제 줄바꿈 방지)."""
     try:
         conn = sqlite3.connect(DB_PATH)
         r = conn.execute(
@@ -3971,24 +3973,24 @@ def _vm_stock_card(ticker, today_str):
             'ORDER BY date DESC LIMIT 1', (ticker, today_str)).fetchone()
         conn.close()
     except Exception:
-        return None
+        return []
     if not r:
-        return None
+        return []
     na, up, dn, rg, roe, fcf, om, mc = r
-    parts = []
+    l1, l2 = [], []
     if na:
-        parts.append(f'분석가 {na}명(30일 ↑{up or 0}/↓{dn or 0})')
+        l1.append(f'분석가 {na}명(↑{up or 0}/↓{dn or 0})')
     if rg is not None:
-        parts.append(f'매출성장 {rg * 100:+.0f}%')
-    if roe is not None:
-        parts.append(f'ROE {roe * 100:.0f}%')
-    if fcf:
-        parts.append(f'FCF ${fcf / 1e9:.1f}B')
-    if om is not None:
-        parts.append(f'영업마진 {om * 100:.0f}%')
+        l1.append(f'매출 {rg * 100:+.0f}%')
     if mc:
-        parts.append(f'시총 ${mc / 1e9:.0f}B')
-    return ' · '.join(parts) if parts else None
+        l1.append(f'시총 ${mc / 1e9:.0f}B')
+    if roe is not None:
+        l2.append(f'ROE {roe * 100:.0f}%')
+    if fcf:
+        l2.append(f'FCF ${fcf / 1e9:.1f}B')
+    if om is not None:
+        l2.append(f'마진 {om * 100:.0f}%')
+    return [' · '.join(x) for x in (l1, l2) if x]
 
 
 def _vm_ai_briefs(entries, today_str):
@@ -4015,7 +4017,8 @@ def _vm_ai_briefs(entries, today_str):
             '각 종목마다 정확히 3문장으로, 한국어로: '
             '①무슨 회사고 무엇으로 돈 버는지 ②최근 애널리스트 이익전망이 급상향되는 구체적 이유'
             '(최근 실적발표·수주·가격동향 등을 검색해 확인) ③주의할 리스크 하나. '
-            '과장 없이 사실만, 종목당 200자 이내. 형식: "TICKER: 문장들" 한 줄씩.\n'
+            '과장 없이 사실만. 모바일 메신저용이니 각 문장은 45자 이내로 짧게, '
+            '종목당 150자 이내. 형식: "TICKER: 문장들" 한 줄씩.\n'
             '시스템이 포착한 데이터:\n' + '\n'.join(data_lines))
         old_to = socket.getdefaulttimeout()
         socket.setdefaulttimeout(90)
@@ -4051,8 +4054,9 @@ def _vm_paper_section(today_str):
     if not st or not st.get('cur'):
         return []
     lines = ['', '━━━━━━━━━━━━━━━',
-             '🧪 <b>신설계 관찰</b> (페이퍼 · 아직 매매신호 아님)',
-             '싸고(PER&lt;30)+성장(2.5x+) 중 전망상향 Top5 · 주1회 교체']
+             '🧪 <b>신설계 관찰</b> (페이퍼 · 매매신호 아님)',
+             '싸고(PER&lt;30)+성장(2.5x+) 종목 중',
+             '전망상향 Top5 · 주1회 교체']
     for i, (tk, r90, fpe, gap) in enumerate(st['cur'], 1):
         gtxt = f' · 성장 {gap:.1f}x' if gap is not None else ''
         mark = ' 🆕' if (st['is_rebal_day'] and tk in st['added']) else ''
@@ -4065,17 +4069,20 @@ def _vm_paper_section(today_str):
             diff.append('🔴 제외 ' + '·'.join(st['removed']))
         lines.append(' ' + ' / '.join(diff))
         # 신규 편입 종목 브리핑: 데이터 카드(DB) + AI 내러티브(실패 시 카드만)
+        import re as _re
         new_entries = [e for e in st['cur'] if e[0] in st['added']]
         briefs = _vm_ai_briefs(new_entries, today_str)
         for tk, r90, fpe, gap in new_entries:
             lines.append('')
             lines.append(f' 🆕 <b>{tk}</b> — 새 종목 브리핑')
-            card = _vm_stock_card(tk, today_str)
-            if card:
-                lines.append(f'  {card}')
+            for card_line in _vm_stock_card(tk, today_str):
+                lines.append(f'  {card_line}')
             if briefs.get(tk):
-                lines.append(f'  {briefs[tk]}')
-    tail = f'페이퍼 누적 {st["ret"]:+.1f}% (시작 {VM_PAPER_START})'
+                # 문장 단위 줄바꿈 — 텔레그램 강제 줄바꿈(장문 한 줄) 방지
+                for sent in _re.split(r'(?<=\.)\s+', briefs[tk]):
+                    if sent.strip():
+                        lines.append(f'  {sent.strip()}')
+    tail = f'페이퍼 {st["ret"]:+.1f}% ({VM_PAPER_START[5:]}~)'
     tail += ' · 오늘 리밸' if st['is_rebal_day'] else f' · 다음 리밸 {st["next_in"]}거래일 후'
     lines.append(tail)
     return lines
