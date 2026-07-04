@@ -3836,6 +3836,161 @@ def _fwdper_gap_display(ticker):
     return f'선행PER {fpe:.0f} · gap {gtxt}'
 
 
+# ── 재설계(가치게이트+모멘텀 top5) 페이퍼 병기 (2026-07-04, 사용자 승인) ─────────
+#   규칙: min_seg>=0 + $1B+ + 업종제외 + fwd_PER<=VM_PE_MAX + gap>=VM_GAP_THR(missing=pass)
+#         → rev90(90일 전망상향폭) 순 Top VM_TOP_N, VM_REBAL_DAYS 거래일마다 리밸, 동일가중.
+#   검증: research/FINDINGS_REBUILD_2026_07_04.md (위상평균 +110%/MDD -15, coherence 4/4,
+#         WF 양반기, 임계값=기존 PE_HOLD·gap게이트 재사용이라 신규 튜닝 0개).
+#   현 단계 = 페이퍼 병기: 메시지에 관찰 섹션만 추가, 매매신호는 현행 유지(행동변화 0).
+#   전환은 판정(2~4주) 후 구규칙 대청소와 함께 — env 하나로 전략을 flip하는 방식은
+#   '장부가 env에 따라 달라지는' 기존 결함의 재생산이라 의도적으로 만들지 않음.
+#   숨기기: VM_PAPER_DISABLE=1.
+VM_TOP_N = 5
+VM_REBAL_DAYS = 5
+VM_PE_MAX = 30.0        # = PE_HOLD (기존 '비싸다' 기준 재사용)
+VM_GAP_THR = 2.5        # = 기배포 gap 진입게이트 임계 재사용
+VM_PAPER_START = '2026-07-02'  # 페이퍼 앵커(리밸 기준일, DB 실존 날짜)
+_TICKER_INFO_CACHE_VM = {'d': None}
+
+
+def _vm_industry_ok(ticker):
+    """업종 블록리스트(원자재+비성장 소비/미디어) 필터 — BT와 동일 소스(ticker_info_cache)."""
+    if ticker in COMMODITY_TICKERS:
+        return False
+    tc = _TICKER_INFO_CACHE_VM['d']
+    if tc is None:
+        try:
+            p = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ticker_info_cache.json')
+            with open(p, encoding='utf-8') as f:
+                tc = json.load(f)
+        except Exception:
+            tc = {}
+        _TICKER_INFO_CACHE_VM['d'] = tc
+    v = tc.get(ticker)
+    ind = v.get('industry') if isinstance(v, dict) else (v[0] if isinstance(v, (list, tuple)) else v)
+    return not (isinstance(ind, str) and ind in (COMMODITY_INDUSTRIES | OFF_STRATEGY_INDUSTRIES))
+
+
+def _vm_pick(date_str, conn=None):
+    """가치게이트+모멘텀 top5 선정 — BT(per_gap_grid_2026_07_04) 산식과 1:1 동일.
+
+    반환: [(ticker, rev90%, fwd_PER, gap|None), ...] rev90 내림차순 top N."""
+    own = conn is None
+    if own:
+        conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        'SELECT ticker, price, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, dollar_volume_30d '
+        'FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0',
+        (date_str,)).fetchall()
+    if own:
+        conn.close()
+    cand = []
+    for tk, px, nc, n7, n30, n60, n90, dv in rows:
+        if not _vm_industry_ok(tk):
+            continue
+        if dv is None or dv < MIN_DOLLAR_VOL_M:
+            continue
+        segs = []
+        for a, b in ((nc, n7), (n7, n30), (n30, n60), (n60, n90)):
+            segs.append((a - b) / abs(b) * 100 if (b and abs(b) > 0.01) else 0)
+        if min(segs) < 0:
+            continue
+        if nc <= 0 or (n90 or 0) <= 0.1:
+            continue
+        fpe = px / nc
+        if fpe > VM_PE_MAX:
+            continue
+        te = _pit_trailing_eps(tk, date_str)
+        gap = (nc / te) if (te and te > 0) else None
+        if gap is not None and gap < VM_GAP_THR:
+            continue
+        rev90 = (nc - n90) / abs(n90) * 100
+        cand.append((tk, rev90, fpe, gap))
+    cand.sort(key=lambda x: -x[1])
+    return cand[:VM_TOP_N]
+
+
+def _vm_paper_state(today_str):
+    """페이퍼 상태 재구성 — 무상태(stateless), DB만으로 어느 머신에서든 동일 답.
+
+    리밸일 = VM_PAPER_START부터 VM_REBAL_DAYS 거래일 간격(랭킹 존재 날짜 기준).
+    수익 규약(BT 동일): 리밸일 종가 픽 → 다음 거래일부터 적용, 일별 동일가중."""
+    conn = sqlite3.connect(DB_PATH)
+    dates = [r[0] for r in conn.execute(
+        'SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date<=? ORDER BY date',
+        (today_str,))]
+    if VM_PAPER_START not in dates:
+        conn.close()
+        return None
+    a = dates.index(VM_PAPER_START)
+    pdates = dates[a:]
+    rebal_idx = set(range(0, len(pdates), VM_REBAL_DAYS))
+    px_map = {}
+    for d, tk, px in conn.execute(
+            'SELECT date, ticker, price FROM ntm_screening WHERE date>=? AND price IS NOT NULL',
+            (VM_PAPER_START,)):
+        px_map.setdefault(d, {})[tk] = px
+    hold = []
+    prev_hold = []
+    last_rebal = pdates[0]
+    nav = 1.0
+    for i, d in enumerate(pdates):
+        if i > 0 and hold:
+            pv = pdates[i - 1]
+            drr = 0.0
+            for t in hold:
+                cu, pp = px_map.get(d, {}).get(t), px_map.get(pv, {}).get(t)
+                if cu and pp and pp > 0:
+                    drr += (1.0 / len(hold)) * (cu - pp) / pp
+            nav *= (1 + drr)
+        if i in rebal_idx:
+            picks = _vm_pick(d, conn)
+            prev_hold = hold
+            hold = [p[0] for p in picks]
+            last_rebal = d
+            cur_detail = picks
+    conn.close()
+    idx_today = len(pdates) - 1
+    next_in = VM_REBAL_DAYS - (idx_today % VM_REBAL_DAYS)
+    return {
+        'cur': cur_detail, 'ret': (nav - 1) * 100,
+        'last_rebal': last_rebal, 'is_rebal_day': idx_today in rebal_idx,
+        'next_in': next_in if idx_today not in rebal_idx else VM_REBAL_DAYS,
+        'added': sorted(set(hold) - set(prev_hold)) if prev_hold else [],
+        'removed': sorted(set(prev_hold) - set(hold)) if prev_hold else [],
+    }
+
+
+def _vm_paper_section(today_str):
+    """Signal 메시지용 신설계 관찰 섹션(라인 리스트). 실패/비활성 시 빈 리스트 — 본문 불침범."""
+    if os.environ.get('VM_PAPER_DISABLE', '0') == '1':
+        return []
+    try:
+        st = _vm_paper_state(today_str)
+    except Exception as e:
+        log(f"신설계 페이퍼 섹션 오류(스킵): {e}", "WARN")
+        return []
+    if not st or not st.get('cur'):
+        return []
+    lines = ['', '━━━━━━━━━━━━━━━',
+             '🧪 <b>신설계 관찰</b> (페이퍼 · 아직 매매신호 아님)',
+             '싸고(PER&lt;30)+성장(2.5x+) 중 전망상향 Top5 · 주1회 교체']
+    for i, (tk, r90, fpe, gap) in enumerate(st['cur'], 1):
+        gtxt = f' · 성장 {gap:.1f}x' if gap is not None else ''
+        lines.append(f' {i}. {tk} 전망상향 +{r90:.0f}% · PER {fpe:.0f}{gtxt}')
+    if st['is_rebal_day'] and (st['added'] or st['removed']):
+        diff = []
+        if st['added']:
+            diff.append('🟢 편입 ' + '·'.join(st['added']))
+        if st['removed']:
+            diff.append('🔴 제외 ' + '·'.join(st['removed']))
+        lines.append(' ' + ' / '.join(diff))
+    tail = f'페이퍼 누적 {st["ret"]:+.1f}% (시작 {VM_PAPER_START})'
+    tail += ' · 오늘 리밸' if st['is_rebal_day'] else f' · 다음 리밸 {st["next_in"]}거래일 후'
+    lines.append(tail)
+    return lines
+
+
 def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
     """forward replay 보유 재구성 (v111 MA12-hold + v115 보험밸브, 무상태, BT==production).
 
@@ -6194,6 +6349,14 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                     prev_rank = exited_tickers.get(t)
                     if prev_rank is not None and prev_rank <= 10:
                         lines.append(f'💡 {t} — 매도, 회복 시 재매수 후보')
+
+    # ━━ 신설계 페이퍼 병기 (2026-07-04, 관찰 전용·매매신호는 현행 유지) ━━
+    try:
+        _ds = today_str or (os.environ.get('MARKET_DATE', '').strip() or None)
+        if _ds:
+            lines.extend(_vm_paper_section(_ds))
+    except Exception as _e:
+        log(f"신설계 페이퍼 섹션 hook 오류(스킵): {_e}", "WARN")
 
     # ━━ 범례 + 면책 ━━
     lines.append('')
