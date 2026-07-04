@@ -77,11 +77,11 @@
 
 각 ETF 보유종목 EPS revision 가중 평균 (음수 = 저평가)
 
-- **XOP**: 가중 adj_gap -11.99 (매칭 29%, Top: DINO, SM, APA)
-- **VDE**: 가중 adj_gap -11.61 (매칭 64%, Top: XOM, CVX, COP)
-- **IYE**: 가중 adj_gap -11.44 (매칭 69%, Top: XOM, CVX, COP)
-- **XLE**: 가중 adj_gap -11.35 (매칭 75%, Top: XOM, CVX, COP)
-- **XME**: 가중 adj_gap -10.81 (매칭 39%, Top: CLF, NUE, STLD)
+- **VDE**: 가중 adj_gap -11.78 (매칭 64%, Top: XOM, CVX, COP)
+- **IYE**: 가중 adj_gap -11.60 (매칭 69%, Top: XOM, CVX, COP)
+- **XLE**: 가중 adj_gap -11.50 (매칭 75%, Top: XOM, CVX, COP)
+- **XOP**: 가중 adj_gap -11.22 (매칭 29%, Top: DINO, SM, APA)
+- **OIH**: 가중 adj_gap -10.38 (매칭 54%, Top: SLB, BKR, HAL)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
