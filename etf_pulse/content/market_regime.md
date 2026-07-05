@@ -1,4 +1,4 @@
-# 🛡️ Market Regime 진단 — 2026-07-04
+# 🛡️ Market Regime 진단 — 2026-07-05
 
 ## 🟡 Mild Risk-On (약한 강세)
   - Risk-On 5일: +1.26%
