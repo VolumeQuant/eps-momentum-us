@@ -4070,7 +4070,7 @@ def _vm_paper_section(today_str):
     if not st or not st.get('cur'):
         return []
     lines = ['', '━━━━━━━━━━━━━━━',
-             '🧪 <b>신설계 관찰</b> (페이퍼 · 매매신호 아님)',
+             '🧪 <b>새 전략 미리보기</b> (아직 매매신호 아님)',
              '싸고(PER&lt;30)+성장(2.5x+) 종목 중',
              f'전망상향 Top{VM_TOP_N} (각 {100 // VM_TOP_N}%) · 주1회 교체']
     # 매일 전 종목 브리핑 (2026-07-05 사용자 요청: 오늘 처음 합류하는 고객용)
@@ -4098,8 +4098,8 @@ def _vm_paper_section(today_str):
             diff.append('🔴 제외 ' + '·'.join(st['removed']))
         lines.append('')
         lines.append(' ' + ' / '.join(diff))
-    tail = f'페이퍼 {st["ret"]:+.1f}% ({VM_PAPER_START[5:]}~)'
-    tail += ' · 오늘 리밸' if st['is_rebal_day'] else f' · 다음 리밸 {st["next_in"]}거래일 후'
+    tail = f'모의 수익 {st["ret"]:+.1f}% ({VM_PAPER_START[5:]}~)'
+    tail += ' · 오늘 교체일' if st['is_rebal_day'] else f' · 다음 교체 {st["next_in"]}거래일 후'
     lines.append('')
     lines.append(tail)
     return lines
@@ -7329,11 +7329,15 @@ def main():
             weighted_ranks=weighted_ranks, score_100_map=score_100_map,
             score_display_map=score_display_map, alpha_signals=alpha_signals
         )
+        # Watchlist(top20) 발송 중단 (2026-07-05, 사용자 결정): 매매를 결정하지 않는 순위 표시가
+        # 오해매매(LITE 사고)의 원인층이라 재설계 전환 확정 전 선제 차단. 순위 수집·DB 기록은
+        # 그대로(save_part2_ranks 무관), 메시지 생성도 유지(signal_local.txt 검증용) — 발송만 스킵.
+        # 복원: 아래 3줄 주석 해제.
         if msg_watchlist:
-            if send_to_channel:
-                send_telegram_long(msg_watchlist, config, chat_id=channel_id)
-            send_telegram_long(msg_watchlist, config, chat_id=private_id)
-            log(f"Watchlist 전송 완료 → {dest}")
+            # if send_to_channel:
+            #     send_telegram_long(msg_watchlist, config, chat_id=channel_id)
+            # send_telegram_long(msg_watchlist, config, chat_id=private_id)
+            log("Watchlist 발송 스킵 (top20 표시 중단, DB 수집은 유지)")
 
         # 메시지 4: 관련 ETF — 제거됨 (v52)
 
