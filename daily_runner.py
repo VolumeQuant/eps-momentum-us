@@ -4002,28 +4002,30 @@ def _vm_stock_card(ticker, today_str):
         conn = sqlite3.connect(DB_PATH)
         r = conn.execute(
             'SELECT num_analysts, rev_up30, rev_down30, rev_growth, roe, free_cashflow, '
-            'operating_margin, market_cap FROM ntm_screening WHERE ticker=? AND date<=? '
-            'ORDER BY date DESC LIMIT 1', (ticker, today_str)).fetchone()
+            'operating_margin, market_cap, dollar_volume_30d FROM ntm_screening '
+            'WHERE ticker=? AND date<=? ORDER BY date DESC LIMIT 1', (ticker, today_str)).fetchone()
         conn.close()
     except Exception:
         return []
     if not r:
         return []
-    na, up, dn, rg, roe, fcf, om, mc = r
-    l1, l2 = [], []
+    na, up, dn, rg, roe, fcf, om, mc, dv = r
+    l1, l2, l3 = [], [], []
     if na:
         l1.append(f'분석가 {na}명(↑{up or 0}/↓{dn or 0})')
     if rg is not None:
         l1.append(f'매출 {rg * 100:+.0f}%')
     if mc:
-        l1.append(f'시총 ${mc / 1e9:.0f}B')
+        l2.append(f'시총 ${mc / 1e9:.0f}B')
+    if dv:
+        l2.append(f'거래 ${dv / 1e3:.1f}B/일')
     if roe is not None:
-        l2.append(f'ROE {roe * 100:.0f}%')
+        l3.append(f'ROE {roe * 100:.0f}%')
     if fcf:
-        l2.append(f'FCF ${fcf / 1e9:.1f}B')
+        l3.append(f'FCF ${fcf / 1e9:.1f}B')
     if om is not None:
-        l2.append(f'마진 {om * 100:.0f}%')
-    return [' · '.join(x) for x in (l1, l2) if x]
+        l3.append(f'마진 {om * 100:.0f}%')
+    return [' · '.join(x) for x in (l1, l2, l3) if x]
 
 
 def _vm_ai_briefs(entries, today_str):
@@ -4091,8 +4093,9 @@ def _vm_paper_section(today_str, standalone=False):
         return []
     if standalone:
         lines = ['',
-                 '싸고(PER 30↓) · 이익이 작년의 2.5배↑',
-                 '될 것으로 전망되는 회사 중에서',
+                 '하루 $1B+ 거래되는 주도주 가운데',
+                 '싸고(선행PER 30↓) · 이익이 작년의',
+                 '2.5배↑ 될 것으로 전망되는 회사만 골라',
                  f'전망 상향폭 Top{VM_TOP_N} (각 {100 // VM_TOP_N}%) · 주1회 교체']
     else:
         lines = ['', '━━━━━━━━━━━━━━━',
@@ -4108,7 +4111,7 @@ def _vm_paper_section(today_str, standalone=False):
         mark = ' 🆕' if (st['is_rebal_day'] and tk in st['added']) else ''
         lines.append('')
         lines.append(f'<b>{i}. {tk}</b> 90일 전망상향 +{r90:.0f}%{mark}')
-        lines.append(f'   PER {fpe:.0f} · {gtxt}')
+        lines.append(f'   선행PER {fpe:.0f} · {gtxt}')
         for card_line in _vm_stock_card(tk, today_str):
             lines.append(f'   {card_line}')
         if briefs.get(tk):
