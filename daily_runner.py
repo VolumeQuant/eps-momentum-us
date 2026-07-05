@@ -4091,8 +4091,9 @@ def _vm_paper_section(today_str, standalone=False):
         return []
     if standalone:
         lines = ['',
-                 '싸고(PER&lt;30) + 이익 급성장(2.5x+) 중',
-                 f'전망상향 Top{VM_TOP_N} (각 {100 // VM_TOP_N}%) · 주1회 교체']
+                 '싸고(PER 30↓) · 이익이 작년의 2.5배↑',
+                 '될 것으로 전망되는 회사 중에서',
+                 f'전망 상향폭 Top{VM_TOP_N} (각 {100 // VM_TOP_N}%) · 주1회 교체']
     else:
         lines = ['', '━━━━━━━━━━━━━━━',
                  '🧪 <b>새 전략 미리보기</b> (아직 매매신호 아님)',
@@ -4102,12 +4103,12 @@ def _vm_paper_section(today_str, standalone=False):
     import re as _re
     briefs = _vm_ai_briefs(st['cur'], today_str)
     for i, (tk, r90, fpe, gap) in enumerate(st['cur'], 1):
-        # gap = 기대성장 배수(선행EPS/과거실적EPS). 공백(-)=집계 전, 게이트는 통과 처리
-        gtxt = f'{gap:.1f}x' if gap is not None else '- (집계전)'
+        # gap = 기대성장 배수(선행EPS/과거실적EPS)를 고객 언어로: '이익 6.5배 예상'
+        gtxt = f'이익 {gap:.1f}배 예상' if gap is not None else '이익배수 집계전'
         mark = ' 🆕' if (st['is_rebal_day'] and tk in st['added']) else ''
         lines.append('')
         lines.append(f'<b>{i}. {tk}</b> 전망상향 +{r90:.0f}%{mark}')
-        lines.append(f'   PER {fpe:.0f} · 성장gap {gtxt}')
+        lines.append(f'   PER {fpe:.0f} · {gtxt}')
         for card_line in _vm_stock_card(tk, today_str):
             lines.append(f'   {card_line}')
         if briefs.get(tk):
