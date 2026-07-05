@@ -4107,7 +4107,7 @@ def _vm_paper_section(today_str, standalone=False):
         gtxt = f'이익 {gap:.1f}배 예상' if gap is not None else '이익배수 집계전'
         mark = ' 🆕' if (st['is_rebal_day'] and tk in st['added']) else ''
         lines.append('')
-        lines.append(f'<b>{i}. {tk}</b> 전망상향 +{r90:.0f}%{mark}')
+        lines.append(f'<b>{i}. {tk}</b> 90일 전망상향 +{r90:.0f}%{mark}')
         lines.append(f'   PER {fpe:.0f} · {gtxt}')
         for card_line in _vm_stock_card(tk, today_str):
             lines.append(f'   {card_line}')
