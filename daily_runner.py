@@ -2470,6 +2470,19 @@ def get_daily_changes(today_tickers, today_str=None):
 _HY_CACHE_PATH = Path(__file__).parent / 'data_cache' / 'hy_spread.parquet'
 
 
+def _read_parquet_robust(path):
+    """parquet 읽기 — engine auto(pyarrow) 실패 시 fastparquet 폴백.
+
+    GH Actions=pyarrow만, 로컬 dev=구버전 pyarrow가 이 파일을 못 읽고 fastparquet만 가능.
+    한쪽 엔진 하드코딩이 6/25~7/4 프로덕션 HY-OAS leg를 무력화했던 원인(7/5 수리) —
+    양쪽 환경에서 동일하게 동작해야 BT==production 정합이 유지된다."""
+    import pandas as pd
+    try:
+        return pd.read_parquet(path)
+    except Exception:
+        return pd.read_parquet(path, engine='fastparquet')
+
+
 def _load_merge_save_hy_cache(fred_df):
     """로컬 장기 캐시 + FRED 최근분 병합 후 캐시 갱신
 
@@ -2479,7 +2492,7 @@ def _load_merge_save_hy_cache(fred_df):
     """
     import pandas as pd
     try:
-        cache_df = pd.read_parquet(_HY_CACHE_PATH) if _HY_CACHE_PATH.exists() else None
+        cache_df = _read_parquet_robust(_HY_CACHE_PATH) if _HY_CACHE_PATH.exists() else None
     except Exception as e:
         log(f"HY Spread: 캐시 로드 실패: {e} — 신규 생성", level="WARN")
         cache_df = None
@@ -2955,7 +2968,7 @@ def _compute_hy_oas_defense():
         cache = Path(__file__).parent / 'data_cache' / 'hy_spread.parquet'
         if cache.exists():
             try:
-                df = pd.read_parquet(cache, engine='fastparquet')
+                df = _read_parquet_robust(cache)
                 oas = df['hy_spread'].dropna()
             except Exception:
                 oas = None
@@ -5748,7 +5761,7 @@ def _regime_defense_series(all_dates):
         if not REGIME_HYOAS_DISABLE:
             try:
                 _cache = Path(__file__).parent / 'data_cache' / 'hy_spread.parquet'
-                _oas = pd.read_parquet(_cache, engine='fastparquet')['hy_spread']
+                _oas = _read_parquet_robust(_cache)['hy_spread']
                 _oas = _oas.reindex(spx.index, method='ffill')
                 _tr = _oas.rolling(126).min()
                 _hraw = (((_oas - _tr) >= REGIME_HYOAS_MARGIN) & (_oas > _oas.shift(20))).fillna(False)
