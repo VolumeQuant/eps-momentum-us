@@ -3965,6 +3965,23 @@ def _vm_paper_state(today_str):
             hold = [p[0] for p in picks]
             last_rebal = d
             cur_detail = picks
+    # 표시 지표는 '오늘' 기준으로 갱신 (2026-07-05): 보유종목은 교체일 고정, 숫자만 매일 최신.
+    # 중간 순위경쟁(오늘 5위가 누구냐)은 의도적으로 미표시 — 교체일 전 선행매매 유혹 차단.
+    fresh = []
+    for tk in hold:
+        r = conn.execute(
+            'SELECT price, ntm_current, ntm_90d FROM ntm_screening '
+            'WHERE ticker=? AND date<=? AND price IS NOT NULL AND ntm_current>0 '
+            'ORDER BY date DESC LIMIT 1', (tk, today_str)).fetchone()
+        if not r or not r[1]:
+            fresh.append(next((e for e in cur_detail if e[0] == tk), (tk, 0.0, 0.0, None)))
+            continue
+        px, nc, n90 = r
+        rv = (nc - n90) / abs(n90) * 100 if (n90 and abs(n90) > 0.01) else 0.0
+        te = _pit_trailing_eps(tk, today_str)
+        fresh.append((tk, rv, (px / nc) if nc else 0.0, (nc / te) if (te and te > 0) else None))
+    if fresh:
+        cur_detail = sorted(fresh, key=lambda e: -e[1])
     conn.close()
     idx_today = len(pdates) - 1
     next_in = VM_REBAL_DAYS - (idx_today % VM_REBAL_DAYS)
@@ -6588,9 +6605,9 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
 
     lines = []
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('  🤖 <b>AI 리스크 필터</b>')
+    lines.append('  🤖 <b>AI 시장 분석</b>')
     lines.append('━━━━━━━━━━━━━━━━━━━')
-    lines.append('상위 종목의 리스크 요소를 AI가 분석했습니다.')
+    lines.append('오늘의 시장 환경과 흐름을 정리했습니다.')
 
     # ── 📊 시장 지수 ──
     lines.append('')
@@ -6652,13 +6669,22 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
         lines.append('📰 <b>시장 동향</b>')
         lines.append(market_summary)
 
-    # ── ⚠️ 매수 주의 (14일 이내 어닝만) ──
+    # ── ⚠️ 실적발표 주의 (14일 이내) — 새 전략 보유 top4 기준 (2026-07-05) ──
     warnings = []
-    if selected and earnings_map:
+    _warn_tickers = []
+    try:
+        _ds = biz_day.strftime('%Y-%m-%d') if hasattr(biz_day, 'strftime') else str(biz_day)
+        _st = _vm_paper_state(_ds)
+        if _st and _st.get('cur'):
+            _warn_tickers = [e[0] for e in _st['cur']]
+    except Exception:
+        pass
+    if not _warn_tickers and selected:
+        _warn_tickers = [s['ticker'] for s in selected]
+    if _warn_tickers and earnings_map:
         # biz_day를 date로 통일
         biz_date = biz_day.date() if hasattr(biz_day, 'date') and callable(biz_day.date) else biz_day
-        for s in selected:
-            ticker = s['ticker']
+        for ticker in _warn_tickers:
             if ticker in earnings_map:
                 ed_info = earnings_map[ticker]
                 ed = ed_info['date']
@@ -6671,11 +6697,11 @@ def create_ai_risk_message(config, selected, biz_day, risk_status, market_lines,
                 if days_until < 0 or days_until > 14:
                     continue
                 ah_tag = '(장후)' if ed_info['after_hours'] else ''
-                warnings.append(f'{ticker} {ed_date.month}/{ed_date.day}{ah_tag} 실적발표 주의')
+                warnings.append(f'{ticker} {ed_date.month}/{ed_date.day}{ah_tag} 실적발표 예정')
 
     if warnings:
         lines.append('')
-        lines.append('⚠️ <b>매수 주의</b>')
+        lines.append('⚠️ <b>보유종목 일정</b> (변동성 대비)')
         for w in warnings:
             lines.append(w)
 
