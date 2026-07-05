@@ -3970,6 +3970,8 @@ def _vm_paper_state(today_str):
     prev_hold = []
     last_rebal = pdates[0]
     nav = 1.0
+    entries = {}      # tk -> (편입일, 편입가) — 실장부 표시용
+    sold_today = []   # 오늘이 교체일일 때 매도분 (tk, 실현수익%)
     for i, d in enumerate(pdates):
         if i > 0 and hold:
             pv = pdates[i - 1]
@@ -3985,6 +3987,15 @@ def _vm_paper_state(today_str):
             hold = [p[0] for p in picks]
             last_rebal = d
             cur_detail = picks
+            sold_today = []
+            for t in prev_hold:
+                if t not in hold and t in entries:
+                    ed, ep = entries.pop(t)
+                    xp = px_map.get(d, {}).get(t)
+                    sold_today.append((t, (xp / ep - 1) * 100 if (xp and ep) else None))
+            for t in hold:
+                if t not in entries:
+                    entries[t] = (d, px_map.get(d, {}).get(t))
     # 표시 지표는 '오늘' 기준으로 갱신 (2026-07-05): 보유종목은 교체일 고정, 숫자만 매일 최신.
     # 중간 순위경쟁(오늘 5위가 누구냐)은 의도적으로 미표시 — 교체일 전 선행매매 유혹 차단.
     fresh = []
@@ -3994,19 +4005,22 @@ def _vm_paper_state(today_str):
             'WHERE ticker=? AND date<=? AND price IS NOT NULL AND ntm_current>0 '
             'ORDER BY date DESC LIMIT 1', (tk, today_str)).fetchone()
         if not r or not r[1]:
-            fresh.append(next((e for e in cur_detail if e[0] == tk), (tk, 0.0, 0.0, None)))
+            base = next((e for e in cur_detail if e[0] == tk), (tk, 0.0, 0.0, None))
+            fresh.append(tuple(base[:4]) + (entries.get(tk, (None, None))[0:1] + (None,),))
             continue
         px, nc, n90 = r
         rv = (nc - n90) / abs(n90) * 100 if (n90 and abs(n90) > 0.01) else 0.0
         te = _pit_trailing_eps(tk, today_str)
-        fresh.append((tk, rv, (px / nc) if nc else 0.0, (nc / te) if (te and te > 0) else None))
+        ed, ep = entries.get(tk, (None, None))
+        pos = (ed, (px / ep - 1) * 100) if (ed and ep and px) else (ed, None)
+        fresh.append((tk, rv, (px / nc) if nc else 0.0, (nc / te) if (te and te > 0) else None, pos))
     if fresh:
         cur_detail = sorted(fresh, key=lambda e: -e[1])
     conn.close()
     idx_today = len(pdates) - 1
     next_in = VM_REBAL_DAYS - (idx_today % VM_REBAL_DAYS)
     return {
-        'cur': cur_detail, 'ret': (nav - 1) * 100,
+        'cur': cur_detail, 'ret': (nav - 1) * 100, 'sold': sold_today,
         'last_rebal': last_rebal, 'is_rebal_day': idx_today in rebal_idx,
         'next_in': next_in if idx_today not in rebal_idx else VM_REBAL_DAYS,
         'added': sorted(set(hold) - set(prev_hold)) if prev_hold else [],
@@ -4062,7 +4076,8 @@ def _vm_ai_briefs(entries, today_str):
         client = genai.Client(api_key=api_key, http_options={'timeout': 120_000})
         tool = types.Tool(google_search=types.GoogleSearch())
         data_lines = []
-        for tk, r90, fpe, gap in entries:
+        for e in entries:
+            tk, r90, fpe, gap = e[0], e[1], e[2], e[3]
             card = _vm_stock_card(tk, today_str) or ''
             gtxt = f'{gap:.1f}x' if gap is not None else '데이터공백'
             data_lines.append(f'- {tk}: 90일 이익전망 상향 +{r90:.0f}%, 선행PER {fpe:.0f}, '
@@ -4085,7 +4100,7 @@ def _vm_ai_briefs(entries, today_str):
             socket.setdefaulttimeout(old_to)
         text = resp.text or ''
         out = {}
-        for tk, _, _, _ in entries:
+        for tk in [e[0] for e in entries]:
             for ln in text.splitlines():
                 s = ln.strip().lstrip('-*• ')
                 if s.upper().startswith(tk.upper() + ':'):
@@ -4125,13 +4140,18 @@ def _vm_paper_section(today_str, standalone=False):
     # 매일 전 종목 브리핑 (2026-07-05 사용자 요청: 오늘 처음 합류하는 고객용)
     import re as _re
     briefs = _vm_ai_briefs(st['cur'], today_str)
-    for i, (tk, r90, fpe, gap) in enumerate(st['cur'], 1):
+    for i, e in enumerate(st['cur'], 1):
+        tk, r90, fpe, gap = e[0], e[1], e[2], e[3]
+        pos = e[4] if len(e) > 4 else (None, None)
         # gap = 기대성장 배수(선행EPS/과거실적EPS)를 고객 언어로: '이익 6.5배 예상'
         gtxt = f'이익 {gap:.1f}배 예상' if gap is not None else '이익배수 집계전'
         mark = ' 🆕' if (st['is_rebal_day'] and tk in st['added']) else ''
         lines.append('')
         lines.append(f'<b>{i}. {tk}</b> 90일 전망상향 +{r90:.0f}%{mark}')
         lines.append(f'   선행PER {fpe:.0f} · {gtxt}')
+        if pos[0]:
+            ptxt = f' · 수익 {pos[1]:+.1f}%' if pos[1] is not None else ''
+            lines.append(f'   {pos[0][5:].replace("-", "/")} 편입{ptxt}')
         for card_line in _vm_stock_card(tk, today_str):
             lines.append(f'   {card_line}')
         if briefs.get(tk):
@@ -4148,7 +4168,9 @@ def _vm_paper_section(today_str, standalone=False):
         if st['added']:
             lines.append(' ' + buy_lbl + '·'.join(st['added']))
         if st['removed']:
-            lines.append(' ' + sell_lbl + '·'.join(st['removed']))
+            _sold = {t: r for t, r in st.get('sold', [])}
+            _parts = [f'{t}({_sold[t]:+.1f}%)' if _sold.get(t) is not None else t for t in st['removed']]
+            lines.append(' ' + sell_lbl + '·'.join(_parts))
     lines.append('')
     label = '전략 누적' if standalone else '모의 수익'
     lines.append(f'{label} {st["ret"]:+.1f}% ({VM_PAPER_START[5:]}~)')
