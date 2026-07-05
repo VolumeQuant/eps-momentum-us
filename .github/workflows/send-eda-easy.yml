@@ -1,7 +1,12 @@
-name: Send EDA easy summary (private bot, one-off)
+name: Send easy summary (private bot, reusable)
 
 on:
   workflow_dispatch:
+    inputs:
+      script:
+        description: 'Send script path'
+        required: false
+        default: 'research/send_eda_easy_2026_07_05.py'
 
 permissions:
   contents: read
@@ -21,4 +26,4 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
       - name: Send
-        run: python research/send_eda_easy_2026_07_05.py
+        run: python "${{ github.event.inputs.script || 'research/send_eda_easy_2026_07_05.py' }}"
