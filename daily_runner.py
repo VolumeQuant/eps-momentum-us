@@ -4074,11 +4074,12 @@ def _vm_paper_section(today_str):
     import re as _re
     briefs = _vm_ai_briefs(st['cur'], today_str)
     for i, (tk, r90, fpe, gap) in enumerate(st['cur'], 1):
-        gtxt = f' · 성장 {gap:.1f}x' if gap is not None else ''
+        # gap = 기대성장 배수(선행EPS/과거실적EPS). 공백(-)=집계 전, 게이트는 통과 처리
+        gtxt = f'{gap:.1f}x' if gap is not None else '- (집계전)'
         mark = ' 🆕' if (st['is_rebal_day'] and tk in st['added']) else ''
         lines.append('')
         lines.append(f'<b>{i}. {tk}</b> 전망상향 +{r90:.0f}%{mark}')
-        lines.append(f'   PER {fpe:.0f}{gtxt}')
+        lines.append(f'   PER {fpe:.0f} · 성장gap {gtxt}')
         for card_line in _vm_stock_card(tk, today_str):
             lines.append(f'   {card_line}')
         if briefs.get(tk):
