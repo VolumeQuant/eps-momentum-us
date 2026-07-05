@@ -4058,8 +4058,11 @@ def _vm_ai_briefs(entries, today_str):
         return {}
 
 
-def _vm_paper_section(today_str):
-    """Signal 메시지용 신설계 관찰 섹션(라인 리스트). 실패/비활성 시 빈 리스트 — 본문 불침범."""
+def _vm_paper_section(today_str, standalone=False):
+    """신설계 top4 섹션(라인 리스트). 실패/비활성 시 빈 리스트 — 본문 불침범.
+
+    standalone=True: 재설계 전용 Signal의 본문으로 사용 (2026-07-05 사용자 결정:
+    메시지 레이어 선전환). 편입/제외 → 매수/매도 라벨, 미리보기 헤더 제거."""
     if os.environ.get('VM_PAPER_DISABLE', '0') == '1':
         return []
     try:
@@ -4069,10 +4072,15 @@ def _vm_paper_section(today_str):
         return []
     if not st or not st.get('cur'):
         return []
-    lines = ['', '━━━━━━━━━━━━━━━',
-             '🧪 <b>새 전략 미리보기</b> (아직 매매신호 아님)',
-             '싸고(PER&lt;30)+성장(2.5x+) 종목 중',
-             f'전망상향 Top{VM_TOP_N} (각 {100 // VM_TOP_N}%) · 주1회 교체']
+    if standalone:
+        lines = ['',
+                 '싸고(PER&lt;30) + 이익 급성장(2.5x+) 중',
+                 f'전망상향 Top{VM_TOP_N} (각 {100 // VM_TOP_N}%) · 주1회 교체']
+    else:
+        lines = ['', '━━━━━━━━━━━━━━━',
+                 '🧪 <b>새 전략 미리보기</b> (아직 매매신호 아님)',
+                 '싸고(PER&lt;30)+성장(2.5x+) 종목 중',
+                 f'전망상향 Top{VM_TOP_N} (각 {100 // VM_TOP_N}%) · 주1회 교체']
     # 매일 전 종목 브리핑 (2026-07-05 사용자 요청: 오늘 처음 합류하는 고객용)
     import re as _re
     briefs = _vm_ai_briefs(st['cur'], today_str)
@@ -4090,19 +4098,50 @@ def _vm_paper_section(today_str):
             for sent in _re.split(r'(?<=\.)\s+', briefs[tk]):
                 if sent.strip():
                     lines.append(f'   {sent.strip()}')
+    buy_lbl, sell_lbl = ('🟢 매수: ', '🔴 매도: ') if standalone else ('🟢 편입 ', '🔴 제외 ')
     if st['is_rebal_day'] and (st['added'] or st['removed']):
-        diff = []
-        if st['added']:
-            diff.append('🟢 편입 ' + '·'.join(st['added']))
-        if st['removed']:
-            diff.append('🔴 제외 ' + '·'.join(st['removed']))
         lines.append('')
-        lines.append(' ' + ' / '.join(diff))
-    tail = f'모의 수익 {st["ret"]:+.1f}% ({VM_PAPER_START[5:]}~)'
-    tail += ' · 오늘 교체일' if st['is_rebal_day'] else f' · 다음 교체 {st["next_in"]}거래일 후'
+        if standalone:
+            lines.append('<b>■ 오늘 교체</b>')
+        if st['added']:
+            lines.append(' ' + buy_lbl + '·'.join(st['added']))
+        if st['removed']:
+            lines.append(' ' + sell_lbl + '·'.join(st['removed']))
     lines.append('')
-    lines.append(tail)
+    label = '전략 누적' if standalone else '모의 수익'
+    lines.append(f'{label} {st["ret"]:+.1f}% ({VM_PAPER_START[5:]}~)')
+    if st['is_rebal_day']:
+        if not (st['added'] or st['removed']):
+            lines.append('오늘 교체일 · 변경 없음')
+    else:
+        lines.append(f'오늘 매매 없음 · 다음 교체 {st["next_in"]}거래일 후')
     return lines
+
+
+def create_vm_signal_message(today_str, risk_status=None):
+    """재설계 전용 Signal (2026-07-05 사용자 결정: 메시지 레이어 선전환).
+
+    구성 = 국면 한 줄 + 새 전략 top4 본문(매일 종목 브리핑 포함).
+    시장동향·지수·신용 지표는 AI Risk 메시지가 계속 담당. 구 Signal(매수후보/이탈/규칙)은
+    생성만 유지(signal_local.txt 검증용)하고 발송 안 함 — 매매 로직·BT는 판정일 대청소까지 불변."""
+    d = today_str[5:].replace('-', '/')
+    lines = [f'📊 <b>오늘의 포트폴리오</b> ({d})']
+    rg = (risk_status or {}).get('regime') or {}
+    mode = rg.get('regime', 'boost')
+    if mode == 'defense':
+        lines.append('🛡️ 방어 국면 — 주식 0% (매수 중단)')
+        lines.append('안전자산(단기채·현금) 대기 권장')
+    elif mode == 'half_defense':
+        lines.append('⚠️ 절반 방어 — 주식 비중 50%로 축소')
+    else:
+        lines.append('국면: 강세 (주식 100%)')
+    body = _vm_paper_section(today_str, standalone=True)
+    if not body:
+        lines.append('')
+        lines.append('(포트폴리오 데이터 준비 중)')
+        return '\n'.join(lines)
+    lines.extend(body)
+    return '\n'.join(lines)
 
 
 def _replay_holdings(before_date=None, return_detail=False, apply_epoch=False):
@@ -6464,13 +6503,8 @@ def create_signal_message(selected, earnings_map, exit_reasons, biz_day, ai_cont
                     if prev_rank is not None and prev_rank <= 10:
                         lines.append(f'💡 {t} — 매도, 회복 시 재매수 후보')
 
-    # ━━ 신설계 페이퍼 병기 (2026-07-04, 관찰 전용·매매신호는 현행 유지) ━━
-    try:
-        _ds = today_str or (os.environ.get('MARKET_DATE', '').strip() or None)
-        if _ds:
-            lines.extend(_vm_paper_section(_ds))
-    except Exception as _e:
-        log(f"신설계 페이퍼 섹션 hook 오류(스킵): {_e}", "WARN")
+    # (2026-07-05: 신설계 섹션 hook 제거 — Signal 자체가 create_vm_signal_message로 교체됨.
+    #  이 함수는 signal_local.txt 검증용 legacy 생성 전용)
 
     # ━━ 범례 + 면책 ━━
     lines.append('')
@@ -7294,8 +7328,10 @@ def main():
                                      market_lines=market_lines,
                                      alpha_signals=alpha_signals)
 
-        # 메시지 1: Signal — v57b 진입 조건 충족 종목
-        msg_signal = create_signal_message(
+        # 메시지 1: Signal — 재설계 전용으로 교체 (2026-07-05 사용자 결정).
+        # 구 Signal(매수후보/이탈/규칙)은 생성만 유지(signal_local 검증용), 발송 안 함.
+        # 매매 로직·replay·BT는 불변 — 표시 레이어만 전환. 복원: msg_signal에 legacy 대입.
+        msg_signal_legacy = create_signal_message(
             display_top5, earnings_map, exit_reasons, biz_day, ai_content,
             portfolio_mode, final_action,
             weighted_ranks=weighted_ranks, filter_count=filter_count,
@@ -7306,6 +7342,7 @@ def main():
             alpha_signals=alpha_signals, hist_all=hist_all,
             new_buy_top2=new_buy_top2, today_str=today_str,
         )
+        msg_signal = create_vm_signal_message(today_str, risk_status=risk_status)
         if msg_signal:
             if send_to_channel:
                 send_telegram_long(msg_signal, config, chat_id=channel_id)
@@ -7354,7 +7391,7 @@ def main():
                     m = _re.sub(r'<[^>]+>', '', m or '')
                     return m.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
                 with open('signal_local.txt', 'w', encoding='utf-8') as _f:
-                    _f.write('\n\n'.join(_plain(m) for m in [msg_signal, msg_ai_risk, msg_watchlist, msg_log] if m))
+                    _f.write('\n\n'.join(_plain(m) for m in [msg_signal, msg_signal_legacy, msg_ai_risk, msg_watchlist, msg_log] if m))
                 log("📄 로컬 결과 저장: signal_local.txt (집 PC 테스트용, 채널 미발송)")
             except Exception as _e:
                 log(f"signal_local.txt 저장 실패: {_e}", "WARN")
