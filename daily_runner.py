@@ -3858,7 +3858,10 @@ def _fwdper_gap_display(ticker):
 #   전환은 판정(2~4주) 후 구규칙 대청소와 함께 — env 하나로 전략을 flip하는 방식은
 #   '장부가 env에 따라 달라지는' 기존 결함의 재생산이라 의도적으로 만들지 않음.
 #   숨기기: VM_PAPER_DISABLE=1.
-VM_TOP_N = 5
+# N=4 최종 확정 (2026-07-05, 사용자·검증 합의): 수익고원(3~5) 내에서 두 세계(winner 유/무)
+#   MDD가 유일하게 안정(−17/−19)한 지점. N5는 ex-winner서 −25로 뒤집힘, N3는 −21, N2는 carry에 지배.
+#   ★동결: 약세장 1회 경과 전 N 재논의 금지 (research/FINDINGS_REBUILD 2d·2h)
+VM_TOP_N = 4
 VM_REBAL_DAYS = 5
 VM_PE_MAX = 30.0        # = PE_HOLD (기존 '비싸다' 기준 재사용)
 VM_GAP_THR = 2.5        # = 기배포 gap 진입게이트 임계 재사용
@@ -4069,7 +4072,7 @@ def _vm_paper_section(today_str):
     lines = ['', '━━━━━━━━━━━━━━━',
              '🧪 <b>신설계 관찰</b> (페이퍼 · 매매신호 아님)',
              '싸고(PER&lt;30)+성장(2.5x+) 종목 중',
-             '전망상향 Top5 · 주1회 교체']
+             f'전망상향 Top{VM_TOP_N} (각 {100 // VM_TOP_N}%) · 주1회 교체']
     # 매일 전 종목 브리핑 (2026-07-05 사용자 요청: 오늘 처음 합류하는 고객용)
     import re as _re
     briefs = _vm_ai_briefs(st['cur'], today_str)

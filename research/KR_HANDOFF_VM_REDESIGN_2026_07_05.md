@@ -36,7 +36,7 @@
 1. 유니버스 필터: EPS 전망 안 꺾임(min_seg≥0) · 일 거래대금 $1B+ · 원자재/비성장소비 업종 제외 · 커버리지 존재(n90>0.1)
 2. 가치 게이트: fwd_PER = price/ntm_current ≤ 30
 3. 성장 게이트: gap = ntm_current/TTM실적EPS ≥ 2.5 (**missing=pass** — TTM 공백 신생주를 학살하지 않음)
-4. 정렬·선택: rev90 = (ntm_current−ntm_90d)/|ntm_90d| 내림차순 **top5, 각 20% 동일가중**
+4. 정렬·선택: rev90 = (ntm_current−ntm_90d)/|ntm_90d| 내림차순 **top4, 각 25% 동일가중** (07-05 N=4 최종확정 — 두 세계[winner 유/무] MDD 유일 안정 −17/−19, FINDINGS 2h)
 - 진입 = top5 입성, 이탈 = top5 탈락. carryover/에폭/슬롯/별도 매도규칙 없음. 리밸일 사이 무행동.
 - min_seg = min(4구간 전망 변화율): nc/n7, n7/n30, n30/n60, n60/n90.
 
