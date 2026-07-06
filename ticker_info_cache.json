@@ -4576,8 +4576,8 @@
     "industry": "Airports & Air Services"
   },
   "ONC": {
-    "shortName": "ONC",
-    "industry": "기타"
+    "shortName": "BeOne Medicines Ltd.",
+    "industry": "바이오"
   },
   "ONON": {
     "shortName": "ONON",
@@ -6153,6 +6153,38 @@
   },
   "GRAB": {
     "shortName": "GRAB",
+    "industry": "기타"
+  },
+  "ALHC": {
+    "shortName": "ALHC",
+    "industry": "기타"
+  },
+  "CPNG": {
+    "shortName": "CPNG",
+    "industry": "기타"
+  },
+  "DAVE": {
+    "shortName": "Dave Inc.",
+    "industry": "응용SW"
+  },
+  "PTRN": {
+    "shortName": "PTRN",
+    "industry": "기타"
+  },
+  "SOFI": {
+    "shortName": "SOFI",
+    "industry": "기타"
+  },
+  "STUB": {
+    "shortName": "STUB",
+    "industry": "기타"
+  },
+  "TXG": {
+    "shortName": "TXG",
+    "industry": "기타"
+  },
+  "VRNS": {
+    "shortName": "VRNS",
     "industry": "기타"
   }
 }
