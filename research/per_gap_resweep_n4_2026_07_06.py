@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
-"""min_seg 진입게이트 임계 스윕 (2026-07-06, 사용자 질의 "0이 최적 맞나").
+"""PER/gap 임계 재스윕 — N4 확정셀 기준 (2026-07-06, 사용자 질의. FINDINGS 2f는 N5 시절 측정)
 
-하네스 = weight_sweep/divergence_weight와 동일(top4 PER<=30 gap>=2.5 R5), min_seg 컷만 변형.
-결과(위상평균/최악MDD/ex2): 없음 +105/-20/+61 | -5 +113/-20 | -2 +122/-17/+63 | -1 +122/-17/+67
-| -0.5 +115/-17 | 0(현행) +115/-18/+55 | +0.5 +118/-18/ex2+43·MDD-26 | +1 +102/-21 | +2 +111/-27/ex2+7
-| +3 +110/-28 | +5 +49/-32.
+하네스 = minseg_sweep와 동일(top4 R5 rev90 EW), PER(gap2.5 고정)·gap(PER30 고정) 1D 스윕.
+PER: 15 +87/ex2 -5·MDD-30 | 20 +103/+21 | 25 +126/+28·-25 | 30(현행) +115·MDD-18/ex2 +55·-19
+   | 35 +123/+64·-20 | 40 +110·-22/+78 | 없음 +88·MDD-25/+50
+   → 25~35 고원. 30 = 두 세계 균형 최선(헤드라인 무난 + ex2 수익/MDD 동시 양호).
+     25는 헤드라인 피크지만 ex2 +28/-25로 취약(winner 없으면 중간PER 우량주가 필요한데 잘림).
+     게이트 제거 시 MDD -25 = 게이트 가치는 수익 아니라 MDD(기존 결론 N4서 재확인).
+gap: 없음 +106·-23/+44 | 1.5 +97/+68 | 2.0 +110·-20/+69 | 2.5(현행) +115·-18/+55·-19
+   | 3.0 +123/+36·-21 | 3.5 +122/+23·-26
+   → 2.0~3.0 고원. gap↑ = winner 집중(헤드라인↑ ex2 붕괴 36→23), gap↓ = 분산(ex2↑ 헤드라인·MDD↓).
+     2.5 = 두 세계 교차점 중앙(06-28 그리드의 '3.0과 동일 robust + 분산 우위' 결론과 일치).
 
-판정: 0 유지. ①-1~-2 우위 +7p는 위상범위(±15p)내 노이즈 + 표면 들쭉(+0.5서 ex2 붕괴=비단조)
-②완화 이득은 91일 강세장 특성 — ms>=0의 존재가치는 전망 꺾임 초기 회피(이 표본에 그 국면 없음),
-안전규칙 완화는 short-window BT로 결정 금지(교훈 메모리)
-③0=자연경계(하향 0개), -1=신규 튜닝숫자(과적합 취약)
-④조임(+0.5 이상)은 명확히 손해 — 이 방향만 확정 정보.
+판정: PER30·gap2.5 유지 — 둘 다 칼날 아닌 고원 중앙 + 두 세계(winner 유/무) 균형점. N4 기준 재확인 완료.
 """
 import sys, os, json, sqlite3
 import pandas as pd
@@ -55,9 +57,9 @@ def ms(v):
 def rev90(v):
     return (v['nc'] - v['n90']) / abs(v['n90']) * 100 if (v['n90'] and abs(v['n90']) > 0.01) else 0
 
-N, R, PE_MAX = 4, 5, 30
+N, R = 4, 5
 
-def run(msmin, exclude=frozenset(), phase=0):
+def run(pe_max, gap_thr, exclude=frozenset(), phase=0):
     hold = []; nav = 1.0; peak = 1.0; mdd = 0.0
     for i in range(2, len(ad)):
         d, pv = ad[i], ad[i - 1]; px = AP.get(d, {}); ppx = AP.get(pv, {})
@@ -72,23 +74,27 @@ def run(msmin, exclude=frozenset(), phase=0):
                 if tk in exclude or not industry_ok(tk): continue
                 dv = DV.get(d, {}).get(tk)
                 if dv is None or dv < 1000: continue
-                if msmin is not None and ms(v) < msmin: continue
+                if ms(v) < 0: continue
                 if v['nc'] <= 0 or (v['n90'] or 0) <= 0.1: continue
-                if v['px'] / v['nc'] > PE_MAX: continue
-                te = pit_te(tk, d); g = (v['nc'] / te) if (te and te > 0) else None
-                if g is not None and g < 2.5: continue
+                if pe_max is not None and v['px'] / v['nc'] > pe_max: continue
+                if gap_thr is not None:
+                    te = pit_te(tk, d); g = (v['nc'] / te) if (te and te > 0) else None
+                    if g is not None and g < gap_thr: continue
                 cand.append((tk, rev90(v)))
             cand.sort(key=lambda x: -x[1]); hold = [t for t, _ in cand[:N]]
     return (nav - 1) * 100, mdd * 100
 
 if __name__ == '__main__':
-    print('=== min_seg 임계 스윕 (top4 PER<=30 gap>=2.5 R5, 위상평균) ===')
-    for thr in [None, -5, -2, -1, -0.5, 0, 0.5, 1, 2, 3, 5]:
+    def phased(pe, gp, ex=frozenset()):
         rs = []; mm = []
         for ph in range(R):
-            r, m = run(thr, phase=ph); rs.append(r); mm.append(m)
-        ers = []; emm = []
-        for ph in range(R):
-            r, m = run(thr, frozenset(['SNDK', 'MU']), ph); ers.append(r); emm.append(m)
-        lbl = 'none' if thr is None else f'{thr:+.1f}%'
-        print(f'{lbl:>7} {sum(rs)/R:+7.0f}% ({min(rs):+.0f}~{max(rs):+.0f}) MDD{min(mm):+.0f}% | ex2 {sum(ers)/R:+.0f}% MDD{min(emm):+.0f}%')
+            r, m = run(pe, gp, ex, ph); rs.append(r); mm.append(m)
+        return sum(rs) / R, min(rs), max(rs), min(mm)
+    print('=== PER 스윕 (gap2.5 고정, top4 R5, 위상평균) ===')
+    for pe in [15, 20, 25, 30, 35, 40, None]:
+        a, lo, hi, m = phased(pe, 2.5); ea, _, _, em = phased(pe, 2.5, frozenset(['SNDK', 'MU']))
+        print(f'{str(pe):>5} {a:+7.0f}% ({lo:+.0f}~{hi:+.0f}) MDD{m:+.0f}% | ex2 {ea:+.0f}% MDD{em:+.0f}%')
+    print('=== gap 스윕 (PER30 고정) ===')
+    for gp in [None, 1.5, 2.0, 2.5, 3.0, 3.5]:
+        a, lo, hi, m = phased(30, gp); ea, _, _, em = phased(30, gp, frozenset(['SNDK', 'MU']))
+        print(f'{str(gp):>5} {a:+7.0f}% ({lo:+.0f}~{hi:+.0f}) MDD{m:+.0f}% | ex2 {ea:+.0f}% MDD{em:+.0f}%')
