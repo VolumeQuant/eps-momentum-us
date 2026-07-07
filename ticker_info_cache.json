@@ -6186,5 +6186,13 @@
   "VRNS": {
     "shortName": "VRNS",
     "industry": "기타"
+  },
+  "CRNX": {
+    "shortName": "CRNX",
+    "industry": "기타"
+  },
+  "KNSA": {
+    "shortName": "Kiniksa Pharmaceuticals Interna",
+    "industry": "특수제약"
   }
 }
