@@ -85,7 +85,19 @@ def build_trailing_eps_cache(tickers, force=False):
     ok = 0
     for tk in to_fetch:
         try:
-            qi = yf.Ticker(tk).quarterly_income_stmt
+            t = yf.Ticker(tk)
+            try:
+                inf = t.info or {}
+            except Exception:
+                inf = {}
+            # 재무 통화가 USD가 아니면(외국 ADR: TSM=TWD, SKHY=KRW 등) TTM이 현지통화라
+            # USD 추정치와 나눗셈 시 gap이 엉터리 → 캐시 제외(missing=pass)
+            fc = inf.get('financialCurrency')
+            if fc and fc != 'USD':
+                cache.pop(tk, None)
+                meta[tk] = today
+                continue
+            qi = t.quarterly_income_stmt
             if qi is None or qi.empty:
                 meta[tk] = today
                 continue
@@ -104,6 +116,15 @@ def build_trailing_eps_cache(tickers, force=False):
                 ttm = sum(float(qe[j - k][1]) for k in range(4))
                 rdate = (qe[j][0] + pd.Timedelta(days=REPORT_LAG_DAYS)).strftime('%Y-%m-%d')
                 rec.append([rdate, ttm])
+            # 정합 가드: 최신 TTM이 yf trailingEps(분할·통화 조정본)와 3배 이상 어긋나면
+            # 스플릿 미조정 등 오염(KLAC 사례) → 캐시 제외(missing=pass)
+            te_ref = inf.get('trailingEps')
+            if rec and te_ref and abs(te_ref) > 0.01:
+                ratio = rec[-1][1] / te_ref
+                if not (0.33 < ratio < 3.0):
+                    cache.pop(tk, None)
+                    meta[tk] = today
+                    continue
             if rec:
                 cache[tk] = rec
                 ok += 1
