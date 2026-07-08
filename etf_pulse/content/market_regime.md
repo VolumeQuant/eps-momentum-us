@@ -1,52 +1,51 @@
-# 🛡️ Market Regime 진단 — 2026-07-07
+# 🛡️ Market Regime 진단 — 2026-07-08
 
-## 🟢 Risk-On (강세장)
-  - Risk-On 5일: +4.14%
-  - Risk-Off 5일: -1.35%
-  - Cyclical - Defensive: +2.45%
-  - 종합 점수: +6.71
+## 🟡 Mild Risk-On (약한 강세)
+  - Risk-On 5일: +0.05%
+  - Risk-Off 5일: -0.61%
+  - Cyclical - Defensive: +1.27%
+  - 종합 점수: +1.29
 
 ## 🚀 Risk-On 지표
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| SPY (S&P 500) | +3.03% | 0.68% |
-| QQQ (Nasdaq) | +2.36% | 1.75% |
-| SOXX (Semis) | -0.86% | 4.79% |
-| ARKK (ARK Innovation) | +6.88% | 1.51% |
-| KWEB (China Tech) | +6.74% | 1.16% |
-| IBIT (Bitcoin) | +6.65% | 2.14% |
+| SPY (S&P 500) | +0.91% | 0.54% |
+| QQQ (Nasdaq) | -1.98% | 1.61% |
+| SOXX (Semis) | -10.12% | 4.55% |
+| ARKK (ARK Innovation) | +0.79% | 1.94% |
+| KWEB (China Tech) | +4.93% | 1.33% |
+| IBIT (Bitcoin) | +5.76% | 2.20% |
 
 ## 🛡️ Risk-Off 지표
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| TLT (Long Treasury) | -1.83% | 0.49% |
-| SHY (Short Treasury) | +0.03% | 0.07% |
-| GLD (Gold) | +2.29% | 1.13% |
-| JEPI (Covered Call) | +1.74% | 0.39% |
-| VIXY (VIX) | -8.96% | 1.70% |
+| TLT (Long Treasury) | -2.99% | 0.48% |
+| SHY (Short Treasury) | -0.09% | 0.09% |
+| GLD (Gold) | +2.42% | 1.09% |
+| JEPI (Covered Call) | +1.43% | 0.39% |
+| VIXY (VIX) | -3.82% | 1.56% |
 
 ## 🏭 Cyclical (경기민감)
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| XLE (Energy) | -1.32% | 0.57% |
-| XLF (Financials) | +4.73% | 0.85% |
-| XLI (Industrials) | +2.40% | 0.82% |
+| XLE (Energy) | +2.01% | 1.34% |
+| XLF (Financials) | +4.29% | 0.94% |
+| XLI (Industrials) | -0.17% | 1.16% |
 
 ## 🏥 Defensive (방어주)
 
 | ETF | 5일 수익률 | 5일 변동성 |
 |-----|-----------|-----------|
-| XLP (Staples) | -0.68% | 1.24% |
-| XLU (Utilities) | -1.92% | 1.35% |
-| XLV (Healthcare) | +1.06% | 1.41% |
+| XLP (Staples) | +0.62% | 1.30% |
+| XLU (Utilities) | -0.65% | 1.44% |
+| XLV (Healthcare) | +2.34% | 1.51% |
 
 ## 💡 자동 추천
 
-- 강세장 분위기 → **공격적 포트폴리오 적정** (QQQ/SOXX/ARK 등 비중 ↑)
-- 단, 너무 한쪽 쏠리면 변동성 폭증 주의 → 일부 GLD/TLT 헤지 권장
+- 약한 강세 → **균형 포트폴리오 권장** (코어 + 일부 성장)
 
 ---
 _시장 진단 — 자동 데이터 분석. 투자 추천 아님._
