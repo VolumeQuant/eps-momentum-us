@@ -21,6 +21,9 @@ LOG = os.path.join(HERE, 'data_cache', 'unified_vm_log.csv')
 N_TOP, REBAL = 4, 5
 PE_MAX, GAP_MIN, DV_MIN_MUSD = 30.0, 2.5, 1000.0
 KR_HOLDCO = {'402340.KS'}  # SK스퀘어(지주) — KR production 지주제외 준용
+# 병기 변형: 메모리 테마 캡2 (6월 그리드서 유일 유효 손잡이 — 급락창 1회라 채택 아닌 병기 관찰)
+MEMORY_THEME = {'SNDK', 'MU', 'WDC', 'STX', '005930.KS', '000660.KS'}
+THEME_CAP = 2
 
 
 def _seg(a, b):
@@ -162,27 +165,46 @@ def compute():
     return us_date, kr_date, fx, merged
 
 
+def _capped_top(merged):
+    """테마캡2 변형 top4 (메모리 테마 최대 2종목)."""
+    hold = []; mem = 0
+    for d in merged:
+        if d['ticker'] in MEMORY_THEME:
+            if mem >= THEME_CAP:
+                continue
+            mem += 1
+        hold.append(d['ticker'])
+        if len(hold) >= N_TOP:
+            break
+    return hold
+
+
 def cmd_run():
     us_date, kr_date, fx, merged = compute()
     run_date = datetime.now().strftime('%Y-%m-%d')
+    capped = _capped_top(merged)
     print(f'=== 통합 VM top4 (US {us_date} / KR {kr_date}, USDKRW {fx:.0f}) ===')
     for i, d in enumerate(merged[:10], 1):
         mark = ' ★top4' if i <= N_TOP else ''
+        if d['ticker'] in capped and i > N_TOP:
+            mark += ' (캡2픽)'
         gap_s = f"{d['gap']:.1f}" if d['gap'] else 'pass'
         print(f"{i:2}. [{d['market']}] {d['ticker']:10} rev90 {d['rev90']:+7.1f}%  "
               f"fwdPER {d['fwd_per']:5.1f}  gap {gap_s:>5}  dv ${(d['dv_musd'] or 0):,.0f}M{mark}")
+    print('테마캡2 변형 top4:', capped)
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
     new = not os.path.exists(LOG)
     with open(LOG, 'a', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
         if new:
             w.writerow(['run_date', 'us_date', 'kr_date', 'rank', 'market', 'ticker',
-                        'rev90', 'fwd_per', 'gap', 'dv_musd', 'price', 'in_top4'])
+                        'rev90', 'fwd_per', 'gap', 'dv_musd', 'price', 'in_top4', 'in_top4_cap2'])
         for i, d in enumerate(merged[:10], 1):
             w.writerow([run_date, us_date, kr_date, i, d['market'], d['ticker'],
                         round(d['rev90'], 2), round(d['fwd_per'], 2),
                         round(d['gap'], 3) if d['gap'] else '',
-                        round(d['dv_musd'], 1) if d['dv_musd'] else '', d['price'], int(i <= N_TOP)])
+                        round(d['dv_musd'], 1) if d['dv_musd'] else '', d['price'],
+                        int(i <= N_TOP), int(d['ticker'] in capped)])
     print(f'로그 append: {LOG}')
 
 
