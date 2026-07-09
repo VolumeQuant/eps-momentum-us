@@ -3909,6 +3909,7 @@ VM_PE_MAX = 30.0        # = PE_HOLD (기존 '비싸다' 기준 재사용)
 #   검증: research/GAP_BACKSOLVE_2026_07_09.md (정본 위상평균 + LOWO + 3축[gap·PER·dv] 인접 고원).
 #   ⚠️운영 전제: 어닝시즌엔 fetch_full_ttm 주1회 재실행(전종목 TTM 갱신). 킬스위치 VM_GATE_LEGACY=1(구 sparse+2.5).
 VM_GAP_THR = 2.5 if os.getenv('VM_GATE_LEGACY') == '1' else 1.5
+VM_GATE_FULL_FROM = '2026-07-09'  # 이 날짜(데이터일)부터 전수검사 — 과거 리밸(7/2 앵커)은 구 게이트로 리플레이(장부 보존)
 VM_PAPER_START = '2026-07-02'  # 페이퍼 앵커(리밸 기준일, DB 실존 날짜)
 _TICKER_INFO_CACHE_VM = {'d': None}
 
@@ -3964,6 +3965,13 @@ def _vm_pick(date_str, conn=None):
         (date_str,)).fetchall()
     if own:
         conn.close()
+    # ★게이트 에폭: 과거 리밸(<VM_GATE_FULL_FROM)은 구 게이트(sparse 2.5)로 리플레이 —
+    #   페이퍼 장부 소급 재작성 방지(7/2 픽 DELL 보존 = 유저 실계좌와 정합, v116 fresh-start 교훈).
+    #   그 이후 날짜만 전수검사(full 1.5). VM_GATE_LEGACY=1이면 전 구간 구 게이트.
+    legacy = (os.getenv('VM_GATE_LEGACY') == '1'
+              or (date_str is not None and date_str < VM_GATE_FULL_FROM))
+    thr = 2.5 if legacy else VM_GAP_THR
+    te_fn = _pit_trailing_eps if legacy else _vm_trailing_eps
     cand = []
     for tk, px, nc, n7, n30, n60, n90, dv in rows:
         if not _vm_industry_ok(tk):
@@ -3980,9 +3988,9 @@ def _vm_pick(date_str, conn=None):
         fpe = px / nc
         if fpe > VM_PE_MAX:
             continue
-        te = _vm_trailing_eps(tk, date_str)
+        te = te_fn(tk, date_str)
         gap = (nc / te) if (te and te > 0) else None
-        if gap is not None and gap < VM_GAP_THR:
+        if gap is not None and gap < thr:
             continue
         rev90 = (nc - n90) / abs(n90) * 100
         cand.append((tk, rev90, fpe, gap))
