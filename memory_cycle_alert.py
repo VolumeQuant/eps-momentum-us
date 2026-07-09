@@ -58,9 +58,11 @@ def build_message():
         e_on, exp_line = False, f'⚠️ 수출 데이터 조회 실패({ex}) — 주가 경보만 유효'
     fired = p_on or e_on
     head = '🚨 <b>메모리 사이클 경보 발동</b>' if fired else '🧭 메모리 사이클 경보: 꺼짐'
+    KRN = {'005930.KS': '삼성전자', '000660.KS': 'SK하이닉스'}
+    disp = [KRN.get(t, t) for t in names]
     lines = [head, '',
              f'주가 경보: {"🚨 발동" if p_on else "꺼짐"} — {n}/6 이탈 ({asof})',
-             ('  이탈: ' + ', '.join(names)) if names else '  이탈 종목 없음',
+             ('  이탈: ' + ', '.join(disp)) if disp else '  이탈 종목 없음',
              f'수출 경보: {exp_line}']
     if fired:
         lines += ['', '권고: 메모리 보유를 1/4로 축소,',

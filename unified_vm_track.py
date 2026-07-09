@@ -295,7 +295,14 @@ if __name__ == '__main__':
             top = [r for r in rows if r['run_date'] == today and r.get('in_top4') == '1']
             top = sorted(top, key=lambda r: int(r['rank']))[:N_TOP]
             KRN = {'000660.KS': 'SK하이닉스', '005930.KS': '삼성전자', '011070.KS': 'LG이노텍'}
-            lines = ['🌏 <b>US+KR 통합 TOP5</b> (모의 병기)', '']
+            # 교체 카운트다운: 앵커 = 로그 첫 run_date, 5거래일 주기
+            all_days = sorted({r['run_date'] for r in rows})
+            idx = all_days.index(today) if today in all_days else len(all_days) - 1
+            is_rebal = (idx % REBAL == 0)
+            next_in = REBAL - (idx % REBAL)
+            rebal_line = ('🔄 오늘 = 교체일 (아래 구성으로 재조정)' if is_rebal
+                          else f'다음 교체까지 {next_in}거래일')
+            lines = ['🌏 <b>US+KR 통합 TOP5</b> (각 20%)', rebal_line, '']
             for i, r in enumerate(top, 1):
                 nm = KRN.get(r['ticker'], r['ticker'])
                 g = r['gap']
