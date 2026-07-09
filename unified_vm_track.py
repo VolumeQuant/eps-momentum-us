@@ -209,11 +209,57 @@ def kr_candidates(fx):
     return last, out
 
 
+def _universe_rev90(db, dv_min=None):
+    """해당 시장 투자가능 유니버스의 rev90 분포 (백분위·z 환산용).
+
+    dv_min(백만$) 지정 시 유동성 필터 적용 — 우리가 실제 사는 유동주만 분모에.
+    US는 dollar_volume_30d로 $1B 컷(1172→~118, 상위10%), KR은 dv 컬럼 부재라
+    전체 유니버스 사용(수집 단계에서 이미 애널리스트 커버 종목만 = 엘리트 ~69개,
+    유동성 필터가 사실상 no-op임을 EDA로 확인 — CROSS_MARKET_NORM_2026_07_09.md).
+    """
+    c = sqlite3.connect(db)
+    dt = c.execute('SELECT MAX(date) FROM ntm_screening').fetchone()[0]
+    has_dv = any(r[1] == 'dollar_volume_30d' for r in c.execute("PRAGMA table_info(ntm_screening)"))
+    if dv_min is not None and has_dv:
+        q = ('SELECT ntm_current, ntm_90d FROM ntm_screening WHERE date=? AND ntm_current>0 '
+             'AND ntm_90d>0.1 AND dollar_volume_30d IS NOT NULL AND dollar_volume_30d>=?')
+        rows = c.execute(q, (dt, dv_min)).fetchall()
+    else:
+        rows = c.execute('SELECT ntm_current, ntm_90d FROM ntm_screening '
+                         'WHERE date=? AND ntm_current>0 AND ntm_90d>0.1', (dt,)).fetchall()
+    c.close()
+    return [(nc - n90) / abs(n90) * 100 for nc, n90 in rows]
+
+
+def _dist_med_mad(vals):
+    import statistics as _s
+    med = _s.median(vals)
+    mad = _s.median([abs(v - med) for v in vals]) or 1e-9
+    return med, mad
+
+
 def compute():
     fx = _fx_usdkrw()
     us_date, us = us_candidates()
     kr_date, kr = kr_candidates(fx)
     merged = sorted(us + kr, key=lambda d: -d['rev90'])
+    # 백분위 결합 = 본선 (2026-07-09 사용자 승인, CROSS_MARKET_NORM 연구): rev90 절대값이
+    # 아니라 자기 시장 '유동성 유니버스' 내 백분위로 환산해 결합 — KR 리비전 인플레 보정.
+    # (실측: 횡단면 중앙값 US +4.3% vs KR +17.0%, MAD 3.4 vs 13.5. LG이노텍 +50.6%=KR
+    #  82%ile vs HPE +49.2%=US 94%ile → 절대값이 아니라 백분위로 재야 HPE 우위.)
+    # denominator: US=$1B 유동주(패리티), KR=전체(이미 엘리트, 필터 no-op).
+    try:
+        uus = _universe_rev90(os.path.join(HERE, 'eps_momentum_data.db'), dv_min=DV_MIN_MUSD)
+        ukr = _universe_rev90(KR_DB)  # KR은 이미 유동 커버 집합
+        mus, dus = _dist_med_mad(uus)
+        mkr, dkr = _dist_med_mad(ukr)
+        for d in merged:
+            base, med, mad = (uus, mus, dus) if d['market'] == 'US' else (ukr, mkr, dkr)
+            d['pct'] = sum(1 for v in base if v < d['rev90']) / len(base) * 100
+            d['rz'] = (d['rev90'] - med) / mad * 0.6745  # robust-z 병기 관찰
+        merged.sort(key=lambda d: (-d['pct'], -d['rev90']))
+    except Exception as e:
+        print(f'[!!] 백분위 환산 실패 — 절대 rev90 결합으로 폴백: {e}')
     return us_date, kr_date, fx, merged
 
 
@@ -528,39 +574,38 @@ def cmd_run():
         print(f"{i:2}. [{d['market']}] {d['ticker']:10} rev90 {d['rev90']:+7.1f}%  "
               f"fwdPER {d['fwd_per']:5.1f}  gap {gap_s:>5}  dv ${(d['dv_musd'] or 0):,.0f}M{mark}")
     print('테마캡2 변형 top4:', capped)
-    # 백분위 결합 변형 (2026-07-09 병기 관찰 — KR 리비전 인플레 보정: US중앙값 +4.3 vs KR +17.0)
-    try:
-        import numpy as _np
-        def _uni(db):
-            _c = sqlite3.connect(db)
-            _dt2 = _c.execute('SELECT MAX(date) FROM ntm_screening').fetchone()[0]
-            arr = [ (nc - n90) / abs(n90) * 100 for nc, n90 in _c.execute(
-                'SELECT ntm_current, ntm_90d FROM ntm_screening WHERE date=? AND ntm_current>0 AND ntm_90d>0.1', (_dt2,)) ]
-            _c.close()
-            return _np.array(arr)
-        _uus = _uni(os.path.join(HERE, 'eps_momentum_data.db'))
-        _ukr = _uni(KR_DB)
-        for d in merged:
-            base = _uus if d['market'] == 'US' else _ukr
-            d['pct'] = float((base < d['rev90']).mean() * 100)
-        pct_top = [x['ticker'] for x in sorted(merged, key=lambda z: -z.get('pct', 0))[:N_TOP]]
-        print('백분위 결합 변형 top5:', pct_top)
-    except Exception as _pe:
-        pct_top = []
-        print(f'[백분위 변형 스킵: {_pe}]')
+    # 절대 rev90 결합 = 구 본선, 관찰 컬럼으로 강등 (2026-07-09 백분위 승격의 비교군)
+    abs_top = [x['ticker'] for x in sorted(merged, key=lambda z: -z['rev90'])[:N_TOP]]
+    print('절대결합 변형 top5(관찰):', abs_top)
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
+    rz_top = [x['ticker'] for x in sorted(merged, key=lambda z: -z.get('rz', 0))[:N_TOP]]
+    print('robust-z 변형 top5(관찰):', rz_top)
+    COLS = ['run_date', 'us_date', 'kr_date', 'rank', 'market', 'ticker',
+            'rev90', 'fwd_per', 'gap', 'dv_musd', 'price', 'in_top4', 'in_top4_cap2',
+            'pct', 'in_top5_abs', 'rz', 'in_top5_rz']
+    if os.path.exists(LOG):  # 구헤더(13/14컬럼) → 신헤더 마이그레이션, 과거 행은 공란 패딩
+        lines = open(LOG, encoding='utf-8').read().splitlines()
+        hdr = lines[0].split(',')
+        if len(hdr) < len(COLS):
+            with open(LOG, 'w', newline='', encoding='utf-8') as f:
+                w = csv.writer(f)
+                w.writerow(COLS)
+                for ln in lines[1:]:
+                    cells = next(csv.reader([ln]))
+                    w.writerow((cells + [''] * len(COLS))[:len(COLS)])
     new = not os.path.exists(LOG)
     with open(LOG, 'a', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
         if new:
-            w.writerow(['run_date', 'us_date', 'kr_date', 'rank', 'market', 'ticker',
-                        'rev90', 'fwd_per', 'gap', 'dv_musd', 'price', 'in_top4', 'in_top4_cap2', 'in_top5_pct'])
+            w.writerow(COLS)
         for i, d in enumerate(merged[:20], 1):
             w.writerow([run_date, us_date, kr_date, i, d['market'], d['ticker'],
                         round(d['rev90'], 2), round(d['fwd_per'], 2),
                         round(d['gap'], 3) if d['gap'] else '',
                         round(d['dv_musd'], 1) if d['dv_musd'] else '', d['price'],
-                        int(i <= N_TOP), int(d['ticker'] in capped), int(d['ticker'] in pct_top)])
+                        int(i <= N_TOP), int(d['ticker'] in capped),
+                        round(d.get('pct', 0), 2), int(d['ticker'] in abs_top),
+                        round(d.get('rz', 0), 2), int(d['ticker'] in rz_top)])
     print(f'로그 append: {LOG}')
     return merged
 
@@ -623,6 +668,9 @@ def _stock_card(rank, d, brief, cards_map, first=False):
     L.append('<b>왜 순위권? — 숫자 3개만 보세요</b>')
     L.append('')
     L.append(f"① 전문가 전망 상향 +{d['rev90']:.0f}% (3개월)")
+    if d.get('pct') is not None:
+        mk = '미국' if d['market'] == 'US' else '한국'
+        L.append(f"· {mk} 시장에서 상위 {100 - d['pct']:.0f}% (공정 비교 기준)")
     if first:
         L.append('· EPS(주당순이익) = 1주가 버는 돈.')
         L.append(f"· 이익 전망치를 석 달 만에 {1 + d['rev90'] / 100:.1f}배로")
@@ -687,21 +735,6 @@ def _scale_line(d, cards_map):
     if out:
         out.append('→ 대형주라 원할 때 사고팔기 쉽습니다.')
     return out
-
-
-def _why_not_top5(d, med):
-    """6~20위 '왜 5위 안에 못 들었나' — 최약축 규칙 문장."""
-    gaps = []
-    gaps.append(('rev', (med['rev90'] - d['rev90']) / max(med['rev90'], 1)))
-    gaps.append(('per', (d['fwd_per'] - med['fwd_per']) / max(med['fwd_per'], 1)))
-    if d.get('gap') and med.get('gap'):
-        gaps.append(('gap', (med['gap'] - d['gap']) / max(med['gap'], 0.1)))
-    ax = max(gaps, key=lambda x: x[1])[0]
-    if ax == 'rev':
-        return ['이익 전망이 오르고는 있지만', '상향 폭이 1~5위보다 작습니다.']
-    if ax == 'per':
-        return ['이익 성장은 확실하지만', '가격이 1~5위보다 비싸', '매력이 한 단계 낮습니다.']
-    return ['가격은 나쁘지 않지만', '이익 성장 배수가 1~5위보다 낮습니다.']
 
 
 def _compose_and_send(merged):
@@ -797,6 +830,13 @@ def _compose_and_send(merged):
            '최근 3개월간 가장 크게 올린 종목 중,',
            '아직 싸고 이익이 급성장하는 회사만',
            '5개를 담습니다. 각 20%씩, 주 1회 점검.', '',
+           '<b>한국·미국을 공정하게 비교합니다</b>',
+           '한국 애널리스트는 미국보다 전망을',
+           '훨씬 후하게 올립니다(중앙값 +17% vs +4%).',
+           '그래서 상향폭을 그대로 비교하면',
+           '한국 종목이 부풀려 보입니다.',
+           '이를 막으려고 각 종목을 "자기 시장',
+           '안에서 상위 몇 %인지"로 환산해 비교합니다.', '',
            f"📊 전략 누적 성과: {(nav - 1) * 100:+.1f}%",
            f"({all_days[0][5:].replace('-', '/')} 시작)" if all_days else '']
     for i, d in enumerate(top5, 1):
@@ -808,10 +848,6 @@ def _compose_and_send(merged):
     # ── 메시지 2: 6~20위 미니카드 ──
     m2 = None
     if len(m20) > N_TOP:
-        import statistics as _st
-        med = dict(rev90=_st.median([d['rev90'] for d in top5]),
-                   fwd_per=_st.median([d['fwd_per'] for d in top5]),
-                   gap=_st.median([d['gap'] for d in top5 if d.get('gap')] or [0]))
         m2 = [f'📋 <b>다음 후보 6~20위</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━',
               '<b>지금 사는 종목이 아닙니다.</b>',
               'TOP5에서 빠지는 종목이 생기면',
@@ -835,9 +871,6 @@ def _compose_and_send(merged):
             if d.get('gap'):
                 m2.append(f"이익 성장 {d['gap']:.1f}배 (올해 예상÷작년)")
             m2.append(f"가격 선행PER {d['fwd_per']:.0f}배 ({PER_ANCHOR[d['market']]})")
-            m2.append('')
-            m2.append('<b>왜 5위 안에 못 들었나</b>')
-            m2 += _why_not_top5(d, med)
             m2.append('')
     # ── 메시지 3: 시장 브리핑 + 신호등 ──
     m3 = [f'🌐 <b>시장 브리핑</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
