@@ -15,8 +15,8 @@ from datetime import datetime
 
 sys.stdout.reconfigure(encoding='utf-8')
 HERE = os.path.dirname(os.path.abspath(__file__))
-KR_DB = 'C:/dev/kr_eps_momentum/eps_momentum_data_kr.db'
-KR_FS_DIR = 'C:/dev/data_cache'
+KR_DB = os.environ.get('KR_DB_PATH', 'C:/dev/kr_eps_momentum/eps_momentum_data_kr.db')
+KR_FS_DIR = os.environ.get('KR_FS_DIR', 'C:/dev/data_cache')
 LOG = os.path.join(HERE, 'data_cache', 'unified_vm_log.csv')
 # ★2026-07-09 프로덕션 재캘리브레이션 동기화: gap 2.5→1.5(전수검사 기준), top4→top5.
 #   US 프로덕션과 패리티 유지가 이 트랙의 존재 이유(같은 게이트를 양국에). in_top4 컬럼명은 로그 연속성
@@ -558,170 +558,299 @@ def cmd_nav():
     print(f'통합 트랙 NAV: {(nav - 1) * 100:+.2f}% ({days[0]} ~ {days[-1]}, {len(days)}일)')
 
 
+
+# ═══ 메시지 렌더링 (2026-07-09 UX 전문가 스펙: 행동→회사→근거3+앵커→위험→규모 고정 카드) ═══
+PER_ANCHOR = {'US': '미국 평균 22배', 'KR': '한국 평균 11배'}
+_MEDAL = {1: '🥇', 2: '🥈', 3: '🥉'}
+
+
+def _fmt_scale(d, cards_map):
+    """기업 규모 줄 — US: $B / KR: 조원 근사."""
+    out = []
+    cl = cards_map.get(d['ticker']) or []
+    for c in cl:
+        out.append(c)
+    return out
+
+
+def _stock_card(rank, d, brief, cards_map, first=False):
+    """종목 카드 — 무슨 회사 → 왜(숫자 3개) → 위험 → 규모."""
+    nm = _display_name(d['ticker'])
+    tk = d['ticker'].replace('.KS', '').replace('.KQ', '')
+    sect = _industry_tag(d)
+    nation = '한국' if d['market'] == 'KR' else '미국'
+    medal = _MEDAL.get(rank, '')
+    L = ['━━━━━━━━━━━━━━',
+         f"{medal} <b>{rank}위 {nm}</b> ({tk}) · {nation} {sect}".replace('  ', ' '), '']
+    b = brief or {}
+    if b.get('biz') or b.get('why'):
+        L.append('<b>무슨 회사?</b>')
+        for key in ('biz', 'why'):
+            for sent in _split_sents(b.get(key, '')):
+                L.append(sent)
+        L.append('')
+    L.append('<b>왜 순위권? — 숫자 3개만 보세요</b>')
+    L.append('')
+    L.append(f"① 전문가 전망 상향 +{d['rev90']:.0f}% (3개월)")
+    if first:
+        L.append('· EPS(주당순이익) = 1주가 버는 돈.')
+        L.append(f"· 이익 전망치를 석 달 만에 {1 + d['rev90'] / 100:.1f}배로")
+        L.append('  올렸다는 뜻입니다.')
+    an = _analyst_line(d, cards_map)
+    if an:
+        L.append(an)
+    if d.get('gap'):
+        L.append('')
+        L.append(f"② 이익 성장 {d['gap']:.1f}배")
+        L.append('· 올해 예상 이익 = 작년 실적의'
+                 f" {d['gap']:.1f}배입니다.")
+    L.append('')
+    L.append(f"③ 가격은 선행PER {d['fwd_per']:.0f}배")
+    if first:
+        L.append('· PER = 주가가 이익의 몇 배인가.')
+    L.append(f"· 낮을수록 싼 것. {PER_ANCHOR[d['market']]}.")
+    L.append('')
+    if b.get('risk'):
+        L.append('<b>⚠️ 이런 위험이 있어요</b>')
+        for sent in _split_sents(b['risk']):
+            L.append(sent)
+        L.append('그래서 5거래일마다 점검해 교체합니다.')
+        L.append('')
+    scale = _scale_line(d, cards_map)
+    if scale:
+        L.append('<b>기업 규모</b>')
+        L += scale
+        L.append('')
+    return L
+
+
+def _split_sents(text):
+    import re
+    out = []
+    for sent in re.split(r'(?<=[.다])\s+', (text or '').strip()):
+        s = sent.strip()
+        if s:
+            out.append(s)
+    return out
+
+
+def _analyst_line(d, cards_map):
+    cl = cards_map.get(d['ticker']) or []
+    for c in cl:
+        if '분석가' in c:
+            m = c.split('·')[0].strip()
+            return '· 애널리스트 ' + m.replace('분석가 ', '') \
+                .replace('(↑', ' 중 30일간 ').replace('/↓', '명 상향, ') \
+                .replace(')', '명 하향.')
+    return None
+
+
+def _scale_line(d, cards_map):
+    cl = cards_map.get(d['ticker']) or []
+    out = []
+    for c in cl:
+        parts = [x.strip() for x in c.split('·')]
+        keep = [x for x in parts if ('시총' in x or '거래' in x)]
+        if keep:
+            out.append(' / '.join(keep))
+    if out:
+        out.append('→ 대형주라 원할 때 사고팔기 쉽습니다.')
+    return out
+
+
+def _why_not_top5(d, med):
+    """6~20위 '왜 5위 안에 못 들었나' — 최약축 규칙 문장."""
+    gaps = []
+    gaps.append(('rev', (med['rev90'] - d['rev90']) / max(med['rev90'], 1)))
+    gaps.append(('per', (d['fwd_per'] - med['fwd_per']) / max(med['fwd_per'], 1)))
+    if d.get('gap') and med.get('gap'):
+        gaps.append(('gap', (med['gap'] - d['gap']) / max(med['gap'], 0.1)))
+    ax = max(gaps, key=lambda x: x[1])[0]
+    if ax == 'rev':
+        return ['이익 전망이 오르고는 있지만', '상향 폭이 1~5위보다 작습니다.']
+    if ax == 'per':
+        return ['이익 성장은 확실하지만', '가격이 1~5위보다 비싸', '매력이 한 단계 낮습니다.']
+    return ['가격은 나쁘지 않지만', '이익 성장 배수가 1~5위보다 낮습니다.']
+
+
+def _compose_and_send(merged):
+    import csv as _csv
+    from datetime import datetime as _dt
+    rows = list(_csv.DictReader(open(LOG, encoding='utf-8'))) if os.path.exists(LOG) else []
+    today = rows[-1]['run_date'] if rows else _dt.now().strftime('%Y-%m-%d')
+    trows = [r for r in rows if r['run_date'] == today]
+    starts = [i for i, r in enumerate(trows) if r['rank'] == '1']
+    if starts:
+        trows = trows[starts[-1]:]
+    all_days = sorted({r['run_date'] for r in rows})
+    idx = all_days.index(today) if today in all_days else max(0, len(all_days) - 1)
+    # 교체 그리드 = US 앵커(2026-07-02) 정렬
+    us_latest = trows[0]['us_date'] if trows else None
+    _c0 = sqlite3.connect(os.path.join(HERE, 'eps_momentum_data.db'))
+    _usd = [x[0] for x in _c0.execute(
+        "SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date>='2026-07-02' ORDER BY date")]
+    _c0.close()
+    gi = _usd.index(us_latest) if us_latest in _usd else len(_usd) - 1
+    is_rebal = (gi % REBAL == 0)
+    next_in = REBAL - (gi % REBAL)
+    m20 = merged[:20]
+    top5 = m20[:N_TOP]
+    briefs = _ai_stock_briefs(m20)
+    cards = _us_cards([d['ticker'] for d in m20 if d['market'] == 'US'])
+    for d in m20:
+        if d['market'] == 'KR' and d['ticker'] not in cards:
+            kc = _kr_card(d['ticker'], d.get('dv_musd'))
+            if kc:
+                cards[d['ticker']] = kc
+    # 교체 diff (직전 교체일 로그 대비)
+    diff = None
+    if is_rebal and idx >= 1:
+        prev_day = all_days[max(0, idx - REBAL)]
+        prows = [r for r in rows if r['run_date'] == prev_day]
+        ps = [i for i, r in enumerate(prows) if r['rank'] == '1']
+        if ps:
+            prows = prows[ps[-1]:]
+        prev_set = {r['ticker'] for r in prows if r.get('in_top4') == '1'}
+        cur_set = {d['ticker'] for d in top5}
+        buys = sorted(cur_set - prev_set)
+        sells = sorted(prev_set - cur_set)
+        diff = (buys, sells)
+    # NAV (로그 리플레이)
+    nav = 1.0
+    hold = []
+    ppx = {}
+    for i, dday in enumerate(all_days):
+        day = [r for r in rows if r['run_date'] == dday]
+        st2 = [k for k, r in enumerate(day) if r['rank'] == '1']
+        if st2:
+            day = day[st2[-1]:]
+        px = {r['ticker']: float(r['price']) for r in day if r.get('price')}
+        if hold:
+            rr = [px[t] / ppx[t] - 1 for t in hold if t in px and t in ppx and ppx[t] > 0]
+            if rr:
+                nav *= 1 + sum(rr) / len(rr)
+        if i % REBAL == 0:
+            hold = [r['ticker'] for r in day if r.get('in_top4') == '1']
+        ppx.update(px)
+    # 신호등
+    try:
+        from memory_cycle_alert import build_message
+        amsg, fired = build_message()
+    except Exception as _ae:
+        amsg, fired = f'🚦 신호등 계산 실패: {_ae}', False
+    # ── 메시지 1: 상단 공통 + TOP5 카드 ──
+    kdt = _dt.now()
+    wd = '월화수목금토일'[kdt.weekday()]
+    m1 = [f'📬 <b>오늘의 주식 신호</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━', '']
+    if fired:
+        m1 += ['🔴 <b>메모리 위험 경보 발동!</b>',
+               '아래 위험 신호등 안내에 따라',
+               '메모리 종목을 정리하세요.', '']
+    if is_rebal and diff and (diff[0] or diff[1]):
+        n_ch = max(len(diff[0]), len(diff[1]))
+        m1.append(f'🔁 <b>오늘 할 일: 종목 {n_ch}개 교체</b>')
+        for t in diff[1]:
+            m1.append(f'🔴 팔기: {_display_name(t)} — 보유분 전량 매도')
+        for t in diff[0]:
+            m1.append(f'🟢 사기: {_display_name(t)} — 자산의 20% 매수')
+        m1.append('나머지 종목은 그대로 유지하세요.')
+    elif is_rebal:
+        m1 += ['✅ <b>오늘 할 일: 없음</b>', '점검 결과 교체 없이 그대로 갑니다.']
+    else:
+        m1 += ['✅ <b>오늘 할 일: 없음</b>',
+               '보유 중인 5종목 그대로 두시면 됩니다.',
+               f'다음 교체 점검까지 {next_in}거래일.']
+    m1 += ['', '<b>이 신호, 어떻게 고르나요?</b>',
+           '증권사 애널리스트(기업 분석 전문가)들이',
+           '"이 회사 돈 더 벌겠다"며 이익 전망을',
+           '최근 3개월간 가장 크게 올린 종목 중,',
+           '아직 싸고 이익이 급성장하는 회사만',
+           '5개를 담습니다. 각 20%씩, 주 1회 점검.', '',
+           f"📊 전략 누적 성과: {(nav - 1) * 100:+.1f}%",
+           f"({all_days[0][5:].replace('-', '/')} 시작)" if all_days else '']
+    for i, d in enumerate(top5, 1):
+        m1 += _stock_card(i, d, briefs.get(d['ticker']), cards, first=(i == 1))
+    m1 += ['━━━━━━━━━━━━━━', '📖 <b>용어 한 줄 정리</b>',
+           'EPS: 주식 1주가 벌어들이는 이익',
+           'PER: 주가가 이익의 몇 배인지 (낮을수록 저렴)',
+           '선행: 과거가 아닌 "올해 예상" 기준']
+    # ── 메시지 2: 6~20위 미니카드 ──
+    m2 = None
+    if len(m20) > N_TOP:
+        import statistics as _st
+        med = dict(rev90=_st.median([d['rev90'] for d in top5]),
+                   fwd_per=_st.median([d['fwd_per'] for d in top5]),
+                   gap=_st.median([d['gap'] for d in top5 if d.get('gap')] or [0]))
+        m2 = [f'📋 <b>다음 후보 6~20위</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━',
+              '<b>지금 사는 종목이 아닙니다.</b>',
+              'TOP5에서 빠지는 종목이 생기면',
+              '이 명단의 위쪽부터 차례로 들어옵니다.', '']
+        for j, d in enumerate(m20[N_TOP:], N_TOP + 1):
+            nm = _display_name(d['ticker'])
+            tk = d['ticker'].replace('.KS', '').replace('.KQ', '')
+            sect = _industry_tag(d)
+            nation = '한국' if d['market'] == 'KR' else '미국'
+            b = briefs.get(d['ticker']) or {}
+            m2 += ['─────────────',
+                   f"<b>{j}위 {nm}</b> ({tk}) · {nation} {sect}".replace('  ', ' '), '']
+            if b.get('biz') or b.get('why'):
+                m2.append('<b>무슨 회사?</b>')
+                for key in ('biz', 'why'):
+                    for sent in _split_sents(b.get(key, '')):
+                        m2.append(sent)
+                m2.append('')
+            m2.append('<b>핵심 숫자</b>')
+            m2.append(f"전문가 전망 상향 +{d['rev90']:.0f}% (3개월)")
+            if d.get('gap'):
+                m2.append(f"이익 성장 {d['gap']:.1f}배 (올해 예상÷작년)")
+            m2.append(f"가격 선행PER {d['fwd_per']:.0f}배 ({PER_ANCHOR[d['market']]})")
+            m2.append('')
+            m2.append('<b>왜 5위 안에 못 들었나</b>')
+            m2 += _why_not_top5(d, med)
+            m2.append('')
+    # ── 메시지 3: 시장 브리핑 + 신호등 ──
+    m3 = [f'🌐 <b>시장 브리핑</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
+    try:
+        import yfinance as yf
+        idx_lines = []
+        for sym, nm in [('^GSPC', 'S&P500'), ('^IXIC', '나스닥'), ('^SOX', '반도체지수'),
+                        ('^KS11', '코스피'), ('^KQ11', '코스닥')]:
+            try:
+                fi = yf.Ticker(sym).fast_info
+                px, pv = fi.last_price, fi.previous_close
+                if px and pv:
+                    idx_lines.append(f"{nm} {px:,.0f} ({(px / pv - 1) * 100:+.1f}%)")
+            except Exception:
+                pass
+        if idx_lines:
+            m3 += ['', '<b>주요 지수</b>'] + idx_lines
+    except Exception:
+        pass
+    brief_mkt = _ai_market_brief()
+    if brief_mkt:
+        m3 += ['', '<b>무슨 일이 있었나</b>'] + _split_sents(brief_mkt)
+    m3 += ['', amsg]
+    # ── 발송 ──
+    print('\n' + '\n'.join(m1).replace('<b>', '').replace('</b>', ''))
+    _tk = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+    _pid = os.environ.get('TELEGRAM_PRIVATE_ID', '')
+    if not (_tk and _pid):
+        sys.path.insert(0, r'C:\dev')
+        from config import TELEGRAM_BOT_TOKEN as _tk, TELEGRAM_PRIVATE_ID as _pid
+    _send_long(_tk, _pid, '\n'.join(m1))
+    if m2:
+        _send_long(_tk, _pid, '\n'.join(m2))
+    _send_long(_tk, _pid, '\n'.join(m3))
+
+
 if __name__ == '__main__':
     sys.path.insert(0, HERE)
     if '--nav' in sys.argv:
         cmd_nav()
     else:
         _merged_for_msg = cmd_run()
-        # 통합(US+KR) TOP5 + 메모리 경보 — 개인봇 일일 발송 (2026-07-09 사용자 "미리 합쳐놓자")
-        # US 채널 메시지는 불변. 실매매 기준을 통합으로 쓸지는 사용자 선택(신호는 하나만 따를 것).
+        # 통합(US+KR) 신호 3종 발송 — 본선 (2026-07-09 사용자 확정)
         try:
-            import csv as _csv
-            import requests as _rq
-            rows = list(_csv.DictReader(open(LOG, encoding='utf-8')))
-            today = rows[-1]['run_date'] if rows else None
-            trows = [r for r in rows if r['run_date'] == today]
-            # 같은 날 중복 실행 방어: 마지막 블록(마지막 rank=1 이후)만 사용
-            starts = [i for i, r in enumerate(trows) if r['rank'] == '1']
-            if starts:
-                trows = trows[starts[-1]:]
-            top = [r for r in trows if r.get('in_top4') == '1']
-            top = sorted(top, key=lambda r: int(r['rank']))[:N_TOP]
-            KRN = {'000660.KS': 'SK하이닉스', '005930.KS': '삼성전자', '011070.KS': 'LG이노텍'}
-            IND = {'SNDK': '미국 · 낸드 반도체', 'MU': '미국 · 메모리 반도체',
-                   'HPE': '미국 · AI서버', 'DELL': '미국 · 서버·PC', 'FLEX': '미국 · 전자 제조',
-                   'WDC': '미국 · 데이터 저장장치', 'STX': '미국 · 데이터 저장장치',
-                   'MCHP': '미국 · 반도체', 'NVDA': '미국 · AI 반도체', 'AVGO': '미국 · 반도체',
-                   'TSM': '미국 · 반도체 위탁생산', 'AAL': '미국 · 항공',
-                   '000660.KS': '한국 · 메모리 반도체', '005930.KS': '한국 · 전자',
-                   '011070.KS': '한국 · 전자부품'}
-            all_days = sorted({r['run_date'] for r in rows})
-            idx = all_days.index(today) if today in all_days else len(all_days) - 1
-            # 교체 그리드 = US 페이퍼 앵커(2026-07-02, US 거래일 기준)와 정렬
-            # (2026-07-09 사용자 확정: 로그 시작일 앵커는 유저 실보유 스케줄과 어긋났음 — 교체일 7/10 등)
-            us_latest = trows[0]['us_date'] if trows else None
-            _c0 = sqlite3.connect(os.path.join(HERE, 'eps_momentum_data.db'))
-            _usd = [x[0] for x in _c0.execute(
-                "SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date>='2026-07-02' ORDER BY date")]
-            _c0.close()
-            gi = _usd.index(us_latest) if us_latest in _usd else len(_usd) - 1
-            is_rebal = (gi % REBAL == 0)
-            next_in = REBAL - (gi % REBAL)
-            rebal_line = ('🔄 오늘은 교체일 — 아래 구성으로 조정'
-                          if is_rebal else f'다음 교체까지 {next_in}거래일 (그때까지 유지)')
-            # 교체일 매수/매도 diff (2026-07-09 본선 승격 — 지시가 명확해야 함)
-            diff_lines = []
-            if is_rebal and idx >= 1:
-                prev_day = all_days[max(0, idx - REBAL)]
-                prows = [r for r in rows if r['run_date'] == prev_day]
-                pstarts = [i for i, r in enumerate(prows) if r['rank'] == '1']
-                if pstarts:
-                    prows = prows[pstarts[-1]:]
-                prev_set = {r['ticker'] for r in prows if r.get('in_top4') == '1'}
-                cur_set = {r['ticker'] for r in top}
-                _knm = {'000660.KS': 'SK하이닉스', '005930.KS': '삼성전자', '011070.KS': 'LG이노텍'}
-                buys = [_knm.get(t, t) for t in sorted(cur_set - prev_set)]
-                sells = [_knm.get(t, t) for t in sorted(prev_set - cur_set)]
-                if buys:
-                    diff_lines.append('🟢 매수: ' + '·'.join(buys))
-                if sells:
-                    diff_lines.append('🔴 매도: ' + '·'.join(sells))
-                if not (buys or sells):
-                    diff_lines.append('변경 없음 — 그대로 유지')
-            _m20 = (_merged_for_msg or [])[:20]
-            briefs = _ai_stock_briefs(_m20)
-            cards = _us_cards([d['ticker'] for d in _m20 if d['market'] == 'US'])
-            import re as _re3
-            def _brief_lines(tk, indent='   '):
-                # 한 문장 = 한 줄 (문장 내부 강제 꺾기 제거 — 2026-07-09 가독성 피드백,
-                # 자연 줄바꿈은 텔레그램 클라이언트가 단어 경계에서 처리)
-                b = briefs.get(tk)
-                if not b:
-                    return []
-                out = []
-                for sent in _re3.split(r'(?<=[.다])\s+', b):
-                    for wl in _wrap(sent.strip(), 90):
-                        if wl:
-                            out.append(indent + wl)
-                return out
-            lines = ['🌏 <b>미국+한국 이익전망 TOP5</b>',
-                     '증권가의 이익 눈높이(1년 예상이익)가',
-                     '가장 빠르게 오르는 5종목을 각 20%씩.',
-                     rebal_line, '']
-            for i, r in enumerate(top, 1):
-                _dd = next((x for x in (_merged_for_msg or []) if x['ticker'] == r['ticker']), None)
-                nm = _display_name(r['ticker'])
-                tk_disp = r['ticker'].replace('.KS', '')
-                sect = _industry_tag(_dd) if _dd else ''
-                head = f"{i}. <b>{nm}</b> ({tk_disp}"
-                head += f" · {sect})" if sect else ")"
-                lines.append(head)
-                lines.append(f"   EPS 전망 3개월새 +{float(r['rev90']):.0f}%")
-                try:
-                    lines.append(f"   EPS 성장 {float(r['gap']):.1f}배 (전망÷지난 1년 실적)")
-                except (TypeError, ValueError):
-                    pass
-                lines.append(f"   선행PER {float(r['fwd_per']):.0f}배 (낮을수록 저렴)")
-                _cls = cards.get(r['ticker']) or (_kr_card(r['ticker'], _dd.get('dv_musd') if _dd else None) if _dd and _dd['market'] == 'KR' else [])
-                for cl in _cls:
-                    lines.append('   ' + cl)
-                lines += _brief_lines(r['ticker'])
-                lines.append('')
-            lines2 = None
-            # 게이트 통과자 6~20위 (2026-07-09 사용자 요청: 1차 통과 rev90 순위 보기)
-            try:
-                _m = _merged_for_msg
-                if _m and len(_m) > N_TOP:
-                    lines2 = ['📊 <b>다음 후보 6~20위</b> (참고용 · 매수 아님)',
-                              'TOP5와 같은 검사를 통과한',
-                              '다음 순위 종목들이에요.', '']
-                    for j, d in enumerate(_m[N_TOP:20], N_TOP + 1):
-                        nm2 = _display_name(d['ticker'])
-                        tk2 = d['ticker'].replace('.KS', '')
-                        sect2 = _industry_tag(d)
-                        h2 = f"<b>{j}. {nm2}</b> ({tk2}" + (f" · {sect2})" if sect2 else ")")
-                        lines2.append(h2)
-                        gtxt2 = f" · EPS 성장 {d['gap']:.1f}배" if d.get('gap') else ''
-                        lines2.append(f"   EPS 전망 +{d['rev90']:.0f}% · 선행PER {d['fwd_per']:.0f}배{gtxt2}")
-                        _cls2 = cards.get(d['ticker']) or (_kr_card(d['ticker'], d.get('dv_musd')) if d['market'] == 'KR' else [])
-                        for cl in _cls2:
-                            lines2.append('   ' + cl)
-                        lines2 += _brief_lines(d['ticker'])
-                        lines2.append('')
-            except Exception as _e2:
-                print(f'[6~20위 섹션 스킵: {_e2}]')
-            if diff_lines:
-                lines += [''] + diff_lines
-            # 전략 누적 (로그 리플레이, 본선 트랙레코드)
-            try:
-                _nav = 1.0
-                _hold = []
-                _ppx = {}
-                for _i, _d in enumerate(all_days):
-                    _day = [r for r in rows if r['run_date'] == _d]
-                    _st2 = [k for k, r in enumerate(_day) if r['rank'] == '1']
-                    if _st2:
-                        _day = _day[_st2[-1]:]
-                    _px = {r['ticker']: float(r['price']) for r in _day if r.get('price')}
-                    if _hold:
-                        _r = [_px[t] / _ppx[t] - 1 for t in _hold if t in _px and t in _ppx and _ppx[t] > 0]
-                        if _r:
-                            _nav *= 1 + sum(_r) / len(_r)
-                    if _i % REBAL == 0:
-                        _hold = [r['ticker'] for r in _day if r.get('in_top4') == '1']
-                    _ppx.update(_px)
-                lines += ['', f'전략 누적 {(_nav - 1) * 100:+.1f}% ({all_days[0][5:].replace("-", "/")}~)']
-            except Exception as _e3:
-                print(f'[누적 계산 스킵: {_e3}]')
-            lines += ['', '📖 <b>용어 풀이</b>',
-                      'EPS = 주당순이익 (주식 1주가 버는 돈)',
-                      'EPS 전망 = 증권가 예상 1년 EPS 평균',
-                      '선행PER = 주가 ÷ EPS 전망',
-                      '', '📋 매매는 교체일에만 합니다.',
-                      '미국 종목 = 당일 밤 개장,',
-                      '한국 종목 = 다음날 아침 개장에.']
-            from memory_cycle_alert import build_message
-            amsg, fired = build_message()
-            msg = '\n'.join(lines) + '\n\n' + amsg
-            print('\n' + msg.replace('<b>', '').replace('</b>', ''))
-            sys.path.insert(0, r'C:\dev')
-            from config import TELEGRAM_BOT_TOKEN as _tk, TELEGRAM_PRIVATE_ID as _pid
-            _send_long(_tk, _pid, msg)
-            if lines2:
-                _send_long(_tk, _pid, '\n'.join(lines2))
-            _mp = _market_page()
-            if _mp:
-                _send_long(_tk, _pid, _mp)
+            _compose_and_send(_merged_for_msg)
         except Exception as _e:
-            print(f'[통합신호/경보 발송 실패(무해): {_e}]')
+            print(f'[통합신호 발송 실패(무해): {_e}]')
