@@ -226,6 +226,51 @@ def _capped_top(merged):
     return hold
 
 
+def _wrap(text, width=32):
+    """텔레그램 표시폭(한글 2칸) 기준 단어 줄바꿈."""
+    def w(t):
+        return sum(2 if ord(c) > 0x2E7F else 1 for c in t)
+    out, cur = [], ''
+    for word in str(text).split():
+        cand = (cur + ' ' + word).strip()
+        if cur and w(cand) > width:
+            out.append(cur)
+            cur = word
+        else:
+            cur = cand
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _ai_market_brief():
+    """AI 시황 3~4문장 (2026-07-09 사용자 요청). 키/패키지 없으면 None(섹션 생략)."""
+    key = os.environ.get('GEMINI_API_KEY', '')
+    if not key:
+        try:
+            import json as _j
+            key = _j.load(open(os.path.join(HERE, 'config.json'), encoding='utf-8')).get('gemini_api_key', '')
+        except Exception:
+            pass
+    if not key:
+        return None
+    try:
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=key, http_options={'timeout': 90_000})
+        tool = types.Tool(google_search=types.GoogleSearch())
+        prompt = ('지금 한국시간 저녁이다. 오늘 마감한 한국 증시(코스피·반도체 중심)와 '
+                  '지난밤 미국 증시(나스닥·반도체 중심), 그리고 오늘 밤 미국장 주목 포인트를 '
+                  '검색해 한국어로 정확히 4문장 요약. 각 문장 25자 이내로 짧게, 과장 없이 사실만.')
+        resp = client.models.generate_content(
+            model='gemini-2.5-flash', contents=prompt,
+            config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
+        return (resp.text or '').strip() or None
+    except Exception as e:
+        print(f'[AI 시황 스킵: {e}]')
+        return None
+
+
 def cmd_run():
     us_date, kr_date, fx, merged = compute()
     run_date = datetime.now().strftime('%Y-%m-%d')
@@ -246,13 +291,14 @@ def cmd_run():
         if new:
             w.writerow(['run_date', 'us_date', 'kr_date', 'rank', 'market', 'ticker',
                         'rev90', 'fwd_per', 'gap', 'dv_musd', 'price', 'in_top4', 'in_top4_cap2'])
-        for i, d in enumerate(merged[:10], 1):
+        for i, d in enumerate(merged[:20], 1):
             w.writerow([run_date, us_date, kr_date, i, d['market'], d['ticker'],
                         round(d['rev90'], 2), round(d['fwd_per'], 2),
                         round(d['gap'], 3) if d['gap'] else '',
                         round(d['dv_musd'], 1) if d['dv_musd'] else '', d['price'],
                         int(i <= N_TOP), int(d['ticker'] in capped)])
     print(f'로그 append: {LOG}')
+    return merged
 
 
 def cmd_nav():
@@ -284,7 +330,7 @@ if __name__ == '__main__':
     if '--nav' in sys.argv:
         cmd_nav()
     else:
-        cmd_run()
+        _merged_for_msg = cmd_run()
         # 통합(US+KR) TOP5 + 메모리 경보 — 개인봇 일일 발송 (2026-07-09 사용자 "미리 합쳐놓자")
         # US 채널 메시지는 불변. 실매매 기준을 통합으로 쓸지는 사용자 선택(신호는 하나만 따를 것).
         try:
@@ -328,9 +374,30 @@ if __name__ == '__main__':
                 except (TypeError, ValueError):
                     pass
                 lines.append(sub)
+            # 게이트 통과자 6~20위 (2026-07-09 사용자 요청: 1차 통과 rev90 순위 보기)
+            try:
+                _m = _merged_for_msg
+                if _m and len(_m) > N_TOP:
+                    lines += ['', '📊 <b>다음 후보 6~20위</b> (참고용 · 매수 아님)',
+                              '같은 검사를 통과한 종목의 이익전망 순위예요.']
+                    for j, d in enumerate(_m[N_TOP:20], N_TOP + 1):
+                        nm2 = KRN.get(d['ticker'], d['ticker'])
+                        cc = '한' if d['market'] == 'KR' else '미'
+                        lines.append(f"{j}. {nm2}({cc}) +{d['rev90']:.0f}%")
+            except Exception as _e2:
+                print(f'[6~20위 섹션 스킵: {_e2}]')
             lines += ['', '📋 매매는 교체일에만 합니다.',
                       '미국 종목 = 당일 밤 개장,',
                       '한국 종목 = 다음날 아침 개장에.']
+            # AI 시황 (2026-07-09 사용자 요청)
+            _brief = _ai_market_brief()
+            if _brief:
+                lines += ['', '📰 <b>오늘 시장 한눈에</b>']
+                import re as _re2
+                for _sent in _re2.split(r'(?<=\.)\s+', _brief):
+                    for _wl in _wrap(_sent.strip(), 32):
+                        if _wl:
+                            lines.append(_wl)
             from memory_cycle_alert import build_message
             amsg, fired = build_message()
             msg = '\n'.join(lines) + '\n\n' + amsg
