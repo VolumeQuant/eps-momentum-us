@@ -398,10 +398,19 @@ def _ai_stock_briefs(entries):
                   '[한줄] 종목은 정확히 1문장(핵심 사업+전망 상향 이유 압축). '
                   '한국어, 문장당 25자 이내, 뻔한 일반론 금지, 과장 없이 사실만. '
                   '형식: "TICKER: 문장들" 한 줄씩.\n' + '\n'.join(dl))
-        resp = client.models.generate_content(
-            model='gemini-2.5-flash', contents=prompt,
-            config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
-        text = resp.text or ''
+        text = ''
+        for _try in range(3):  # 재시도 (2026-07-09: 단발 실패로 브리핑 0건 발송 사고)
+            try:
+                resp = client.models.generate_content(
+                    model='gemini-2.5-flash', contents=prompt,
+                    config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
+                text = resp.text or ''
+                if text:
+                    break
+            except Exception as _e:
+                print('[브리핑 시도 %d 실패: %s]' % (_try + 1, _e))
+                import time as _t
+                _t.sleep(15)
         out = {}
         for d in entries[:20]:
             tk = d['ticker']
