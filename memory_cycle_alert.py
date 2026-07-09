@@ -46,9 +46,14 @@ def price_alarm():
 
 
 def export_alarm():
-    sys.path.insert(0, r'C:\dev')
-    import requests
-    from config import ECOS_API_KEY
+    import os, requests
+    ECOS_API_KEY = os.environ.get('ECOS_API_KEY', '')
+    if not ECOS_API_KEY:
+        try:
+            sys.path.insert(0, r'C:\dev')
+            from config import ECOS_API_KEY
+        except Exception:
+            raise RuntimeError('ECOS 키 없음')
     url = (f'https://ecos.bok.or.kr/api/StatisticSearch/{ECOS_API_KEY}'
            f'/json/kr/1/10000/403Y001/M/201301/209912/30911AA')
     rows = requests.get(url, timeout=30).json().get('StatisticSearch', {}).get('row', [])

@@ -15,6 +15,7 @@ env:
   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
   TELEGRAM_PRIVATE_ID: ${{ secrets.TELEGRAM_PRIVATE_ID }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
 
 jobs:
   send:
