@@ -4284,7 +4284,9 @@ def create_vm_signal_message(today_str, risk_status=None):
     시장동향·지수·신용 지표는 AI Risk 메시지가 계속 담당. 구 Signal(매수후보/이탈/규칙)은
     생성만 유지(signal_local.txt 검증용)하고 발송 안 함 — 매매 로직·BT는 판정일 대청소까지 불변."""
     d = today_str[5:].replace('-', '/')
-    lines = [f'📊 <b>오늘의 포트폴리오</b> ({d})']
+    # 2026-07-09 사용자 확정: 실매매 본선 = 저녁 통합(US+KR) TOP5. 이 메시지는 US 단독 관찰용.
+    lines = [f'📊 <b>미국 단독 전략</b> ({d}) — 관찰용',
+             '실제 매매는 저녁 통합 TOP5 기준입니다.']
     rg = (risk_status or {}).get('regime') or {}
     mode = rg.get('regime', 'boost')
     if mode == 'defense':

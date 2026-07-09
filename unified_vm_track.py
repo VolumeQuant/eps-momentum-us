@@ -359,6 +359,25 @@ if __name__ == '__main__':
             next_in = REBAL - (idx % REBAL)
             rebal_line = ('🔄 오늘은 교체일 — 아래 구성으로 조정'
                           if is_rebal else f'다음 교체까지 {next_in}거래일 (그때까지 유지)')
+            # 교체일 매수/매도 diff (2026-07-09 본선 승격 — 지시가 명확해야 함)
+            diff_lines = []
+            if is_rebal and idx >= REBAL:
+                prev_day = all_days[idx - REBAL]
+                prows = [r for r in rows if r['run_date'] == prev_day]
+                pstarts = [i for i, r in enumerate(prows) if r['rank'] == '1']
+                if pstarts:
+                    prows = prows[pstarts[-1]:]
+                prev_set = {r['ticker'] for r in prows if r.get('in_top4') == '1'}
+                cur_set = {r['ticker'] for r in top}
+                _knm = {'000660.KS': 'SK하이닉스', '005930.KS': '삼성전자', '011070.KS': 'LG이노텍'}
+                buys = [_knm.get(t, t) for t in sorted(cur_set - prev_set)]
+                sells = [_knm.get(t, t) for t in sorted(prev_set - cur_set)]
+                if buys:
+                    diff_lines.append('🟢 매수: ' + '·'.join(buys))
+                if sells:
+                    diff_lines.append('🔴 매도: ' + '·'.join(sells))
+                if not (buys or sells):
+                    diff_lines.append('변경 없음 — 그대로 유지')
             lines = ['🌏 <b>미국+한국 이익전망 TOP5</b>',
                      '애널리스트 이익전망이 가장 빠르게',
                      '좋아지는 5종목을 각 20%씩 담습니다.',
@@ -386,6 +405,29 @@ if __name__ == '__main__':
                         lines.append(f"{j}. {nm2}({cc}) +{d['rev90']:.0f}%")
             except Exception as _e2:
                 print(f'[6~20위 섹션 스킵: {_e2}]')
+            if diff_lines:
+                lines += [''] + diff_lines
+            # 전략 누적 (로그 리플레이, 본선 트랙레코드)
+            try:
+                _nav = 1.0
+                _hold = []
+                _ppx = {}
+                for _i, _d in enumerate(all_days):
+                    _day = [r for r in rows if r['run_date'] == _d]
+                    _st2 = [k for k, r in enumerate(_day) if r['rank'] == '1']
+                    if _st2:
+                        _day = _day[_st2[-1]:]
+                    _px = {r['ticker']: float(r['price']) for r in _day if r.get('price')}
+                    if _hold:
+                        _r = [_px[t] / _ppx[t] - 1 for t in _hold if t in _px and t in _ppx and _ppx[t] > 0]
+                        if _r:
+                            _nav *= 1 + sum(_r) / len(_r)
+                    if _i % REBAL == 0:
+                        _hold = [r['ticker'] for r in _day if r.get('in_top4') == '1']
+                    _ppx.update(_px)
+                lines += ['', f'전략 누적 {(_nav - 1) * 100:+.1f}% ({all_days[0][5:].replace("-", "/")}~)']
+            except Exception as _e3:
+                print(f'[누적 계산 스킵: {_e3}]')
             lines += ['', '📋 매매는 교체일에만 합니다.',
                       '미국 종목 = 당일 밤 개장,',
                       '한국 종목 = 다음날 아침 개장에.']
