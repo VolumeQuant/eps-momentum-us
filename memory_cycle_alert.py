@@ -60,14 +60,15 @@ def export_alarm():
     s = pd.Series({pd.Period(r['TIME'], freq='M'): float(r['DATA_VALUE']) for r in rows}).sort_index()
     yoy = (s / s.shift(12) - 1) * 100
     falling3 = bool((yoy.diff().iloc[-1] < 0) and (yoy.diff().iloc[-2] < 0) and (yoy.diff().iloc[-3] < 0))
-    return falling3, float(yoy.iloc[-1]), str(yoy.index[-1])
+    trend = '%+.0f→%+.0f→%+.0f%%' % (yoy.iloc[-3], yoy.iloc[-2], yoy.iloc[-1])
+    return falling3, float(yoy.iloc[-1]), str(yoy.index[-1]), trend
 
 
 def build_message():
     p_on, n, names, asof = price_alarm()
     try:
-        e_on, e_yoy, e_month = export_alarm()
-        exp_line = f'한국 반도체 수출 {"석 달 연속 감소 🔴" if e_on else f"전년비 {e_yoy:+.0f}% 호조"}'
+        e_on, e_yoy, e_month, e_trend = export_alarm()
+        exp_line = f'반도체 수출 YoY {e_trend}' + (' 🔴 석달 연속 감소' if e_on else ' (석달 추이)')
     except Exception:
         e_on, exp_line = False, '수출 데이터 조회 실패 (주가 감시만 유효)'
     # 2026-07-09 밤: 수출 leg를 발동 조건에서 표시 전용으로 강등 — 신 가격 leg(MA90·3/6·즉시) 하에서

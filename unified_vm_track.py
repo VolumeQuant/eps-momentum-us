@@ -264,9 +264,10 @@ def _ai_market_brief():
         from google.genai import types
         client = genai.Client(api_key=key, http_options={'timeout': 90_000})
         tool = types.Tool(google_search=types.GoogleSearch())
-        prompt = ('지금 한국시간 저녁이다. 오늘 마감한 한국 증시(코스피·반도체 중심)와 '
-                  '지난밤 미국 증시(나스닥·반도체 중심), 그리고 오늘 밤 미국장 주목 포인트를 '
-                  '검색해 한국어로 정확히 4문장 요약. 각 문장 25자 이내로 짧게, 과장 없이 사실만.')
+        prompt = ('지금 한국시간 저녁이다. 검색해서 한국어로 정확히 5문장: '
+                  '지난밤 미국 증시 마감과 주도 섹터 2문장, 오늘 밤 미국장 주목 포인트(지표·실적 일정) 1문장, '
+                  '반도체·메모리 업황 1문장, 오늘 한국 증시 마감 1문장. '
+                  '미확인 루머(상장설·인수설) 금지, 문장당 30자 이내, 과장 없이 사실만.')
         resp = client.models.generate_content(
             model='gemini-2.5-flash', contents=prompt,
             config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
@@ -285,6 +286,9 @@ _NAME_SEED = {
     'META': '메타', 'INTU': '인튜이트', 'ORCL': '오라클', 'KLAC': 'KLA',
     'LRCX': '램리서치', 'ON': '온세미', 'NOK': '노키아', 'CLS': '셀레스티카',
     'ANET': '아리스타', 'CIEN': '시에나', 'COHR': '코히런트', 'LITE': '루멘텀',
+    'APH': '암페놀', 'CRM': '세일즈포스', 'ADBE': '어도비', 'CSCO': '시스코',
+    'SNPS': '시놉시스', 'NXPI': 'NXP반도체', 'APP': '앱러빈', 'GOOG': '알파벳',
+    'IBM': 'IBM', 'MSFT': '마이크로소프트', 'JNJ': '존슨앤드존슨', 'MA': '마스터카드',
     '000660.KS': 'SK하이닉스', '005930.KS': '삼성전자', '011070.KS': 'LG이노텍',
     '009150.KS': '삼성전기', '402340.KS': 'SK스퀘어',
 }
@@ -330,6 +334,30 @@ def _industry_tag(d):
         except Exception:
             ind = ''
     return ind or ''
+
+
+def _kr_card(ticker, dv_musd=None):
+    """KR 종목 카드 — yf(분석가·시총) + 거래대금. 실패 항목은 생략."""
+    parts1, parts2 = [], []
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info or {}
+        na = info.get('numberOfAnalystOpinions')
+        mc = info.get('marketCap')
+        if na:
+            parts1.append('분석가 %d명' % na)
+        if mc:
+            parts2.append('시총 %.0f조원' % (mc / 1e12))
+    except Exception:
+        pass
+    if dv_musd:
+        parts2.append('거래 $%.1fB/일' % (dv_musd / 1e3))
+    out = []
+    if parts1:
+        out.append(' · '.join(parts1))
+    if parts2:
+        out.append(' · '.join(parts2))
+    return out
 
 
 def _us_cards(tickers):
@@ -391,12 +419,14 @@ def _ai_stock_briefs(entries):
             dl.append('[한줄] %s(%s, %s): 90일 이익전망 %+.0f%%'
                       % (d['ticker'], _display_name(d['ticker']), _industry_tag(d) or '업종미상', d['rev90']))
         prompt = ('한국+미국 주식 퀀트 시스템의 오늘 순위다. '
-                  '★모든 종목은 지금 상장되어 활발히 거래 중이다. 상장폐지·인수로 소멸했다는 서술 절대 금지, '
-                  '반드시 2026년 최신 정보를 검색해 확인하라(예: SNDK는 2025년 웨스턴디지털에서 분사 재상장한 샌디스크). '
-                  '[상세] 종목은 정확히 3문장: (1)무엇으로 돈 버는 회사인지 (2)최근 이익전망 급상향의 구체적 이유'
-                  '(실적·수주·가격 등 숫자 하나 이상 포함, 검색 확인) (3)리스크 하나. '
-                  '[한줄] 종목은 정확히 1문장(핵심 사업+전망 상향 이유 압축). '
-                  '한국어, 문장당 25자 이내, 뻔한 일반론 금지, 과장 없이 사실만. '
+                  '★모든 종목은 지금 상장되어 활발히 거래 중이다. 상장폐지·인수 소멸 서술 절대 금지, '
+                  '미확인 루머(상장 추진설·인수설 등) 금지, 반드시 2026년 최신 정보를 검색해 확인하라'
+                  '(예: SNDK는 2025년 웨스턴디지털에서 분사 재상장한 샌디스크). '
+                  '[상세] 종목은 5~6문장의 미니 분석: (1)무슨 사업으로 돈 버는 회사인지 1문장 '
+                  '(2)왜 이익전망이 급상향되는지 2문장 — 최근 실적발표·수주·제품가격 등 구체 숫자 포함(검색 확인) '
+                  '(3)경쟁지위나 재무 강점 1문장 (4)리스크 1~2문장. '
+                  '[한줄] 종목은 정확히 2문장(무슨 회사인지 + 전망 상향 이유). '
+                  '한국어, 문장당 30자 이내, 뻔한 일반론 금지, 과장 없이 사실만. '
                   '형식: "TICKER: 문장들" 한 줄씩.\n' + '\n'.join(dl))
         text = ''
         for _try in range(3):  # 재시도 (2026-07-09: 단발 실패로 브리핑 0건 발송 사고)
@@ -432,7 +462,7 @@ def _market_page():
     try:
         import yfinance as yf
         idx = []
-        for sym, nm in [('^KS11', '코스피'), ('^KQ11', '코스닥'), ('^GSPC', 'S&P(전일)'), ('NQ=F', '나스닥선물')]:
+        for sym, nm in [('^KS11', '코스피'), ('^KQ11', '코스닥'), ('^GSPC', 'S&P'), ('^IXIC', '나스닥')]:
             try:
                 fi = yf.Ticker(sym).fast_info
                 px, pv = fi.last_price, fi.previous_close
@@ -558,14 +588,22 @@ if __name__ == '__main__':
                    '011070.KS': '한국 · 전자부품'}
             all_days = sorted({r['run_date'] for r in rows})
             idx = all_days.index(today) if today in all_days else len(all_days) - 1
-            is_rebal = (idx % REBAL == 0)
-            next_in = REBAL - (idx % REBAL)
+            # 교체 그리드 = US 페이퍼 앵커(2026-07-02, US 거래일 기준)와 정렬
+            # (2026-07-09 사용자 확정: 로그 시작일 앵커는 유저 실보유 스케줄과 어긋났음 — 교체일 7/10 등)
+            us_latest = trows[0]['us_date'] if trows else None
+            _c0 = sqlite3.connect(os.path.join(HERE, 'eps_momentum_data.db'))
+            _usd = [x[0] for x in _c0.execute(
+                "SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date>='2026-07-02' ORDER BY date")]
+            _c0.close()
+            gi = _usd.index(us_latest) if us_latest in _usd else len(_usd) - 1
+            is_rebal = (gi % REBAL == 0)
+            next_in = REBAL - (gi % REBAL)
             rebal_line = ('🔄 오늘은 교체일 — 아래 구성으로 조정'
                           if is_rebal else f'다음 교체까지 {next_in}거래일 (그때까지 유지)')
             # 교체일 매수/매도 diff (2026-07-09 본선 승격 — 지시가 명확해야 함)
             diff_lines = []
-            if is_rebal and idx >= REBAL:
-                prev_day = all_days[idx - REBAL]
+            if is_rebal and idx >= 1:
+                prev_day = all_days[max(0, idx - REBAL)]
                 prows = [r for r in rows if r['run_date'] == prev_day]
                 pstarts = [i for i, r in enumerate(prows) if r['rank'] == '1']
                 if pstarts:
@@ -609,13 +647,14 @@ if __name__ == '__main__':
                 head = f"{i}. <b>{nm}</b> ({tk_disp}"
                 head += f" · {sect})" if sect else ")"
                 lines.append(head)
-                lines.append(f"   증권가 이익 눈높이 3개월새 +{float(r['rev90']):.0f}%")
+                lines.append(f"   EPS 전망 3개월새 +{float(r['rev90']):.0f}%")
                 try:
-                    lines.append(f"   1년 예상이익 = 지난 1년의 {float(r['gap']):.1f}배")
+                    lines.append(f"   EPS 성장 {float(r['gap']):.1f}배 (전망÷지난 1년 실적)")
                 except (TypeError, ValueError):
                     pass
-                lines.append(f"   주가는 예상이익의 {float(r['fwd_per']):.0f}배 (낮을수록 저렴)")
-                for cl in cards.get(r['ticker'], []):
+                lines.append(f"   선행PER {float(r['fwd_per']):.0f}배 (낮을수록 저렴)")
+                _cls = cards.get(r['ticker']) or (_kr_card(r['ticker'], _dd.get('dv_musd') if _dd else None) if _dd and _dd['market'] == 'KR' else [])
+                for cl in _cls:
                     lines.append('   ' + cl)
                 lines += _brief_lines(r['ticker'])
                 lines.append('')
@@ -631,10 +670,13 @@ if __name__ == '__main__':
                         nm2 = _display_name(d['ticker'])
                         tk2 = d['ticker'].replace('.KS', '')
                         sect2 = _industry_tag(d)
-                        gtxt = f" · 예상이익 작년의 {d['gap']:.1f}배" if d.get('gap') else ''
                         h2 = f"<b>{j}. {nm2}</b> ({tk2}" + (f" · {sect2})" if sect2 else ")")
                         lines2.append(h2)
-                        lines2.append(f"   눈높이 +{d['rev90']:.0f}% · 주가/예상이익 {d['fwd_per']:.0f}배{gtxt}")
+                        gtxt2 = f" · EPS 성장 {d['gap']:.1f}배" if d.get('gap') else ''
+                        lines2.append(f"   EPS 전망 +{d['rev90']:.0f}% · 선행PER {d['fwd_per']:.0f}배{gtxt2}")
+                        _cls2 = cards.get(d['ticker']) or (_kr_card(d['ticker'], d.get('dv_musd')) if d['market'] == 'KR' else [])
+                        for cl in _cls2:
+                            lines2.append('   ' + cl)
                         lines2 += _brief_lines(d['ticker'])
                         lines2.append('')
             except Exception as _e2:
@@ -662,7 +704,11 @@ if __name__ == '__main__':
                 lines += ['', f'전략 누적 {(_nav - 1) * 100:+.1f}% ({all_days[0][5:].replace("-", "/")}~)']
             except Exception as _e3:
                 print(f'[누적 계산 스킵: {_e3}]')
-            lines += ['', '📋 매매는 교체일에만 합니다.',
+            lines += ['', '📖 <b>용어 풀이</b>',
+                      'EPS = 주당순이익 (주식 1주가 버는 돈)',
+                      'EPS 전망 = 증권가 예상 1년 EPS 평균',
+                      '선행PER = 주가 ÷ EPS 전망',
+                      '', '📋 매매는 교체일에만 합니다.',
                       '미국 종목 = 당일 밤 개장,',
                       '한국 종목 = 다음날 아침 개장에.']
             from memory_cycle_alert import build_message
