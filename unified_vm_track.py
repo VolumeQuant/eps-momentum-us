@@ -246,3 +246,15 @@ if __name__ == '__main__':
         cmd_nav()
     else:
         cmd_run()
+        # 메모리 사이클 경보 (2026-07-09, 알림 전용·매매 무관) — 실패해도 트랙 로깅에 무해
+        try:
+            from memory_cycle_alert import build_message
+            msg, fired = build_message()
+            print('\n' + msg.replace('<b>', '').replace('</b>', ''))
+            import requests as _rq
+            sys.path.insert(0, r'C:\dev')
+            from config import TELEGRAM_BOT_TOKEN as _tk, TELEGRAM_PRIVATE_ID as _pid
+            _rq.post(f'https://api.telegram.org/bot{_tk}/sendMessage',
+                     data={'chat_id': _pid, 'text': msg, 'parse_mode': 'HTML'}, timeout=20)
+        except Exception as _e:
+            print(f'[memory_cycle_alert 실패(무해): {_e}]')
