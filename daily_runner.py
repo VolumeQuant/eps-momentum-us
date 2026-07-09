@@ -3900,7 +3900,13 @@ def _fwdper_gap_display(ticker):
 # N=4 최종 확정 (2026-07-05, 사용자·검증 합의): 수익고원(3~5) 내에서 두 세계(winner 유/무)
 #   MDD가 유일하게 안정(−17/−19)한 지점. N5는 ex-winner서 −25로 뒤집힘, N3는 −21, N2는 carry에 지배.
 #   ★동결: 약세장 1회 경과 전 N 재논의 금지 (research/FINDINGS_REBUILD 2d·2h)
-VM_TOP_N = 4
+# ★N 4→5 재캘리브레이션 (2026-07-09, 사용자 결정 — 게이트 전수검사 전환과 동일 배치, 새 게이트 첫 리밸 전 무교란 창):
+#   구 "N4 유일 안정"은 구멍 게이트(무검증 통과 종목이 5번 슬롯을 채우던) 체제의 판정.
+#   전수검사 1.5 체제 재스윕: N5가 원래 판정기준(두 세계 MDD 안정) 승자 — MDD -17.7/-16.1(N4 -20.1/-17.7),
+#   수익 +103.2>+97.6, LOWO 수익만 -5.9p(risk-adj 동률). 고원 4~5, N6+ 희석·N3- 집중. 과거 리밸(<VM_GATE_FULL_FROM)은
+#   N4로 리플레이(장부 보존). 검증: research/GAP_BACKSOLVE_2026_07_09.md. 판정일에 라이브 표본으로 재확인.
+VM_TOP_N = 5
+VM_TOP_N_LEGACY = 4
 VM_REBAL_DAYS = 5
 VM_PE_MAX = 30.0        # = PE_HOLD (기존 '비싸다' 기준 재사용)
 # ★gap 게이트 전수검사 전환 (2026-07-09, 사용자 결정): 구 2.5는 '과거 랭크이력 141종목'만 검사하는
@@ -3972,6 +3978,7 @@ def _vm_pick(date_str, conn=None):
               or (date_str is not None and date_str < VM_GATE_FULL_FROM))
     thr = 2.5 if legacy else VM_GAP_THR
     te_fn = _pit_trailing_eps if legacy else _vm_trailing_eps
+    top_n = VM_TOP_N_LEGACY if legacy else VM_TOP_N  # N도 에폭 동행(과거 리밸=Top4 리플레이, 장부 보존)
     cand = []
     for tk, px, nc, n7, n30, n60, n90, dv in rows:
         if not _vm_industry_ok(tk):
@@ -3995,7 +4002,7 @@ def _vm_pick(date_str, conn=None):
         rev90 = (nc - n90) / abs(n90) * 100
         cand.append((tk, rev90, fpe, gap))
     cand.sort(key=lambda x: -x[1])
-    return cand[:VM_TOP_N]
+    return cand[:top_n]
 
 
 def _vm_paper_state(today_str):
