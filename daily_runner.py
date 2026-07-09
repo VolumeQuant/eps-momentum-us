@@ -3918,6 +3918,47 @@ VM_GAP_THR = 2.5 if os.getenv('VM_GATE_LEGACY') == '1' else 1.5
 VM_GATE_FULL_FROM = '2026-07-09'  # 이 날짜(데이터일)부터 전수검사 — 과거 리밸(7/2 앵커)은 구 게이트로 리플레이(장부 보존)
 VM_PAPER_START = '2026-07-02'  # 페이퍼 앵커(리밸 기준일, DB 실존 날짜)
 _TICKER_INFO_CACHE_VM = {'d': None}
+_VM_NAME_SEED = {
+    'SNDK': '샌디스크', 'MU': '마이크론', 'HPE': 'HPE', 'DELL': '델', 'FLEX': '플렉스',
+    'MCHP': '마이크로칩', 'AVGO': '브로드컴', 'TSM': 'TSMC', 'WDC': '웨스턴디지털',
+    'STX': '씨게이트', 'NVDA': '엔비디아', 'AMD': 'AMD', 'SMCI': '슈퍼마이크로',
+    'CRDO': '크레도', 'AAL': '아메리칸항공', 'ADI': '아날로그디바이스', 'AMAT': '어플라이드',
+    'LNG': '셰니어에너지', 'NOW': '서비스나우', 'MRK': '머크', 'META': '메타',
+    'ORCL': '오라클', 'KLAC': 'KLA', 'LRCX': '램리서치', 'ON': '온세미', 'NOK': '노키아',
+    'CLS': '셀레스티카', 'ANET': '아리스타', 'CIEN': '시에나', 'COHR': '코히런트', 'LITE': '루멘텀',
+}
+
+
+def _vm_display_name(ticker):
+    """한글 종목명 — 시드맵 → 캐시(data_cache/ticker_names.json) → yf shortName(1회 캐시)."""
+    if ticker in _VM_NAME_SEED:
+        return _VM_NAME_SEED[ticker]
+    cp = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data_cache', 'ticker_names.json')
+    try:
+        cache = json.load(open(cp, encoding='utf-8'))
+    except Exception:
+        cache = {}
+    if ticker in cache:
+        return cache[ticker]
+    try:
+        import yfinance as yf
+        nm = (yf.Ticker(ticker).info or {}).get('shortName') or ticker
+        for suf in (', Inc.', ' Inc.', ' Corporation', ' Corp.', ' Company', ' Co.'):
+            nm = nm.replace(suf, '')
+        cache[ticker] = nm.strip()
+        json.dump(cache, open(cp, 'w', encoding='utf-8'), ensure_ascii=False)
+        return cache[ticker]
+    except Exception:
+        return ticker
+
+
+def _vm_industry_name(ticker):
+    tc = _TICKER_INFO_CACHE_VM.get('d')
+    if tc is None:
+        return ''
+    v = tc.get(ticker)
+    ind = v.get('industry') if isinstance(v, dict) else (v[0] if isinstance(v, (list, tuple)) else v)
+    return ind or ''
 
 
 def _tg_wrap(text, width=32):
@@ -4244,7 +4285,12 @@ def _vm_paper_section(today_str, standalone=False):
         gtxt = f'예상이익=작년의 {gap:.1f}배' if gap is not None else '예상이익 배수 집계전'
         mark = ' 🆕' if (st['is_rebal_day'] and tk in st['added']) else ''
         lines.append('')
-        lines.append(f'<b>{i}. {tk}</b> 이익 눈높이 3개월 +{r90:.0f}%{mark}')
+        _iok_dummy = _vm_industry_ok(tk)  # 캐시 로드 보장
+        nm = _vm_display_name(tk)
+        ind = _vm_industry_name(tk)
+        head = f'<b>{i}. {nm}</b> ({tk}' + (f' · {ind})' if ind else ')')
+        lines.append(head + mark)
+        lines.append(f'   이익 눈높이 3개월 +{r90:.0f}%')
         lines.append(f'   주가/예상이익 {fpe:.0f}배 · {gtxt}')
         if pos[0]:
             ptxt = f' · 수익 {pos[1]:+.1f}%' if pos[1] is not None else ''

@@ -33,7 +33,7 @@ def brief_lines(tk, indent='   '):
         return []
     out = []
     for sent in re.split(r'(?<=[.다])\s+', b):
-        for wl in u._wrap(sent.strip(), 32):
+        for wl in u._wrap(sent.strip(), 90):
             if wl:
                 out.append(indent + wl)
     return out
@@ -59,17 +59,18 @@ for i, d in enumerate(all_days):
 
 # ── 메시지 1: TOP5 본론 ──
 m1 = ['🌏 <b>미국+한국 이익전망 TOP5</b>',
-      '애널리스트 이익전망이 가장 빠르게',
-      '좋아지는 5종목을 각 20%씩 담습니다.',
+      '증권가의 이익 눈높이(1년 예상이익)가',
+      '가장 빠르게 오르는 5종목을 각 20%씩.',
       f'다음 교체까지 {next_in}거래일 (그때까지 유지)', '']
 for i, d in enumerate(merged[:5], 1):
-    nm = KRN.get(d['ticker'], d['ticker'])
-    m1.append(f"{i}. <b>{nm}</b> {u._industry_tag(d)}")
-    m1.append(f"   90일간 이익전망 +{d['rev90']:.0f}% 상향")
-    sub = f"   예상이익 대비 주가 {d['fwd_per']:.0f}배"
+    nm = u._display_name(d['ticker'])
+    tkd = d['ticker'].replace('.KS', '')
+    sect = u._industry_tag(d)
+    m1.append(f"{i}. <b>{nm}</b> ({tkd}" + (f" · {sect})" if sect else ")"))
+    m1.append(f"   증권가 이익 눈높이 3개월새 +{d['rev90']:.0f}%")
     if d.get('gap'):
-        sub += f" · 이익 {d['gap']:.1f}배 성장 예상"
-    m1.append(sub)
+        m1.append(f"   1년 예상이익 = 지난 1년의 {d['gap']:.1f}배")
+    m1.append(f"   주가는 예상이익의 {d['fwd_per']:.0f}배 (낮을수록 저렴)")
     for cl in cards.get(d['ticker'], []):
         m1.append('   ' + cl)
     m1 += brief_lines(d['ticker'])
@@ -87,10 +88,12 @@ m2 = ['📊 <b>다음 후보 6~20위</b> (참고용 · 매수 아님)',
       'TOP5와 같은 검사를 통과한',
       '다음 순위 종목들이에요.', '']
 for j, d in enumerate(merged[5:20], 6):
-    nm2 = KRN.get(d['ticker'], d['ticker'])
-    gtxt = f" · 이익 {d['gap']:.1f}배 예상" if d.get('gap') else ''
-    m2.append(f"<b>{j}. {nm2}</b> {u._industry_tag(d)}")
-    m2.append(f"   전망 +{d['rev90']:.0f}% · 선행PER {d['fwd_per']:.0f}{gtxt}")
+    nm2 = u._display_name(d['ticker'])
+    tk2 = d['ticker'].replace('.KS', '')
+    sect2 = u._industry_tag(d)
+    gtxt = f" · 예상이익 작년의 {d['gap']:.1f}배" if d.get('gap') else ''
+    m2.append(f"<b>{j}. {nm2}</b> ({tk2}" + (f" · {sect2})" if sect2 else ")"))
+    m2.append(f"   눈높이 +{d['rev90']:.0f}% · 주가/예상이익 {d['fwd_per']:.0f}배{gtxt}")
     m2 += brief_lines(d['ticker'])
     m2.append('')
 
