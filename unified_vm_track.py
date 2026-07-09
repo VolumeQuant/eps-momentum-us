@@ -85,10 +85,19 @@ def us_candidates():
     conn = sqlite3.connect(os.path.join(HERE, 'eps_momentum_data.db'))
     c = conn.cursor()
     last = c.execute('SELECT MAX(date) FROM ntm_screening').fetchone()[0]
+    # 안전필터 패리티 (2026-07-09 production A군): OM/FCF/ROE는 회전수집이라 60일 carry-forward
+    fund = {}
+    for tk, om, fcf, roe in c.execute(
+            "SELECT ticker, operating_margin, free_cashflow, roe FROM ntm_screening "
+            "WHERE date<=? AND date>=date(?, '-60 day') ORDER BY date", (last, last)):
+        e = fund.setdefault(tk, [None, None, None])
+        if om is not None: e[0] = om
+        if fcf is not None: e[1] = fcf
+        if roe is not None: e[2] = roe
     out = []
-    for tk, p, nc, n7, n30, n60, n90, dv in c.execute(
-            'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,dollar_volume_30d '
-            'FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)):
+    for tk, p, nc, n7, n30, n60, n90, dv, na in c.execute(
+            'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,dollar_volume_30d,'
+            'num_analysts FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)):
         if not ind_ok(tk):
             continue
         if dv is None or dv < DV_MIN_MUSD:
@@ -104,6 +113,14 @@ def us_candidates():
         g = (nc / te) if (te and te > 0) else None
         if g is not None and g < GAP_MIN:
             continue
+        # A군 안전필터 (production _vm_pick 패리티): 동전주·저커버·마진<5%·FCF/ROE 동시음수·rev90>0
+        if p < 10 or (na or 0) < 3 or _seg(nc, n90) <= 0:
+            continue
+        om, fcf, roe = fund.get(tk, (None, None, None))
+        if om is not None and om < 0.05:
+            continue
+        if fcf is not None and roe is not None and fcf < 0 and roe < 0:
+            continue
         out.append(dict(ticker=tk, market='US', rev90=_seg(nc, n90), fwd_per=p / nc,
                         gap=g, dv_musd=dv, price=p))
     conn.close()
@@ -118,6 +135,16 @@ def kr_candidates(fx):
         'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,market_cap,num_analysts '
         'FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)).fetchall()
     conn.close()
+    # 안전필터 패리티 (KR도 동일): OM/FCF/ROE carry-forward
+    kconn = sqlite3.connect(KR_DB)
+    kfund = {}
+    for tk_, om_, fcf_, roe_ in kconn.execute(
+            'SELECT ticker, operating_margin, free_cashflow, roe FROM ntm_screening ORDER BY date'):
+        e = kfund.setdefault(tk_, [None, None, None])
+        if om_ is not None: e[0] = om_
+        if fcf_ is not None: e[1] = fcf_
+        if roe_ is not None: e[2] = roe_
+    kconn.close()
     pre = []
     for tk, p, nc, n7, n30, n60, n90, mc, na in rows:
         if tk in KR_HOLDCO or tk in KR_IND_BLOCK:
@@ -129,6 +156,13 @@ def kr_candidates(fx):
         if nc <= 0 or (n90 or 0) <= 0.1:
             continue
         if p / nc > PE_MAX:
+            continue
+        if _seg(nc, n90) <= 0:
+            continue
+        om, fcf, roe = kfund.get(tk, (None, None, None))
+        if om is not None and om < 0.05:
+            continue
+        if fcf is not None and roe is not None and fcf < 0 and roe < 0:
             continue
         shares = (mc / p) if (mc and p) else None
         te = _kr_ttm_eps(tk.split('.')[0], shares)
@@ -246,15 +280,35 @@ if __name__ == '__main__':
         cmd_nav()
     else:
         cmd_run()
-        # 메모리 사이클 경보 (2026-07-09, 알림 전용·매매 무관) — 실패해도 트랙 로깅에 무해
+        # 통합(US+KR) TOP5 + 메모리 경보 — 개인봇 일일 발송 (2026-07-09 사용자 "미리 합쳐놓자")
+        # US 채널 메시지는 불변. 실매매 기준을 통합으로 쓸지는 사용자 선택(신호는 하나만 따를 것).
         try:
-            from memory_cycle_alert import build_message
-            msg, fired = build_message()
-            print('\n' + msg.replace('<b>', '').replace('</b>', ''))
+            import csv as _csv
             import requests as _rq
+            rows = list(_csv.DictReader(open(LOG, encoding='utf-8')))
+            today = rows[-1]['run_date'] if rows else None
+            top = [r for r in rows if r['run_date'] == today and r.get('in_top4') == '1']
+            top = sorted(top, key=lambda r: int(r['rank']))[:N_TOP]
+            KRN = {'000660.KS': 'SK하이닉스', '005930.KS': '삼성전자', '011070.KS': 'LG이노텍'}
+            lines = ['🌏 <b>US+KR 통합 TOP5</b> (모의 병기)', '']
+            for i, r in enumerate(top, 1):
+                nm = KRN.get(r['ticker'], r['ticker'])
+                g = r['gap']
+                try:
+                    gtxt = f"{float(g):.1f}배"
+                except (TypeError, ValueError):
+                    gtxt = '-'
+                lines.append(f"{i}. [{r['market']}] {nm}")
+                lines.append(f"   전망 +{float(r['rev90']):.0f}% · PER {float(r['fwd_per']):.0f} · 이익 {gtxt}")
+            lines += ['', '⚠️ 실매매 기준은 신호 하나만 따를 것',
+                      '(US 채널 신호와 혼용 금지)']
+            from memory_cycle_alert import build_message
+            amsg, fired = build_message()
+            msg = '\n'.join(lines) + '\n\n' + amsg
+            print('\n' + msg.replace('<b>', '').replace('</b>', ''))
             sys.path.insert(0, r'C:\dev')
             from config import TELEGRAM_BOT_TOKEN as _tk, TELEGRAM_PRIVATE_ID as _pid
             _rq.post(f'https://api.telegram.org/bot{_tk}/sendMessage',
                      data={'chat_id': _pid, 'text': msg, 'parse_mode': 'HTML'}, timeout=20)
         except Exception as _e:
-            print(f'[memory_cycle_alert 실패(무해): {_e}]')
+            print(f'[통합신호/경보 발송 실패(무해): {_e}]')
