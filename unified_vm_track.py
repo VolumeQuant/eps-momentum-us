@@ -589,8 +589,8 @@ if __name__ == '__main__':
                             out.append(indent + wl)
                 return out
             lines = ['🌏 <b>미국+한국 이익전망 TOP5</b>',
-                     '애널리스트 이익전망이 가장 빠르게',
-                     '좋아지는 5종목을 각 20%씩 담습니다.',
+                     '증권가의 이익 눈높이(1년 예상이익)가',
+                     '가장 빠르게 오르는 5종목을 각 20%씩.',
                      rebal_line, '']
             for i, r in enumerate(top, 1):
                 _dd = next((x for x in (_merged_for_msg or []) if x['ticker'] == r['ticker']), None)
@@ -600,13 +600,12 @@ if __name__ == '__main__':
                 head = f"{i}. <b>{nm}</b> ({tk_disp}"
                 head += f" · {sect})" if sect else ")"
                 lines.append(head)
-                lines.append(f"   이익전망 90일 +{float(r['rev90']):.0f}%↑")
-                sub = f"   선행PER {float(r['fwd_per']):.0f}"
+                lines.append(f"   증권가 이익 눈높이 3개월새 +{float(r['rev90']):.0f}%")
                 try:
-                    sub += f" · 이익 {float(r['gap']):.1f}배 성장 예상"
+                    lines.append(f"   1년 예상이익 = 지난 1년의 {float(r['gap']):.1f}배")
                 except (TypeError, ValueError):
                     pass
-                lines.append(sub)
+                lines.append(f"   주가는 예상이익의 {float(r['fwd_per']):.0f}배 (낮을수록 저렴)")
                 for cl in cards.get(r['ticker'], []):
                     lines.append('   ' + cl)
                 lines += _brief_lines(r['ticker'])
@@ -623,10 +622,10 @@ if __name__ == '__main__':
                         nm2 = _display_name(d['ticker'])
                         tk2 = d['ticker'].replace('.KS', '')
                         sect2 = _industry_tag(d)
-                        gtxt = f" · 이익 {d['gap']:.1f}배 예상" if d.get('gap') else ''
+                        gtxt = f" · 예상이익 작년의 {d['gap']:.1f}배" if d.get('gap') else ''
                         h2 = f"<b>{j}. {nm2}</b> ({tk2}" + (f" · {sect2})" if sect2 else ")")
                         lines2.append(h2)
-                        lines2.append(f"   전망 +{d['rev90']:.0f}%↑ · 선행PER {d['fwd_per']:.0f}{gtxt}")
+                        lines2.append(f"   눈높이 +{d['rev90']:.0f}% · 주가/예상이익 {d['fwd_per']:.0f}배{gtxt}")
                         lines2 += _brief_lines(d['ticker'])
                         lines2.append('')
             except Exception as _e2:

@@ -4241,11 +4241,11 @@ def _vm_paper_section(today_str, standalone=False):
         tk, r90, fpe, gap = e[0], e[1], e[2], e[3]
         pos = e[4] if len(e) > 4 else (None, None)
         # gap = 기대성장 배수(선행EPS/과거실적EPS)를 고객 언어로: '이익 6.5배 예상'
-        gtxt = f'이익 {gap:.1f}배 예상' if gap is not None else '이익배수 집계전'
+        gtxt = f'예상이익=작년의 {gap:.1f}배' if gap is not None else '예상이익 배수 집계전'
         mark = ' 🆕' if (st['is_rebal_day'] and tk in st['added']) else ''
         lines.append('')
-        lines.append(f'<b>{i}. {tk}</b> 90일 전망상향 +{r90:.0f}%{mark}')
-        lines.append(f'   선행PER {fpe:.0f} · {gtxt}')
+        lines.append(f'<b>{i}. {tk}</b> 이익 눈높이 3개월 +{r90:.0f}%{mark}')
+        lines.append(f'   주가/예상이익 {fpe:.0f}배 · {gtxt}')
         if pos[0]:
             ptxt = f' · 수익 {pos[1]:+.1f}%' if pos[1] is not None else ''
             lines.append(f'   {pos[0][5:].replace("-", "/")} 편입{ptxt}')
