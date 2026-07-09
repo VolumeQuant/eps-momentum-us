@@ -24,7 +24,7 @@ LOG = os.path.join(HERE, 'data_cache', 'unified_vm_log.csv')
 #   구 2.5에선 gap이 우연히 걸렀지만 1.5에선 S-Oil이 상위 진입, US 규칙이면 원자재/정유 제외 대상).
 N_TOP, REBAL = 5, 5
 PE_MAX, GAP_MIN, DV_MIN_MUSD = 30.0, 1.5, 1000.0
-KR_DV_MIN_MUSD = 100.0  # KR 전용 유동성 하한(시장별) — kr_candidates 주석 참조
+KR_DV_MIN_MUSD = DV_MIN_MUSD  # ★$1B 단일 잣대 (2026-07-09 사용자 결정: KR 특례 폐지 — LG이노텍 사례에서 $100M 검토했으나 동률비교 전항목 HPE 우위 + 단일 기준 선호)
 KR_HOLDCO = {'402340.KS'}  # SK스퀘어(지주) — KR production 지주제외 준용
 KR_IND_BLOCK = {'010950.KS', '096770.KS'}  # S-Oil·SK이노베이션(정유) — US COMMODITY(석유정제) 등가
 # 병기 변형: 메모리 테마 캡2 (6월 그리드서 유일 유효 손잡이 — 급락창 1회라 채택 아닌 병기 관찰)
@@ -197,7 +197,7 @@ def kr_candidates(fx):
         if d['dv_musd'] is not None:
             if d['dv_musd'] < KR_DV_MIN_MUSD:
                 continue
-        elif (d.get('mc') or 0) < 2e12:  # dv 조회 실패 시 시총 2조 프록시($100M/일 체급 근사)
+        elif (d.get('mc') or 0) < 13e12:  # dv 조회 실패 시 시총 13조 프록시($1B/일 체급)
             continue
         d.pop('mc', None)
         out.append(d)
