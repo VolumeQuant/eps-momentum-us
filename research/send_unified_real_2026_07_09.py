@@ -3,6 +3,9 @@
 import os, sys, runpy
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.environ['KR_DB_PATH'] = os.path.join(BASE, 'research', 'kr_db_snapshot_2026_07_09.db')
+# 2026-07-10 감사수리: 이 샘플 실행이 7/9 공식 원장에 gap 공란(fs_dart 부재) 블록을 남긴 사고
+# 재발 방지 — 샘플/일회성 실행은 원장 기록 금지 (원장 작성자 = 회사PC schtask 단일).
+os.environ['UNIFIED_NO_LOG'] = '1'
 os.chdir(BASE)
 sys.argv = ['unified_vm_track.py', '--run']
 runpy.run_path(os.path.join(BASE, 'unified_vm_track.py'), run_name='__main__')

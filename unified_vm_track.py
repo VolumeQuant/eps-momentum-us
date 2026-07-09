@@ -154,6 +154,9 @@ def us_candidates():
 
 
 def kr_candidates(fx):
+    """반환: (last_date, 후보리스트, health). health = 수집/게이트 건강성 (2026-07-10 감사수리:
+    ①7/9 GH Actions 샘플 실행에서 fs_dart parquet 부재 → gap 전원 None → missing=pass로
+    KR 가치게이트가 조용히 전멸했던 사고 감지 ②KR yf 수집 붕괴(210→73) 감시)."""
     conn = sqlite3.connect(KR_DB)
     c = conn.cursor()
     last = c.execute('SELECT MAX(date) FROM ntm_screening').fetchone()[0]
@@ -161,6 +164,10 @@ def kr_candidates(fx):
         'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,market_cap,num_analysts '
         'FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)).fetchall()
     conn.close()
+    health = {'today_n': sum(1 for r in rows if r[2] and r[2] > 0 and (r[6] or 0) > 100),
+              'gap_reach': 0, 'gap_computed': 0, 'warnings': []}
+    if not os.path.isdir(KR_FS_DIR):
+        health['warnings'].append(f'KR 재무 폴더 없음({KR_FS_DIR}) — 가치게이트(gap) 전면 미작동')
     # 안전필터 패리티 (KR도 동일): OM/FCF/ROE carry-forward
     kconn = sqlite3.connect(KR_DB)
     kfund = {}
@@ -179,7 +186,8 @@ def kr_candidates(fx):
             continue
         if min(_seg(nc, n7), _seg(n7, n30), _seg(n30, n60), _seg(n60, n90)) < 0:
             continue
-        if nc <= 0 or (n90 or 0) <= 0.1:
+        # 저분모 가드 100원 (2026-07-10 감사수리: 구 0.1은 USD용 임계를 원화에 그대로 써 무가드)
+        if nc <= 0 or (n90 or 0) <= 100:
             continue
         if p / nc > PE_MAX:
             continue
@@ -193,10 +201,17 @@ def kr_candidates(fx):
         shares = (mc / p) if (mc and p) else None
         te = _kr_ttm_eps(tk.split('.')[0], shares)
         g = (nc / te) if (te and te > 0) else None
+        health['gap_reach'] += 1
+        if g is not None:
+            health['gap_computed'] += 1
         if g is not None and g < GAP_MIN:
             continue
         pre.append(dict(ticker=tk, market='KR', rev90=_seg(nc, n90), fwd_per=p / nc,
                         gap=g, dv_musd=None, price=p, mc=mc))
+    if health['gap_reach'] >= 3 and health['gap_computed'] == 0:
+        health['warnings'].append(
+            f"KR 가치게이트(gap) 계산 0/{health['gap_reach']}건 — 재무 데이터 접근 실패 의심, "
+            'missing=pass 규칙으로 KR 전원이 무검사 통과 중')
     # 거래대금 게이트: yf 30일 평균 거래대금 → USD. 실패 시 시총>=13조 프록시.
     if pre:
         try:
@@ -213,12 +228,13 @@ def kr_candidates(fx):
                     d['dv_musd'] = None
         except Exception:
             pass
+        if all(d['dv_musd'] is None for d in pre):
+            health['warnings'].append('KR 거래대금(yf) 전건 조회 실패 — 시총 13조 프록시로만 필터 중')
     out = []
     for d in pre:
-        # ★KR 유동성 하한 = $100M (2026-07-09): US $1B은 US 유니버스 검증치(v117) — KR에 들이대면
-        #   사실상 삼성·하이닉스 외 전원 금지(LG이노텍 $444M/일도 컷). KR 자체 증거는 반대(7.4년
-        #   유동성 필터 전부 기각·실전 하한 20~50억원) → 시장별 하한. $100M(~1,350억원/일)은
-        #   개인 체결에 충분히 보수적. 통합 60일 재보정 때 재확인.
+        # ★KR 유동성 하한 = KR_DV_MIN_MUSD($0.3B, 2026-07-09 사용자 승인 '각 시장 상위 ~10%'
+        #   백분위 등가 — KR_DV_PARITY_2026_07_09.md). (구 주석의 $100M은 폐기된 특례 —
+        #   2026-07-10 감사에서 주석 부패 정정.)
         if d['dv_musd'] is not None:
             if d['dv_musd'] < KR_DV_MIN_MUSD:
                 continue
@@ -226,29 +242,40 @@ def kr_candidates(fx):
             continue
         d.pop('mc', None)
         out.append(d)
-    return last, out
+    return last, out, health
 
 
-def _universe_rev90(db, dv_min=None):
+def _universe_rev90(db, dv_min=None, n90_floor=0.1, window_days=30):
     """해당 시장 투자가능 유니버스의 rev90 분포 (백분위·z 환산용).
 
-    dv_min(백만$) 지정 시 유동성 필터 적용 — 우리가 실제 사는 유동주만 분모에.
-    US는 dollar_volume_30d로 $1B 컷(1172→~118, 상위10%), KR은 dv 컬럼 부재라
-    전체 유니버스 사용(수집 단계에서 이미 애널리스트 커버 종목만 = 엘리트 ~69개,
-    유동성 필터가 사실상 no-op임을 EDA로 확인 — CROSS_MARKET_NORM_2026_07_09.md).
+    ★2026-07-10 감사수리 — 분모 = '당일 스냅샷'이 아니라 **최근 window_days 내 관측된
+    종목별 최신 유효 행(트레일링 유니온)**. 당일 분모는 KR yf 수집 붕괴(유효 6/1 184 →
+    7/9 69, 탈락종목이 체계적으로 차가움: 탈락 중앙값 rev90 +11 vs 생존 +17)로 뜨거운
+    생존자만 남아 KR 백분위를 ~5%p 하향 왜곡했음(삼성 84.1%ile vs 온전분모 89.1%ile —
+    top5 경계 여유와 같은 스케일). 트레일링 유니온은 attrition에 강건.
+    dv_min(백만$) 지정 시 종목별 최신 행의 dollar_volume_30d로 필터(US $1B 유동주 패리티).
+    KR은 dv 컬럼 부재라 전체(수집 자체가 애널 커버 엘리트, CROSS_MARKET_NORM_2026_07_09.md).
+    n90_floor: 저분모 rev90 폭발 가드 — 구현이 0.1을 양국 동일 적용해 원화(KR)엔 사실상
+    무가드였음 → KR 호출부는 100(원)을 넘길 것.
     """
     c = sqlite3.connect(db)
     dt = c.execute('SELECT MAX(date) FROM ntm_screening').fetchone()[0]
     has_dv = any(r[1] == 'dollar_volume_30d' for r in c.execute("PRAGMA table_info(ntm_screening)"))
-    if dv_min is not None and has_dv:
-        q = ('SELECT ticker, ntm_current, ntm_90d FROM ntm_screening WHERE date=? AND ntm_current>0 '
-             'AND ntm_90d>0.1 AND dollar_volume_30d IS NOT NULL AND dollar_volume_30d>=?')
-        rows = c.execute(q, (dt, dv_min)).fetchall()
-    else:
-        rows = c.execute('SELECT ticker, ntm_current, ntm_90d FROM ntm_screening '
-                         'WHERE date=? AND ntm_current>0 AND ntm_90d>0.1', (dt,)).fetchall()
+    dv_col = ', dollar_volume_30d' if has_dv else ', NULL'
+    rows = c.execute(
+        f'SELECT ticker, ntm_current, ntm_90d{dv_col} FROM ntm_screening '
+        'WHERE date>=date(?, ?) AND ntm_current>0 AND ntm_90d>? ORDER BY date',
+        (dt, f'-{int(window_days)} day', n90_floor)).fetchall()
     c.close()
-    return [(nc - n90) / abs(n90) * 100 for tk, nc, n90 in rows]
+    latest = {}
+    for tk, nc, n90, dv in rows:  # ORDER BY date라 뒤 행이 최신 — 종목별 최신 행만 남김
+        latest[tk] = (nc, n90, dv)
+    vals = []
+    for nc, n90, dv in latest.values():
+        if dv_min is not None and has_dv and (dv is None or dv < dv_min):
+            continue
+        vals.append((nc - n90) / abs(n90) * 100)
+    return vals
 
 
 def _dist_med_mad(vals):
@@ -261,16 +288,26 @@ def _dist_med_mad(vals):
 def compute():
     fx = _fx_usdkrw()
     us_date, us = us_candidates()
-    kr_date, kr = kr_candidates(fx)
+    kr_date, kr, kr_health = kr_candidates(fx)
     merged = sorted(us + kr, key=lambda d: -d['rev90'])
+    meta = {'norm': 'pct', 'warnings': list(kr_health.get('warnings') or []),
+            'kr_today_n': kr_health.get('today_n'), 'base_n': {}}
     # 백분위 결합 = 본선 (2026-07-09 사용자 승인, CROSS_MARKET_NORM 연구): rev90 절대값이
     # 아니라 자기 시장 '유동성 유니버스' 내 백분위로 환산해 결합 — KR 리비전 인플레 보정.
     # (실측: 횡단면 중앙값 US +4.3% vs KR +17.0%, MAD 3.4 vs 13.5. LG이노텍 +50.6%=KR
     #  82%ile vs HPE +49.2%=US 94%ile → 절대값이 아니라 백분위로 재야 HPE 우위.)
-    # denominator: US=$1B 유동주(패리티), KR=전체(이미 엘리트, 필터 no-op).
+    # denominator: US=$1B 유동주(패리티), KR=전체 커버 유니버스 — ★단 당일 스냅샷이 아니라
+    # 30일 트레일링 유니온 (2026-07-10 감사수리: 수집 붕괴 attrition이 백분위 ~5%p 왜곡).
     try:
         uus = _universe_rev90(os.path.join(HERE, 'eps_momentum_data.db'), dv_min=DV_MIN_MUSD)
-        ukr = _universe_rev90(KR_DB)  # KR은 이미 유동 커버 집합
+        ukr = _universe_rev90(KR_DB, n90_floor=100.0)  # 원화 저분모 가드
+        meta['base_n'] = {'US': len(uus), 'KR': len(ukr)}
+        if len(ukr) < 30:
+            meta['warnings'].append(f'KR 백분위 분모 {len(ukr)}종목뿐 — 순위 신뢰 낮음')
+        kt = kr_health.get('today_n') or 0
+        if kt and (kt < 60 or kt < 0.6 * len(ukr)):
+            meta['warnings'].append(
+                f'KR 수집 부실: 오늘 {kt}종목 (최근 30일 관측 {len(ukr)}종목) — KR 순위 참고만')
         mus, dus = _dist_med_mad(uus)
         mkr, dkr = _dist_med_mad(ukr)
         for d in merged:
@@ -279,8 +316,76 @@ def compute():
             d['rz'] = (d['rev90'] - med) / mad * 0.6745  # robust-z 병기 관찰
         merged.sort(key=lambda d: (-d['pct'], -d['rev90']))
     except Exception as e:
+        # 2026-07-10 감사수리: 조용한 폴백 금지 — 본선 결합 방식이 바뀌면 메시지에 명시
+        meta['norm'] = 'abs_fallback'
+        meta['warnings'].append(f'백분위 환산 실패 → 절대 상향폭 순위로 임시 결합됨: {e}')
         print(f'[!!] 백분위 환산 실패 — 절대 rev90 결합으로 폴백: {e}')
-    return us_date, kr_date, fx, merged
+    return us_date, kr_date, fx, merged, meta
+
+
+def _git_sha():
+    """실행 코드 버전 — 메시지·로그에 박아 '낡은 코드로 발송' 사고를 사후 식별 가능하게 (감사수리 3)."""
+    try:
+        import subprocess
+        return subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], capture_output=True,
+                              text=True, cwd=HERE, timeout=10).stdout.strip()
+    except Exception:
+        return ''
+
+
+def _us_grid():
+    """리밸 시계의 단일 기준 = US 거래일 그리드(앵커 2026-07-02, R5).
+    2026-07-10 감사수리: 표시(is_rebal)는 이 그리드, NAV 리플레이는 '로그 실행일 인덱스 i%5'로
+    서로 다른 시계였음(지시한 매매와 표시한 누적 성과가 다른 날 리밸) → 전부 이 그리드로 통일."""
+    c = sqlite3.connect(os.path.join(HERE, 'eps_momentum_data.db'))
+    usd = [x[0] for x in c.execute(
+        "SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date>='2026-07-02' ORDER BY date")]
+    c.close()
+    return usd
+
+
+def _ledger_blocks(rows):
+    """일자별 마지막 완전 블록(rank==1 시작) — 같은 날 중복 실행(수동+schtask) dedup.
+    구 cmd_nav는 dedup 없이 전 행을 써 중복 시 보유 비중이 왜곡됐음(감사수리 4)."""
+    days = sorted({r['run_date'] for r in rows})
+    blocks = {}
+    for d in days:
+        day = [r for r in rows if r['run_date'] == d]
+        st = [i for i, r in enumerate(day) if r.get('rank') == '1']
+        blocks[d] = day[st[-1]:] if st else day
+    return days, blocks
+
+
+def _replay(rows):
+    """원장 리플레이 — 단일 리밸 시계(US 그리드)로 보유·NAV 재구성. 로컬통화 수익률(FX 미반영) 근사.
+    반환: {'nav', 'days', 'state': {day: {'is_rebal', 'held_before', 'held_after'}}}
+    held_before = 그날 리밸 직전 보유(교체 diff의 올바른 기준), held_after = 리밸 반영 후."""
+    days, blocks = _ledger_blocks(rows)
+    usd = _us_grid()
+    nav, hold, ppx = 1.0, [], {}
+    state = {}
+    for i, d in enumerate(days):
+        day = blocks[d]
+        px = {}
+        for r in day:
+            try:
+                if r.get('price'):
+                    px[r['ticker']] = float(r['price'])
+            except (TypeError, ValueError):
+                pass
+        if hold:
+            rr = [px[t] / ppx[t] - 1 for t in hold if t in px and t in ppx and ppx[t] > 0]
+            if rr:
+                nav *= 1 + sum(rr) / len(rr)
+        ud = day[0].get('us_date') if day else None
+        gi = usd.index(ud) if ud in usd else None
+        is_rb = (i == 0) or (gi is not None and gi % REBAL == 0)  # 첫 로그일 = 페이퍼 개시(초기 편입)
+        held_before = list(hold)
+        if is_rb:
+            hold = [r['ticker'] for r in day if r.get('in_top4') == '1']
+        state[d] = {'is_rebal': is_rb, 'held_before': held_before, 'held_after': list(hold)}
+        ppx.update(px)
+    return {'nav': nav, 'days': days, 'state': state}
 
 
 def _capped_top(merged):
@@ -582,10 +687,16 @@ def _send_long(token, chat_id, msg):
 
 
 def cmd_run():
-    us_date, kr_date, fx, merged = compute()
+    us_date, kr_date, fx, merged, meta = compute()
     run_date = datetime.now().strftime('%Y-%m-%d')
     capped = _capped_top(merged)
-    print(f'=== 통합 VM top4 (US {us_date} / KR {kr_date}, USDKRW {fx:.0f}) ===')
+    print(f'=== 통합 VM top{N_TOP} (US {us_date} / KR {kr_date}, USDKRW {fx:.0f}, '
+          f'code {_git_sha() or "?"}) ===')
+    if meta.get('base_n'):
+        print(f"백분위 분모(30일 유니온): US {meta['base_n'].get('US')} / KR {meta['base_n'].get('KR')} "
+              f"(KR 당일 수집 {meta.get('kr_today_n')})")
+    for wmsg in meta.get('warnings', []):
+        print(f'[경고] {wmsg}')
     for i, d in enumerate(merged[:10], 1):
         mark = ' ★top4' if i <= N_TOP else ''
         if d['ticker'] in capped and i > N_TOP:
@@ -600,9 +711,14 @@ def cmd_run():
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
     rz_top = [x['ticker'] for x in sorted(merged, key=lambda z: -z.get('rz', 0))[:N_TOP]]
     print('robust-z 변형 top5(관찰):', rz_top)
+    if os.environ.get('UNIFIED_NO_LOG') == '1':
+        # 2026-07-10 감사수리 2: 샘플/일회성 실행이 append-only 공식 원장을 오염시킨 사고
+        # (7/9 블록 = GH Actions 샘플, KR gap 전원 공란) 재발 방지 — 원장 기록은 옵트아웃 가능.
+        print('[UNIFIED_NO_LOG=1] 원장 기록 생략')
+        return merged, meta
     COLS = ['run_date', 'us_date', 'kr_date', 'rank', 'market', 'ticker',
             'rev90', 'fwd_per', 'gap', 'dv_musd', 'price', 'in_top4', 'in_top4_cap2',
-            'pct', 'in_top5_abs', 'rz', 'in_top5_rz']
+            'pct', 'in_top5_abs', 'rz', 'in_top5_rz', 'pct_base_n']
     if os.path.exists(LOG):  # 구헤더(13/14컬럼) → 신헤더 마이그레이션, 과거 행은 공란 패딩
         lines = open(LOG, encoding='utf-8').read().splitlines()
         hdr = lines[0].split(',')
@@ -625,33 +741,27 @@ def cmd_run():
                         round(d['dv_musd'], 1) if d['dv_musd'] else '', d['price'],
                         int(i <= N_TOP), int(d['ticker'] in capped),
                         round(d.get('pct', 0), 2), int(d['ticker'] in abs_top),
-                        round(d.get('rz', 0), 2), int(d['ticker'] in rz_top)])
+                        round(d.get('rz', 0), 2), int(d['ticker'] in rz_top),
+                        meta.get('base_n', {}).get(d['market'], '')])
     print(f'로그 append: {LOG}')
-    return merged
+    return merged, meta
 
 
 def cmd_nav():
-    """로그 리플레이 NAV — R5(로그 앵커 기준) top4 EW, 로컬통화 수익률(FX 미반영) 근사."""
+    """로그 리플레이 NAV — 공용 _replay 사용 (2026-07-10 감사수리 4: 구현이 '로그일 i%5'
+    자체 시계 + 중복블록 dedup 없음으로 표시(is_rebal)와 어긋났음 → US 그리드 단일화)."""
     if not os.path.exists(LOG):
         print('로그 없음')
         return
-    import pandas as pd
-    df = pd.read_csv(LOG, dtype={'ticker': str})
-    days = sorted(df['run_date'].unique())
-    hold = []
-    nav = 1.0
-    prev_px = {}
-    for i, d in enumerate(days):
-        day = df[df['run_date'] == d]
-        px = dict(zip(day['ticker'], day['price']))
-        if hold:
-            r = [px[t] / prev_px[t] - 1 for t in hold if t in px and t in prev_px and prev_px[t] > 0]
-            if r:
-                nav *= 1 + sum(r) / len(r)
-        if i % REBAL == 0:
-            hold = day[day['in_top4'] == 1]['ticker'].tolist()
-        prev_px.update(px)
-    print(f'통합 트랙 NAV: {(nav - 1) * 100:+.2f}% ({days[0]} ~ {days[-1]}, {len(days)}일)')
+    import csv as _csv
+    rows = list(_csv.DictReader(open(LOG, encoding='utf-8')))
+    rp = _replay(rows)
+    days = rp['days']
+    for d in days:
+        s = rp['state'][d]
+        if s['is_rebal']:
+            print(f"{d} REBAL → {s['held_after']}")
+    print(f"통합 트랙 NAV: {(rp['nav'] - 1) * 100:+.2f}% ({days[0]} ~ {days[-1]}, {len(days)}일)")
 
 
 
@@ -757,25 +867,23 @@ def _scale_line(d, cards_map):
     return out
 
 
-def _compose_and_send(merged):
+def _compose_and_send(merged, meta=None):
     import csv as _csv
     from datetime import datetime as _dt
+    meta = meta or {}
     rows = list(_csv.DictReader(open(LOG, encoding='utf-8'))) if os.path.exists(LOG) else []
-    today = rows[-1]['run_date'] if rows else _dt.now().strftime('%Y-%m-%d')
-    trows = [r for r in rows if r['run_date'] == today]
-    starts = [i for i, r in enumerate(trows) if r['rank'] == '1']
-    if starts:
-        trows = trows[starts[-1]:]
-    all_days = sorted({r['run_date'] for r in rows})
-    idx = all_days.index(today) if today in all_days else max(0, len(all_days) - 1)
-    # 교체 그리드 = US 앵커(2026-07-02) 정렬
+    # 2026-07-10 감사수리 4: 시계 단일화 — diff·NAV·is_rebal 전부 _replay(US 그리드) 기준.
+    #   (구현은 diff=로그일 idx-5, NAV=로그일 i%5, is_rebal=US그리드로 3개 시계가 달랐음)
+    rp = _replay(rows) if rows else {'nav': 1.0, 'days': [], 'state': {}}
+    all_days = rp['days']
+    today = all_days[-1] if all_days else _dt.now().strftime('%Y-%m-%d')
+    _, blocks = _ledger_blocks(rows) if rows else (None, {})
+    trows = blocks.get(today, [])
+    st_today = rp['state'].get(today, {})
+    is_rebal = st_today.get('is_rebal', False)
+    usd = _us_grid()
     us_latest = trows[0]['us_date'] if trows else None
-    _c0 = sqlite3.connect(os.path.join(HERE, 'eps_momentum_data.db'))
-    _usd = [x[0] for x in _c0.execute(
-        "SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date>='2026-07-02' ORDER BY date")]
-    _c0.close()
-    gi = _usd.index(us_latest) if us_latest in _usd else len(_usd) - 1
-    is_rebal = (gi % REBAL == 0)
+    gi = usd.index(us_latest) if us_latest in usd else len(usd) - 1
     next_in = REBAL - (gi % REBAL)
     m20 = merged[:20]
     top5 = m20[:N_TOP]
@@ -786,36 +894,15 @@ def _compose_and_send(merged):
             kc = _kr_card(d['ticker'], d.get('dv_musd'))
             if kc:
                 cards[d['ticker']] = kc
-    # 교체 diff (직전 교체일 로그 대비)
+    # 교체 diff = 오늘 top5 vs 리밸 직전 보유(held_before) — 원장 리플레이와 같은 기준
     diff = None
-    if is_rebal and idx >= 1:
-        prev_day = all_days[max(0, idx - REBAL)]
-        prows = [r for r in rows if r['run_date'] == prev_day]
-        ps = [i for i, r in enumerate(prows) if r['rank'] == '1']
-        if ps:
-            prows = prows[ps[-1]:]
-        prev_set = {r['ticker'] for r in prows if r.get('in_top4') == '1'}
+    if is_rebal:
+        prev_set = set(st_today.get('held_before') or [])
         cur_set = {d['ticker'] for d in top5}
         buys = sorted(cur_set - prev_set)
         sells = sorted(prev_set - cur_set)
         diff = (buys, sells)
-    # NAV (로그 리플레이)
-    nav = 1.0
-    hold = []
-    ppx = {}
-    for i, dday in enumerate(all_days):
-        day = [r for r in rows if r['run_date'] == dday]
-        st2 = [k for k, r in enumerate(day) if r['rank'] == '1']
-        if st2:
-            day = day[st2[-1]:]
-        px = {r['ticker']: float(r['price']) for r in day if r.get('price')}
-        if hold:
-            rr = [px[t] / ppx[t] - 1 for t in hold if t in px and t in ppx and ppx[t] > 0]
-            if rr:
-                nav *= 1 + sum(rr) / len(rr)
-        if i % REBAL == 0:
-            hold = [r['ticker'] for r in day if r.get('in_top4') == '1']
-        ppx.update(px)
+    nav = rp['nav']
     # 신호등
     try:
         from memory_cycle_alert import build_message
@@ -826,6 +913,11 @@ def _compose_and_send(merged):
     kdt = _dt.now()
     wd = '월화수목금토일'[kdt.weekday()]
     m1 = [f'📬 <b>오늘의 주식 신호</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━', '']
+    if meta.get('warnings'):
+        m1.append('⚠️ <b>데이터 품질 주의</b>')
+        for wmsg in meta['warnings']:
+            m1 += _wrap('· ' + wmsg, 44)
+        m1.append('')
     if fired:
         m1 += ['🔴 <b>메모리 위험 경보 발동!</b>',
                '아래 위험 신호등 안내에 따라',
@@ -838,6 +930,8 @@ def _compose_and_send(merged):
         for t in diff[0]:
             m1.append(f'🟢 사기: {_display_name(t)} — 자산의 20% 매수')
         m1.append('나머지 종목은 그대로 유지하세요.')
+        m1.append('(이미 처리했거나 갖고 있지 않은')
+        m1.append(' 종목은 건너뛰면 됩니다)')
     elif is_rebal:
         m1 += ['✅ <b>오늘 할 일: 없음</b>', '점검 결과 교체 없이 그대로 갑니다.']
     else:
@@ -914,8 +1008,17 @@ def _compose_and_send(merged):
     if brief_mkt:
         m3 += ['', '<b>무슨 일이 있었나</b>'] + _split_sents(brief_mkt)
     m3 += ['', amsg]
+    _sha = _git_sha()
+    if _sha:
+        m3 += ['', f'<i>sys {_sha} · {today}</i>']  # 코드버전 — 낡은 코드 발송 식별용 (감사수리 3)
     # ── 발송 ──
     print('\n' + '\n'.join(m1).replace('<b>', '').replace('</b>', ''))
+    if os.environ.get('UNIFIED_DRY_RUN') == '1':
+        print('\n[UNIFIED_DRY_RUN=1] 발송 생략 — 메시지 2·3 미리보기:')
+        if m2:
+            print('\n'.join(m2).replace('<b>', '').replace('</b>', ''))
+        print('\n'.join(m3).replace('<b>', '').replace('</b>', '').replace('<i>', '').replace('</i>', ''))
+        return
     _tk = os.environ.get('TELEGRAM_BOT_TOKEN', '')
     _pid = os.environ.get('TELEGRAM_PRIVATE_ID', '')
     if not (_tk and _pid):
@@ -944,10 +1047,10 @@ if __name__ == '__main__':
     if '--nav' in sys.argv:
         cmd_nav()
     else:
-        _merged_for_msg = cmd_run()
+        _merged_for_msg, _meta_for_msg = cmd_run()
         # 통합(US+KR) 신호 3종 발송 — 본선 (2026-07-09 사용자 확정)
         try:
-            _compose_and_send(_merged_for_msg)
+            _compose_and_send(_merged_for_msg, _meta_for_msg)
         except Exception as _e:
             import traceback
             traceback.print_exc()
