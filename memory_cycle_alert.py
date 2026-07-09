@@ -3,7 +3,7 @@
 
 경보 2종 (research/CYCLE_DETECTOR_FINDINGS_2026_07_09.md):
   ①주가: 6종(MU·SNDK·WDC·STX·삼성·하이닉스) 중 3종+가 자기 MA90 아래 → 즉시 발동, 해소 5일 연속 → 해제
-  ②수출: 한국 반도체 수출 YoY(ECOS 403Y001/30911AA) 3개월 연속 하락 → 발동
+  ②수출: 한국 반도체 수출 YoY — 표시 전용(발동 조건 아님, 2026-07-09 강등)
 발동 중 행동(권고): 메모리 전량 매도→현금 (10년 프록시: 최악 -54%→-31%, 수익 보존)
 무상태(stateless): 매 실행 2년치 가격으로 상태기계 재계산 → 어느 머신에서든 동일 답.
 사용: python memory_cycle_alert.py [--send]  (--send 시 개인봇 발송, 기본은 출력만)
@@ -65,7 +65,11 @@ def build_message():
         exp_line = f'한국 반도체 수출 {"석 달 연속 감소 🔴" if e_on else f"전년비 {e_yoy:+.0f}% 호조"}'
     except Exception:
         e_on, exp_line = False, '수출 데이터 조회 실패 (주가 감시만 유효)'
-    fired = p_on or e_on
+    # 2026-07-09 밤: 수출 leg를 발동 조건에서 표시 전용으로 강등 — 신 가격 leg(MA90·3/6·즉시) 하에서
+    # 수출 OR은 순손실(Calmar 2.01→1.94, 수출 단독 0.92<무시 1.18: 월간+공표지연이 반등을 놓침,
+    # 'YoY 3개월 연속 하락'은 호황 감속에도 발동). 구 가격 leg 시절의 +12~20p는 조건부 결론이었음.
+    # 상세: research/CYCLE_TIMING_SWEEP_2026_07_09.md. 회사 하네스 재확인 안건.
+    fired = p_on
     KRN = {'005930.KS': '삼성전자', '000660.KS': 'SK하이닉스'}
     disp = [KRN.get(t, t) for t in names]
     if fired:
