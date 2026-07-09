@@ -6194,5 +6194,13 @@
   "KNSA": {
     "shortName": "Kiniksa Pharmaceuticals Interna",
     "industry": "특수제약"
+  },
+  "EWTX": {
+    "shortName": "EWTX",
+    "industry": "기타"
+  },
+  "MRX": {
+    "shortName": "Marex Group plc",
+    "industry": "자본시장"
   }
 }
