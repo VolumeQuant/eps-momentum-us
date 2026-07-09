@@ -4252,9 +4252,9 @@ def _vm_paper_section(today_str, standalone=False):
         for card_line in _vm_stock_card(tk, today_str):
             lines.append(f'   {card_line}')
         if briefs.get(tk):
-            # 문장 단위 + 표시폭(한글 2칸) 기준 줄바꿈 — 모바일 강제 줄바꿈 방지
-            for sent in _re.split(r'(?<=\.)\s+', briefs[tk]):
-                for wl in _tg_wrap(sent.strip(), width=32):
+            # 한 문장 = 한 줄 (내부 강제 꺾기 제거 — 2026-07-09 가독성 피드백, 안전선 90칸)
+            for sent in _re.split(r'(?<=[.다])\s+', briefs[tk]):
+                for wl in _tg_wrap(sent.strip(), width=90):
                     if wl:
                         lines.append(f'   {wl}')
     buy_lbl, sell_lbl = ('🟢 매수: ', '🔴 매도: ') if standalone else ('🟢 편입 ', '🔴 제외 ')

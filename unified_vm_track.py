@@ -442,7 +442,7 @@ def _market_page():
         lines += ['', '📰 <b>시장 동향</b>']
         import re as _re
         for sent in _re.split(r'(?<=[.다])\s+', brief):
-            for wl in _wrap(sent.strip(), 32):
+            for wl in _wrap(sent.strip(), 90):
                 if wl:
                     lines.append(wl)
     return '\n'.join(lines) if len(lines) > 3 else None
@@ -577,12 +577,14 @@ if __name__ == '__main__':
             cards = _us_cards([d['ticker'] for d in _m20 if d['market'] == 'US'])
             import re as _re3
             def _brief_lines(tk, indent='   '):
+                # 한 문장 = 한 줄 (문장 내부 강제 꺾기 제거 — 2026-07-09 가독성 피드백,
+                # 자연 줄바꿈은 텔레그램 클라이언트가 단어 경계에서 처리)
                 b = briefs.get(tk)
                 if not b:
                     return []
                 out = []
                 for sent in _re3.split(r'(?<=[.다])\s+', b):
-                    for wl in _wrap(sent.strip(), 32):
+                    for wl in _wrap(sent.strip(), 90):
                         if wl:
                             out.append(indent + wl)
                 return out
