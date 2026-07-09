@@ -53,23 +53,28 @@ def build_message():
     p_on, n, names, asof = price_alarm()
     try:
         e_on, e_yoy, e_month = export_alarm()
-        exp_line = (f'{"🚨 발동" if e_on else "✅ 정상"} — 수출 YoY {e_yoy:+.0f}% ({e_month}, 확정치 기준)')
-    except Exception as ex:
-        e_on, exp_line = False, f'⚠️ 수출 데이터 조회 실패({ex}) — 주가 경보만 유효'
+        exp_line = f'한국 반도체 수출 {"석 달 연속 감소 🔴" if e_on else f"전년비 {e_yoy:+.0f}% 호조"}'
+    except Exception:
+        e_on, exp_line = False, '수출 데이터 조회 실패 (주가 감시만 유효)'
     fired = p_on or e_on
-    head = '🚨 <b>메모리 사이클 경보 발동</b>' if fired else '🧭 메모리 사이클 경보: 꺼짐'
     KRN = {'005930.KS': '삼성전자', '000660.KS': 'SK하이닉스'}
     disp = [KRN.get(t, t) for t in names]
-    lines = [head, '',
-             f'주가 경보: {"🚨 발동" if p_on else "꺼짐"} — {n}/6 이탈 ({asof})',
-             ('  이탈: ' + ', '.join(disp)) if disp else '  이탈 종목 없음',
-             f'수출 경보: {exp_line}']
     if fired:
-        lines += ['', '권고: 메모리 보유를 1/4로 축소,',
-                  '판 돈은 현금 대기 (다른 종목 대체 X)',
-                  '(10년 검증: 최악 -54%→-23%, 수익 보존)',
-                  '해제 알림 올 때까지 유지']
-    return '\n'.join(lines), fired
+        lines = ['🚦 <b>메모리 위험 감시등: 🔴 켜짐</b>',
+                 f'메모리 대표주 {n}/6이 동반 하락 추세입니다.',
+                 f'({", ".join(disp)})' if disp else '',
+                 exp_line, '',
+                 '→ 메모리 종목만 보유량을 1/4로 줄이고',
+                 '  판 돈은 현금으로 보관하세요.',
+                 '  (다른 종목으로 갈아타지 않기)',
+                 '  초록불 알림이 올 때까지 유지.',
+                 '  근거: 지난 10년 큰 하락 5번 전부 감지,',
+                 '  따랐다면 최악 손실 -54%→-23%']
+    else:
+        detail = f'약세 신호 {n}/6' + (f' ({", ".join(disp)})' if disp else '')
+        lines = ['🚦 메모리 위험 감시등: 🟢 정상',
+                 f'{detail} — 4/6부터 빨간불 · {exp_line}']
+    return '\n'.join([l for l in lines if l]), fired
 
 
 if __name__ == '__main__':

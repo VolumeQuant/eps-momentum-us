@@ -292,28 +292,45 @@ if __name__ == '__main__':
             import requests as _rq
             rows = list(_csv.DictReader(open(LOG, encoding='utf-8')))
             today = rows[-1]['run_date'] if rows else None
-            top = [r for r in rows if r['run_date'] == today and r.get('in_top4') == '1']
+            trows = [r for r in rows if r['run_date'] == today]
+            # 같은 날 중복 실행 방어: 마지막 블록(마지막 rank=1 이후)만 사용
+            starts = [i for i, r in enumerate(trows) if r['rank'] == '1']
+            if starts:
+                trows = trows[starts[-1]:]
+            top = [r for r in trows if r.get('in_top4') == '1']
             top = sorted(top, key=lambda r: int(r['rank']))[:N_TOP]
             KRN = {'000660.KS': 'SK하이닉스', '005930.KS': '삼성전자', '011070.KS': 'LG이노텍'}
-            # 교체 카운트다운: 앵커 = 로그 첫 run_date, 5거래일 주기
+            IND = {'SNDK': '미국 · 낸드 반도체', 'MU': '미국 · 메모리 반도체',
+                   'HPE': '미국 · AI서버', 'DELL': '미국 · 서버·PC', 'FLEX': '미국 · 전자 제조',
+                   'WDC': '미국 · 데이터 저장장치', 'STX': '미국 · 데이터 저장장치',
+                   'MCHP': '미국 · 반도체', 'NVDA': '미국 · AI 반도체', 'AVGO': '미국 · 반도체',
+                   'TSM': '미국 · 반도체 위탁생산', 'AAL': '미국 · 항공',
+                   '000660.KS': '한국 · 메모리 반도체', '005930.KS': '한국 · 전자',
+                   '011070.KS': '한국 · 전자부품'}
             all_days = sorted({r['run_date'] for r in rows})
             idx = all_days.index(today) if today in all_days else len(all_days) - 1
             is_rebal = (idx % REBAL == 0)
             next_in = REBAL - (idx % REBAL)
-            rebal_line = ('🔄 오늘 = 교체일 (아래 구성으로 재조정)' if is_rebal
-                          else f'다음 교체까지 {next_in}거래일')
-            lines = ['🌏 <b>US+KR 통합 TOP5</b> (각 20%)', rebal_line, '']
+            rebal_line = ('🔄 오늘은 교체일 — 아래 구성으로 조정'
+                          if is_rebal else f'다음 교체까지 {next_in}거래일 (그때까지 유지)')
+            lines = ['🌏 <b>미국+한국 이익전망 TOP5</b>',
+                     '애널리스트 이익전망이 가장 빠르게',
+                     '좋아지는 5종목을 각 20%씩 담습니다.',
+                     rebal_line, '']
             for i, r in enumerate(top, 1):
                 nm = KRN.get(r['ticker'], r['ticker'])
-                g = r['gap']
+                sect = IND.get(r['ticker'], '')
+                lines.append(f"{i}. <b>{nm}</b>" + (f' ({sect})' if sect else ''))
+                lines.append(f"   90일간 이익전망 +{float(r['rev90']):.0f}% 상향")
+                sub = f"   예상이익 대비 주가 {float(r['fwd_per']):.0f}배"
                 try:
-                    gtxt = f"{float(g):.1f}배"
+                    sub += f" · 이익 {float(r['gap']):.1f}배 성장 예상"
                 except (TypeError, ValueError):
-                    gtxt = '-'
-                lines.append(f"{i}. [{r['market']}] {nm}")
-                lines.append(f"   전망 +{float(r['rev90']):.0f}% · PER {float(r['fwd_per']):.0f} · 이익 {gtxt}")
-            lines += ['', '⚠️ 실매매 기준은 신호 하나만 따를 것',
-                      '(US 채널 신호와 혼용 금지)']
+                    pass
+                lines.append(sub)
+            lines += ['', '📋 매매는 교체일에만 합니다.',
+                      '미국 종목 = 당일 밤 개장,',
+                      '한국 종목 = 다음날 아침 개장에.']
             from memory_cycle_alert import build_message
             amsg, fired = build_message()
             msg = '\n'.join(lines) + '\n\n' + amsg
