@@ -296,10 +296,16 @@ def compute():
     # 아니라 자기 시장 '유동성 유니버스' 내 백분위로 환산해 결합 — KR 리비전 인플레 보정.
     # (실측: 횡단면 중앙값 US +4.3% vs KR +17.0%, MAD 3.4 vs 13.5. LG이노텍 +50.6%=KR
     #  82%ile vs HPE +49.2%=US 94%ile → 절대값이 아니라 백분위로 재야 HPE 우위.)
-    # denominator: US=$1B 유동주(패리티), KR=전체 커버 유니버스 — ★단 당일 스냅샷이 아니라
-    # 30일 트레일링 유니온 (2026-07-10 감사수리: 수집 붕괴 attrition이 백분위 ~5%p 왜곡).
+    # denominator = 각 시장 애널 커버 전체(무필터), 30일 트레일링 유니온.
+    # ★2026-07-10 2차 감사수리(사용자 "둘 다 거래대금 조건을 걸거나 둘 다 안 걸어야"):
+    #   구 스펙은 US만 $1B 필터(121) / KR 무필터 = 잣대 둘 — 이 비대칭이 5위(삼성 vs FLEX)를
+    #   결정하고 있었음. 대칭 대안 중 '둘 다 필터'는 KR이 20종목(등수 1칸=5%p)이라 통계 불능 →
+    #   '둘 다 무필터' 채택. 근거: ①정규화의 근거 측정(US +4.4 vs KR +10.1 중앙값)부터 무필터
+    #   전체끼리 잰 것(증거-구현 일관성) ②유동성은 후보 게이트(US $1B/KR $0.3B)가 이미 담당 —
+    #   자(분모)에 또 섞으면 개념 이중적용 ③top4(SNDK·MU·HPE·하이닉스)는 잣대 무관 확고,
+    #   5위는 razor-thin(판정일 재확인 항목). 상세: research/AUDIT_FIXES_2026_07_10.md 2차.
     try:
-        uus = _universe_rev90(os.path.join(HERE, 'eps_momentum_data.db'), dv_min=DV_MIN_MUSD)
+        uus = _universe_rev90(os.path.join(HERE, 'eps_momentum_data.db'))
         ukr = _universe_rev90(KR_DB, n90_floor=100.0)  # 원화 저분모 가드
         meta['base_n'] = {'US': len(uus), 'KR': len(ukr)}
         if len(ukr) < 30:
