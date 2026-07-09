@@ -271,6 +271,26 @@ def _ai_market_brief():
         return None
 
 
+def _industry_tag(d):
+    """'(미 · 반도체)' 형식 업종 태그 — US=ticker_info_cache, KR=고정 맵."""
+    KR_IND = {'000660.KS': '메모리 반도체', '005930.KS': '전자', '011070.KS': '전자부품'}
+    cc = '한' if d['market'] == 'KR' else '미'
+    ind = ''
+    if d['market'] == 'KR':
+        ind = KR_IND.get(d['ticker'], '')
+    else:
+        try:
+            global _TC_CACHE
+            if '_TC_CACHE' not in globals():
+                import json as _j
+                _TC_CACHE = _j.load(open(os.path.join(HERE, 'ticker_info_cache.json'), encoding='utf-8'))
+            v = _TC_CACHE.get(d['ticker'])
+            ind = v.get('industry') if isinstance(v, dict) else (v[0] if isinstance(v, (list, tuple)) else v) or ''
+        except Exception:
+            ind = ''
+    return '(%s · %s)' % (cc, ind) if ind else '(%s)' % cc
+
+
 def _us_cards(tickers):
     """US 종목 건강성 카드 (US DB carry-forward 최신값). {tk: [줄,...]}"""
     out = {}
@@ -528,6 +548,9 @@ if __name__ == '__main__':
             for i, r in enumerate(top, 1):
                 nm = KRN.get(r['ticker'], r['ticker'])
                 sect = IND.get(r['ticker'], '')
+                if not sect:
+                    _dd = next((x for x in (_merged_for_msg or []) if x['ticker'] == r['ticker']), None)
+                    sect = _industry_tag(_dd).strip('()') if _dd else ''
                 lines.append(f"{i}. <b>{nm}</b>" + (f' ({sect})' if sect else ''))
                 lines.append(f"   90일간 이익전망 +{float(r['rev90']):.0f}% 상향")
                 sub = f"   예상이익 대비 주가 {float(r['fwd_per']):.0f}배"
@@ -540,19 +563,21 @@ if __name__ == '__main__':
                     lines.append('   ' + cl)
                 lines += _brief_lines(r['ticker'])
                 lines.append('')
+            lines2 = None
             # 게이트 통과자 6~20위 (2026-07-09 사용자 요청: 1차 통과 rev90 순위 보기)
             try:
                 _m = _merged_for_msg
                 if _m and len(_m) > N_TOP:
-                    lines += ['📊 <b>다음 후보 6~20위</b> (참고용 · 매수 아님)',
-                              '같은 검사를 통과한 종목의 이익전망 순위예요.', '']
+                    lines2 = ['📊 <b>다음 후보 6~20위</b> (참고용 · 매수 아님)',
+                              'TOP5와 같은 검사를 통과한',
+                              '다음 순위 종목들이에요.', '']
                     for j, d in enumerate(_m[N_TOP:20], N_TOP + 1):
                         nm2 = KRN.get(d['ticker'], d['ticker'])
-                        cc = '한' if d['market'] == 'KR' else '미'
                         gtxt = f" · 이익 {d['gap']:.1f}배 예상" if d.get('gap') else ''
-                        lines.append(f"<b>{j}. {nm2}</b>({cc}) 전망 +{d['rev90']:.0f}%")
-                        lines.append(f"   선행PER {d['fwd_per']:.0f}{gtxt}")
-                        lines += _brief_lines(d['ticker'])
+                        lines2.append(f"<b>{j}. {nm2}</b> {_industry_tag(d)}")
+                        lines2.append(f"   전망 +{d['rev90']:.0f}% · 선행PER {d['fwd_per']:.0f}{gtxt}")
+                        lines2 += _brief_lines(d['ticker'])
+                        lines2.append('')
             except Exception as _e2:
                 print(f'[6~20위 섹션 스킵: {_e2}]')
             if diff_lines:
@@ -588,6 +613,8 @@ if __name__ == '__main__':
             sys.path.insert(0, r'C:\dev')
             from config import TELEGRAM_BOT_TOKEN as _tk, TELEGRAM_PRIVATE_ID as _pid
             _send_long(_tk, _pid, msg)
+            if lines2:
+                _send_long(_tk, _pid, '\n'.join(lines2))
             _mp = _market_page()
             if _mp:
                 _send_long(_tk, _pid, _mp)
