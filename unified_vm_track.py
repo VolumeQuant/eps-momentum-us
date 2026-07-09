@@ -41,6 +41,34 @@ def _seg(a, b):
     return (a - b) / abs(b) * 100 if (b and abs(b) > 0.01) else 0
 
 
+def _robust_n90_map(conn, last_date, lookback=6, dev=0.20):
+    """ntm_90d(90일전 기준선) glitch 가드 (2026-07-09).
+
+    yfinance eps_trend '90daysAgo' 컬럼이 하루 spurious 점프를 내면 rev90이 붕괴한다
+    (삼성전자 7/8: 기준선 +20% 점프 → rev90 92%→64% → top5 부당 탈락).
+    최근 lookback일 ntm_90d 중앙값 대비 dev 이상 벗어난 오늘값만 중앙값으로 대체.
+    정상값은 그대로 → 정상 종목엔 무영향(행동변화 0). look-ahead 없음(과거+오늘만).
+    """
+    import statistics as _s
+    days = [r[0] for r in conn.execute(
+        "SELECT DISTINCT date FROM ntm_screening ORDER BY date DESC LIMIT ?", (lookback,))]
+    if len(days) < 3:
+        return {}
+    dmin = min(days)
+    hist = {}
+    for tk, n90 in conn.execute(
+            "SELECT ticker, ntm_90d FROM ntm_screening WHERE date>=? AND ntm_90d IS NOT NULL AND ntm_90d>0.1",
+            (dmin,)):
+        hist.setdefault(tk, []).append(n90)
+    out = {}
+    for tk, n90 in conn.execute(
+            "SELECT ticker, ntm_90d FROM ntm_screening WHERE date=? AND ntm_90d IS NOT NULL AND ntm_90d>0.1",
+            (last_date,)):
+        med = _s.median(hist.get(tk, [n90]))
+        out[tk] = med if (med > 0 and abs(n90 - med) / med > dev) else n90
+    return out
+
+
 def _fx_usdkrw():
     try:
         import yfinance as yf
@@ -100,10 +128,12 @@ def us_candidates():
         if om is not None: e[0] = om
         if fcf is not None: e[1] = fcf
         if roe is not None: e[2] = roe
+    rob90 = _robust_n90_map(conn, last)  # ntm_90d glitch 가드
     out = []
     for tk, p, nc, n7, n30, n60, n90, dv, na in c.execute(
             'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,dollar_volume_30d,'
             'num_analysts FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)):
+        n90 = rob90.get(tk, n90)
         if not ind_ok(tk):
             continue
         if dv is None or dv < DV_MIN_MUSD:
@@ -140,6 +170,7 @@ def kr_candidates(fx):
     rows = c.execute(
         'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,market_cap,num_analysts '
         'FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)).fetchall()
+    rob90 = _robust_n90_map(conn, last)  # ntm_90d glitch 가드 (삼성 7/8 붕괴 사례)
     conn.close()
     # 안전필터 패리티 (KR도 동일): OM/FCF/ROE carry-forward
     kconn = sqlite3.connect(KR_DB)
@@ -153,6 +184,7 @@ def kr_candidates(fx):
     kconn.close()
     pre = []
     for tk, p, nc, n7, n30, n60, n90, mc, na in rows:
+        n90 = rob90.get(tk, n90)
         if tk in KR_HOLDCO or tk in KR_IND_BLOCK:
             continue
         if (na or 0) < 5:
@@ -220,15 +252,16 @@ def _universe_rev90(db, dv_min=None):
     c = sqlite3.connect(db)
     dt = c.execute('SELECT MAX(date) FROM ntm_screening').fetchone()[0]
     has_dv = any(r[1] == 'dollar_volume_30d' for r in c.execute("PRAGMA table_info(ntm_screening)"))
+    rob90 = _robust_n90_map(c, dt)  # ntm_90d glitch 가드 (분모 분포도 교정)
     if dv_min is not None and has_dv:
-        q = ('SELECT ntm_current, ntm_90d FROM ntm_screening WHERE date=? AND ntm_current>0 '
+        q = ('SELECT ticker, ntm_current, ntm_90d FROM ntm_screening WHERE date=? AND ntm_current>0 '
              'AND ntm_90d>0.1 AND dollar_volume_30d IS NOT NULL AND dollar_volume_30d>=?')
         rows = c.execute(q, (dt, dv_min)).fetchall()
     else:
-        rows = c.execute('SELECT ntm_current, ntm_90d FROM ntm_screening '
+        rows = c.execute('SELECT ticker, ntm_current, ntm_90d FROM ntm_screening '
                          'WHERE date=? AND ntm_current>0 AND ntm_90d>0.1', (dt,)).fetchall()
     c.close()
-    return [(nc - n90) / abs(n90) * 100 for nc, n90 in rows]
+    return [(nc - rob90.get(tk, n90)) / abs(rob90.get(tk, n90)) * 100 for tk, nc, n90 in rows]
 
 
 def _dist_med_mad(vals):
