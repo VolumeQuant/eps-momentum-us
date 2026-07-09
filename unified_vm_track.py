@@ -15,8 +15,28 @@ from datetime import datetime
 
 sys.stdout.reconfigure(encoding='utf-8')
 HERE = os.path.dirname(os.path.abspath(__file__))
-KR_DB = os.environ.get('KR_DB_PATH', 'C:/dev/kr_eps_momentum/eps_momentum_data_kr.db')
-KR_FS_DIR = os.environ.get('KR_FS_DIR', 'C:/dev/data_cache')
+# 2026-07-10: KR 경로 머신별 자동탐색 — 회사PC=KR 프로덕션 직접(C:/dev/kr_eps_momentum, 18:10
+#   schtask가 여기서 돎), 집PC=quant_py-main 클론(회사PC가 매일 ~16:40 커밋 → git pull 수신).
+#   집PC의 C:/dev/kr_eps_momentum·C:/dev/data_cache는 07-09 정리 때 삭제됨(스크래치 복사본).
+def _first_existing(env_key, cands):
+    v = os.environ.get(env_key)
+    if v:
+        return v
+    for p in cands:
+        if os.path.exists(p):
+            return p
+    return cands[0]
+
+KR_DB = _first_existing('KR_DB_PATH', [
+    'C:/dev/kr_eps_momentum/eps_momentum_data_kr.db',                          # 회사PC 프로덕션
+    'C:/dev/claude-code/quant_py-main/kr_eps_momentum/eps_momentum_data_kr.db',  # 집PC 클론
+    'C:/dev/claude code/quant_py-main/kr_eps_momentum/eps_momentum_data_kr.db',
+])
+KR_FS_DIR = _first_existing('KR_FS_DIR', [
+    'C:/dev/data_cache',                                # 회사PC
+    'C:/dev/claude-code/quant_py-main/data_cache',      # 집PC 클론
+    'C:/dev/claude code/quant_py-main/data_cache',
+])
 LOG = os.path.join(HERE, 'data_cache', 'unified_vm_log.csv')
 # ★2026-07-09 프로덕션 재캘리브레이션 동기화: gap 2.5→1.5(전수검사 기준), top4→top5.
 #   US 프로덕션과 패리티 유지가 이 트랙의 존재 이유(같은 게이트를 양국에). in_top4 컬럼명은 로그 연속성
@@ -899,8 +919,20 @@ def _compose_and_send(merged):
     _tk = os.environ.get('TELEGRAM_BOT_TOKEN', '')
     _pid = os.environ.get('TELEGRAM_PRIVATE_ID', '')
     if not (_tk and _pid):
-        sys.path.insert(0, r'C:\dev')
-        from config import TELEGRAM_BOT_TOKEN as _tk, TELEGRAM_PRIVATE_ID as _pid
+        # 폴백 1 = C:\dev\config.py (회사PC — 검증된 프로덕션 토큰. 집PC 것은 07-09 정리 때 삭제됨)
+        try:
+            sys.path.insert(0, r'C:\dev')
+            from config import TELEGRAM_BOT_TOKEN as _tk, TELEGRAM_PRIVATE_ID as _pid
+        except ImportError:
+            # 폴백 2 = repo config.json (telegram_chat_id = 개인 유저 ID(양수) — daily_runner 패턴 준용.
+            #   ⚠️집PC config.json 토큰은 2026-07-10 현재 401(폐기됨) — 유효 토큰으로 갱신 필요)
+            import json as _j
+            _cfg = _j.load(open(os.path.join(HERE, 'config.json'), encoding='utf-8'))
+            _tk = _cfg['telegram_bot_token']
+            _pid = _cfg.get('telegram_private_id') or _cfg['telegram_chat_id']
+    _r = __import__('requests').get('https://api.telegram.org/bot%s/getMe' % _tk, timeout=15)
+    if not _r.json().get('ok'):
+        raise RuntimeError('텔레그램 토큰 무효(401) — 발송 불가. config 토큰을 갱신하세요.')
     _send_long(_tk, _pid, '\n'.join(m1))
     if m2:
         _send_long(_tk, _pid, '\n'.join(m2))
