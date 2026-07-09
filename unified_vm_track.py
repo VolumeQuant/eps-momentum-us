@@ -395,6 +395,16 @@ def _us_cards(tickers):
     return out
 
 
+def _brief_dict(x):
+    """브리핑을 {biz, why, risk} dict로 강제 — 문자열이 와도 카드 렌더가 깨지지 않게."""
+    if isinstance(x, dict):
+        return x
+    if isinstance(x, str) and x.strip():
+        parts = [p.strip() for p in x.split('||')]
+        return {'biz': parts[0], 'why': '', 'risk': parts[1] if len(parts) > 1 else ''}
+    return {}
+
+
 def _ai_stock_briefs(entries):
     """종목 브리핑 1콜 — 1~5위 3문장, 6~20위 1문장. {ticker: text} (실패시 빈 dict)."""
     key = os.environ.get('GEMINI_API_KEY', '')
@@ -427,7 +437,8 @@ def _ai_stock_briefs(entries):
                   '(3)경쟁지위나 재무 강점 1문장 (4)리스크 1~2문장. '
                   '[한줄] 종목은 정확히 2문장(무슨 회사인지 + 전망 상향 이유). '
                   '한국어, 문장당 30자 이내, 뻔한 일반론 금지, 과장 없이 사실만. '
-                  '형식: "TICKER: 문장들" 한 줄씩.\n' + '\n'.join(dl))
+                  '형식(한 줄씩): [상세]는 "TICKER: 사업·상향이유·강점 문장들 || 리스크 문장들" '
+                  '(리스크 앞에 반드시 ||), [한줄]은 "TICKER: 문장들".\n' + '\n'.join(dl))
         text = ''
         for _try in range(3):  # 재시도 (2026-07-09: 단발 실패로 브리핑 0건 발송 사고)
             try:
@@ -448,7 +459,7 @@ def _ai_stock_briefs(entries):
             for ln in text.splitlines():
                 t = ln.strip().lstrip('-*• ')
                 if t.upper().startswith(tk.upper() + ':') or t.upper().startswith(base.upper() + ':'):
-                    out[tk] = t.split(':', 1)[1].strip()
+                    out[tk] = _brief_dict(t.split(':', 1)[1].strip())
                     break
         return out
     except Exception as e:
@@ -602,7 +613,7 @@ def _stock_card(rank, d, brief, cards_map, first=False):
     medal = _MEDAL.get(rank, '')
     L = ['━━━━━━━━━━━━━━',
          f"{medal} <b>{rank}위 {nm}</b> ({tk}) · {nation} {sect}".replace('  ', ' '), '']
-    b = brief or {}
+    b = _brief_dict(brief)
     if b.get('biz') or b.get('why'):
         L.append('<b>무슨 회사?</b>')
         for key in ('biz', 'why'):
@@ -810,7 +821,7 @@ def _compose_and_send(merged):
             tk = d['ticker'].replace('.KS', '').replace('.KQ', '')
             sect = _industry_tag(d)
             nation = '한국' if d['market'] == 'KR' else '미국'
-            b = briefs.get(d['ticker']) or {}
+            b = _brief_dict(briefs.get(d['ticker']))
             m2 += ['─────────────',
                    f"<b>{j}위 {nm}</b> ({tk}) · {nation} {sect}".replace('  ', ' '), '']
             if b.get('biz') or b.get('why'):
@@ -873,4 +884,6 @@ if __name__ == '__main__':
         try:
             _compose_and_send(_merged_for_msg)
         except Exception as _e:
-            print(f'[통합신호 발송 실패(무해): {_e}]')
+            import traceback
+            traceback.print_exc()
+            print(f'[!!] 통합신호 발송 실패 — 메시지가 나가지 않았습니다: {_e}')
