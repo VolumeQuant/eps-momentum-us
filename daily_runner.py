@@ -3958,6 +3958,24 @@ def _vm_industry_ok(ticker):
     return not (isinstance(ind, str) and ind in (COMMODITY_INDUSTRIES | OFF_STRATEGY_INDUSTRIES))
 
 
+def _vm_fund_snapshot(conn, date_str):
+    """carry-forward 펀더멘털(OM/FCF/ROE, v76 캐시 시맨틱스: date<=오늘 최근 비결측값).
+
+    구시스템 안전필터 이식용(2026-07-09): 회전 수집이라 당일 row는 20~80%만 채워짐 → 60일 창 전방채움."""
+    snap = {}
+    for tk, om, fcf, roe in conn.execute(
+            "SELECT ticker, operating_margin, free_cashflow, roe FROM ntm_screening "
+            "WHERE date<=? AND date>=date(?, '-60 day') ORDER BY date", (date_str, date_str)):
+        e = snap.setdefault(tk, [None, None, None])
+        if om is not None:
+            e[0] = om
+        if fcf is not None:
+            e[1] = fcf
+        if roe is not None:
+            e[2] = roe
+    return snap
+
+
 def _vm_pick(date_str, conn=None):
     """가치게이트+모멘텀 top5 선정 — BT(per_gap_grid_2026_07_04) 산식과 1:1 동일.
 
@@ -3966,9 +3984,10 @@ def _vm_pick(date_str, conn=None):
     if own:
         conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
-        'SELECT ticker, price, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, dollar_volume_30d '
-        'FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0',
+        'SELECT ticker, price, ntm_current, ntm_7d, ntm_30d, ntm_60d, ntm_90d, dollar_volume_30d, '
+        'num_analysts FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0',
         (date_str,)).fetchall()
+    fund = _vm_fund_snapshot(conn, date_str)
     if own:
         conn.close()
     # ★게이트 에폭: 과거 리밸(<VM_GATE_FULL_FROM)은 구 게이트(sparse 2.5)로 리플레이 —
@@ -3980,7 +3999,7 @@ def _vm_pick(date_str, conn=None):
     te_fn = _pit_trailing_eps if legacy else _vm_trailing_eps
     top_n = VM_TOP_N_LEGACY if legacy else VM_TOP_N  # N도 에폭 동행(과거 리밸=Top4 리플레이, 장부 보존)
     cand = []
-    for tk, px, nc, n7, n30, n60, n90, dv in rows:
+    for tk, px, nc, n7, n30, n60, n90, dv, na in rows:
         if not _vm_industry_ok(tk):
             continue
         if dv is None or dv < MIN_DOLLAR_VOL_M:
@@ -4000,6 +4019,23 @@ def _vm_pick(date_str, conn=None):
         if gap is not None and gap < thr:
             continue
         rev90 = (nc - n90) / abs(n90) * 100
+        if not legacy:
+            # ★구시스템 안전필터 이식 4종 (2026-07-09, 사용자 지시 전수조사 — 91일 BT 발화 0~1회=비용 0 실측):
+            #   동전주 <$10 / 저커버리지(애널<3) / FCF·ROE 동시음수 / 영업마진<5%(AAL형 컷, 단독음수는 SNDK 보호).
+            #   나머지 구필터 6종(ma120·dd3025·up3·downratio·lowmargin·revg)은 승자학살 실측(-29~-40p,
+            #   LOWO +67.6→+4.9~12.8 붕괴: dd3025가 SNDK컷·ma120이 AVGO 35일컷)이라 미이식 — 사용자 결정 대기.
+            if px < 10:
+                continue
+            if rev90 <= 0:
+                continue
+            if (na or 0) < 3:
+                continue
+            f = fund.get(tk)
+            om, fcf, roe = (f[0], f[1], f[2]) if f else (None, None, None)
+            if om is not None and om < 0.05:
+                continue
+            if fcf is not None and roe is not None and fcf < 0 and roe < 0:
+                continue
         cand.append((tk, rev90, fpe, gap))
     cand.sort(key=lambda x: -x[1])
     return cand[:top_n]

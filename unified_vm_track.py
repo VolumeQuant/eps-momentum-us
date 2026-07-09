@@ -18,9 +18,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 KR_DB = 'C:/dev/kr_eps_momentum/eps_momentum_data_kr.db'
 KR_FS_DIR = 'C:/dev/data_cache'
 LOG = os.path.join(HERE, 'data_cache', 'unified_vm_log.csv')
-N_TOP, REBAL = 4, 5
-PE_MAX, GAP_MIN, DV_MIN_MUSD = 30.0, 2.5, 1000.0
+# ★2026-07-09 프로덕션 재캘리브레이션 동기화: gap 2.5→1.5(전수검사 기준), top4→top5.
+#   US 프로덕션과 패리티 유지가 이 트랙의 존재 이유(같은 게이트를 양국에). in_top4 컬럼명은 로그 연속성
+#   위해 유지(의미 = topN 멤버십). ⚠️gap 1.5로 낮추며 KR에 US 업종제외 등가 필터 신설(정유 등 —
+#   구 2.5에선 gap이 우연히 걸렀지만 1.5에선 S-Oil이 상위 진입, US 규칙이면 원자재/정유 제외 대상).
+N_TOP, REBAL = 5, 5
+PE_MAX, GAP_MIN, DV_MIN_MUSD = 30.0, 1.5, 1000.0
 KR_HOLDCO = {'402340.KS'}  # SK스퀘어(지주) — KR production 지주제외 준용
+KR_IND_BLOCK = {'010950.KS', '096770.KS'}  # S-Oil·SK이노베이션(정유) — US COMMODITY(석유정제) 등가
 # 병기 변형: 메모리 테마 캡2 (6월 그리드서 유일 유효 손잡이 — 급락창 1회라 채택 아닌 병기 관찰)
 MEMORY_THEME = {'SNDK', 'MU', 'WDC', 'STX', '005930.KS', '000660.KS'}
 THEME_CAP = 2
@@ -73,7 +78,10 @@ def us_candidates():
         ind = v.get('industry') if isinstance(v, dict) else (v[0] if isinstance(v, (list, tuple)) else v)
         return not (isinstance(ind, str) and ind in BAD)
 
-    TE = json.load(open(os.path.join(HERE, 'data_cache', 'trailing_eps_ttm.json'), encoding='utf-8'))
+    # 2026-07-09: 전수검사 전환 — full 캐시(1,445종목) 우선, 없으면 구 sparse 폴백 (프로덕션 _vm_trailing_eps 패리티)
+    _te_full = os.path.join(HERE, 'data_cache', 'trailing_eps_ttm_full.json')
+    _te_path = _te_full if os.path.exists(_te_full) else os.path.join(HERE, 'data_cache', 'trailing_eps_ttm.json')
+    TE = json.load(open(_te_path, encoding='utf-8'))
     conn = sqlite3.connect(os.path.join(HERE, 'eps_momentum_data.db'))
     c = conn.cursor()
     last = c.execute('SELECT MAX(date) FROM ntm_screening').fetchone()[0]
@@ -112,7 +120,7 @@ def kr_candidates(fx):
     conn.close()
     pre = []
     for tk, p, nc, n7, n30, n60, n90, mc, na in rows:
-        if tk in KR_HOLDCO:
+        if tk in KR_HOLDCO or tk in KR_IND_BLOCK:
             continue
         if (na or 0) < 5:
             continue
