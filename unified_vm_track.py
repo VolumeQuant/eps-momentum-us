@@ -271,10 +271,46 @@ def _ai_market_brief():
         return None
 
 
+_NAME_SEED = {
+    'SNDK': '샌디스크', 'MU': '마이크론', 'HPE': 'HPE', 'DELL': '델', 'FLEX': '플렉스',
+    'MCHP': '마이크로칩', 'AVGO': '브로드컴', 'TSM': 'TSMC', 'WDC': '웨스턴디지털',
+    'STX': '씨게이트', 'NVDA': '엔비디아', 'AMD': 'AMD', 'SMCI': '슈퍼마이크로',
+    'CRDO': '크레도', 'AAL': '아메리칸항공', 'ADI': '아날로그디바이스',
+    'AMAT': '어플라이드', 'LNG': '셰니어에너지', 'NOW': '서비스나우', 'MRK': '머크',
+    'META': '메타', 'INTU': '인튜이트', 'ORCL': '오라클', 'KLAC': 'KLA',
+    'LRCX': '램리서치', 'ON': '온세미', 'NOK': '노키아', 'CLS': '셀레스티카',
+    'ANET': '아리스타', 'CIEN': '시에나', 'COHR': '코히런트', 'LITE': '루멘텀',
+    '000660.KS': 'SK하이닉스', '005930.KS': '삼성전자', '011070.KS': 'LG이노텍',
+    '009150.KS': '삼성전기', '402340.KS': 'SK스퀘어',
+}
+
+
+def _display_name(tk):
+    """종목명 표시 — 시드맵 → 캐시(ticker_names.json) → yf shortName(1회 후 캐시)."""
+    if tk in _NAME_SEED:
+        return _NAME_SEED[tk]
+    import json as _j
+    cp = os.path.join(HERE, 'data_cache', 'ticker_names.json')
+    try:
+        cache = _j.load(open(cp, encoding='utf-8'))
+    except Exception:
+        cache = {}
+    if tk in cache:
+        return cache[tk]
+    try:
+        import yfinance as yf
+        nm = (yf.Ticker(tk).info or {}).get('shortName') or tk
+        nm = nm.replace(', Inc.', '').replace(' Inc.', '').replace(' Corporation', '').replace(' Corp.', '').replace(' Company', '').strip()
+        cache[tk] = nm
+        _j.dump(cache, open(cp, 'w', encoding='utf-8'), ensure_ascii=False)
+        return nm
+    except Exception:
+        return tk
+
+
 def _industry_tag(d):
     """'(미 · 반도체)' 형식 업종 태그 — US=ticker_info_cache, KR=고정 맵."""
     KR_IND = {'000660.KS': '메모리 반도체', '005930.KS': '전자', '011070.KS': '전자부품'}
-    cc = '한' if d['market'] == 'KR' else '미'
     ind = ''
     if d['market'] == 'KR':
         ind = KR_IND.get(d['ticker'], '')
@@ -288,7 +324,7 @@ def _industry_tag(d):
             ind = v.get('industry') if isinstance(v, dict) else (v[0] if isinstance(v, (list, tuple)) else v) or ''
         except Exception:
             ind = ''
-    return '(%s · %s)' % (cc, ind) if ind else '(%s)' % cc
+    return ind or ''
 
 
 def _us_cards(tickers):
@@ -344,14 +380,18 @@ def _ai_stock_briefs(entries):
         tool = types.Tool(google_search=types.GoogleSearch())
         dl = []
         for d in entries[:5]:
-            dl.append('[상세] %s: 90일 이익전망 %+.0f%%, 선행PER %.0f' % (d['ticker'], d['rev90'], d['fwd_per']))
+            dl.append('[상세] %s(%s, %s): 90일 이익전망 %+.0f%%, 선행PER %.0f'
+                      % (d['ticker'], _display_name(d['ticker']), _industry_tag(d) or '업종미상', d['rev90'], d['fwd_per']))
         for d in entries[5:20]:
-            dl.append('[한줄] %s: 90일 이익전망 %+.0f%%' % (d['ticker'], d['rev90']))
-        prompt = ('한국+미국 주식 퀀트 시스템의 오늘 순위다. [상세] 종목은 정확히 3문장'
-                  '(1)뭐하는 회사 (2)최근 이익전망 급상향의 구체적 이유-검색확인 (3)리스크 하나, '
-                  '[한줄] 종목은 정확히 1문장(뭐하는 회사+왜 전망이 오르는지 압축). '
-                  '한국어, 문장당 25자 이내로 짧게, 과장 없이 사실만. '
-                  '.KS로 끝나는 티커는 한국 종목이다. '
+            dl.append('[한줄] %s(%s, %s): 90일 이익전망 %+.0f%%'
+                      % (d['ticker'], _display_name(d['ticker']), _industry_tag(d) or '업종미상', d['rev90']))
+        prompt = ('한국+미국 주식 퀀트 시스템의 오늘 순위다. '
+                  '★모든 종목은 지금 상장되어 활발히 거래 중이다. 상장폐지·인수로 소멸했다는 서술 절대 금지, '
+                  '반드시 2026년 최신 정보를 검색해 확인하라(예: SNDK는 2025년 웨스턴디지털에서 분사 재상장한 샌디스크). '
+                  '[상세] 종목은 정확히 3문장: (1)무엇으로 돈 버는 회사인지 (2)최근 이익전망 급상향의 구체적 이유'
+                  '(실적·수주·가격 등 숫자 하나 이상 포함, 검색 확인) (3)리스크 하나. '
+                  '[한줄] 종목은 정확히 1문장(핵심 사업+전망 상향 이유 압축). '
+                  '한국어, 문장당 25자 이내, 뻔한 일반론 금지, 과장 없이 사실만. '
                   '형식: "TICKER: 문장들" 한 줄씩.\n' + '\n'.join(dl))
         resp = client.models.generate_content(
             model='gemini-2.5-flash', contents=prompt,
@@ -546,14 +586,15 @@ if __name__ == '__main__':
                      '좋아지는 5종목을 각 20%씩 담습니다.',
                      rebal_line, '']
             for i, r in enumerate(top, 1):
-                nm = KRN.get(r['ticker'], r['ticker'])
-                sect = IND.get(r['ticker'], '')
-                if not sect:
-                    _dd = next((x for x in (_merged_for_msg or []) if x['ticker'] == r['ticker']), None)
-                    sect = _industry_tag(_dd).strip('()') if _dd else ''
-                lines.append(f"{i}. <b>{nm}</b>" + (f' ({sect})' if sect else ''))
-                lines.append(f"   90일간 이익전망 +{float(r['rev90']):.0f}% 상향")
-                sub = f"   예상이익 대비 주가 {float(r['fwd_per']):.0f}배"
+                _dd = next((x for x in (_merged_for_msg or []) if x['ticker'] == r['ticker']), None)
+                nm = _display_name(r['ticker'])
+                tk_disp = r['ticker'].replace('.KS', '')
+                sect = _industry_tag(_dd) if _dd else ''
+                head = f"{i}. <b>{nm}</b> ({tk_disp}"
+                head += f" · {sect})" if sect else ")"
+                lines.append(head)
+                lines.append(f"   이익전망 90일 +{float(r['rev90']):.0f}%↑")
+                sub = f"   선행PER {float(r['fwd_per']):.0f}"
                 try:
                     sub += f" · 이익 {float(r['gap']):.1f}배 성장 예상"
                 except (TypeError, ValueError):
@@ -572,10 +613,13 @@ if __name__ == '__main__':
                               'TOP5와 같은 검사를 통과한',
                               '다음 순위 종목들이에요.', '']
                     for j, d in enumerate(_m[N_TOP:20], N_TOP + 1):
-                        nm2 = KRN.get(d['ticker'], d['ticker'])
+                        nm2 = _display_name(d['ticker'])
+                        tk2 = d['ticker'].replace('.KS', '')
+                        sect2 = _industry_tag(d)
                         gtxt = f" · 이익 {d['gap']:.1f}배 예상" if d.get('gap') else ''
-                        lines2.append(f"<b>{j}. {nm2}</b> {_industry_tag(d)}")
-                        lines2.append(f"   전망 +{d['rev90']:.0f}% · 선행PER {d['fwd_per']:.0f}{gtxt}")
+                        h2 = f"<b>{j}. {nm2}</b> ({tk2}" + (f" · {sect2})" if sect2 else ")")
+                        lines2.append(h2)
+                        lines2.append(f"   전망 +{d['rev90']:.0f}%↑ · 선행PER {d['fwd_per']:.0f}{gtxt}")
                         lines2 += _brief_lines(d['ticker'])
                         lines2.append('')
             except Exception as _e2:
