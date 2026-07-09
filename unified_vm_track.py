@@ -517,19 +517,39 @@ def cmd_run():
         print(f"{i:2}. [{d['market']}] {d['ticker']:10} rev90 {d['rev90']:+7.1f}%  "
               f"fwdPER {d['fwd_per']:5.1f}  gap {gap_s:>5}  dv ${(d['dv_musd'] or 0):,.0f}M{mark}")
     print('테마캡2 변형 top4:', capped)
+    # 백분위 결합 변형 (2026-07-09 병기 관찰 — KR 리비전 인플레 보정: US중앙값 +4.3 vs KR +17.0)
+    try:
+        import numpy as _np
+        def _uni(db):
+            _c = sqlite3.connect(db)
+            _dt2 = _c.execute('SELECT MAX(date) FROM ntm_screening').fetchone()[0]
+            arr = [ (nc - n90) / abs(n90) * 100 for nc, n90 in _c.execute(
+                'SELECT ntm_current, ntm_90d FROM ntm_screening WHERE date=? AND ntm_current>0 AND ntm_90d>0.1', (_dt2,)) ]
+            _c.close()
+            return _np.array(arr)
+        _uus = _uni(os.path.join(HERE, 'eps_momentum_data.db'))
+        _ukr = _uni(KR_DB)
+        for d in merged:
+            base = _uus if d['market'] == 'US' else _ukr
+            d['pct'] = float((base < d['rev90']).mean() * 100)
+        pct_top = [x['ticker'] for x in sorted(merged, key=lambda z: -z.get('pct', 0))[:N_TOP]]
+        print('백분위 결합 변형 top5:', pct_top)
+    except Exception as _pe:
+        pct_top = []
+        print(f'[백분위 변형 스킵: {_pe}]')
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
     new = not os.path.exists(LOG)
     with open(LOG, 'a', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
         if new:
             w.writerow(['run_date', 'us_date', 'kr_date', 'rank', 'market', 'ticker',
-                        'rev90', 'fwd_per', 'gap', 'dv_musd', 'price', 'in_top4', 'in_top4_cap2'])
+                        'rev90', 'fwd_per', 'gap', 'dv_musd', 'price', 'in_top4', 'in_top4_cap2', 'in_top5_pct'])
         for i, d in enumerate(merged[:20], 1):
             w.writerow([run_date, us_date, kr_date, i, d['market'], d['ticker'],
                         round(d['rev90'], 2), round(d['fwd_per'], 2),
                         round(d['gap'], 3) if d['gap'] else '',
                         round(d['dv_musd'], 1) if d['dv_musd'] else '', d['price'],
-                        int(i <= N_TOP), int(d['ticker'] in capped)])
+                        int(i <= N_TOP), int(d['ticker'] in capped), int(d['ticker'] in pct_top)])
     print(f'로그 append: {LOG}')
     return merged
 
