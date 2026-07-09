@@ -271,6 +271,135 @@ def _ai_market_brief():
         return None
 
 
+def _us_cards(tickers):
+    """US 종목 건강성 카드 (US DB carry-forward 최신값). {tk: [줄,...]}"""
+    out = {}
+    try:
+        conn = sqlite3.connect(os.path.join(HERE, 'eps_momentum_data.db'))
+        for tk in tickers:
+            r = conn.execute(
+                "SELECT num_analysts, rev_up30, rev_down30, rev_growth, market_cap, "
+                "dollar_volume_30d, roe, free_cashflow, operating_margin FROM ntm_screening "
+                "WHERE ticker=? AND date>=date((SELECT MAX(date) FROM ntm_screening), '-60 day') "
+                "ORDER BY date", (tk,)).fetchall()
+            f = [None] * 9
+            for row in r:
+                for k, v in enumerate(row):
+                    if v is not None:
+                        f[k] = v
+            na, up, dn, rg, mc, dv, roe, fcf, om = f
+            l1, l2 = [], []
+            if na:
+                l1.append('분석가 %d명(↑%d/↓%d)' % (na, up or 0, dn or 0))
+            if rg is not None:
+                l1.append('매출 %+.0f%%' % (rg * 100))
+            if mc:
+                l2.append('시총 $%.0fB' % (mc / 1e9))
+            if dv:
+                l2.append('거래 $%.1fB/일' % (dv / 1e3))
+            if om is not None:
+                l2.append('마진 %.0f%%' % (om * 100))
+            out[tk] = [' · '.join(x) for x in (l1, l2) if x]
+        conn.close()
+    except Exception as e:
+        print('[US 카드 스킵: %s]' % e)
+    return out
+
+
+def _ai_stock_briefs(entries):
+    """종목 브리핑 1콜 — 1~5위 3문장, 6~20위 1문장. {ticker: text} (실패시 빈 dict)."""
+    key = os.environ.get('GEMINI_API_KEY', '')
+    if not key:
+        try:
+            import json as _j
+            key = _j.load(open(os.path.join(HERE, 'config.json'), encoding='utf-8')).get('gemini_api_key', '')
+        except Exception:
+            pass
+    if not key or not entries:
+        return {}
+    try:
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=key, http_options={'timeout': 150_000})
+        tool = types.Tool(google_search=types.GoogleSearch())
+        dl = []
+        for d in entries[:5]:
+            dl.append('[상세] %s: 90일 이익전망 %+.0f%%, 선행PER %.0f' % (d['ticker'], d['rev90'], d['fwd_per']))
+        for d in entries[5:20]:
+            dl.append('[한줄] %s: 90일 이익전망 %+.0f%%' % (d['ticker'], d['rev90']))
+        prompt = ('한국+미국 주식 퀀트 시스템의 오늘 순위다. [상세] 종목은 정확히 3문장'
+                  '(1)뭐하는 회사 (2)최근 이익전망 급상향의 구체적 이유-검색확인 (3)리스크 하나, '
+                  '[한줄] 종목은 정확히 1문장(뭐하는 회사+왜 전망이 오르는지 압축). '
+                  '한국어, 문장당 25자 이내로 짧게, 과장 없이 사실만. '
+                  '.KS로 끝나는 티커는 한국 종목이다. '
+                  '형식: "TICKER: 문장들" 한 줄씩.\n' + '\n'.join(dl))
+        resp = client.models.generate_content(
+            model='gemini-2.5-flash', contents=prompt,
+            config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
+        text = resp.text or ''
+        out = {}
+        for d in entries[:20]:
+            tk = d['ticker']
+            base = tk.split('.')[0]
+            for ln in text.splitlines():
+                t = ln.strip().lstrip('-*• ')
+                if t.upper().startswith(tk.upper() + ':') or t.upper().startswith(base.upper() + ':'):
+                    out[tk] = t.split(':', 1)[1].strip()
+                    break
+        return out
+    except Exception as e:
+        print('[종목 브리핑 스킵: %s]' % e)
+        return {}
+
+
+def _market_page():
+    """두 번째 메시지: 시장 지수(KR 마감+US 전일/선물) + AI 시황."""
+    lines = ['━━━━━━━━━━━━━━━', '  🤖 <b>AI 시장 분석</b>', '━━━━━━━━━━━━━━━']
+    try:
+        import yfinance as yf
+        idx = []
+        for sym, nm in [('^KS11', '코스피'), ('^KQ11', '코스닥'), ('^GSPC', 'S&P(전일)'), ('NQ=F', '나스닥선물')]:
+            try:
+                fi = yf.Ticker(sym).fast_info
+                px, pv = fi.last_price, fi.previous_close
+                if px and pv:
+                    idx.append('%s %s(%+.1f%%)' % (nm, format(px, ',.0f'), (px / pv - 1) * 100))
+            except Exception:
+                pass
+        if idx:
+            lines += ['', '📊 <b>시장 지수</b>']
+            for k in range(0, len(idx), 2):
+                lines.append(' · '.join(idx[k:k + 2]))
+    except Exception as e:
+        print('[지수 스킵: %s]' % e)
+    brief = _ai_market_brief()
+    if brief:
+        lines += ['', '📰 <b>시장 동향</b>']
+        import re as _re
+        for sent in _re.split(r'(?<=[.다])\s+', brief):
+            for wl in _wrap(sent.strip(), 32):
+                if wl:
+                    lines.append(wl)
+    return '\n'.join(lines) if len(lines) > 3 else None
+
+
+def _send_long(token, chat_id, msg):
+    """4096자 제한 분할 발송 (줄 경계)."""
+    import requests as _rq
+    chunks, cur = [], ''
+    for ln in msg.split('\n'):
+        if len(cur) + len(ln) + 1 > 3500:
+            chunks.append(cur)
+            cur = ln
+        else:
+            cur = (cur + '\n' + ln) if cur else ln
+    if cur:
+        chunks.append(cur)
+    for ch in chunks:
+        _rq.post('https://api.telegram.org/bot%s/sendMessage' % token,
+                 data={'chat_id': chat_id, 'text': ch, 'parse_mode': 'HTML'}, timeout=20)
+
+
 def cmd_run():
     us_date, kr_date, fx, merged = compute()
     run_date = datetime.now().strftime('%Y-%m-%d')
@@ -378,6 +507,20 @@ if __name__ == '__main__':
                     diff_lines.append('🔴 매도: ' + '·'.join(sells))
                 if not (buys or sells):
                     diff_lines.append('변경 없음 — 그대로 유지')
+            _m20 = (_merged_for_msg or [])[:20]
+            briefs = _ai_stock_briefs(_m20)
+            cards = _us_cards([d['ticker'] for d in _m20 if d['market'] == 'US'])
+            import re as _re3
+            def _brief_lines(tk, indent='   '):
+                b = briefs.get(tk)
+                if not b:
+                    return []
+                out = []
+                for sent in _re3.split(r'(?<=[.다])\s+', b):
+                    for wl in _wrap(sent.strip(), 32):
+                        if wl:
+                            out.append(indent + wl)
+                return out
             lines = ['🌏 <b>미국+한국 이익전망 TOP5</b>',
                      '애널리스트 이익전망이 가장 빠르게',
                      '좋아지는 5종목을 각 20%씩 담습니다.',
@@ -393,16 +536,23 @@ if __name__ == '__main__':
                 except (TypeError, ValueError):
                     pass
                 lines.append(sub)
+                for cl in cards.get(r['ticker'], []):
+                    lines.append('   ' + cl)
+                lines += _brief_lines(r['ticker'])
+                lines.append('')
             # 게이트 통과자 6~20위 (2026-07-09 사용자 요청: 1차 통과 rev90 순위 보기)
             try:
                 _m = _merged_for_msg
                 if _m and len(_m) > N_TOP:
-                    lines += ['', '📊 <b>다음 후보 6~20위</b> (참고용 · 매수 아님)',
-                              '같은 검사를 통과한 종목의 이익전망 순위예요.']
+                    lines += ['📊 <b>다음 후보 6~20위</b> (참고용 · 매수 아님)',
+                              '같은 검사를 통과한 종목의 이익전망 순위예요.', '']
                     for j, d in enumerate(_m[N_TOP:20], N_TOP + 1):
                         nm2 = KRN.get(d['ticker'], d['ticker'])
                         cc = '한' if d['market'] == 'KR' else '미'
-                        lines.append(f"{j}. {nm2}({cc}) +{d['rev90']:.0f}%")
+                        gtxt = f" · 이익 {d['gap']:.1f}배 예상" if d.get('gap') else ''
+                        lines.append(f"<b>{j}. {nm2}</b>({cc}) 전망 +{d['rev90']:.0f}%")
+                        lines.append(f"   선행PER {d['fwd_per']:.0f}{gtxt}")
+                        lines += _brief_lines(d['ticker'])
             except Exception as _e2:
                 print(f'[6~20위 섹션 스킵: {_e2}]')
             if diff_lines:
@@ -431,22 +581,15 @@ if __name__ == '__main__':
             lines += ['', '📋 매매는 교체일에만 합니다.',
                       '미국 종목 = 당일 밤 개장,',
                       '한국 종목 = 다음날 아침 개장에.']
-            # AI 시황 (2026-07-09 사용자 요청)
-            _brief = _ai_market_brief()
-            if _brief:
-                lines += ['', '📰 <b>오늘 시장 한눈에</b>']
-                import re as _re2
-                for _sent in _re2.split(r'(?<=\.)\s+', _brief):
-                    for _wl in _wrap(_sent.strip(), 32):
-                        if _wl:
-                            lines.append(_wl)
             from memory_cycle_alert import build_message
             amsg, fired = build_message()
             msg = '\n'.join(lines) + '\n\n' + amsg
             print('\n' + msg.replace('<b>', '').replace('</b>', ''))
             sys.path.insert(0, r'C:\dev')
             from config import TELEGRAM_BOT_TOKEN as _tk, TELEGRAM_PRIVATE_ID as _pid
-            _rq.post(f'https://api.telegram.org/bot{_tk}/sendMessage',
-                     data={'chat_id': _pid, 'text': msg, 'parse_mode': 'HTML'}, timeout=20)
+            _send_long(_tk, _pid, msg)
+            _mp = _market_page()
+            if _mp:
+                _send_long(_tk, _pid, _mp)
         except Exception as _e:
             print(f'[통합신호/경보 발송 실패(무해): {_e}]')
