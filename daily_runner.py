@@ -3792,6 +3792,45 @@ def _pit_trailing_eps(ticker, date_str=None):
     return v
 
 
+_TRAILING_EPS_FULL_CACHE = None
+
+
+def _load_trailing_eps_full():
+    """data_cache/trailing_eps_ttm_full.json — 전종목 PIT TTM (VM 게이트 전수검사용, 2026-07-09).
+
+    구 sparse 캐시(141종목)와 별도 파일: 레거시 시스템(_entry_gap_ok 등)은 sparse 유지(장부 불변),
+    VM top4 게이트만 이 파일을 읽음. 로드 실패 시 빈 dict = missing=pass로 무해 폴백."""
+    global _TRAILING_EPS_FULL_CACHE
+    if _TRAILING_EPS_FULL_CACHE is None:
+        try:
+            p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             'data_cache', 'trailing_eps_ttm_full.json')
+            with open(p, encoding='utf-8') as f:
+                _TRAILING_EPS_FULL_CACHE = json.load(f)
+        except Exception as e:
+            log(f"trailing_eps_ttm_full 로드 실패(VM 게이트 missing=pass 폴백): {e}", "WARN")
+            _TRAILING_EPS_FULL_CACHE = {}
+    return _TRAILING_EPS_FULL_CACHE
+
+
+def _vm_trailing_eps(ticker, date_str=None):
+    """VM 게이트용 PIT TTM EPS — 전수검사(full 캐시). VM_GATE_LEGACY=1이면 구 sparse로 폴백."""
+    if os.getenv('VM_GATE_LEGACY') == '1':
+        return _pit_trailing_eps(ticker, date_str)
+    rec = _load_trailing_eps_full().get(ticker)
+    if not rec or ticker == '_meta':
+        return None
+    if date_str is None:
+        return rec[-1][1] if rec else None
+    v = None
+    for rd, e in rec:
+        if rd <= date_str:
+            v = e
+        else:
+            break
+    return v
+
+
 def _entry_gap_ok(ticker, ntm_current, date_str=None):
     """gap 진입게이트(기본 OFF). 계산되는데 gap<THR면 False(컷), 데이터공백이면 True(통과)."""
     if not ENTRY_GAP_GATE:
@@ -3864,7 +3903,12 @@ def _fwdper_gap_display(ticker):
 VM_TOP_N = 4
 VM_REBAL_DAYS = 5
 VM_PE_MAX = 30.0        # = PE_HOLD (기존 '비싸다' 기준 재사용)
-VM_GAP_THR = 2.5        # = 기배포 gap 진입게이트 임계 재사용
+# ★gap 게이트 전수검사 전환 (2026-07-09, 사용자 결정): 구 2.5는 '과거 랭크이력 141종목'만 검사하는
+#   커버리지 구멍(통과자 88% 무검증) 위에서 캘리브레이션된 숫자 — 전수검사로 바꾸면 2.25+는 LOWO 절벽.
+#   전수검사 임계 1.5 = 고원 어깨(1.25~1.5 LOWO +70~73 > 현행 +62.7, 수익 -14.5p·MDD -3p 비용).
+#   검증: research/GAP_BACKSOLVE_2026_07_09.md (정본 위상평균 + LOWO + 3축[gap·PER·dv] 인접 고원).
+#   ⚠️운영 전제: 어닝시즌엔 fetch_full_ttm 주1회 재실행(전종목 TTM 갱신). 킬스위치 VM_GATE_LEGACY=1(구 sparse+2.5).
+VM_GAP_THR = 2.5 if os.getenv('VM_GATE_LEGACY') == '1' else 1.5
 VM_PAPER_START = '2026-07-02'  # 페이퍼 앵커(리밸 기준일, DB 실존 날짜)
 _TICKER_INFO_CACHE_VM = {'d': None}
 
@@ -3936,7 +3980,7 @@ def _vm_pick(date_str, conn=None):
         fpe = px / nc
         if fpe > VM_PE_MAX:
             continue
-        te = _pit_trailing_eps(tk, date_str)
+        te = _vm_trailing_eps(tk, date_str)
         gap = (nc / te) if (te and te > 0) else None
         if gap is not None and gap < VM_GAP_THR:
             continue
@@ -4010,7 +4054,7 @@ def _vm_paper_state(today_str):
             continue
         px, nc, n90 = r
         rv = (nc - n90) / abs(n90) * 100 if (n90 and abs(n90) > 0.01) else 0.0
-        te = _pit_trailing_eps(tk, today_str)
+        te = _vm_trailing_eps(tk, today_str)
         ed, ep = entries.get(tk, (None, None))
         pos = (ed, (px / ep - 1) * 100) if (ed and ep and px) else (ed, None)
         fresh.append((tk, rv, (px / nc) if nc else 0.0, (nc / te) if (te and te > 0) else None, pos))

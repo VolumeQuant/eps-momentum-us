@@ -120,3 +120,13 @@ $1.5~3B는 MDD 개선(−16.7~17.4) 대가로 LOWO 반토막(+16~38). FINDINGS "
 ⚠️공통: 91일 단일 강세장 in-sample, 1.5는 사후 선택(고원 형상이 완충), TE_FULL은 7/5 정적 스냅샷이라
 프로덕션화 시 일일 PIT trailing 수집 전제. 스크립트: 세션 tmp full_gate_grid.py.
 
+## 6. 배포 구현 (2026-07-09 밤, 사용자 "판정일까지 기다리지 말자" 결정 — 머지=발효)
+- `daily_runner.py`: `_load_trailing_eps_full`/`_vm_trailing_eps` 신설(전수 PIT 캐시 `data_cache/trailing_eps_ttm_full.json`,
+  7/5 스냅샷 1,445종목), `VM_GAP_THR` 2.5→**1.5**, `_vm_pick`+`_vm_paper_state` 2곳만 교체.
+- **레거시 경로 불변**: 구시스템 `_entry_gap_ok`·legacy 메시지 표시는 sparse 캐시 그대로(장부 일관성).
+- 킬스위치 `VM_GATE_LEGACY=1` = 구 sparse+2.5 완전 복원(검증됨). 로드 실패 시 missing=pass 무해 폴백.
+- 검증: 신규 게이트 픽 == 연구 하네스 정확 일치(7/7 DELL→FLEX, 7/8 AAL·SNDK·MU·HPE 동일 = **7/10 리밸 행동변화 0**),
+  킬스위치 == 구 동작 바이트 일치. 부수 이득: AAL 등 신규 커버 종목 "이익 X배" 표시 정상화(구 "-").
+- ⚠️운영 숙제(판정일 배선): 어닝시즌(7월 중순~) fetch_full_ttm 주1회 재실행으로 full 캐시 갱신 — Q2 실적 반영 안 되면
+  trailing 낡아 gap 과대. 141종목 기준의 유래 = '과거 top30 랭크 이력 종목만 수집'된 역사적 부산물(의도된 선별 아님).
+
