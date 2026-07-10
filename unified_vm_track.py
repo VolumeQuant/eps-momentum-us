@@ -425,8 +425,9 @@ def _wrap(text, width=32):
     return out
 
 
-def _ai_market_brief():
-    """AI 시황 3~4문장 (2026-07-09 사용자 요청). 키/패키지 없으면 None(섹션 생략)."""
+def _gemini_key():
+    """Gemini 키 — env → repo config.json → C:/dev/config.py (텔레그램 토큰 폴백과 동일 패턴).
+    2026-07-10: 회사PC 로컬 실행에 env가 없어 AI 섹션이 조용히 빠지던 구멍 봉합."""
     key = os.environ.get('GEMINI_API_KEY', '')
     if not key:
         try:
@@ -435,16 +436,35 @@ def _ai_market_brief():
         except Exception:
             pass
     if not key:
+        try:
+            sys.path.insert(0, r'C:\dev')
+            import config as _c
+            key = getattr(_c, 'GEMINI_API_KEY', '')
+        except Exception:
+            pass
+    return key
+
+
+def _ai_market_brief():
+    """AI 시황 — 4단락 문단형 (2026-07-10 전면 개편: 구 5문장 단문은 '기계 같다' 피드백).
+    키/패키지 없으면 None(섹션 생략)."""
+    key = _gemini_key()
+    if not key:
         return None
     try:
         from google import genai
         from google.genai import types
-        client = genai.Client(api_key=key, http_options={'timeout': 90_000})
+        client = genai.Client(api_key=key, http_options={'timeout': 120_000})
         tool = types.Tool(google_search=types.GoogleSearch())
-        prompt = ('지금 한국시간 저녁이다. 검색해서 한국어로 정확히 5문장: '
-                  '지난밤 미국 증시 마감과 주도 섹터 2문장, 오늘 밤 미국장 주목 포인트(지표·실적 일정) 1문장, '
-                  '반도체·메모리 업황 1문장, 오늘 한국 증시 마감 1문장. '
-                  '미확인 루머(상장설·인수설) 금지, 문장당 30자 이내, 과장 없이 사실만.')
+        prompt = ('지금 한국시간 저녁이다. 구글 검색으로 사실 확인 후, 한국+미국 주식을 함께 '
+                  '투자하는 사람을 위한 오늘의 시황 브리핑을 한국어 문어체(~습니다)로 써라. '
+                  '아래 4개 단락을 이 라벨 그대로 시작하고, 단락 사이에 빈 줄 1개. '
+                  '각 단락 3~4문장, 지수 등락률·가격·금리 같은 구체 숫자 포함. '
+                  '과장·투자권유·미확인 루머(상장설·인수설) 금지, 확인된 사실만.\n'
+                  '[미국 증시] 지난밤 마감 — 지수 등락과 원인, 주도 섹터와 종목.\n'
+                  '[반도체·메모리] HBM·D램·낸드 가격과 수급, 주요 기업 뉴스.\n'
+                  '[한국 증시] 오늘 코스피·코스닥 마감과 특징 업종, 원/달러 환율.\n'
+                  '[오늘 밤 체크] 미국 경제지표·연준 발언·주요 실적 발표 일정과 관전 포인트.')
         resp = client.models.generate_content(
             model='gemini-2.5-flash', contents=prompt,
             config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
@@ -467,7 +487,8 @@ _NAME_SEED = {
     'SNPS': '시놉시스', 'NXPI': 'NXP반도체', 'APP': '앱러빈', 'GOOG': '알파벳',
     'IBM': 'IBM', 'MSFT': '마이크로소프트', 'JNJ': '존슨앤드존슨', 'MA': '마스터카드',
     '000660.KS': 'SK하이닉스', '005930.KS': '삼성전자', '011070.KS': 'LG이노텍',
-    '009150.KS': '삼성전기', '402340.KS': 'SK스퀘어',
+    '009150.KS': '삼성전기', '402340.KS': 'SK스퀘어', '066570.KS': 'LG전자',
+    '051910.KS': 'LG화학', '006400.KS': '삼성SDI', 'SOFI': '소파이',
 }
 
 
@@ -496,7 +517,9 @@ def _display_name(tk):
 
 def _industry_tag(d):
     """'(미 · 반도체)' 형식 업종 태그 — US=ticker_info_cache, KR=고정 맵."""
-    KR_IND = {'000660.KS': '메모리 반도체', '005930.KS': '전자', '011070.KS': '전자부품'}
+    KR_IND = {'000660.KS': '메모리 반도체', '005930.KS': '전자', '011070.KS': '전자부품',
+              '066570.KS': '가전·전장', '051910.KS': '화학·배터리', '006400.KS': '배터리',
+              '009150.KS': '전자부품'}
     ind = ''
     if d['market'] == 'KR':
         ind = KR_IND.get(d['ticker'], '')
@@ -560,7 +583,7 @@ def _us_cards(tickers):
             if rg is not None:
                 l1.append('매출 %+.0f%%' % (rg * 100))
             if mc:
-                l2.append('시총 $%.0fB' % (mc / 1e9))
+                l2.append('시총 %.1f조달러' % (mc / 1e12) if mc >= 1e12 else '시총 $%.0fB' % (mc / 1e9))
             if dv:
                 l2.append('거래 $%.1fB/일' % (dv / 1e3))
             if om is not None:
@@ -573,24 +596,27 @@ def _us_cards(tickers):
 
 
 def _brief_dict(x):
-    """브리핑을 {biz, why, risk} dict로 강제 — 문자열이 와도 카드 렌더가 깨지지 않게."""
+    """브리핑을 {biz, why, risk} dict로 강제 — 문자열이 와도 카드 렌더가 깨지지 않게.
+    형식: '회사소개 | 왜 핫한지 || 리스크' ('|' 앞=소개, '|' 뒤=상향 이유, '||' 뒤=리스크)."""
     if isinstance(x, dict):
         return x
     if isinstance(x, str) and x.strip():
         parts = [p.strip() for p in x.split('||')]
-        return {'biz': parts[0], 'why': '', 'risk': parts[1] if len(parts) > 1 else ''}
+        head = parts[0]
+        risk = parts[1] if len(parts) > 1 else ''
+        if '|' in head:
+            biz, why = head.split('|', 1)
+        else:
+            biz, why = head, ''
+        return {'biz': biz.strip(), 'why': why.strip(), 'risk': risk}
     return {}
 
 
 def _ai_stock_briefs(entries):
-    """종목 브리핑 1콜 — 1~5위 3문장, 6~20위 1문장. {ticker: text} (실패시 빈 dict)."""
-    key = os.environ.get('GEMINI_API_KEY', '')
-    if not key:
-        try:
-            import json as _j
-            key = _j.load(open(os.path.join(HERE, 'config.json'), encoding='utf-8')).get('gemini_api_key', '')
-        except Exception:
-            pass
+    """종목 브리핑 1콜 — 1~5위 상세, 6~10위 두 문장. {ticker: dict} (실패시 빈 dict).
+    2026-07-10 개편: 6~20위→6~10위, 소개/이유 분리('|'), 존댓말 문어체,
+    top5 파싱 커버리지 검증 후 재시도(1위 브리핑 누락 발송 재발 방지)."""
+    key = _gemini_key()
     if not key or not entries:
         return {}
     try:
@@ -602,42 +628,53 @@ def _ai_stock_briefs(entries):
         for d in entries[:5]:
             dl.append('[상세] %s(%s, %s): 90일 이익전망 %+.0f%%, 선행PER %.0f'
                       % (d['ticker'], _display_name(d['ticker']), _industry_tag(d) or '업종미상', d['rev90'], d['fwd_per']))
-        for d in entries[5:20]:
+        for d in entries[5:10]:
             dl.append('[한줄] %s(%s, %s): 90일 이익전망 %+.0f%%'
                       % (d['ticker'], _display_name(d['ticker']), _industry_tag(d) or '업종미상', d['rev90']))
-        prompt = ('한국+미국 주식 퀀트 시스템의 오늘 순위다. '
+        prompt = ('한국+미국 주식 퀀트 시스템의 오늘 순위다. 각 종목을 처음 듣는 일반 투자자에게 '
+                  '설명하듯 한국어 존댓말 문어체(~습니다)로 써라. '
                   '★모든 종목은 지금 상장되어 활발히 거래 중이다. 상장폐지·인수 소멸 서술 절대 금지, '
                   '미확인 루머(상장 추진설·인수설 등) 금지, 반드시 2026년 최신 정보를 검색해 확인하라'
                   '(예: SNDK는 2025년 웨스턴디지털에서 분사 재상장한 샌디스크). '
-                  '[상세] 종목은 5~6문장의 미니 분석: (1)무슨 사업으로 돈 버는 회사인지 1문장 '
-                  '(2)왜 이익전망이 급상향되는지 2문장 — 최근 실적발표·수주·제품가격 등 구체 숫자 포함(검색 확인) '
-                  '(3)경쟁지위나 재무 강점 1문장 (4)리스크 1~2문장. '
-                  '[한줄] 종목은 정확히 2문장(무슨 회사인지 + 전망 상향 이유). '
-                  '한국어, 문장당 30자 이내, 뻔한 일반론 금지, 과장 없이 사실만. '
-                  '형식(한 줄씩): [상세]는 "TICKER: 사업·상향이유·강점 문장들 || 리스크 문장들" '
-                  '(리스크 앞에 반드시 ||), [한줄]은 "TICKER: 문장들".\n' + '\n'.join(dl))
-        text = ''
+                  '[상세] 종목 구성: (a)무슨 사업으로 돈 버는 회사인지 1~2문장(제품·고객이 그려지게) '
+                  '(b)왜 지금 이익전망이 급상향되는지 2~3문장 — 최근 실적발표·수주·제품가격·점유율 등 '
+                  '구체 숫자를 검색으로 확인해 포함 (c)리스크 1~2문장(막연한 일반론 금지, 이 회사 고유의 위험). '
+                  '[한줄] 종목 구성: (a)무슨 회사인지 1문장 (b)전망 상향 이유 1문장. '
+                  '자연스러운 완결 문장으로, 전문용어는 한 번씩 풀어서. 과장 없이 사실만. '
+                  '★형식(종목당 정확히 한 줄, 라벨 그대로): '
+                  '[상세]는 "TICKER: 회사소개 문장 | 상향 이유 문장들 || 리스크 문장들" '
+                  '(소개와 이유 사이 |, 리스크 앞 || 필수), [한줄]은 "TICKER: 소개 | 이유".\n' + '\n'.join(dl))
+
+        def _parse(text):
+            out = {}
+            for d in entries[:10]:
+                tk = d['ticker']
+                base = tk.split('.')[0]
+                for ln in text.splitlines():
+                    t = ln.strip().lstrip('-*• ')
+                    if t.upper().startswith(tk.upper() + ':') or t.upper().startswith(base.upper() + ':'):
+                        out[tk] = _brief_dict(t.split(':', 1)[1].strip())
+                        break
+            return out
+
+        out = {}
+        top5 = {d['ticker'] for d in entries[:5]}
         for _try in range(3):  # 재시도 (2026-07-09: 단발 실패로 브리핑 0건 발송 사고)
             try:
                 resp = client.models.generate_content(
                     model='gemini-2.5-flash', contents=prompt,
                     config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
-                text = resp.text or ''
-                if text:
+                cand = _parse(resp.text or '')
+                if len(cand) > len(out):
+                    out = cand
+                # top5 전원 파싱됐으면 성공 — 아니면 재시도 (2026-07-10: 1위 카드 브리핑 누락 방지)
+                if len(top5 - set(out)) == 0:
                     break
+                print('[브리핑 시도 %d: top5 중 %d개 누락 → 재시도]' % (_try + 1, len(top5 - set(out))))
             except Exception as _e:
                 print('[브리핑 시도 %d 실패: %s]' % (_try + 1, _e))
                 import time as _t
                 _t.sleep(15)
-        out = {}
-        for d in entries[:20]:
-            tk = d['ticker']
-            base = tk.split('.')[0]
-            for ln in text.splitlines():
-                t = ln.strip().lstrip('-*• ')
-                if t.upper().startswith(tk.upper() + ':') or t.upper().startswith(base.upper() + ':'):
-                    out[tk] = _brief_dict(t.split(':', 1)[1].strip())
-                    break
         return out
     except Exception as e:
         print('[종목 브리핑 스킵: %s]' % e)
@@ -776,65 +813,71 @@ PER_ANCHOR = {'US': '미국 평균 22배', 'KR': '한국 평균 11배'}
 _MEDAL = {1: '🥇', 2: '🥈', 3: '🥉'}
 
 
-def _fmt_scale(d, cards_map):
-    """기업 규모 줄 — US: $B / KR: 조원 근사."""
-    out = []
-    cl = cards_map.get(d['ticker']) or []
-    for c in cl:
-        out.append(c)
-    return out
+
+def _card_facts(d, cards_map):
+    """cards_map 원시줄에서 팩트 추출 — {analysts, rev_growth, mcap, dv, margin}."""
+    f = {}
+    for c in (cards_map.get(d['ticker']) or []):
+        for part in [x.strip() for x in c.split('·')]:
+            if part.startswith('분석가'):
+                f['analysts'] = part.replace('분석가 ', '')
+            elif part.startswith('매출'):
+                f['rev_growth'] = part
+            elif part.startswith('시총'):
+                f['mcap'] = part
+            elif part.startswith('거래'):
+                f['dv'] = part.replace('거래 ', '')
+            elif part.startswith('마진'):
+                f['margin'] = part
+    return f
 
 
 def _stock_card(rank, d, brief, cards_map, first=False):
-    """종목 카드 — 무슨 회사 → 왜(숫자 3개) → 위험 → 규모."""
+    """종목 카드 (2026-07-10 개편) — 이름/티커/업종 → 무슨 회사 → 왜 뜨거운가 → 숫자 → 위험."""
     nm = _display_name(d['ticker'])
     tk = d['ticker'].replace('.KS', '').replace('.KQ', '')
     sect = _industry_tag(d)
-    nation = '한국' if d['market'] == 'KR' else '미국'
-    medal = _MEDAL.get(rank, '')
+    nation = '🇰🇷 한국' if d['market'] == 'KR' else '🇺🇸 미국'
+    medal = _MEDAL.get(rank, '▪️')
     L = ['━━━━━━━━━━━━━━',
-         f"{medal} <b>{rank}위 {nm}</b> ({tk}) · {nation} {sect}".replace('  ', ' '), '']
+         f"{medal} <b>{rank}위 {nm}</b> ({tk})",
+         f"{nation} · {sect}".replace('  ', ' ') if sect else nation, '']
     b = _brief_dict(brief)
-    if b.get('biz') or b.get('why'):
-        L.append('<b>무슨 회사?</b>')
-        for key in ('biz', 'why'):
-            for sent in _split_sents(b.get(key, '')):
-                L.append(sent)
+    if b.get('biz'):
+        L.append('<b>무슨 회사인가요?</b>')
+        L += _split_sents(b['biz'])
         L.append('')
-    L.append('<b>왜 순위권? — 숫자 3개만 보세요</b>')
-    L.append('')
-    L.append(f"① 전문가 전망 상향 +{d['rev90']:.0f}% (3개월)")
+    if b.get('why'):
+        L.append('<b>왜 지금 뜨거운가요?</b>')
+        L += _split_sents(b['why'])
+        L.append('')
+    L.append('<b>숫자로 확인하기</b>')
+    mk = '미국' if d['market'] == 'US' else '한국'
+    L.append(f"· 이익전망 3개월간 <b>+{d['rev90']:.0f}%</b> 상향")
     if d.get('pct') is not None:
-        mk = '미국' if d['market'] == 'US' else '한국'
-        L.append(f"· {mk} 시장에서 상위 {100 - d['pct']:.0f}% (공정 비교 기준)")
+        L.append(f"  ({mk} 전체에서 상위 {max(100 - d['pct'], 1):.0f}% 희소성)")
     if first:
-        L.append('· EPS(주당순이익) = 1주가 버는 돈.')
-        L.append(f"· 이익 전망치를 석 달 만에 {1 + d['rev90'] / 100:.1f}배로")
-        L.append('  올렸다는 뜻입니다.')
-    an = _analyst_line(d, cards_map)
-    if an:
-        L.append(an)
+        L.append('  = 전문가들이 이 회사 이익 전망치를')
+        L.append(f"    석 달 만에 {1 + d['rev90'] / 100:.1f}배로 올렸다는 뜻")
+    fx = _card_facts(d, cards_map)
+    if fx.get('analysts'):
+        an = fx['analysts'].replace('(↑', ' (30일 ↑').replace('/↓', ' ↓')
+        L.append(f"· 애널리스트 {an}")
     if d.get('gap'):
-        L.append('')
-        L.append(f"② 이익 성장 {d['gap']:.1f}배")
-        L.append('· 올해 예상 이익 = 작년 실적의'
-                 f" {d['gap']:.1f}배입니다.")
-    L.append('')
-    L.append(f"③ 가격은 선행PER {d['fwd_per']:.0f}배")
+        L.append(f"· 올해 예상이익 = 작년의 <b>{d['gap']:.1f}배</b>")
+    L.append(f"· 선행PER <b>{d['fwd_per']:.0f}배</b>"
+             + (f" ({PER_ANCHOR[d['market']]})" if first or d['fwd_per'] >= 20 else ''))
     if first:
-        L.append('· PER = 주가가 이익의 몇 배인가.')
-    L.append(f"· 낮을수록 싼 것. {PER_ANCHOR[d['market']]}.")
+        L.append('  = 올해 예상이익 대비 주가 배수, 낮을수록 쌈')
+    sz = ' · '.join(x for x in (fx.get('mcap'),
+                                ('하루 거래 ' + fx['dv'].replace('/일', '')) if fx.get('dv') else None) if x)
+    if sz:
+        L.append('· ' + sz)
     L.append('')
     if b.get('risk'):
-        L.append('<b>⚠️ 이런 위험이 있어요</b>')
-        for sent in _split_sents(b['risk']):
-            L.append(sent)
-        L.append('그래서 5거래일마다 점검해 교체합니다.')
-        L.append('')
-    scale = _scale_line(d, cards_map)
-    if scale:
-        L.append('<b>기업 규모</b>')
-        L += scale
+        L.append('<b>⚠️ 위험 요인</b>')
+        L += _split_sents(b['risk'])
+        L.append('→ 그래서 5거래일마다 점검해 교체합니다.')
         L.append('')
     return L
 
@@ -849,27 +892,75 @@ def _split_sents(text):
     return out
 
 
-def _analyst_line(d, cards_map):
-    cl = cards_map.get(d['ticker']) or []
-    for c in cl:
-        if '분석가' in c:
-            m = c.split('·')[0].strip()
-            return '· 애널리스트 ' + m.replace('분석가 ', '') \
-                .replace('(↑', ' 중 30일간 ').replace('/↓', '명 상향, ') \
-                .replace(')', '명 하향.')
-    return None
 
 
-def _scale_line(d, cards_map):
-    cl = cards_map.get(d['ticker']) or []
+def _next_msg_day(us_latest, next_in):
+    """다음 교체 지시 메시지의 KST 날짜 근사 — us_latest에서 미국 거래일 next_in개 진행 후
+    그 다음 KST 평일(주말이면 월요일). 미국 휴장일 미반영이라 '예정' 라벨과 함께 쓸 것."""
+    from datetime import datetime, timedelta
+    try:
+        cur = datetime.strptime(us_latest, '%Y-%m-%d')
+    except Exception:
+        return None
+    cnt = 0
+    while cnt < next_in:
+        cur += timedelta(days=1)
+        if cur.weekday() < 5:
+            cnt += 1
+    msg = cur + timedelta(days=1)
+    while msg.weekday() >= 5:
+        msg += timedelta(days=1)
+    return msg
+
+
+def _earnings_lines(tickers):
+    """보유종목 14일 내 실적발표 일정 (yf calendar, 실패 종목은 조용히 생략)."""
     out = []
-    for c in cl:
-        parts = [x.strip() for x in c.split('·')]
-        keep = [x for x in parts if ('시총' in x or '거래' in x)]
-        if keep:
-            out.append(' / '.join(keep))
+    try:
+        import yfinance as yf
+        from datetime import datetime, timedelta
+        lim = (datetime.now() + timedelta(days=14)).date()
+        today = datetime.now().date()
+        for tk in tickers:
+            try:
+                cal = yf.Ticker(tk).calendar or {}
+                eds = cal.get('Earnings Date') or []
+                for ed in eds[:1]:
+                    d = ed.date() if hasattr(ed, 'date') and callable(getattr(ed, 'date')) else ed
+                    if today <= d <= lim:
+                        out.append(f"· {_display_name(tk)}: {d.month}/{d.day} 실적 발표 예정")
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return out
+
+
+def _credit_vol_lines():
+    """신용(HY-OAS)·변동성(VIX) 상태 — 시스템 방어 임계 대비 현재 위치."""
+    out = []
+    try:
+        import daily_runner as dr
+        hy = dr._compute_hy_oas_defense()
+        if hy:
+            oas, trough, fired = hy
+            st = '🔴 경계 (방어 신호)' if fired else '🟢 안정'
+            out.append(f"회사채 금리차(HY) {oas:.2f}%p {st}")
+            out.append(f"  6개월 저점 대비 +{max(oas - trough, 0):.2f}%p (경보선 +1.0%p)")
+    except Exception as e:
+        print(f'[HY 스킵: {e}]')
+    try:
+        import yfinance as yf
+        fi = yf.Ticker('^VIX').fast_info
+        v = fi.last_price
+        if v:
+            st = '🔴 공포 구간' if v > 36 else ('🟡 다소 높음' if v > 25 else '🟢 안정')
+            out.append(f"변동성지수(VIX) {v:.1f} {st} (방어선 36)")
+    except Exception:
+        pass
     if out:
-        out.append('→ 대형주라 원할 때 사고팔기 쉽습니다.')
+        out.append('→ 신용시장이 흔들리면 주식보다 먼저')
+        out.append('  움직여서, 방어 전환 신호로 씁니다.')
     return out
 
 
@@ -891,11 +982,11 @@ def _compose_and_send(merged, meta=None):
     us_latest = trows[0]['us_date'] if trows else None
     gi = usd.index(us_latest) if us_latest in usd else len(usd) - 1
     next_in = REBAL - (gi % REBAL)
-    m20 = merged[:20]
-    top5 = m20[:N_TOP]
-    briefs = _ai_stock_briefs(m20)
-    cards = _us_cards([d['ticker'] for d in m20 if d['market'] == 'US'])
-    for d in m20:
+    m10 = merged[:10]  # 2026-07-10 사용자 결정: top20은 과다 → TOP5 + 대기 6~10위만
+    top5 = m10[:N_TOP]
+    briefs = _ai_stock_briefs(m10)
+    cards = _us_cards([d['ticker'] for d in m10 if d['market'] == 'US'])
+    for d in m10:
         if d['market'] == 'KR' and d['ticker'] not in cards:
             kc = _kr_card(d['ticker'], d.get('dv_musd'))
             if kc:
@@ -915,10 +1006,14 @@ def _compose_and_send(merged, meta=None):
         amsg, fired = build_message()
     except Exception as _ae:
         amsg, fired = f'🚦 신호등 계산 실패: {_ae}', False
-    # ── 메시지 1: 상단 공통 + TOP5 카드 ──
+    # ── 메시지 1: 상단 공통 + TOP5 카드 (2026-07-10 전면 개편) ──
     kdt = _dt.now()
     wd = '월화수목금토일'[kdt.weekday()]
-    m1 = [f'📬 <b>오늘의 주식 신호</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━', '']
+    alert_head = (amsg or '').split('\n')[0]  # 신호등 상태 한 줄 — 상단 노출 (상세는 메시지3)
+    m1 = [f'📬 <b>한국+미국 TOP5 신호</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
+    if alert_head:
+        m1.append(alert_head)
+    m1.append('')
     if meta.get('warnings'):
         m1.append('⚠️ <b>데이터 품질 주의</b>')
         for wmsg in meta['warnings']:
@@ -926,8 +1021,10 @@ def _compose_and_send(merged, meta=None):
         m1.append('')
     if fired:
         m1 += ['🔴 <b>메모리 위험 경보 발동!</b>',
-               '아래 위험 신호등 안내에 따라',
+               '시장 브리핑의 신호등 안내에 따라',
                '메모리 종목을 정리하세요.', '']
+    nxt = _next_msg_day(us_latest, next_in) if us_latest else None
+    nxt_s = f"{nxt.month}/{nxt.day}({'월화수목금토일'[nxt.weekday()]}) 저녁" if nxt else f"{next_in}거래일 후"
     if is_rebal and diff and (diff[0] or diff[1]):
         n_ch = max(len(diff[0]), len(diff[1]))
         m1.append(f'🔁 <b>오늘 할 일: 종목 {n_ch}개 교체</b>')
@@ -935,70 +1032,68 @@ def _compose_and_send(merged, meta=None):
             m1.append(f'🔴 팔기: {_display_name(t)} — 보유분 전량 매도')
         for t in diff[0]:
             m1.append(f'🟢 사기: {_display_name(t)} — 자산의 20% 매수')
-        m1.append('나머지 종목은 그대로 유지하세요.')
-        m1.append('(이미 처리했거나 갖고 있지 않은')
-        m1.append(' 종목은 건너뛰면 됩니다)')
+        m1 += ['나머지 종목은 그대로 유지하세요.',
+               '(이미 처리했거나 갖고 있지 않은',
+               ' 종목은 건너뛰면 됩니다)',
+               '미국 종목은 오늘 밤 개장에,',
+               '한국 종목은 내일 아침 개장에 매매.']
     elif is_rebal:
-        m1 += ['✅ <b>오늘 할 일: 없음</b>', '점검 결과 교체 없이 그대로 갑니다.']
+        m1 += ['✅ <b>오늘 할 일: 없음</b> (교체 점검일)',
+               '점검 결과 교체 없이 그대로 갑니다.']
     else:
         m1 += ['✅ <b>오늘 할 일: 없음</b>',
                '보유 중인 5종목 그대로 두시면 됩니다.',
-               f'다음 교체 점검까지 {next_in}거래일.']
-    m1 += ['', '<b>이 신호, 어떻게 고르나요?</b>',
-           '증권사 애널리스트(기업 분석 전문가)들이',
-           '"이 회사 돈 더 벌겠다"며 이익 전망을',
-           '최근 3개월간 가장 크게 올린 종목 중,',
-           '아직 싸고 이익이 급성장하는 회사만',
-           '5개를 담습니다. 각 20%씩, 주 1회 점검.', '',
-           '<b>한국·미국을 공정하게 비교합니다</b>',
-           '우리가 보는 한국 데이터는 전망 상향폭',
-           '눈금이 미국의 약 2배로 큽니다',
-           '(전 구간 실측, 중앙값 +10% vs +4%).',
-           '그대로 비교하면 한국 종목이 부풀려',
-           '보여서, 각 종목을 "자기 시장 안에서',
-           '상위 몇 %인지"로 환산해 비교합니다.', '',
+               f'다음 교체 점검: <b>{nxt_s}</b> 예정']
+    m1 += ['',
+           '<b>이 서비스, 뭐 하는 건가요?</b>',
+           '한국+미국 주요 상장사 약 1,500곳의',
+           '애널리스트 이익 전망을 매일 추적해서,',
+           '"전문가들이 이익 전망을 가장 가파르게',
+           '올리는 중"인 회사 딱 5곳을 골라 담는',
+           '퀀트 신호입니다. 각 20%씩, 5거래일마다',
+           '점검해 순위에서 밀린 종목을 교체합니다.',
+           '비싼 주식(선행PER 30↑)과 전망이 꺾인',
+           '주식은 아무리 순위가 높아도 걸러냅니다.', '',
+           '한국·미국은 눈금이 달라서(전망 상향폭',
+           '중앙값 +10% vs +4%) 절대값 대신 "자기',
+           '시장 안에서 상위 몇 %인지"로 공정 비교.', '',
            f"📊 전략 누적 성과: {(nav - 1) * 100:+.1f}%",
-           f"({all_days[0][5:].replace('-', '/')} 시작)" if all_days else '']
+           f"({all_days[0][5:].replace('-', '/')} 모의운용 시작)" if all_days else '']
     for i, d in enumerate(top5, 1):
         m1 += _stock_card(i, d, briefs.get(d['ticker']), cards, first=(i == 1))
     m1 += ['━━━━━━━━━━━━━━', '📖 <b>용어 한 줄 정리</b>',
            'EPS: 주식 1주가 벌어들이는 이익',
            'PER: 주가가 이익의 몇 배인지 (낮을수록 저렴)',
            '선행: 과거가 아닌 "올해 예상" 기준']
-    # ── 메시지 2: 6~20위 미니카드 ──
+    # ── 메시지 2: 대기 후보 6~10위 (2026-07-10: 6~20위→6~10위, top20은 과다) ──
     m2 = None
-    if len(m20) > N_TOP:
-        m2 = [f'📋 <b>다음 후보 6~20위</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━',
+    if len(m10) > N_TOP:
+        m2 = [f'📋 <b>대기 후보 6~10위</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━',
               '<b>지금 사는 종목이 아닙니다.</b>',
               'TOP5에서 빠지는 종목이 생기면',
               '이 명단의 위쪽부터 차례로 들어옵니다.', '']
-        for j, d in enumerate(m20[N_TOP:], N_TOP + 1):
+        for j, d in enumerate(m10[N_TOP:], N_TOP + 1):
             nm = _display_name(d['ticker'])
             tk = d['ticker'].replace('.KS', '').replace('.KQ', '')
             sect = _industry_tag(d)
-            nation = '한국' if d['market'] == 'KR' else '미국'
+            nation = '🇰🇷 한국' if d['market'] == 'KR' else '🇺🇸 미국'
             b = _brief_dict(briefs.get(d['ticker']))
             m2 += ['─────────────',
                    f"<b>{j}위 {nm}</b> ({tk}) · {nation} {sect}".replace('  ', ' '), '']
-            if b.get('biz') or b.get('why'):
-                m2.append('<b>무슨 회사?</b>')
-                for key in ('biz', 'why'):
-                    for sent in _split_sents(b.get(key, '')):
-                        m2.append(sent)
-                m2.append('')
-            m2.append('<b>핵심 숫자</b>')
-            m2.append(f"전문가 전망 상향 +{d['rev90']:.0f}% (3개월)")
-            if d.get('gap'):
-                m2.append(f"이익 성장 {d['gap']:.1f}배 (올해 예상÷작년)")
-            m2.append(f"가격 선행PER {d['fwd_per']:.0f}배 ({PER_ANCHOR[d['market']]})")
+            for key in ('biz', 'why'):
+                for sent in _split_sents(b.get(key, '')):
+                    m2.append(sent)
+            m2.append(f"전망 상향 +{d['rev90']:.0f}%"
+                      + (f" · 이익성장 {d['gap']:.1f}배" if d.get('gap') else '')
+                      + f" · 선행PER {d['fwd_per']:.0f}배")
             m2.append('')
-    # ── 메시지 3: 시장 브리핑 + 신호등 ──
-    m3 = [f'🌐 <b>시장 브리핑</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
+    # ── 메시지 3: AI 시장 분석 (2026-07-10 개편: 단락형 시황+신용·변동성+보유종목 일정) ──
+    m3 = [f'🤖 <b>AI 시장 분석</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
     try:
         import yfinance as yf
         idx_lines = []
         for sym, nm in [('^GSPC', 'S&P500'), ('^IXIC', '나스닥'), ('^SOX', '반도체지수'),
-                        ('^KS11', '코스피'), ('^KQ11', '코스닥')]:
+                        ('^KS11', '코스피'), ('^KQ11', '코스닥'), ('KRW=X', '원/달러')]:
             try:
                 fi = yf.Ticker(sym).fast_info
                 px, pv = fi.last_price, fi.previous_close
@@ -1007,13 +1102,28 @@ def _compose_and_send(merged, meta=None):
             except Exception:
                 pass
         if idx_lines:
-            m3 += ['', '<b>주요 지수</b>'] + idx_lines
+            m3 += ['', '📊 <b>주요 지수</b>'] + idx_lines
     except Exception:
         pass
+    cv = _credit_vol_lines()
+    if cv:
+        m3 += ['', '🏦 <b>신용·변동성</b>'] + cv
     brief_mkt = _ai_market_brief()
     if brief_mkt:
-        m3 += ['', '<b>무슨 일이 있었나</b>'] + _split_sents(brief_mkt)
-    m3 += ['', amsg]
+        m3 += ['', '📰 <b>시장 동향</b>']
+        for para in brief_mkt.replace('\r', '').split('\n'):
+            p = para.strip()
+            if p:
+                m3.append(p)
+                m3.append('')
+        if m3[-1] == '':
+            m3.pop()
+    el = _earnings_lines([d['ticker'] for d in top5])
+    if el:
+        m3 += ['', '📅 <b>보유종목 일정 (14일 내)</b>'] + el
+    m3 += ['', amsg,
+           '(신호등이 빨간불이 되면 메모리 종목',
+           ' 비중을 줄이라는 별도 안내가 나갑니다)']
     _sha = _git_sha()
     if _sha:
         m3 += ['', f'<i>sys {_sha} · {today}</i>']  # 코드버전 — 낡은 코드 발송 식별용 (감사수리 3)
