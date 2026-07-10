@@ -7497,6 +7497,16 @@ def main():
         dest = '채널+개인봇' if send_to_channel else '개인봇'
         biz_day = get_last_business_day()
 
+        # US 아침 메시지 발송 중단 (2026-07-10 사용자 결정): 실매매 본선 = 저녁 18:10
+        # 통합(US+KR) 신호로 단일화 — US 단독 아침 신호는 '관찰용' 라벨로도 이중신호/
+        # 선행매매 유혹의 원인층이라 발송 차단(7/5 Watchlist 중단과 동일 논리).
+        # 수집·DB·git push(통합 트랙의 입력)와 시스템 로그(개인봇, 수집 헬스 감시)는 유지.
+        # 프로덕션 cron(daily-screening.yml)에만 env 설정 — 테스트 워크플로우는 발송 검증 가능.
+        # 복원: workflow에서 US_MORNING_MSG_DISABLE 제거.
+        morning_msg_off = os.environ.get('US_MORNING_MSG_DISABLE') == '1'
+        if morning_msg_off:
+            log("US 아침 메시지(Signal/AI Risk) 발송 중단 모드 — 본선=저녁 통합신호, 수집·로그는 정상")
+
         # ===== v3: Signal + AI Risk + Watchlist =====
 
         # risk_status에서 공통 값 추출
@@ -7562,10 +7572,13 @@ def main():
         )
         msg_signal = create_vm_signal_message(today_str, risk_status=risk_status)
         if msg_signal:
-            if send_to_channel:
-                send_telegram_long(msg_signal, config, chat_id=channel_id)
-            send_telegram_long(msg_signal, config, chat_id=private_id)
-            log(f"Signal 전송 완료 → {dest}")
+            if morning_msg_off:
+                log("Signal 발송 스킵 (US 아침 메시지 중단)")
+            else:
+                if send_to_channel:
+                    send_telegram_long(msg_signal, config, chat_id=channel_id)
+                send_telegram_long(msg_signal, config, chat_id=private_id)
+                log(f"Signal 전송 완료 → {dest}")
 
         # 메시지 2: AI 리스크 필터
         msg_ai_risk = create_ai_risk_message(
@@ -7573,10 +7586,13 @@ def main():
             earnings_map, ai_content
         )
         if msg_ai_risk:
-            if send_to_channel:
-                send_telegram_long(msg_ai_risk, config, chat_id=channel_id)
-            send_telegram_long(msg_ai_risk, config, chat_id=private_id)
-            log(f"AI Risk 전송 완료 → {dest}")
+            if morning_msg_off:
+                log("AI Risk 발송 스킵 (US 아침 메시지 중단)")
+            else:
+                if send_to_channel:
+                    send_telegram_long(msg_ai_risk, config, chat_id=channel_id)
+                send_telegram_long(msg_ai_risk, config, chat_id=private_id)
+                log(f"AI Risk 전송 완료 → {dest}")
 
         # 메시지 3: Watchlist
         msg_watchlist = create_watchlist_message(

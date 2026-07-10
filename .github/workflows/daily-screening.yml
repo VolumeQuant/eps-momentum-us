@@ -59,6 +59,7 @@ jobs:
         MESSAGE_VERSION: 'v3'  # v3 고정 (v2 제거됨)
         ENTRY_GAP_GATE: '1'    # gap게이트 ON, THR 2.5 (2026-06-28 그리드: 2.5~3.5 평지 robust·2.5는 분산우위). 끄기 '0'.
         ENTRY_GAP_THR: '2.5'
+        US_MORNING_MSG_DISABLE: '1'  # US 아침 Signal/AI Risk 발송 중단 (2026-07-10 사용자 결정: 본선=저녁 18:10 통합 US+KR 신호 단일화). 수집·DB push·시스템 로그(개인봇)는 유지. 복원=이 줄 제거.
 
     # 기대성장(gap) 분산 Sleeve — 별도 시스템 (2026-06-25 빌드).
     # DB 갱신 후 실행. 현재 페이퍼 검증 단계라 개인봇 발송(--send=개인봇 기본).
