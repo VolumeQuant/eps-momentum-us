@@ -445,9 +445,13 @@ def _gemini_key():
     return key
 
 
-def _ai_market_brief():
+_MKT_LABELS = ('[미국 증시]', '[반도체·메모리]', '[한국 증시]', '[오늘 밤 체크]')
+
+
+def _ai_market_brief(idx_facts=None):
     """AI 시황 — 4단락 문단형 (2026-07-10 전면 개편: 구 5문장 단문은 '기계 같다' 피드백).
-    키/패키지 없으면 None(섹션 생략)."""
+    idx_facts: yf 실측 지수 문자열 리스트 — 프롬프트에 ground truth로 주입해 stale 숫자
+    발송 차단(폴백 lite가 검색 없이 2024년 지수를 답한 사례 실관측). 키 없으면 None."""
     key = _gemini_key()
     if not key:
         return None
@@ -456,19 +460,37 @@ def _ai_market_brief():
         from google.genai import types
         client = genai.Client(api_key=key, http_options={'timeout': 120_000})
         tool = types.Tool(google_search=types.GoogleSearch())
+        facts = ''
+        if idx_facts:
+            facts = ('★오늘 실측 지수(이 숫자를 그대로 써라, 다른 출처의 지수 숫자 금지): '
+                     + ' / '.join(idx_facts) + '\n')
         prompt = ('지금 한국시간 저녁이다. 구글 검색으로 사실 확인 후, 한국+미국 주식을 함께 '
                   '투자하는 사람을 위한 오늘의 시황 브리핑을 한국어 문어체(~습니다)로 써라. '
-                  '아래 4개 단락을 이 라벨 그대로 시작하고, 단락 사이에 빈 줄 1개. '
-                  '각 단락 3~4문장, 지수 등락률·가격·금리 같은 구체 숫자 포함. '
-                  '과장·투자권유·미확인 루머(상장설·인수설) 금지, 확인된 사실만.\n'
+                  '아래 4개 단락을 대괄호 라벨 그대로 시작하고, 단락 사이에 빈 줄 1개. '
+                  '각 단락 3~4문장, 구체 숫자 포함. 마크다운 헤더(#) 금지. '
+                  '과장·투자권유·미확인 루머(상장설·인수설) 금지, 확인된 사실만.\n' + facts +
                   '[미국 증시] 지난밤 마감 — 지수 등락과 원인, 주도 섹터와 종목.\n'
                   '[반도체·메모리] HBM·D램·낸드 가격과 수급, 주요 기업 뉴스.\n'
                   '[한국 증시] 오늘 코스피·코스닥 마감과 특징 업종, 원/달러 환율.\n'
                   '[오늘 밤 체크] 미국 경제지표·연준 발언·주요 실적 발표 일정과 관전 포인트.')
-        resp = client.models.generate_content(
-            model='gemini-2.5-flash', contents=prompt,
-            config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
-        return (resp.text or '').strip() or None
+        # 모델 폴백 체인 (2026-07-10 실측): 2.5-flash 무료 20회/일 — KR 16:00 시스템과
+        # 키 공유라 저녁엔 쿼터 소진 잦음(당일 실발생) → flash-lite 폴백(무료 한도 큼).
+        # lite는 형식 이탈이 잦아 4개 라벨 검증 후 통과분만 채택, 실패 시 1회 더.
+        for model in ('gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash-lite'):
+            try:
+                resp = client.models.generate_content(
+                    model=model, contents=prompt,
+                    config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
+                txt = (resp.text or '').strip()
+                if txt and all(lb in txt for lb in _MKT_LABELS):
+                    if model != 'gemini-2.5-flash':
+                        print(f'[AI 시황: {model} 폴백 사용]')
+                    return txt
+                if txt:
+                    print(f'[AI 시황 {model}: 라벨 형식 미달 → 재시도]')
+            except Exception as _e:
+                print(f'[AI 시황 {model} 실패: {str(_e)[:120]}]')
+        return None
     except Exception as e:
         print(f'[AI 시황 스킵: {e}]')
         return None
@@ -659,22 +681,28 @@ def _ai_stock_briefs(entries):
 
         out = {}
         top5 = {d['ticker'] for d in entries[:5]}
-        for _try in range(3):  # 재시도 (2026-07-09: 단발 실패로 브리핑 0건 발송 사고)
+        # 모델 폴백 체인 (2026-07-10 실측): flash 무료 20회/일(KR 16:00 시스템과 키 공유,
+        # 당일 소진 실발생) → flash-lite 폴백. lite는 형식 이탈이 잦아 flash 우선 2회.
+        attempts = [('gemini-2.5-flash', 1), ('gemini-2.5-flash', 2),
+                    ('gemini-2.5-flash-lite', 1), ('gemini-2.5-flash-lite', 2)]
+        for _i, (model, _n) in enumerate(attempts, 1):
             try:
                 resp = client.models.generate_content(
-                    model='gemini-2.5-flash', contents=prompt,
+                    model=model, contents=prompt,
                     config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
                 cand = _parse(resp.text or '')
                 if len(cand) > len(out):
                     out = cand
                 # top5 전원 파싱됐으면 성공 — 아니면 재시도 (2026-07-10: 1위 카드 브리핑 누락 방지)
                 if len(top5 - set(out)) == 0:
+                    if model != 'gemini-2.5-flash':
+                        print(f'[브리핑: {model} 폴백 사용]')
                     break
-                print('[브리핑 시도 %d: top5 중 %d개 누락 → 재시도]' % (_try + 1, len(top5 - set(out))))
+                print('[브리핑 시도 %d(%s): top5 중 %d개 누락 → 재시도]' % (_i, model, len(top5 - set(out))))
             except Exception as _e:
-                print('[브리핑 시도 %d 실패: %s]' % (_try + 1, _e))
+                print('[브리핑 시도 %d(%s) 실패: %s]' % (_i, model, str(_e)[:120]))
                 import time as _t
-                _t.sleep(15)
+                _t.sleep(10)
         return out
     except Exception as e:
         print('[종목 브리핑 스킵: %s]' % e)
@@ -1089,9 +1117,9 @@ def _compose_and_send(merged, meta=None):
             m2.append('')
     # ── 메시지 3: AI 시장 분석 (2026-07-10 개편: 단락형 시황+신용·변동성+보유종목 일정) ──
     m3 = [f'🤖 <b>AI 시장 분석</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
+    idx_lines = []
     try:
         import yfinance as yf
-        idx_lines = []
         for sym, nm in [('^GSPC', 'S&P500'), ('^IXIC', '나스닥'), ('^SOX', '반도체지수'),
                         ('^KS11', '코스피'), ('^KQ11', '코스닥'), ('KRW=X', '원/달러')]:
             try:
@@ -1108,7 +1136,7 @@ def _compose_and_send(merged, meta=None):
     cv = _credit_vol_lines()
     if cv:
         m3 += ['', '🏦 <b>신용·변동성</b>'] + cv
-    brief_mkt = _ai_market_brief()
+    brief_mkt = _ai_market_brief(idx_facts=idx_lines)
     if brief_mkt:
         m3 += ['', '📰 <b>시장 동향</b>']
         for para in brief_mkt.replace('\r', '').split('\n'):
