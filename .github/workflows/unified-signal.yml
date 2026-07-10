@@ -49,6 +49,7 @@ jobs:
           sparse-checkout: |
             kr_eps_momentum/eps_momentum_data_kr.db
             data_cache/fs_dart_*.parquet
+            state/regime_state.json
           sparse-checkout-cone-mode: false
 
       - name: Set up Python

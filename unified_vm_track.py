@@ -930,6 +930,40 @@ def _split_sents(text):
 
 
 
+def _kr_regime():
+    """KR 국면 — ★표시 전용 (2026-07-10 사용자 승인: OR 결합 대신 우선 병기 표시).
+    KR production(7.4년 검증, KOSPI MA20/80 크로스+5일 확인)이 매일 16:00에 계산·커밋하는
+    권위 상태 state/regime_state.json을 읽음 — yf ^KS11 히스토리는 일별 ±10% 널뛰는
+    쓰레기 데이터라 자체 재계산 기각(2026-07-10 실측). Actions에선 kr_repo sparse checkout.
+    매매 반영(시장별 스코프: KR 방어 시 KR 종목만 현금)은 지수 프록시 BT 후 별도 결정.
+    반환 {'mode','pending_days','asof'} 또는 None(실패)."""
+    import json as _j
+    from datetime import datetime as _d
+    cands = [os.environ.get('KR_STATE_PATH', ''),
+             os.path.join(os.path.dirname(KR_FS_DIR), 'state', 'regime_state.json'),
+             r'C:\dev\state\regime_state.json']
+    for p in cands:
+        if not p or not os.path.exists(p):
+            continue
+        try:
+            r = _j.load(open(p, encoding='utf-8'))
+            mode = r.get('mode', 'boost')
+            streak_mode = r.get('streak_mode', mode)
+            pending = int(r.get('streak', 0)) if streak_mode != mode else 0
+            asof = r.get('last_date', '')
+            asof_s = f'{asof[4:6]}/{asof[6:8]}' if len(asof) == 8 else asof
+            stale = False
+            try:
+                stale = (_d.now() - _d.strptime(asof, '%Y%m%d')).days > 5
+            except ValueError:
+                pass
+            return {'mode': mode, 'pending_days': pending, 'asof': asof_s, 'stale': stale}
+        except Exception as e:
+            print(f'[KR 국면 파일 파싱 실패({p}): {e}]')
+    print('[KR 국면 표시 스킵: regime_state.json 없음]')
+    return None
+
+
 def _next_msg_day(us_latest, next_in):
     """다음 교체 지시 메시지의 KST 날짜 근사 — us_latest에서 미국 거래일 next_in개 진행 후
     그 다음 KST 평일(주말이면 월요일). 미국 휴장일 미반영이라 '예정' 라벨과 함께 쓸 것."""
@@ -1053,6 +1087,7 @@ def _compose_and_send(merged, meta=None):
         reg = {}
     regime = reg.get('regime', 'boost')
     reentry = (regime != 'defense') and (rp.get('ew_last', 1.0) == 0.0)  # 방어→강세 복귀 첫날
+    krr = _kr_regime()  # 표시 전용 — 매매는 US 신호 기준(시장별 스코프 반영은 검증 후)
 
     # ── 메시지 1: 상단 공통 + TOP5 카드 (2026-07-10 전면 개편) ──
     kdt = _dt.now()
@@ -1068,6 +1103,12 @@ def _compose_and_send(merged, meta=None):
         _db = reg.get('days_below') or 0
         if _db:
             m1.append(f'⚠️ 약세 신호 누적 {_db}일 (15일 확인 중 — 아직 매매 변화 없음)')
+    # KR 국면은 평시 생략, 이상 신호(약세/전환 진행)일 때만 상단 노출 (상세는 메시지3)
+    if krr and (krr['mode'] == 'defense' or krr['pending_days'] > 0):
+        if krr['mode'] == 'defense':
+            m1.append('🇰🇷 한국 국면: 🛑 약세 (참고 — 한국 종목 주의)')
+        else:
+            m1.append(f"🇰🇷 한국 약세 전환 진행 {krr['pending_days']}/5일 (참고)")
     if alert_head:
         m1.append(alert_head)
     m1.append('')
@@ -1176,12 +1217,22 @@ def _compose_and_send(merged, meta=None):
     if reg:
         st = {'defense': '🛑 방어 (주식 0%, 현금)',
               'half_defense': '🟠 부분 방어 (주식 50%)'}.get(regime, '🟢 강세 (주식 100%)')
-        m3 += ['', '🧭 <b>시장 국면</b>', st]
+        m3 += ['', '🧭 <b>시장 국면</b>', '🇺🇸 미국: ' + st]
         if reg.get('spx') and reg.get('ma200'):
             pos = '위' if reg['spx'] > reg['ma200'] else '아래'
-            m3.append(f"S&P500 {reg['spx']:,.0f} — 200일선({reg['ma200']:,.0f}) {pos}")
-        m3 += ['200일선 15일 이탈·공포지수·신용경보 중',
-               '하나라도 확정되면 전량 현금으로 피합니다.']
+            m3.append(f"  S&P500 {reg['spx']:,.0f} — 200일선({reg['ma200']:,.0f}) {pos}")
+        if krr:
+            kst = '🛑 약세' if krr['mode'] == 'defense' else '🟢 강세'
+            m3.append(f"🇰🇷 한국: {kst} (참고 표시 · {krr['asof']} 기준"
+                      + (' ⚠️스테일' if krr.get('stale') else '') + ')')
+            m3.append('  코스피 20일선 vs 80일선 + 5일 확인 판정')
+            if krr['pending_days'] > 0:
+                nm = '약세' if krr['mode'] == 'boost' else '강세'
+                m3.append(f"  ⚠️ {nm} 전환 진행 {krr['pending_days']}/5일")
+        m3 += ['매매는 미국 신호 기준: 200일선 15일 이탈·',
+               '공포지수·신용경보 중 하나라도 확정되면',
+               '전량 현금으로 피합니다. 한국 국면은',
+               '참고 표시입니다 (반영 여부 검증 중).']
     cv = _credit_vol_lines()
     if cv:
         m3 += ['', '🏦 <b>신용·변동성</b>'] + cv
