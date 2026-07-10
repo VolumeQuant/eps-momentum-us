@@ -1133,9 +1133,7 @@ def _compose_and_send(merged, meta=None):
     el = _earnings_lines([d['ticker'] for d in top5])
     if el:
         m3 += ['', '📅 <b>보유종목 일정 (14일 내)</b>'] + el
-    m3 += ['', amsg,
-           '(신호등이 빨간불이 되면 메모리 종목',
-           ' 비중을 줄이라는 별도 안내가 나갑니다)']
+    m3 += ['', amsg]
     _sha = _git_sha()
     if _sha:
         m3 += ['', f'<i>sys {_sha} · {today}</i>']  # 코드버전 — 낡은 코드 발송 식별용 (감사수리 3)
