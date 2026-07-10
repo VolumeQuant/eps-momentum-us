@@ -1168,6 +1168,36 @@ def _compose_and_send(merged, meta=None):
     if m2:
         _send_long(_tk, _pid, '\n'.join(m2))
     _send_long(_tk, _pid, '\n'.join(m3))
+    # ── 채널 발송 (2026-07-10 사용자 결정: US 채널 상품 = 아침 US 단독 → 저녁 통합으로 대체) ──
+    # UNIFIED_CHANNEL_ID가 설정된 경우에만 발송(미설정 = 개인봇 단독 = 현행 유지).
+    # 켜기: env UNIFIED_CHANNEL_ID(+봇이 다르면 UNIFIED_CHANNEL_BOT_TOKEN) 또는
+    #       C:/dev/config.py에 UNIFIED_CHANNEL_ID(_BOT_TOKEN) 추가. 봇은 채널 관리자여야 함.
+    # 안전판: 백분위 폴백(norm != 'pct') 등 본선 방식이 깨진 날은 채널 차단(개인봇만).
+    ch_id = os.environ.get('UNIFIED_CHANNEL_ID', '')
+    ch_tk = os.environ.get('UNIFIED_CHANNEL_BOT_TOKEN', '')
+    if not ch_id:
+        try:
+            sys.path.insert(0, r'C:\dev')
+            import config as _c2
+            ch_id = str(getattr(_c2, 'UNIFIED_CHANNEL_ID', '') or '')
+            ch_tk = ch_tk or str(getattr(_c2, 'UNIFIED_CHANNEL_BOT_TOKEN', '') or '')
+        except ImportError:
+            pass
+    if ch_id:
+        if (meta or {}).get('norm', 'pct') != 'pct':
+            print('[채널 발송 차단: 본선(백분위) 폴백 상태 — 개인봇만 발송]')
+            _send_long(_tk, _pid, '⚠️ 오늘 통합 신호는 백분위 계산 폴백 상태라 채널 발송을 건너뛰었습니다.')
+        else:
+            ch_tk = ch_tk or _tk
+            _rc = __import__('requests').get('https://api.telegram.org/bot%s/getMe' % ch_tk, timeout=15)
+            if _rc.json().get('ok'):
+                _send_long(ch_tk, ch_id, '\n'.join(m1))
+                if m2:
+                    _send_long(ch_tk, ch_id, '\n'.join(m2))
+                _send_long(ch_tk, ch_id, '\n'.join(m3))
+                print(f'[채널 발송 완료: {ch_id[:6]}…]')
+            else:
+                print('[채널 봇 토큰 무효 — 채널 발송 실패, 개인봇은 발송됨]')
 
 
 if __name__ == '__main__':
