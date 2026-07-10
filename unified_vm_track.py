@@ -364,12 +364,25 @@ def _ledger_blocks(rows):
 
 def _replay(rows):
     """원장 리플레이 — 단일 리밸 시계(US 그리드)로 보유·NAV 재구성. 로컬통화 수익률(FX 미반영) 근사.
-    반환: {'nav', 'days', 'state': {day: {'is_rebal', 'held_before', 'held_after'}}}
-    held_before = 그날 리밸 직전 보유(교체 diff의 올바른 기준), held_after = 리밸 반영 후."""
+    반환: {'nav', 'days', 'state': {day: {'is_rebal', 'held_before', 'held_after'}}, 'ew_last'}
+    held_before = 그날 리밸 직전 보유(교체 diff의 올바른 기준), held_after = 리밸 반영 후.
+    ★국면 오버레이 (2026-07-10 사용자 승인): US 메인의 검증된 방어 신호(S&P200일선
+    15일확인 OR VIX36 OR HY-OAS, daily_runner._regime_defense_series 재사용)를 날짜별
+    주식비중으로 반영 — 방어일 수익 = ret×weight(0.0=현금). 지시(전량 현금)와 NAV 정합."""
     days, blocks = _ledger_blocks(rows)
     usd = _us_grid()
+    # 날짜별 국면 주식비중 (실패 시 전부 1.0 = 기존과 동일)
+    ew = {}
+    try:
+        import daily_runner as dr
+        uds = sorted({blocks[d][0].get('us_date') for d in days if blocks.get(d)} - {None})
+        if uds:
+            ew, _ = dr._regime_defense_series(uds)
+    except Exception as _e:
+        print(f'[국면 시리즈 스킵(전부 주식100% 가정): {_e}]')
     nav, hold, ppx = 1.0, [], {}
     state = {}
+    ew_last = 1.0
     for i, d in enumerate(days):
         day = blocks[d]
         px = {}
@@ -379,11 +392,12 @@ def _replay(rows):
                     px[r['ticker']] = float(r['price'])
             except (TypeError, ValueError):
                 pass
+        ud = day[0].get('us_date') if day else None
+        w = float(ew.get(ud, 1.0))
         if hold:
             rr = [px[t] / ppx[t] - 1 for t in hold if t in px and t in ppx and ppx[t] > 0]
             if rr:
-                nav *= 1 + sum(rr) / len(rr)
-        ud = day[0].get('us_date') if day else None
+                nav *= 1 + (sum(rr) / len(rr)) * w
         gi = usd.index(ud) if ud in usd else None
         is_rb = (i == 0) or (gi is not None and gi % REBAL == 0)  # 첫 로그일 = 페이퍼 개시(초기 편입)
         held_before = list(hold)
@@ -391,7 +405,8 @@ def _replay(rows):
             hold = [r['ticker'] for r in day if r.get('in_top4') == '1']
         state[d] = {'is_rebal': is_rb, 'held_before': held_before, 'held_after': list(hold)}
         ppx.update(px)
-    return {'nav': nav, 'days': days, 'state': state}
+        ew_last = w
+    return {'nav': nav, 'days': days, 'state': state, 'ew_last': ew_last}
 
 
 def _capped_top(merged):
@@ -1027,11 +1042,32 @@ def _compose_and_send(merged, meta=None):
         amsg, fired = build_message()
     except Exception as _ae:
         amsg, fired = f'🚦 신호등 계산 실패: {_ae}', False
+    # ── 국면 오버레이 (2026-07-10 사용자 승인): US 메인의 검증된 방어 신호 재사용 ──
+    # S&P<200일선(15일 확인) OR VIX>36(2일) OR HY-OAS 신용경보 → defense(주식 0%).
+    # 26~30년 검증(dotcom/GFC/COVID/2022 포착). 실패 시 boost 가정(기존과 동일).
+    try:
+        import daily_runner as _dr
+        reg = _dr.get_market_regime() or {}
+    except Exception as _e:
+        print(f'[국면 조회 스킵(강세 가정): {_e}]')
+        reg = {}
+    regime = reg.get('regime', 'boost')
+    reentry = (regime != 'defense') and (rp.get('ew_last', 1.0) == 0.0)  # 방어→강세 복귀 첫날
+
     # ── 메시지 1: 상단 공통 + TOP5 카드 (2026-07-10 전면 개편) ──
     kdt = _dt.now()
     wd = '월화수목금토일'[kdt.weekday()]
     alert_head = (amsg or '').split('\n')[0]  # 신호등 상태 한 줄 — 상단 노출 (상세는 메시지3)
     m1 = [f'📬 <b>한국+미국 TOP5 신호</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
+    if regime == 'defense':
+        m1.append('국면: 🛑 방어 — 주식 0% (전량 현금)')
+    elif regime == 'half_defense':
+        m1.append('국면: 🟠 부분 방어 — 주식 50%')
+    else:
+        m1.append('국면: 🟢 강세 — 주식 100%')
+        _db = reg.get('days_below') or 0
+        if _db:
+            m1.append(f'⚠️ 약세 신호 누적 {_db}일 (15일 확인 중 — 아직 매매 변화 없음)')
     if alert_head:
         m1.append(alert_head)
     m1.append('')
@@ -1046,7 +1082,24 @@ def _compose_and_send(merged, meta=None):
                '메모리 종목을 정리하세요.', '']
     nxt = _next_msg_day(us_latest, next_in) if us_latest else None
     nxt_s = f"{nxt.month}/{nxt.day}({'월화수목금토일'[nxt.weekday()]}) 저녁" if nxt else f"{next_in}거래일 후"
-    if is_rebal and diff and (diff[0] or diff[1]):
+    if regime == 'defense':
+        m1 += ['🛑 <b>오늘 할 일: 전량 현금</b>',
+               '시장 전체가 약세 국면으로 판정됐습니다',
+               '(S&P500 200일선 이탈 15일 확인 또는',
+               ' 공포지수·신용시장 경보).',
+               '보유 종목을 전부 팔고 현금으로',
+               '보관하세요. 이미 파셨다면 그대로 유지.',
+               '🟢 강세 복귀 알림이 올 때까지',
+               '신규 매수는 하지 않습니다.']
+    elif reentry:
+        m1 += ['🟢 <b>오늘 할 일: 강세 복귀 — 재진입</b>',
+               '방어 국면이 해제됐습니다.',
+               '아래 TOP5를 각 20%씩 한 번에 매수하세요.',
+               '(미국 종목 = 오늘 밤 개장,',
+               ' 한국 종목 = 내일 아침 개장)']
+        for t in [d['ticker'] for d in top5]:
+            m1.append(f'🟢 사기: {_display_name(t)} — 자산의 20%')
+    elif is_rebal and diff and (diff[0] or diff[1]):
         n_ch = max(len(diff[0]), len(diff[1]))
         m1.append(f'🔁 <b>오늘 할 일: 종목 {n_ch}개 교체</b>')
         for t in diff[1]:
@@ -1084,6 +1137,9 @@ def _compose_and_send(merged, meta=None):
         m1 += ['', '⚠️ 오늘은 AI 종목 설명 생성에 실패해',
                '숫자 지표만 표시됩니다. 다음 발송에서',
                '자동 복구됩니다.']
+    if regime == 'defense':
+        m1 += ['', '📋 아래 순위는 <b>관찰용</b>입니다.',
+               '방어 국면에는 매수하지 않습니다.']
     for i, d in enumerate(top5, 1):
         m1 += _stock_card(i, d, briefs.get(d['ticker']), cards, first=(i == 1))
     m1 += ['━━━━━━━━━━━━━━', '📖 <b>용어 한 줄 정리</b>',
@@ -1117,6 +1173,15 @@ def _compose_and_send(merged, meta=None):
             m3 += ['', '📊 <b>주요 지수</b>'] + idx_lines
     except Exception:
         pass
+    if reg:
+        st = {'defense': '🛑 방어 (주식 0%, 현금)',
+              'half_defense': '🟠 부분 방어 (주식 50%)'}.get(regime, '🟢 강세 (주식 100%)')
+        m3 += ['', '🧭 <b>시장 국면</b>', st]
+        if reg.get('spx') and reg.get('ma200'):
+            pos = '위' if reg['spx'] > reg['ma200'] else '아래'
+            m3.append(f"S&P500 {reg['spx']:,.0f} — 200일선({reg['ma200']:,.0f}) {pos}")
+        m3 += ['200일선 15일 이탈·공포지수·신용경보 중',
+               '하나라도 확정되면 전량 현금으로 피합니다.']
     cv = _credit_vol_lines()
     if cv:
         m3 += ['', '🏦 <b>신용·변동성</b>'] + cv
