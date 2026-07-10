@@ -634,18 +634,25 @@ def _us_cards(tickers):
 
 def _brief_dict(x):
     """브리핑을 {biz, why, risk} dict로 강제 — 문자열이 와도 카드 렌더가 깨지지 않게.
-    형식: '회사소개 | 왜 핫한지 || 리스크' ('|' 앞=소개, '|' 뒤=상향 이유, '||' 뒤=리스크)."""
+    형식: '회사소개 | 왜 핫한지 || 리스크'. ★2026-07-10 첫 라이브 버그: Gemini가 '||' 대신
+    단일 '|' 3분할로 답해 리스크가 '| ...' 채로 왜 섹션에 붙어 발송됨 → 단일 파이프
+    3분할도 수용(마지막 조각=리스크) + 조각별 파이프 잔재 제거."""
     if isinstance(x, dict):
         return x
     if isinstance(x, str) and x.strip():
-        parts = [p.strip() for p in x.split('||')]
-        head = parts[0]
-        risk = parts[1] if len(parts) > 1 else ''
+        if '||' in x:
+            head, risk = x.split('||', 1)
+        else:
+            parts = x.split('|')
+            if len(parts) >= 3:
+                head, risk = '|'.join(parts[:-1]), parts[-1]
+            else:
+                head, risk = x, ''
         if '|' in head:
             biz, why = head.split('|', 1)
         else:
             biz, why = head, ''
-        return {'biz': biz.strip(), 'why': why.strip(), 'risk': risk}
+        return {'biz': biz.strip(' |'), 'why': why.strip(' |'), 'risk': risk.strip(' |')}
     return {}
 
 
