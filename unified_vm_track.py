@@ -1326,6 +1326,13 @@ def _compose_and_send(merged, meta=None):
 
 if __name__ == '__main__':
     sys.path.insert(0, HERE)
+    # ★로컬 러너 원격 킬스위치 (2026-07-10): 실행 주체가 GH Actions로 이관됨(unified-signal.yml).
+    # 회사PC schtask(run_unified_track.bat)는 실행 전 git pull을 하므로, 이 깃발 파일이
+    # 저장소에 있으면 로컬(비-Actions) 실행은 스스로 종료 — 이중 발송·이중 원장 차단.
+    # 로컬 실행을 되살리려면 LOCAL_RUNNER_OFF 파일 삭제. (schtask 자체는 여유 있을 때 삭제)
+    if os.path.exists(os.path.join(HERE, 'LOCAL_RUNNER_OFF')) and not os.environ.get('GITHUB_ACTIONS'):
+        print('[로컬 러너 OFF] 통합 신호는 GitHub Actions(18:15 KST)가 발송합니다 — 이 실행은 종료.')
+        sys.exit(0)
     if '--nav' in sys.argv:
         cmd_nav()
     else:
