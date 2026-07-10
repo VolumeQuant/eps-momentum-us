@@ -646,26 +646,22 @@ def _ai_stock_briefs(entries):
         from google.genai import types
         client = genai.Client(api_key=key, http_options={'timeout': 150_000})
         tool = types.Tool(google_search=types.GoogleSearch())
+        # 2026-07-10 사용자 결정: 6~10위도 1~5위와 동일한 풀 설명 (차별 없음)
         dl = []
-        for d in entries[:5]:
-            dl.append('[상세] %s(%s, %s): 90일 이익전망 %+.0f%%, 선행PER %.0f'
+        for d in entries[:10]:
+            dl.append('%s(%s, %s): 90일 이익전망 %+.0f%%, 선행PER %.0f'
                       % (d['ticker'], _display_name(d['ticker']), _industry_tag(d) or '업종미상', d['rev90'], d['fwd_per']))
-        for d in entries[5:10]:
-            dl.append('[한줄] %s(%s, %s): 90일 이익전망 %+.0f%%'
-                      % (d['ticker'], _display_name(d['ticker']), _industry_tag(d) or '업종미상', d['rev90']))
-        prompt = ('한국+미국 주식 퀀트 시스템의 오늘 순위다. 각 종목을 처음 듣는 일반 투자자에게 '
-                  '설명하듯 한국어 존댓말 문어체(~습니다)로 써라. '
+        prompt = ('한국+미국 주식 퀀트 시스템의 오늘 순위 10종목이다. 각 종목을 처음 듣는 일반 '
+                  '투자자에게 설명하듯 한국어 존댓말 문어체(~습니다)로 써라. '
                   '★모든 종목은 지금 상장되어 활발히 거래 중이다. 상장폐지·인수 소멸 서술 절대 금지, '
                   '미확인 루머(상장 추진설·인수설 등) 금지, 반드시 2026년 최신 정보를 검색해 확인하라'
                   '(예: SNDK는 2025년 웨스턴디지털에서 분사 재상장한 샌디스크). '
-                  '[상세] 종목 구성: (a)무슨 사업으로 돈 버는 회사인지 1~2문장(제품·고객이 그려지게) '
+                  '종목당 구성: (a)무슨 사업으로 돈 버는 회사인지 1~2문장(제품·고객이 그려지게) '
                   '(b)왜 지금 이익전망이 급상향되는지 2~3문장 — 최근 실적발표·수주·제품가격·점유율 등 '
                   '구체 숫자를 검색으로 확인해 포함 (c)리스크 1~2문장(막연한 일반론 금지, 이 회사 고유의 위험). '
-                  '[한줄] 종목 구성: (a)무슨 회사인지 1문장 (b)전망 상향 이유 1문장. '
                   '자연스러운 완결 문장으로, 전문용어는 한 번씩 풀어서. 과장 없이 사실만. '
-                  '★형식(종목당 정확히 한 줄, 라벨 그대로): '
-                  '[상세]는 "TICKER: 회사소개 문장 | 상향 이유 문장들 || 리스크 문장들" '
-                  '(소개와 이유 사이 |, 리스크 앞 || 필수), [한줄]은 "TICKER: 소개 | 이유".\n' + '\n'.join(dl))
+                  '★형식(종목당 정확히 한 줄): "TICKER: 회사소개 문장 | 상향 이유 문장들 || 리스크 문장들" '
+                  '(소개와 이유 사이 |, 리스크 앞 || 필수).\n' + '\n'.join(dl))
 
         def _parse(text):
             out = {}
@@ -680,7 +676,7 @@ def _ai_stock_briefs(entries):
             return out
 
         out = {}
-        top5 = {d['ticker'] for d in entries[:5]}
+        need = {d['ticker'] for d in entries[:10]}
         # 모델 폴백 체인 (2026-07-10 실측): flash 무료 20회/일(KR 16:00 시스템과 키 공유,
         # 당일 소진 실발생) → flash-lite 폴백. lite는 형식 이탈이 잦아 flash 우선 2회.
         attempts = [('gemini-2.5-flash', 1), ('gemini-2.5-flash', 2),
@@ -691,14 +687,13 @@ def _ai_stock_briefs(entries):
                     model=model, contents=prompt,
                     config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
                 cand = _parse(resp.text or '')
-                if len(cand) > len(out):
-                    out = cand
-                # top5 전원 파싱됐으면 성공 — 아니면 재시도 (2026-07-10: 1위 카드 브리핑 누락 방지)
-                if len(top5 - set(out)) == 0:
+                out.update({k: v for k, v in cand.items() if k not in out or not out[k]})
+                # 10종목 전원 파싱됐으면 성공 — 아니면 재시도 (브리핑 누락 발송 방지)
+                if len(need - set(out)) == 0:
                     if model != 'gemini-2.5-flash':
                         print(f'[브리핑: {model} 폴백 사용]')
                     break
-                print('[브리핑 시도 %d(%s): top5 중 %d개 누락 → 재시도]' % (_i, model, len(top5 - set(out))))
+                print('[브리핑 시도 %d(%s): 10종목 중 %d개 누락 → 재시도]' % (_i, model, len(need - set(out))))
             except Exception as _e:
                 print('[브리핑 시도 %d(%s) 실패: %s]' % (_i, model, str(_e)[:120]))
                 import time as _t
@@ -838,7 +833,6 @@ def cmd_nav():
 
 # ═══ 메시지 렌더링 (2026-07-09 UX 전문가 스펙: 행동→회사→근거3+앵커→위험→규모 고정 카드) ═══
 PER_ANCHOR = {'US': '미국 평균 22배', 'KR': '한국 평균 11배'}
-_MEDAL = {1: '🥇', 2: '🥈', 3: '🥉'}
 
 
 
@@ -866,9 +860,8 @@ def _stock_card(rank, d, brief, cards_map, first=False):
     tk = d['ticker'].replace('.KS', '').replace('.KQ', '')
     sect = _industry_tag(d)
     nation = '🇰🇷 한국' if d['market'] == 'KR' else '🇺🇸 미국'
-    medal = _MEDAL.get(rank, '▪️')
     L = ['━━━━━━━━━━━━━━',
-         f"{medal} <b>{rank}위 {nm}</b> ({tk})",
+         f"<b>{rank}위 {nm}</b> ({tk})",
          f"{nation} · {sect}".replace('  ', ' ') if sect else nation, '']
     b = _brief_dict(brief)
     if b.get('biz'):
@@ -1074,7 +1067,7 @@ def _compose_and_send(merged, meta=None):
                f'다음 교체 점검: <b>{nxt_s}</b> 예정']
     m1 += ['',
            '<b>이 서비스, 뭐 하는 건가요?</b>',
-           '한국+미국 주요 상장사 약 1,500곳의',
+           '한국+미국 주요 상장사 약 1,600곳의',
            '애널리스트 이익 전망을 매일 추적해서,',
            '"전문가들이 이익 전망을 가장 가파르게',
            '올리는 중"인 회사 딱 5곳을 골라 담는',
@@ -1082,18 +1075,22 @@ def _compose_and_send(merged, meta=None):
            '점검해 순위에서 밀린 종목을 교체합니다.',
            '비싼 주식(선행PER 30↑)과 전망이 꺾인',
            '주식은 아무리 순위가 높아도 걸러냅니다.', '',
-           '한국·미국은 눈금이 달라서(전망 상향폭',
-           '중앙값 +10% vs +4%) 절대값 대신 "자기',
-           '시장 안에서 상위 몇 %인지"로 공정 비교.', '',
+           '한국·미국은 상향폭 눈금이 달라서(뜨는',
+           '종목 기준 한국이 약 2배 큼) 절대값 대신',
+           '"자기 시장 상위 몇 %인지"로 공정 비교.', '',
            f"📊 전략 누적 성과: {(nav - 1) * 100:+.1f}%",
            f"({all_days[0][5:].replace('-', '/')} 모의운용 시작)" if all_days else '']
+    if not any(briefs.get(d['ticker']) for d in top5):
+        m1 += ['', '⚠️ 오늘은 AI 종목 설명 생성에 실패해',
+               '숫자 지표만 표시됩니다. 다음 발송에서',
+               '자동 복구됩니다.']
     for i, d in enumerate(top5, 1):
         m1 += _stock_card(i, d, briefs.get(d['ticker']), cards, first=(i == 1))
     m1 += ['━━━━━━━━━━━━━━', '📖 <b>용어 한 줄 정리</b>',
            'EPS: 주식 1주가 벌어들이는 이익',
            'PER: 주가가 이익의 몇 배인지 (낮을수록 저렴)',
            '선행: 과거가 아닌 "올해 예상" 기준']
-    # ── 메시지 2: 대기 후보 6~10위 (2026-07-10: 6~20위→6~10위, top20은 과다) ──
+    # ── 메시지 2: 대기 후보 6~10위 — 1~5위와 동일한 풀카드 (2026-07-10 사용자 "차별하지 마") ──
     m2 = None
     if len(m10) > N_TOP:
         m2 = [f'📋 <b>대기 후보 6~10위</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━',
@@ -1101,20 +1098,7 @@ def _compose_and_send(merged, meta=None):
               'TOP5에서 빠지는 종목이 생기면',
               '이 명단의 위쪽부터 차례로 들어옵니다.', '']
         for j, d in enumerate(m10[N_TOP:], N_TOP + 1):
-            nm = _display_name(d['ticker'])
-            tk = d['ticker'].replace('.KS', '').replace('.KQ', '')
-            sect = _industry_tag(d)
-            nation = '🇰🇷 한국' if d['market'] == 'KR' else '🇺🇸 미국'
-            b = _brief_dict(briefs.get(d['ticker']))
-            m2 += ['─────────────',
-                   f"<b>{j}위 {nm}</b> ({tk}) · {nation} {sect}".replace('  ', ' '), '']
-            for key in ('biz', 'why'):
-                for sent in _split_sents(b.get(key, '')):
-                    m2.append(sent)
-            m2.append(f"전망 상향 +{d['rev90']:.0f}%"
-                      + (f" · 이익성장 {d['gap']:.1f}배" if d.get('gap') else '')
-                      + f" · 선행PER {d['fwd_per']:.0f}배")
-            m2.append('')
+            m2 += _stock_card(j, d, briefs.get(d['ticker']), cards)
     # ── 메시지 3: AI 시장 분석 (2026-07-10 개편: 단락형 시황+신용·변동성+보유종목 일정) ──
     m3 = [f'🤖 <b>AI 시장 분석</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
     idx_lines = []
