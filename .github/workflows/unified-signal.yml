@@ -13,7 +13,7 @@ name: Unified US+KR Evening Signal
 
 on:
   schedule:
-    - cron: '15 9 * * 1-5'   # UTC 09:15 = KST 18:15, 월~금 (KR 16:30 수집 push 여유분 포함)
+    - cron: '20 8 * * 1-5'   # UTC 08:20 = KST 17:20, 월~금 (KR 16:30 수집 ~17:00 완료+push 후 여유 20분)
   workflow_dispatch:
     inputs:
       dry_run:
