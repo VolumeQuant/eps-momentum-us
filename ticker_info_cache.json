@@ -4580,8 +4580,8 @@
     "industry": "바이오"
   },
   "ONON": {
-    "shortName": "ONON",
-    "industry": "기타"
+    "shortName": "On Holding AG",
+    "industry": "신발잡화"
   },
   "OR": {
     "shortName": "OR Royalties Inc.",
@@ -5272,8 +5272,8 @@
     "industry": "자동차"
   },
   "SUZ": {
-    "shortName": "SUZ",
-    "industry": "기타"
+    "shortName": "Suzano S.A.",
+    "industry": "Paper & Paper Products"
   },
   "KMX": {
     "shortName": "CarMax Inc",
@@ -6132,8 +6132,8 @@
     "industry": "기타"
   },
   "RBLX": {
-    "shortName": "RBLX",
-    "industry": "기타"
+    "shortName": "Roblox Corporation",
+    "industry": "게임"
   },
   "SE": {
     "shortName": "Sea Limited",
@@ -6202,5 +6202,137 @@
   "MRX": {
     "shortName": "Marex Group plc",
     "industry": "자본시장"
+  },
+  "AWI": {
+    "shortName": "AWI",
+    "industry": "기타"
+  },
+  "BABA": {
+    "shortName": "BABA",
+    "industry": "기타"
+  },
+  "BDRX": {
+    "shortName": "BDRX",
+    "industry": "기타"
+  },
+  "BMNR": {
+    "shortName": "BMNR",
+    "industry": "기타"
+  },
+  "BZ": {
+    "shortName": "BZ",
+    "industry": "기타"
+  },
+  "CHKP": {
+    "shortName": "CHKP",
+    "industry": "기타"
+  },
+  "DOX": {
+    "shortName": "DOX",
+    "industry": "기타"
+  },
+  "ECHO": {
+    "shortName": "EchoStar Corporation",
+    "industry": "통신"
+  },
+  "FLUT": {
+    "shortName": "FLUT",
+    "industry": "기타"
+  },
+  "GIB": {
+    "shortName": "GIB",
+    "industry": "기타"
+  },
+  "HDB": {
+    "shortName": "HDB",
+    "industry": "기타"
+  },
+  "HUBS": {
+    "shortName": "HUBS",
+    "industry": "기타"
+  },
+  "INFY": {
+    "shortName": "INFY",
+    "industry": "기타"
+  },
+  "KVYO": {
+    "shortName": "KVYO",
+    "industry": "기타"
+  },
+  "LPLA": {
+    "shortName": "LPLA",
+    "industry": "기타"
+  },
+  "OTEX": {
+    "shortName": "OTEX",
+    "industry": "기타"
+  },
+  "OWL": {
+    "shortName": "OWL",
+    "industry": "기타"
+  },
+  "PCOR": {
+    "shortName": "PCOR",
+    "industry": "기타"
+  },
+  "RITM": {
+    "shortName": "RITM",
+    "industry": "기타"
+  },
+  "RKT": {
+    "shortName": "RKT",
+    "industry": "기타"
+  },
+  "SAP": {
+    "shortName": "SAP",
+    "industry": "기타"
+  },
+  "SSNC": {
+    "shortName": "SSNC",
+    "industry": "기타"
+  },
+  "STEP": {
+    "shortName": "STEP",
+    "industry": "기타"
+  },
+  "STLA": {
+    "shortName": "STLA",
+    "industry": "기타"
+  },
+  "STN": {
+    "shortName": "STN",
+    "industry": "기타"
+  },
+  "TCOM": {
+    "shortName": "TCOM",
+    "industry": "기타"
+  },
+  "TME": {
+    "shortName": "TME",
+    "industry": "기타"
+  },
+  "TPG": {
+    "shortName": "TPG",
+    "industry": "기타"
+  },
+  "TU": {
+    "shortName": "TU",
+    "industry": "기타"
+  },
+  "VIPS": {
+    "shortName": "VIPS",
+    "industry": "기타"
+  },
+  "XPEV": {
+    "shortName": "XPEV",
+    "industry": "기타"
+  },
+  "Z": {
+    "shortName": "Z",
+    "industry": "기타"
+  },
+  "ZG": {
+    "shortName": "ZG",
+    "industry": "기타"
   }
 }
