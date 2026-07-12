@@ -16,6 +16,11 @@
   리밸 조건 i % R == phase. end_date로 구간 컷(ad 뒤쪽만 잘림 → 위상 정렬 불변).
 - dv 소스: 기본 'db' = production ntm_screening.dollar_volume_30d ($M).
   ('parquet'=research/dv_full_2026_07_04.parquet은 2026-07-02까지만 — 7/6+ 구멍, 회귀비교 전용)
+- TE 소스 (2026-07-12 패치, GATECHAIN_REVIEW): 기본 'full' = data_cache/trailing_eps_ttm_full.json
+  (전종목 1,536 — production VM 게이트·unified_vm_track과 동일 = 라이브 픽 재현).
+  'sparse' = data_cache/trailing_eps_ttm.json(구 141코호트) — 2026-07-12 이전 하네스 동작 재현 전용.
+  ⚠️sparse는 production과 불일치(missing=pass 과다 → gap2.0 허위피크·7/9 라이브 픽 FLEX 미재현),
+  GAP_BACKSOLVE 정본 +103.2/−17.7도 full로만 재현됨.
 - 정본 보고: 위상 0~R-1 각각 (수익%, MDD%) + 평균.
 
 사용: python research/vm_canonical_bt.py [end_date]
@@ -47,6 +52,18 @@ def _load():
     tc = json.load(open(os.path.join(BASE, 'ticker_info_cache.json'), encoding='utf-8'))
     te = json.load(open(os.path.join(BASE, 'data_cache', 'trailing_eps_ttm.json'), encoding='utf-8'))
     return ad, full, dvdb, tc, te
+
+
+@functools.lru_cache(maxsize=2)
+def _load_te(source='full'):
+    """TTM EPS 소스 선택. 'full'=전종목(production 게이트 동일), 'sparse'=구 141코호트(레거시 재현).
+    full 파일 부재 시 sparse 폴백(경고)."""
+    if source == 'full':
+        p = os.path.join(BASE, 'data_cache', 'trailing_eps_ttm_full.json')
+        if os.path.exists(p):
+            return json.load(open(p, encoding='utf-8'))
+        print('[vm_canonical_bt] WARN: trailing_eps_ttm_full.json 부재 -> sparse 폴백')
+    return json.load(open(os.path.join(BASE, 'data_cache', 'trailing_eps_ttm.json'), encoding='utf-8'))
 
 
 @functools.lru_cache(maxsize=1)
@@ -91,9 +108,11 @@ def _rev90(v):
 
 def canonical_bt(pe_max=30, gap_thr=2.5, N=4, R=5, start=2, end_date=None,
                  dv_source='db', dv_min=1000.0, phase=0, exclude=frozenset(),
-                 return_daily=False, trace=False):
-    """정본 BT 1회(단일 위상). 반환 (수익%, MDD%) 또는 return_daily=True 시 (dates, rets, log)."""
-    ad, FULL, DVDB, TC, TE = _load()
+                 return_daily=False, trace=False, te_source='full'):
+    """정본 BT 1회(단일 위상). 반환 (수익%, MDD%) 또는 return_daily=True 시 (dates, rets, log).
+    te_source: 'full'(기본, production 패리티) | 'sparse'(2026-07-12 이전 레거시 재현)."""
+    ad, FULL, DVDB, TC, _ = _load()
+    TE = _load_te(te_source)
     if end_date: ad = tuple(d for d in ad if d <= end_date)
     dvmap = DVDB if dv_source == 'db' else _load_dv_parquet()
     hold = []; rets = []; dates = []; log = []
@@ -140,10 +159,14 @@ def canonical_report(pe_max=30, gap_thr=2.5, N=4, R=5, end_date=None, **kw):
 if __name__ == '__main__':
     end = sys.argv[1] if len(sys.argv) > 1 else None
     ad, *_ = _load()
-    for label, ed in [('7/2 마감 기준', '2026-07-02'), (f'최신 데이터({ad[-1]}) 포함', end)]:
-        rep = canonical_report(end_date=ed)
-        print(f'=== top4 R5 PER<=30 gap>=2.5 — {label} (dv=DB) ===')
+    # 현행 production 스펙(2026-07-09 재캘리브레이션: gap 1.5 전수·Top5) + full TE = 라이브 패리티
+    for label, ed in [('7/8 마감 기준(GAP_BACKSOLVE 정본)', '2026-07-08'), (f'최신 데이터({ad[-1]}) 포함', end)]:
+        rep = canonical_report(pe_max=30, gap_thr=1.5, N=5, end_date=ed)
+        print(f'=== [현행] top5 R5 PER<=30 gap>=1.5 te=full — {label} (dv=DB) ===')
         for p, (t, m) in rep['per_phase'].items():
             print(f'  위상{p}: {t:+7.1f}% / MDD {m:+6.1f}%')
         print(f'  ★정본(위상평균): {rep["avg_ret"]:+.1f}% / MDD {rep["avg_mdd"]:+.1f}%'
               f'   (앵커위상0: {rep["phase0"][0]:+.1f}/{rep["phase0"][1]:+.1f})\n')
+    rep = canonical_report(pe_max=30, gap_thr=2.5, N=4, end_date='2026-07-02', te_source='sparse')
+    print(f'=== [레거시 회귀용] top4 gap>=2.5 te=sparse — 7/2 마감 ===')
+    print(f'  위상평균: {rep["avg_ret"]:+.1f}% / MDD {rep["avg_mdd"]:+.1f}%')

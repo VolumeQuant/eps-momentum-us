@@ -4,7 +4,12 @@
 gap_sleeve.py 빌더와 동일 산식: quarterly_income_stmt Diluted/Basic EPS 4분기 합,
 report_date = 분기말 + 45일(보수적 공시지연, PIT-safe).
 산출: research/trailing_eps_ttm_full_2026_07_05.json — ★프로덕션 캐시(data_cache/)와 별도,
-     현행/페이퍼 행동변화 0. 반영 여부는 재검증(revalidate_gap_full_ttm) 결과 보고 후 사용자 결정."""
+     현행/페이퍼 행동변화 0. 반영 여부는 재검증(revalidate_gap_full_ttm) 결과 보고 후 사용자 결정.
+
+★2026-07-13 `--refresh` 모드 추가 (GATECHAIN_REVIEW 후속): 기본 동작은 resume(캐시 종목 스킵)이라
+  "주1회 재실행" 룰이 no-op였음(전종목 캐시됨 → fetch 0건). 어닝시즌 갱신은 반드시
+  `python fetch_full_ttm_2026_07_05.py --refresh` — 전종목 재수집, 실패 시 기존값 보존(빈값 덮어쓰기 無).
+  완료 후 data_cache/trailing_eps_ttm_full.json 반영(diff 확인 후 복사+커밋)은 별도 단계."""
 import sys, os, json, time, sqlite3
 from datetime import datetime
 sys.stdout.reconfigure(encoding='utf-8')
@@ -22,14 +27,15 @@ tickers = [r[0] for r in conn.execute('SELECT DISTINCT ticker FROM ntm_screening
 conn.close()
 print(f'universe: {len(tickers)}')
 
+REFRESH = '--refresh' in sys.argv
 cache = {}
 if os.path.exists(OUT):
     cache = json.load(open(OUT, encoding='utf-8'))
-    print(f'resume: {len(cache)} cached')
+    print(f'resume: {len(cache)} cached' + (' (REFRESH: 전종목 재수집)' if REFRESH else ''))
 
 ok = fail = 0
 for i, tk in enumerate(tickers):
-    if tk in cache:
+    if tk in cache and not REFRESH:
         continue
     for attempt in range(2):
         try:
@@ -48,14 +54,16 @@ for i, tk in enumerate(tickers):
                         ttm = sum(float(qe[j - k][1]) for k in range(4))
                         rdate = (qe[j][0] + pd.Timedelta(days=LAG)).strftime('%Y-%m-%d')
                         rec.append([rdate, ttm])
-            cache[tk] = rec
+            if rec or tk not in cache:  # refresh서 빈 응답이 기존 정상값 덮어쓰기 방지
+                cache[tk] = rec
             ok += 1 if rec else 0
             break
         except Exception as e:
             if attempt == 0:
                 time.sleep(15)
             else:
-                cache[tk] = []
+                if tk not in cache:  # refresh 실패 시 기존값 보존
+                    cache[tk] = []
                 fail += 1
     if (i + 1) % 50 == 0:
         json.dump(cache, open(OUT, 'w', encoding='utf-8'))
