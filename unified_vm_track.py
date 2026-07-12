@@ -129,9 +129,9 @@ def us_candidates():
         if fcf is not None: e[1] = fcf
         if roe is not None: e[2] = roe
     out = []
-    for tk, p, nc, n7, n30, n60, n90, dv, na in c.execute(
+    for tk, p, nc, n7, n30, n60, n90, dv, na, m120 in c.execute(
             'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,dollar_volume_30d,'
-            'num_analysts FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)):
+            'num_analysts,ma120 FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)):
         if not ind_ok(tk):
             continue
         if dv is None or dv < DV_MIN_MUSD:
@@ -155,8 +155,10 @@ def us_candidates():
             continue
         if fcf is not None and roe is not None and fcf < 0 and roe < 0:
             continue
+        # rev30/below_ma120 = 관찰 전용 원장 컬럼 (GATECHAIN_REVIEW log-stale-flag-observe, 매매 개입 0)
         out.append(dict(ticker=tk, market='US', rev90=_seg(nc, n90), fwd_per=p / nc,
-                        gap=g, dv_musd=dv, price=p))
+                        gap=g, dv_musd=dv, price=p, rev30=_seg(nc, n30),
+                        below_ma120=(int(p < m120) if m120 else None)))
     conn.close()
     return last, out
 
@@ -169,7 +171,7 @@ def kr_candidates(fx):
     c = conn.cursor()
     last = c.execute('SELECT MAX(date) FROM ntm_screening').fetchone()[0]
     rows = c.execute(
-        'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,market_cap,num_analysts '
+        'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,market_cap,num_analysts,ma120 '
         'FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)).fetchall()
     conn.close()
     health = {'today_n': sum(1 for r in rows if r[2] and r[2] > 0 and (r[6] or 0) > 100),
@@ -187,7 +189,7 @@ def kr_candidates(fx):
         if roe_ is not None: e[2] = roe_
     kconn.close()
     pre = []
-    for tk, p, nc, n7, n30, n60, n90, mc, na in rows:
+    for tk, p, nc, n7, n30, n60, n90, mc, na, m120 in rows:
         if tk in KR_HOLDCO or tk in KR_IND_BLOCK:
             continue
         if (na or 0) < 5:
@@ -215,7 +217,8 @@ def kr_candidates(fx):
         if g is not None and g < GAP_MIN:
             continue
         pre.append(dict(ticker=tk, market='KR', rev90=_seg(nc, n90), fwd_per=p / nc,
-                        gap=g, dv_musd=None, price=p, mc=mc))
+                        gap=g, dv_musd=None, price=p, mc=mc, rev30=_seg(nc, n30),
+                        below_ma120=(int(p < m120) if m120 else None)))
     if health['gap_reach'] >= 3 and health['gap_computed'] == 0:
         health['warnings'].append(
             f"KR 가치게이트(gap) 계산 0/{health['gap_reach']}건 — 재무 데이터 접근 실패 의심, "
@@ -812,9 +815,13 @@ def cmd_run():
         # (7/9 블록 = GH Actions 샘플, KR gap 전원 공란) 재발 방지 — 원장 기록은 옵트아웃 가능.
         print('[UNIFIED_NO_LOG=1] 원장 기록 생략')
         return merged, meta
+    # rev30/stale/below_ma120 = 관찰 전용 (2026-07-13, GATECHAIN_REVIEW log-stale-flag-observe,
+    # 매매 개입 0): stale=rev90>=20 & rev30<=2 (106일 중 1건뿐이던 케이스의 forward 라이브 추적),
+    # below_ma120=픽 시점 가격<120일선 (rev90 랭킹의 사실상 추세필터 역할 라이브 검증).
     COLS = ['run_date', 'us_date', 'kr_date', 'rank', 'market', 'ticker',
             'rev90', 'fwd_per', 'gap', 'dv_musd', 'price', 'in_top4', 'in_top4_cap2',
-            'pct', 'in_top5_abs', 'rz', 'in_top5_rz', 'pct_base_n']
+            'pct', 'in_top5_abs', 'rz', 'in_top5_rz', 'pct_base_n',
+            'rev30', 'stale', 'below_ma120']
     if os.path.exists(LOG):  # 구헤더(13/14컬럼) → 신헤더 마이그레이션, 과거 행은 공란 패딩
         lines = open(LOG, encoding='utf-8').read().splitlines()
         hdr = lines[0].split(',')
@@ -838,7 +845,10 @@ def cmd_run():
                         int(i <= N_TOP), int(d['ticker'] in capped),
                         round(d.get('pct', 0), 2), int(d['ticker'] in abs_top),
                         round(d.get('rz', 0), 2), int(d['ticker'] in rz_top),
-                        meta.get('base_n', {}).get(d['market'], '')])
+                        meta.get('base_n', {}).get(d['market'], ''),
+                        round(d['rev30'], 2) if d.get('rev30') is not None else '',
+                        int(d['rev90'] >= 20 and d['rev30'] <= 2) if d.get('rev30') is not None else '',
+                        d['below_ma120'] if d.get('below_ma120') is not None else ''])
     print(f'로그 append: {LOG}')
     return merged, meta
 
