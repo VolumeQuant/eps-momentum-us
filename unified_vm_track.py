@@ -44,12 +44,17 @@ LOG = os.path.join(HERE, 'data_cache', 'unified_vm_log.csv')
 #   구 2.5에선 gap이 우연히 걸렀지만 1.5에선 S-Oil이 상위 진입, US 규칙이면 원자재/정유 제외 대상).
 N_TOP, REBAL = 5, 5
 PE_MAX, GAP_MIN, DV_MIN_MUSD = 30.0, 1.5, 1000.0
-# ★KR 하한 = 백분위 등가 $0.3B (2026-07-09 밤 사용자 승인 — "거래대금 상위 10%로 반영").
-#   근거: US $1B = 유니버스 상위 9.9%(124/1,250) vs KR $1B = 상위 1.8%(4/225) = 5.6배 가혹(실측).
-#   잣대는 하나("각 시장 상위 ~10%"), 환율만 시장별 — 과거 $100M 특례 폐지 사유(자의적 숫자)를 해소.
-#   KR 통과 4→~22종목(현대차·LG전자·LG이노텍 등 재편입). 저커버리지 가드=기존 애널≥5 유지.
-#   상세: research/KR_DV_PARITY_2026_07_09.md
-KR_DV_MIN_MUSD = 300.0
+# ★KR 하한 = 백분위 등가. 스펙은 하나("각 시장 거래대금 상위 ~10%", 2026-07-09 사용자 승인),
+#   환율만 시장별 — 과거 $100M '특례' 폐지 사유(자의적 숫자)를 해소한 원칙.
+# ★2026-07-13 재산출 $0.3B→$0.1B (사용자 "300M이 현실적인지 검증해라"): 구 $0.3B는
+#   MA120 사전필터 아티팩트로 좁아진 유니버스 225개 기준 상위 10%였음. 7/10 수집 확대
+#   (필터 OFF, 372종목) 후 실측: 상위 10% 경계 = $106M (fx 1499), $300M은 상위 2.4% =
+#   자기 스펙 위반. US $1B = 상위 8.9%(123/1,378, 7/10)와 등가도 ~$110M. → $100M(상위
+#   10.5%) 채택. 검증: 임계 300/150/106 통합 top10 완전 동일(오늘 신호 무영향), KR 후보
+#   4→13종목(삼성생명 $149M·효성重 $131M 등 편입 — 통합 11위권, 대기 후보 존).
+#   유니버스 정의가 또 바뀌면(예: .KQ 폴백로 코스닥 편입) 재산출할 것.
+#   상세: research/KR_DV_PARITY_2026_07_09.md (+ 2026-07-13 추기), GATECHAIN_REVIEW_2026_07_12.md
+KR_DV_MIN_MUSD = 100.0
 KR_HOLDCO = {'402340.KS'}  # SK스퀘어(지주) — KR production 지주제외 준용
 KR_IND_BLOCK = {'010950.KS', '096770.KS'}  # S-Oil·SK이노베이션(정유) — US COMMODITY(석유정제) 등가
 # 병기 변형: 메모리 테마 캡2 (6월 그리드서 유일 유효 손잡이 — 급락창 1회라 채택 아닌 병기 관찰)
@@ -79,7 +84,10 @@ def _kr_ttm_eps(t6, shares):
     if not os.path.exists(p) or not (shares and shares > 0):
         return None
     try:
-        fs = pd.read_parquet(p)
+        # ★2026-07-13: engine 하드코딩 금지 4번째 지점 통일 — 집PC pyarrow가 fs_dart를 못 읽어
+        #   (Repetition level histogram mismatch) 로컬 실행 gap 0/48 전멸하던 원인. HY-OAS 7/5 수리 동일 패턴.
+        from daily_runner import _read_parquet_robust
+        fs = _read_parquet_robust(p)
         fs['rcept_dt'] = pd.to_datetime(fs['rcept_dt'], errors='coerce')
         for acct in ('지배주주당기순이익', '당기순이익'):
             q = fs[(fs['공시구분'] == 'q') & (fs['계정'] == acct) & (fs['rcept_dt'].notna())].sort_values('rcept_dt')
