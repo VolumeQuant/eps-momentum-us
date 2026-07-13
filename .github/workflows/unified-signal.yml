@@ -13,7 +13,10 @@ name: Unified US+KR Evening Signal
 
 on:
   schedule:
-    - cron: '20 8 * * 1-5'   # UTC 08:20 = KST 17:20, 월~금 (KR 16:30 수집 ~17:00 완료+push 후 여유 20분)
+    # UTC 09:07 = KST 18:07, 월~금. (2026-07-13 변경: 구 08:20 UTC는 유럽아침·정시부근 최고
+    #   혼잡대라 GH Actions 예약실행이 지연/드롭 — 등록 후 스케줄로 단 한 번도 안 뜸. daily-screening
+    #   (20:58 UTC 한산대)은 매일 정상. 09:07로 이동해 혼잡 회피 + KR 16:30 수집분 여유도 확대.)
+    - cron: '7 9 * * 1-5'
   workflow_dispatch:
     inputs:
       dry_run:
