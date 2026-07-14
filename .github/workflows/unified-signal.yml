@@ -13,10 +13,14 @@ name: Unified US+KR Evening Signal
 
 on:
   schedule:
-    # UTC 09:07 = KST 18:07, 월~금. (2026-07-13 변경: 구 08:20 UTC는 유럽아침·정시부근 최고
-    #   혼잡대라 GH Actions 예약실행이 지연/드롭 — 등록 후 스케줄로 단 한 번도 안 뜸. daily-screening
-    #   (20:58 UTC 한산대)은 매일 정상. 09:07로 이동해 혼잡 회피 + KR 16:30 수집분 여유도 확대.)
-    - cron: '7 9 * * 1-5'
+    # ★2026-07-14 재설계: KR 저녁 발송(KST 18~20시)은 UTC 08~11시 = GH 예약실행 최다 드롭 구간.
+    #   08:20→09:07 이동에도 스케줄 2일 연속 미발동(수동 dispatch만 성공). daily-screening
+    #   (UTC 20:58 한산대)은 매일 정상 = 시간대가 원인 확정. 시간 조정으론 해결 불가 →
+    #   ①다중 cron(KST 18:07/19:07/20:07) + ②guard 스텝(당일 이미 원장에 블록 있으면 스킵)으로 전환.
+    #   앞 시도가 드롭돼도 뒤가 잡고, 둘 다 떠도 하나만 발송(원장 당일블록 존재로 판정). concurrency로 직렬화.
+    - cron: '7 9 * * 1-5'    # KST 18:07 (1차)
+    - cron: '7 10 * * 1-5'   # KST 19:07 (백업)
+    - cron: '7 11 * * 1-5'   # KST 20:07 (최종 백업 · UTC 11시 = 혼잡 완화)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -43,7 +47,24 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # 당일 중복발송 차단: 스케줄 실행인데 오늘 원장블록이 이미 있으면(앞선 cron이 성공) 이하 전부 스킵.
+      # concurrency로 직렬화되므로 뒤 cron은 앞 cron의 push된 원장을 체크아웃해 여기서 걸러짐.
+      # 수동 dispatch는 guard 스텝 자체가 스킵(if=schedule) → skip 출력 공란 → 항상 실행.
+      - name: Skip if already sent today (schedule only)
+        id: guard
+        if: github.event_name == 'schedule'
+        run: |
+          TODAY=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          if cut -d, -f1 data_cache/unified_vm_log.csv | grep -qx "$TODAY"; then
+            echo "이미 오늘($TODAY) 발송됨 — 스킵"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "오늘($TODAY) 미발송 — 진행"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout KR data (quant_py-main, sparse)
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           repository: VolumeQuant/quant_py-main
@@ -56,17 +77,20 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Set up Python
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
       - name: Install dependencies
+        if: steps.guard.outputs.skip != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run unified signal
+        if: steps.guard.outputs.skip != 'true'
         env:
           TZ: 'Asia/Seoul'
           KR_DB_PATH: ${{ github.workspace }}/kr_repo/kr_eps_momentum/eps_momentum_data_kr.db
@@ -81,7 +105,7 @@ jobs:
           python unified_vm_track.py
 
       - name: Commit ledger
-        if: ${{ github.event.inputs.dry_run != '1' }}
+        if: ${{ github.event.inputs.dry_run != '1' && steps.guard.outputs.skip != 'true' }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
