@@ -63,7 +63,37 @@ THEME_CAP = 2
 
 
 def _seg(a, b):
-    return (a - b) / abs(b) * 100 if (b and abs(b) > 0.01) else 0
+    # 인접 창 변화율(%). 한쪽이라도 0/None/음수(수집 글리치·결측)면 '변화 없음'(0)으로 처리 —
+    # 야후가 특정 필드를 순간 0으로 뱉는 사고를 '이익 -100% 붕괴'로 오인해 정상 종목을
+    # min_seg 게이트에서 부당 탈락시키던 버그 방지 (2026-07-14 하이닉스 ntm_60d=0 사고).
+    if not a or not b or a <= 0 or b <= 0:
+        return 0.0
+    return (a - b) / abs(b) * 100
+
+
+def _carry_forward_windows(conn, today):
+    """오늘 0/None으로 글리치된 EPS 창을 종목별 '직전 유효값'으로 대체하기 위한 맵.
+    야후 순간 수집 실패(2026-07-14 KR 34·US 12종목 관측)가 재발해도 정상 종목이
+    min_seg/rev90에서 탈락하지 않도록 — 하이닉스 n60=0 부당탈락 재발 방지.
+    반환: {ticker: {col: 오늘 이전 최신 유효값}}."""
+    cols = ('ntm_current', 'ntm_7d', 'ntm_30d', 'ntm_60d', 'ntm_90d')
+    m = {}
+    for row in conn.execute(
+            'SELECT ticker,' + ','.join(cols) + ' FROM ntm_screening WHERE date < ? ORDER BY date',
+            (today,)):
+        d = m.setdefault(row[0], {})
+        for i, col in enumerate(cols):
+            v = row[1 + i]
+            if v and v > 0:
+                d[col] = v
+    return m
+
+
+def _cf(v, tk, col, cf):
+    """v가 0/None 글리치면 carry-forward 맵의 직전 유효값으로 대체(없으면 원값 유지)."""
+    if v and v > 0:
+        return v
+    return cf.get(tk, {}).get(col, v)
 
 
 def _fx_usdkrw():
@@ -128,10 +158,13 @@ def us_candidates():
         if om is not None: e[0] = om
         if fcf is not None: e[1] = fcf
         if roe is not None: e[2] = roe
+    cf = _carry_forward_windows(conn, last)  # 글리치 0값 → 직전 유효값 대체 (재발 방지)
     out = []
     for tk, p, nc, n7, n30, n60, n90, dv, na, m120 in c.execute(
             'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,dollar_volume_30d,'
             'num_analysts,ma120 FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)):
+        n7, n30 = _cf(n7, tk, 'ntm_7d', cf), _cf(n30, tk, 'ntm_30d', cf)
+        n60, n90 = _cf(n60, tk, 'ntm_60d', cf), _cf(n90, tk, 'ntm_90d', cf)
         if not ind_ok(tk):
             continue
         if dv is None or dv < DV_MIN_MUSD:
@@ -173,6 +206,7 @@ def kr_candidates(fx):
     rows = c.execute(
         'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,market_cap,num_analysts,ma120 '
         'FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)).fetchall()
+    cf = _carry_forward_windows(conn, last)  # 글리치 0값 → 직전 유효값 대체 (재발 방지)
     conn.close()
     health = {'today_n': sum(1 for r in rows if r[2] and r[2] > 0 and (r[6] or 0) > 100),
               'gap_reach': 0, 'gap_computed': 0, 'warnings': []}
@@ -190,6 +224,8 @@ def kr_candidates(fx):
     kconn.close()
     pre = []
     for tk, p, nc, n7, n30, n60, n90, mc, na, m120 in rows:
+        n7, n30 = _cf(n7, tk, 'ntm_7d', cf), _cf(n30, tk, 'ntm_30d', cf)
+        n60, n90 = _cf(n60, tk, 'ntm_60d', cf), _cf(n90, tk, 'ntm_90d', cf)
         if tk in KR_HOLDCO or tk in KR_IND_BLOCK:
             continue
         if (na or 0) < 5:
