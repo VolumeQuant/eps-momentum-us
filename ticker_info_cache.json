@@ -6346,5 +6346,13 @@
   "UNF": {
     "shortName": "UNF",
     "industry": "기타"
+  },
+  "GRFS": {
+    "shortName": "GRFS",
+    "industry": "기타"
+  },
+  "SKHY": {
+    "shortName": "SKHY",
+    "industry": "기타"
   }
 }
