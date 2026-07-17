@@ -5532,8 +5532,8 @@
     "industry": "응용SW"
   },
   "SNDR": {
-    "shortName": "SNDR",
-    "industry": "기타"
+    "shortName": "Schneider National, Inc.",
+    "industry": "트럭운송"
   },
   "SYM": {
     "shortName": "SYM",
@@ -6354,5 +6354,9 @@
   "SKHY": {
     "shortName": "SKHY",
     "industry": "기타"
+  },
+  "ANDG": {
+    "shortName": "Andersen Group Inc.",
+    "industry": "생활서비스"
   }
 }
