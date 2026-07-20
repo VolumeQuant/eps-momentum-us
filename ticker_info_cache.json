@@ -4476,20 +4476,20 @@
     "industry": "석유가스"
   },
   "MHK": {
-    "shortName": "MHK",
-    "industry": "기타"
+    "shortName": "Mohawk Industries, Inc.",
+    "industry": "가구가전"
   },
   "MICC": {
     "shortName": "The Magnum Ice Cream Company N.",
     "industry": "식품"
   },
   "MIRM": {
-    "shortName": "MIRM",
-    "industry": "기타"
+    "shortName": "Mirum Pharmaceuticals, Inc.",
+    "industry": "바이오"
   },
   "MKL": {
-    "shortName": "MKL",
-    "industry": "기타"
+    "shortName": "Markel Group Inc.",
+    "industry": "손해보험"
   },
   "MKTX": {
     "shortName": "MarketAxess Holdings, Inc.",
@@ -4664,8 +4664,8 @@
     "industry": "생명보험"
   },
   "QGEN": {
-    "shortName": "QGEN",
-    "industry": "기타"
+    "shortName": "Qiagen N.V.",
+    "industry": "진단연구"
   },
   "QSR": {
     "shortName": "Restaurant Brands International",
@@ -4724,8 +4724,8 @@
     "industry": "바이오"
   },
   "RRR": {
-    "shortName": "RRR",
-    "industry": "기타"
+    "shortName": "Red Rock Resorts, Inc.",
+    "industry": "리조트카지노"
   },
   "RTO": {
     "shortName": "Rentokil Initial plc",
@@ -4744,8 +4744,8 @@
     "industry": "대형은행"
   },
   "RYAAY": {
-    "shortName": "RYAAY",
-    "industry": "기타"
+    "shortName": "Ryanair Holdings plc",
+    "industry": "항공"
   },
   "SAN": {
     "shortName": "Banco Santander, S.A. Sponsored",
@@ -4760,8 +4760,8 @@
     "industry": "수도"
   },
   "SBSW": {
-    "shortName": "SBSW",
-    "industry": "기타"
+    "shortName": "D/B/A Sibanye-Stillwater Limite",
+    "industry": "귀금속"
   },
   "SCCO": {
     "shortName": "Southern Copper Corporation",
@@ -5048,8 +5048,8 @@
     "industry": "산업금속"
   },
   "BRK-A": {
-    "shortName": "BRK-A",
-    "industry": "기타"
+    "shortName": "Berkshire Hathaway Inc.",
+    "industry": "종합보험"
   },
   "CELC": {
     "shortName": "Celcuity Inc.",
@@ -5216,8 +5216,8 @@
     "industry": "인터넷"
   },
   "CWST": {
-    "shortName": "CWST",
-    "industry": "기타"
+    "shortName": "Casella Waste Systems, Inc.",
+    "industry": "폐기물"
   },
   "OTF": {
     "shortName": "OTF",
@@ -5232,8 +5232,8 @@
     "industry": "엔터"
   },
   "MWH": {
-    "shortName": "MWH",
-    "industry": "기타"
+    "shortName": "SOLV Energy, Inc.",
+    "industry": "신재생"
   },
   "NET": {
     "shortName": "Cloudflare, Inc.",
@@ -5252,8 +5252,8 @@
     "industry": "자동차"
   },
   "SUNB": {
-    "shortName": "SUNB",
-    "industry": "기타"
+    "shortName": "Sunbelt Rentals Holdings, Inc.",
+    "industry": "렌탈리스"
   },
   "ALM": {
     "shortName": "ALM",
@@ -5408,8 +5408,8 @@
     "industry": "기타"
   },
   "NWG": {
-    "shortName": "NWG",
-    "industry": "기타"
+    "shortName": "NatWest Group plc",
+    "industry": "지역은행"
   },
   "CRWV": {
     "shortName": "CoreWeave, Inc.",
@@ -5828,8 +5828,8 @@
     "industry": "석유미드스트림"
   },
   "DEO": {
-    "shortName": "DEO",
-    "industry": "기타"
+    "shortName": "Diageo plc",
+    "industry": "주류"
   },
   "XE": {
     "shortName": "XE",
@@ -6084,12 +6084,12 @@
     "industry": "기타"
   },
   "EBC": {
-    "shortName": "EBC",
-    "industry": "기타"
+    "shortName": "Eastern Bankshares, Inc.",
+    "industry": "지역은행"
   },
   "MMYT": {
-    "shortName": "MMYT",
-    "industry": "기타"
+    "shortName": "MakeMyTrip Limited",
+    "industry": "여행"
   },
   "TEM": {
     "shortName": "TEM",
@@ -6208,16 +6208,16 @@
     "industry": "건축자재"
   },
   "BABA": {
-    "shortName": "BABA",
-    "industry": "기타"
+    "shortName": "Alibaba Group Holding Limited",
+    "industry": "온라인유통"
   },
   "BDRX": {
     "shortName": "BDRX",
     "industry": "기타"
   },
   "BMNR": {
-    "shortName": "BMNR",
-    "industry": "기타"
+    "shortName": "BitMine Immersion Technologies,",
+    "industry": "자본시장"
   },
   "BZ": {
     "shortName": "KANZHUN LIMITED - American Depo",
@@ -6236,8 +6236,8 @@
     "industry": "통신"
   },
   "FLUT": {
-    "shortName": "FLUT",
-    "industry": "기타"
+    "shortName": "Flutter Entertainment plc",
+    "industry": "도박"
   },
   "GIB": {
     "shortName": "CGI Inc.",
@@ -6272,8 +6272,8 @@
     "industry": "기타"
   },
   "PCOR": {
-    "shortName": "PCOR",
-    "industry": "기타"
+    "shortName": "Procore Technologies, Inc.",
+    "industry": "응용SW"
   },
   "RITM": {
     "shortName": "Rithm Capital Corp.",
@@ -6296,32 +6296,32 @@
     "industry": "자산운용"
   },
   "STLA": {
-    "shortName": "STLA",
-    "industry": "기타"
+    "shortName": "Stellantis N.V.",
+    "industry": "자동차"
   },
   "STN": {
     "shortName": "Stantec Inc",
     "industry": "건설"
   },
   "TCOM": {
-    "shortName": "TCOM",
-    "industry": "기타"
+    "shortName": "Trip.com Group Limited",
+    "industry": "여행"
   },
   "TME": {
-    "shortName": "TME",
-    "industry": "기타"
+    "shortName": "Tencent Music Entertainment Gro",
+    "industry": "인터넷"
   },
   "TPG": {
-    "shortName": "TPG",
-    "industry": "기타"
+    "shortName": "TPG Inc.",
+    "industry": "자산운용"
   },
   "TU": {
     "shortName": "TU",
     "industry": "기타"
   },
   "VIPS": {
-    "shortName": "VIPS",
-    "industry": "기타"
+    "shortName": "Vipshop Holdings Limited",
+    "industry": "온라인유통"
   },
   "XPEV": {
     "shortName": "XPeng Inc.",
@@ -6340,16 +6340,16 @@
     "industry": "기타"
   },
   "CIGI": {
-    "shortName": "CIGI",
-    "industry": "기타"
+    "shortName": "Colliers International Group In",
+    "industry": "부동산서비스"
   },
   "UNF": {
-    "shortName": "UNF",
-    "industry": "기타"
+    "shortName": "Unifirst Corporation",
+    "industry": "비즈니스서비스"
   },
   "GRFS": {
-    "shortName": "GRFS",
-    "industry": "기타"
+    "shortName": "Grifols, S.A.",
+    "industry": "대형제약"
   },
   "SKHY": {
     "shortName": "SKHY",
