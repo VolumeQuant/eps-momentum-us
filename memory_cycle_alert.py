@@ -56,7 +56,26 @@ def export_alarm():
             raise RuntimeError('ECOS 키 없음')
     url = (f'https://ecos.bok.or.kr/api/StatisticSearch/{ECOS_API_KEY}'
            f'/json/kr/1/10000/403Y001/M/201301/209912/30911AA')
-    rows = requests.get(url, timeout=30).json().get('StatisticSearch', {}).get('row', [])
+    # 2026-07-21: GH Actions서 간헐 수집 실패(로컬 정상) → 재시도 3회 + 실패 원인 명시.
+    #   구현이 requests 1회·row 없으면 조용히 빈 리스트 → build_message except가 원인 삼킴.
+    import time
+    last_err = None
+    rows = []
+    for attempt in range(3):
+        try:
+            resp = requests.get(url, timeout=30)
+            j = resp.json()
+            rows = j.get('StatisticSearch', {}).get('row', [])
+            if not rows:  # ECOS 에러 응답(RESULT.CODE) 또는 빈 결과 → 원인 노출
+                raise RuntimeError(
+                    f"ECOS row 없음 (HTTP {resp.status_code}, {j.get('RESULT') or list(j.keys())})")
+            break
+        except Exception as e:
+            last_err = e
+            if attempt < 2:
+                time.sleep(3)
+    if not rows:
+        raise RuntimeError(f'ECOS 3회 조회 실패: {type(last_err).__name__}: {last_err}')
     s = pd.Series({pd.Period(r['TIME'], freq='M'): float(r['DATA_VALUE']) for r in rows}).sort_index()
     yoy = (s / s.shift(12) - 1) * 100
     falling3 = bool((yoy.diff().iloc[-1] < 0) and (yoy.diff().iloc[-2] < 0) and (yoy.diff().iloc[-3] < 0))
@@ -70,7 +89,8 @@ def build_message():
         e_on, e_yoy, e_month, e_trend = export_alarm()
         exp_line = (f'한국 반도체 수출(작년 대비): {e_trend}'
                     + (' — 🔴 석달 연속 둔화' if e_on else ' — 호황 지속'))
-    except Exception:
+    except Exception as _ex:
+        print(f'[export_alarm] 수출 지표 수집 실패: {type(_ex).__name__}: {_ex}')
         e_on, exp_line = False, '수출 지표는 오늘 조회 실패 (주가 감시는 정상)'
     # 2026-07-09 밤: 수출 leg를 발동 조건에서 표시 전용으로 강등 — 신 가격 leg(MA90·3/6·즉시) 하에서
     # 수출 OR은 순손실(Calmar 2.01→1.94, 수출 단독 0.92<무시 1.18: 월간+공표지연이 반등을 놓침,
