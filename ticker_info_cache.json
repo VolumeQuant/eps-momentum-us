@@ -5992,8 +5992,8 @@
     "industry": "도박"
   },
   "HRI": {
-    "shortName": "HRI",
-    "industry": "기타"
+    "shortName": "Herc Holdings Inc.",
+    "industry": "렌탈리스"
   },
   "AMRX": {
     "shortName": "Amneal Pharmaceuticals, Inc.",
@@ -6358,5 +6358,9 @@
   "ANDG": {
     "shortName": "Andersen Group Inc.",
     "industry": "생활서비스"
+  },
+  "DPC": {
+    "shortName": "DPC",
+    "industry": "기타"
   }
 }
