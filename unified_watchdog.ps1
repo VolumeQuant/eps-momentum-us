@@ -1,28 +1,43 @@
-# Unified signal watchdog v2 (2026-07-22) — GH cron은 시계가 아니다.
-# 실측: GH가 09~11 UTC 스케줄을 매일 1.5~4h 지연(7/15~22 전수) → 워치독이 주 시계, GH cron은 백업.
-# 트리거: 평일 18:20 + 19:30 (+켜질 때 캐치업). 머신 독립: 경로는 스크립트 위치 기준(집PC/회사PC 공용).
-$repo = $PSScriptRoot
+# Unified signal watchdog v2.1 (2026-07-23) — GH cron is NOT a clock (1.5~4h delay measured daily).
+# Weekday triggers 18:20/19:30 KST + WakeToRun + StartWhenAvailable catch-up. Machine-independent.
+# NOTE: log strings are ASCII-only — PS5.1 misparses BOM-less UTF-8 Korean (2026-07-23 parse crash).
 $log = Join-Path $env:USERPROFILE 'unified_watchdog.log'
-$gh = if (Get-Command gh -ErrorAction SilentlyContinue) { 'gh' } else { 'C:\Program Files\GitHub CLI\gh.exe' }
-Set-Location $repo
-git fetch origin master 2>&1 | Out-Null
-$today = Get-Date -Format 'yyyy-MM-dd'
+function W($msg) { Add-Content $log "$(Get-Date -Format s) $msg" }
+try {
+    $repo = $PSScriptRoot
+    Set-Location $repo
+    $gh = if (Get-Command gh -ErrorAction SilentlyContinue) { 'gh' } else { 'C:\Program Files\GitHub CLI\gh.exe' }
 
-# ① 오늘 블록이 이미 origin에 있으면 끝
-$ledger = git show origin/master:data_cache/unified_vm_log.csv 2>$null
-if ($ledger | Select-String -Pattern "^$today," -Quiet) {
-    Add-Content $log "$(Get-Date -Format s) OK — 오늘 블록 존재" -Encoding UTF8
+    # wait for network up to 3 min (wake/boot catch-up runs)
+    $net = $false
+    foreach ($i in 1..18) {
+        if (Test-Connection -ComputerName github.com -Count 1 -Quiet -ErrorAction SilentlyContinue) { $net = $true; break }
+        Start-Sleep -Seconds 10
+    }
+    if (-not $net) { W 'ABORT - no network after 3min'; exit 0 }
+
+    git fetch origin master 2>&1 | Out-Null
+    $today = Get-Date -Format 'yyyy-MM-dd'
+
+    # 1) today's ledger block already on origin -> done
+    $ledger = git show origin/master:data_cache/unified_vm_log.csv 2>$null
+    if ($ledger | Select-String -Pattern "^$today," -Quiet) { W 'OK - block exists'; exit 0 }
+
+    # 2) in-progress or <15min-old runs -> skip (prevents double-send + push race)
+    $json = & $gh run list --workflow=unified-signal.yml --limit 10 --json status,createdAt 2>$null
+    $busy = 0
+    if ($json) {
+        $runs = $json | ConvertFrom-Json
+        $cut = (Get-Date).ToUniversalTime().AddMinutes(-15)
+        $busy = @($runs | Where-Object { $_.status -in @('in_progress', 'queued') -or ([datetime]$_.createdAt).ToUniversalTime() -gt $cut }).Count
+    }
+    if ($busy -gt 0) { W "SKIP - busy runs: $busy"; exit 0 }
+
+    # 3) dispatch
+    & $gh workflow run unified-signal.yml --ref master 2>&1 | Out-Null
+    W "DISPATCHED - no block for $today"
     exit 0
+} catch {
+    try { W ("ERROR - " + $_.Exception.Message) } catch {}
+    exit 1
 }
-# ② 실행 중이거나 최근 15분 내 생성된 run이 있으면 대기 (이중발송 방지 — dispatch는 guard를 안 타고,
-#    방금 끝난 run의 원장 push가 fetch보다 늦게 도착하는 레이스(7/22 실측)도 이 창으로 흡수)
-$runs = & $gh run list --workflow=unified-signal.yml --limit 10 --json status,createdAt 2>$null | ConvertFrom-Json
-$cut = (Get-Date).ToUniversalTime().AddMinutes(-15)
-$busy = @($runs | Where-Object { $_.status -in @('in_progress', 'queued') -or ([datetime]$_.createdAt).ToUniversalTime() -gt $cut }).Count
-if ($busy -gt 0) {
-    Add-Content $log "$(Get-Date -Format s) SKIP — 진행/최근 run ${busy}건" -Encoding UTF8
-    exit 0
-}
-# ③ 발동
-& $gh workflow run unified-signal.yml --ref master 2>&1 | Out-Null
-Add-Content $log "$(Get-Date -Format s) DISPATCHED — 오늘($today) 블록 없음" -Encoding UTF8
