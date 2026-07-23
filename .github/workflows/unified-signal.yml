@@ -112,7 +112,9 @@ jobs:
           git add data_cache/unified_vm_log.csv
           if ! git diff --staged --quiet; then
             git commit -m "Unified signal ledger: $(date +%Y-%m-%d)"
-            git pull --rebase origin master
+            # --autostash: compute가 만든 부수 상태파일(unstaged)이 있어도 rebase 가능
+            # (2026-07-23 원장 유실 사고 — rebase가 unstaged 변경으로 거부 → 커밋만 실패)
+            git pull --rebase --autostash origin master
             git push
           else
             echo "원장 변경 없음"
