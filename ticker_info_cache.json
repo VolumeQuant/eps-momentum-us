@@ -5620,8 +5620,8 @@
     "industry": "석유장비"
   },
   "MXL": {
-    "shortName": "MXL",
-    "industry": "기타"
+    "shortName": "MaxLinear, Inc",
+    "industry": "반도체"
   },
   "OSCR": {
     "shortName": "OSCR",
@@ -6361,6 +6361,10 @@
   },
   "DPC": {
     "shortName": "DPC",
+    "industry": "기타"
+  },
+  "OII": {
+    "shortName": "OII",
     "industry": "기타"
   }
 }
