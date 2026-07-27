@@ -6366,5 +6366,9 @@
   "OII": {
     "shortName": "OII",
     "industry": "기타"
+  },
+  "BSP": {
+    "shortName": "BSP",
+    "industry": "기타"
   }
 }
