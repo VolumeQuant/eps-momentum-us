@@ -6370,5 +6370,9 @@
   "BSP": {
     "shortName": "BSP",
     "industry": "기타"
+  },
+  "GBTG": {
+    "shortName": "GBTG",
+    "industry": "기타"
   }
 }
