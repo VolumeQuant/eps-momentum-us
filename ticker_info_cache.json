@@ -5624,8 +5624,8 @@
     "industry": "반도체"
   },
   "OSCR": {
-    "shortName": "OSCR",
-    "industry": "기타"
+    "shortName": "Oscar Health, Inc.",
+    "industry": "건강보험"
   },
   "P": {
     "shortName": "Everpure, Inc.",
@@ -6373,6 +6373,14 @@
   },
   "GBTG": {
     "shortName": "GBTG",
+    "industry": "기타"
+  },
+  "CAKE": {
+    "shortName": "CAKE",
+    "industry": "기타"
+  },
+  "MMED": {
+    "shortName": "MMED",
     "industry": "기타"
   }
 }
