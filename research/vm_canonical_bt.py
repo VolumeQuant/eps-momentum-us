@@ -108,14 +108,23 @@ def _rev90(v):
 
 def canonical_bt(pe_max=30, gap_thr=2.5, N=4, R=5, start=2, end_date=None,
                  dv_source='db', dv_min=1000.0, phase=0, exclude=frozenset(),
-                 return_daily=False, trace=False, te_source='full'):
+                 return_daily=False, trace=False, te_source='full', exec_lag=1):
     """정본 BT 1회(단일 위상). 반환 (수익%, MDD%) 또는 return_daily=True 시 (dates, rets, log).
     te_source: 'full'(기본, production 패리티) | 'sparse'(2026-07-12 이전 레거시 재현)."""
+    # ★2026-07-31 exec_lag 신설 (기본 1 = 정직). 구 동작(exec_lag=0)은 그날 종가로 순위를
+    #   매기고 **그 종가에 체결**한 것으로 계산 — 실제로는 종가를 본 뒤에나 주문하므로 불가능.
+    #   메모리 경보 감사에서 '신호를 당일 종가로 판정해 당일 수익에 적용'하는 같은 종류의 버그가
+    #   성과를 최대 4배 부풀린 게 확인돼(확인일수 0인 신호일수록 심함) 전 하네스 점검 중 발견.
+    #   영향 실측(production 게이트, R5, 위상평균, 0.45년):
+    #     rev90   lag0 Cal 11.60 -> lag1 10.72 (-8%)
+    #     adj_gap lag0 Cal 16.97 -> lag1 13.00 (-23%)  <- 가격 기반 지표라 더 크게 부풀려져 있었음
+    #   ⚠️exec_lag=0으로 낸 과거 수치는 전부 낙관 편향. 회귀 비교 외 사용 금지.
+    #   research/_exec_lag_audit_2026_07_31.py · _lookahead_audit_2026_07_31.py
     ad, FULL, DVDB, TC, _ = _load()
     TE = _load_te(te_source)
     if end_date: ad = tuple(d for d in ad if d <= end_date)
     dvmap = DVDB if dv_source == 'db' else _load_dv_parquet()
-    hold = []; rets = []; dates = []; log = []
+    hold = []; rets = []; dates = []; log = []; pend = None
     for i in range(start, len(ad)):
         d, pv = ad[i], ad[i - 1]
         px = FULL.get(d, {}); ppx = FULL.get(pv, {})
@@ -124,6 +133,8 @@ def canonical_bt(pe_max=30, gap_thr=2.5, N=4, R=5, start=2, end_date=None,
             cu = px.get(t, {}).get('px'); pp = ppx.get(t, {}).get('px')
             if cu and pp and pp > 0: drr += (1.0 / N) * (cu - pp) / pp
         rets.append(drr); dates.append(d)
+        if pend is not None and pend[0] == i:   # 지연 체결
+            hold = pend[1]; pend = None
         if i % R == phase:
             cand = []
             for tk, v in FULL.get(d, {}).items():
@@ -137,8 +148,10 @@ def canonical_bt(pe_max=30, gap_thr=2.5, N=4, R=5, start=2, end_date=None,
                     te_v = _pit_te(TE, tk, d); g = (v['nc'] / te_v) if (te_v and te_v > 0) else None
                     if g is not None and g < gap_thr: continue
                 cand.append((tk, _rev90(v)))
-            cand.sort(key=lambda x: -x[1]); hold = [t for t, _ in cand[:N]]
-            if trace: log.append((d, len(cand), list(hold)))
+            cand.sort(key=lambda x: -x[1]); _new = [t for t, _ in cand[:N]]
+            if exec_lag == 0: hold = _new
+            else: pend = (i + exec_lag, _new)
+            if trace: log.append((d, len(cand), list(_new)))
     r = np.array(rets)
     nav = np.cumprod(1 + r); peak = np.maximum.accumulate(nav)
     tot = float(nav[-1] - 1) * 100; mdd = float((nav / peak - 1).min()) * 100

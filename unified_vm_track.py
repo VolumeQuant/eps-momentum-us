@@ -531,6 +531,10 @@ def _replay(rows):
     nav, hold, ppx = 1.0, [], {}
     state = {}
     ew_last = 1.0
+    pend = None   # ★2026-07-31 실행지연: 신호는 미국장 D일 종가로 계산되고 고객은
+                  #   KST D+1 아침에 받아 그날 밤 미국장에서 체결한다. 즉 D일 종가에
+                  #   즉시 매수한 것으로 계산하면 불가능한 이득이 섞인다(감사 2026-07-31).
+                  #   실측 영향: 표시 누적 -7.6% -> -8.7%.
     prev_ud = None   # ★2026-07-31: 같은 미국 거래일을 두 번 발송(토=예고/월=매매직전 재안내)해도
                      #   장부는 1회만 반영. 안 그러면 토요일 블록이 '교체 완료'로 보유를 갱신해
                      #   정작 매매하는 월요일에 "오늘 할 일 없음"이 떠 지시가 사라짐.
@@ -554,11 +558,17 @@ def _replay(rows):
             rr = [px[t] / ppx[t] - 1 for t in hold if t in px and t in ppx and ppx[t] > 0]
             if rr:
                 nav *= 1 + (sum(rr) / len(rr)) * w
+        if pend is not None and pend[0] == i:   # 지연 체결
+            hold = pend[1]; pend = None
         gi = usd.index(ud) if ud in usd else None
         is_rb = (i == 0) or (gi is not None and gi % REBAL == 0)  # 첫 로그일 = 페이퍼 개시(초기 편입)
         held_before = list(hold)
         if is_rb:
-            hold = [r['ticker'] for r in day if r.get('in_top4') == '1']
+            _new = [r['ticker'] for r in day if r.get('in_top4') == '1']
+            if i == 0:
+                hold = _new          # 페이퍼 개시일은 지연 없음(기준점)
+            else:
+                pend = (i + 1, _new)
         state[d] = {'is_rebal': is_rb, 'held_before': held_before, 'held_after': list(hold)}
         ppx.update(px)
         ew_last = w
