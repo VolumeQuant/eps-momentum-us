@@ -65,6 +65,7 @@ KR_HOLDCO = {'402340.KS'}  # SK스퀘어(지주) — KR production 지주제외 
 KR_IND_BLOCK = {'010950.KS', '096770.KS'}  # S-Oil·SK이노베이션(정유) — US COMMODITY(석유정제) 등가
 # 병기 변형: 메모리 테마 캡2 (6월 그리드서 유일 유효 손잡이 — 급락창 1회라 채택 아닌 병기 관찰)
 MEMORY_THEME = {'SNDK', 'MU', 'WDC', 'STX', '005930.KS', '000660.KS'}
+_MEM_ALERT_ON = False  # 메모리 주의보 상태 (카드 라벨용, _compose_and_send에서 설정)
 THEME_CAP = 2
 
 # ── 전략 스위치 (2026-07-31, 기본 OFF = 현행 동작 100% 동일) ────────────────────
@@ -530,6 +531,9 @@ def _replay(rows):
     nav, hold, ppx = 1.0, [], {}
     state = {}
     ew_last = 1.0
+    prev_ud = None   # ★2026-07-31: 같은 미국 거래일을 두 번 발송(토=예고/월=매매직전 재안내)해도
+                     #   장부는 1회만 반영. 안 그러면 토요일 블록이 '교체 완료'로 보유를 갱신해
+                     #   정작 매매하는 월요일에 "오늘 할 일 없음"이 떠 지시가 사라짐.
     for i, d in enumerate(days):
         day = blocks[d]
         px = {}
@@ -540,6 +544,11 @@ def _replay(rows):
             except (TypeError, ValueError):
                 pass
         ud = day[0].get('us_date') if day else None
+        if ud is not None and ud == prev_ud:
+            # 동일 us_date 재발송 — 새 가격도 새 리밸도 없음. 직전 상태를 그대로 물려줘
+            # 메시지가 같은 교체 지시를 반복하게 한다(장부·NAV 불변).
+            state[d] = dict(state[days[i - 1]])
+            continue
         w = float(ew.get(ud, 1.0))
         if hold:
             rr = [px[t] / ppx[t] - 1 for t in hold if t in px and t in ppx and ppx[t] > 0]
@@ -553,6 +562,7 @@ def _replay(rows):
         state[d] = {'is_rebal': is_rb, 'held_before': held_before, 'held_after': list(hold)}
         ppx.update(px)
         ew_last = w
+        prev_ud = ud
     return {'nav': nav, 'days': days, 'state': state, 'ew_last': ew_last}
 
 
@@ -904,8 +914,14 @@ def _market_page():
     return '\n'.join(lines) if len(lines) > 3 else None
 
 
-def _send_long(token, chat_id, msg):
-    """4096자 제한 분할 발송 (줄 경계)."""
+def _send_long(token, chat_id, msg, label=''):
+    """4096자 제한 분할 발송 (줄 경계).
+
+    2026-07-31: 응답 미확인 = 조용한 실패 경로였음. HTML 파싱 오류·chat_id 오류·봇 차단 등으로
+      텔레그램이 ok:false를 반환해도 그냥 넘어가 "발송했다"고 착각하게 만들었음
+      (이 레포 반복 패턴: bat pull 무음실패·브레드스 무음소멸·무효토큰 무음 미발송).
+      → 응답 검증 + 실패 시 예외. HTML 파싱 실패는 평문 재시도로 구제(서식 손실 < 메시지 유실).
+    """
     import requests as _rq
     chunks, cur = [], ''
     for ln in msg.split('\n'):
@@ -916,9 +932,20 @@ def _send_long(token, chat_id, msg):
             cur = (cur + '\n' + ln) if cur else ln
     if cur:
         chunks.append(cur)
-    for ch in chunks:
-        _rq.post('https://api.telegram.org/bot%s/sendMessage' % token,
-                 data={'chat_id': chat_id, 'text': ch, 'parse_mode': 'HTML'}, timeout=20)
+    for n, ch in enumerate(chunks, 1):
+        r = _rq.post('https://api.telegram.org/bot%s/sendMessage' % token,
+                     data={'chat_id': chat_id, 'text': ch, 'parse_mode': 'HTML'},
+                     timeout=20).json()
+        if not r.get('ok'):
+            desc = r.get('description', '')
+            r2 = _rq.post('https://api.telegram.org/bot%s/sendMessage' % token,
+                          data={'chat_id': chat_id, 'text': ch}, timeout=20).json()
+            if not r2.get('ok'):
+                raise RuntimeError('텔레그램 발송 실패%s (%d/%d): %s / 평문재시도: %s'
+                                   % ((' [%s]' % label) if label else '', n, len(chunks),
+                                      desc, r2.get('description', '')))
+            print('[!] 발송 %s(%d/%d) HTML 파싱 실패 → 평문 발송: %s' % (label, n, len(chunks), desc))
+    print('  ↳ 발송 확인%s %d/%d 청크' % ((' ' + label) if label else '', len(chunks), len(chunks)))
 
 
 def cmd_run():
@@ -1051,6 +1078,8 @@ def _stock_card(rank, d, brief, cards_map, first=False):
         L.append('<b>왜 지금 뜨거운가요?</b>')
         L += _split_sents(b['why'])
         L.append('')
+    if _MEM_ALERT_ON and d['ticker'] in MEMORY_THEME:
+        L.append('⚠️ 메모리 업황 주의보 해당 종목')
     L.append('<b>숫자로 확인하기</b>')
     mk = '미국' if d['market'] == 'US' else '한국'
     L.append(f"· 이익전망 3개월간 <b>+{d['rev90']:.0f}%</b> 상향")
@@ -1140,6 +1169,12 @@ def _kr_regime():
             print(f'[KR 국면 파일 파싱 실패({p}): {e}]')
     print('[KR 국면 표시 스킵: regime_state.json 없음]')
     return None
+
+
+def _trade_when(kst_now):
+    """매매 가능 시점 문구. 아침 발송 기준 — 그날 밤 미국장이 열리는지로 분기.
+    토(5)·일(6) 아침엔 그날 밤 미국 정규장이 없어 '오늘 밤'이 거짓이 됨(2026-07-31 사용자 지적)."""
+    return '오늘 밤 미국장' if kst_now.weekday() < 5 else '다음 미국장(월요일 밤)'
 
 
 def _next_msg_day(us_latest, next_in):
@@ -1252,6 +1287,7 @@ def _compose_and_send(merged, meta=None):
     try:
         from memory_cycle_alert import build_message
         amsg, fired = build_message()
+        globals()['_MEM_ALERT_ON'] = bool(fired)
     except Exception as _ae:
         amsg, fired = f'🚦 신호등 계산 실패: {_ae}', False
     # ── 국면 오버레이 (2026-07-10 사용자 승인): US 메인의 검증된 방어 신호 재사용 ──
@@ -1296,10 +1332,23 @@ def _compose_and_send(merged, meta=None):
         for wmsg in meta['warnings']:
             m1 += _wrap('· ' + wmsg, 44)
         m1.append('')
+    # ★2026-07-31 강등: 매매 명령 → 주의 표시.
+    #   10년 실측(research/_memalert_precision_2026_07_31.py): 발동 29회 중 실제 −20% 급락으로
+    #   이어진 건 5회 = 정밀도 17%(헛방어 24회, 다수가 6~15일 단발). 재현율은 71%로 높아
+    #   '위기엔 항상 켜지지만 켜졌다고 위기는 아닌' 신호 → 명령으로 쓰면 10년간 29회 왕복매매.
+    #   게다가 시스템이 SNDK를 3위로 추천하는데 경보가 "메모리 전량 매도"를 지시해 자기모순이었음.
+    #   정보 가치는 유지(ON 구간 메모리 연율 −4.3% vs OFF +81.4%) → 해당 종목에 ⚠️ 라벨만.
     if fired:
-        m1 += ['🔴 <b>메모리 위험 경보 발동!</b>',
-               '시장 브리핑의 신호등 안내에 따라',
-               '메모리 종목을 정리하세요.', '']
+        _mem = [d['ticker'] for d in top5 if d['ticker'] in MEMORY_THEME]
+        import memory_cycle_alert as _mca
+        m1 += ['⚠️ <b>메모리 업황 주의보</b>',
+               f'메모리 대표 {len(_mca.CLUSTER)}종 중 {_mca.K_FIRE}종 이상이 하락',
+               '추세입니다. 과거 큰 하락은 모두 이',
+               '신호가 먼저 떴지만, 신호가 떴다고',
+               '항상 하락하지는 않습니다.']
+        if _mem:
+            m1.append('아래 TOP5 중 해당 종목: ' + ', '.join(_display_name(t) for t in _mem))
+        m1 += ['매매는 평소대로 신호를 따르시고,', '이 종목들은 변동성이 클 수 있다는', '점만 감안하세요.', '']
     nxt = _next_msg_day(us_latest, next_in) if us_latest else None
     nxt_s = f"{nxt.month}/{nxt.day}({'월화수목금토일'[nxt.weekday()]}) 아침" if nxt else f"{next_in}거래일 후"
     if regime == 'defense':
@@ -1314,7 +1363,7 @@ def _compose_and_send(merged, meta=None):
     elif reentry:
         m1 += ['🟢 <b>오늘 할 일: 강세 복귀 — 재진입</b>',
                '방어 국면이 해제됐습니다.',
-               '아래 TOP5를 각 20%씩 한 번에 매수하세요.']               + ([] if VM_US_ONLY else ['(미국 종목 = 오늘 밤 개장,',
+               f'아래 TOP5를 각 20%씩 {_trade_when(kdt)}에 매수하세요.']               + ([] if VM_US_ONLY else ['(미국 종목 = 오늘 밤 개장,',
                                         ' 한국 종목 = 내일 아침 개장)'])
         for t in [d['ticker'] for d in top5]:
             m1.append(f'🟢 사기: {_display_name(t)} — 자산의 20%')
@@ -1328,7 +1377,7 @@ def _compose_and_send(merged, meta=None):
         m1 += ['나머지 종목은 그대로 유지하세요.',
                '(이미 처리했거나 갖고 있지 않은',
                ' 종목은 건너뛰면 됩니다)',
-               '오늘 밤 미국장 개장 때 매매하시면 됩니다.'
+               f'{_trade_when(kdt)} 개장 때 매매하시면 됩니다.'
                if VM_US_ONLY else '미국 종목은 오늘 밤 개장에,',
                ] + ([] if VM_US_ONLY else ['한국 종목은 내일 아침 개장에 매매.'])
     elif is_rebal:
