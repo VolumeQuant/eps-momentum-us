@@ -1543,22 +1543,21 @@ def _compose_and_send(merged, meta=None):
             m1 += ['(미국 종목 = 오늘 밤 개장,', ' 한국 종목 = 내일 아침 개장)']
         for t in [d['ticker'] for d in top5]:
             m1.append(f'🟢 사기: {_display_name(t)} — 자산의 {100/N_TOP:.0f}%')
-    elif is_rebal and diff and (diff[0] or diff[1]):
-        n_ch = max(len(diff[0]), len(diff[1]))
-        m1.append(f'🔁 <b>오늘 할 일: 종목 {n_ch}개 교체</b>')
-        for t in diff[1]:
-            m1.append(f'🔴 팔기: {_display_name(t)} — 보유분 전량 매도')
-        for t in diff[0]:
-            m1.append(f'🟢 사기: {_display_name(t)} — 자산의 {100/N_TOP:.0f}% 매수')
-        m1 += ['나머지 종목은 그대로 유지하세요.',
-               '(이미 처리했거나 갖고 있지 않은',
-               ' 종목은 건너뛰면 됩니다)',
-               f'{_trade_when(kdt)} 개장 때 매매하시면 됩니다.'
-               if VM_US_ONLY else '미국 종목은 오늘 밤 개장에,',
-               ] + ([] if VM_US_ONLY else ['한국 종목은 내일 아침 개장에 매매.'])
     elif is_rebal:
-        m1 += ['✅ <b>오늘 할 일: 없음</b> (교체 점검일)',
-               '점검 결과 교체 없이 그대로 갑니다.']
+        # ★2026-08-01 (사용자 지시 "교체하세요 할 때는 현재 TOP5만 보여줘야지 기존 종목
+        #   들먹이지 마라"): 구 방식은 원장 보유와의 diff('팔기: 플렉스·HPE')로 지시했는데,
+        #   그 '팔기' 종목명은 시스템 원장의 가정이지 구독자의 실제 보유가 아니다 —
+        #   어제 '보유 단정 금지' 원칙(a55c173)을 세우고도 교체일 분기엔 남아 있었다.
+        #   → 목표 상태(오늘 TOP5)만 제시. 각자 자기 계좌를 그 목표에 맞추면 되므로
+        #   시스템이 모르는 정보(누가 뭘 들고 있나)에 기대지 않는다.
+        m1.append(f'🔁 <b>오늘 할 일: 아래 TOP{N_TOP}로 맞추세요</b>')
+        for _i, _d in enumerate(top5, 1):
+            m1.append(f'{_i}. {_display_name(_d["ticker"])} — {100/N_TOP:.0f}%')
+        m1 += ['',
+               '· 이 목록에 없는 보유 종목 → 전량 매도',
+               '· 이미 갖고 계신 종목 → 그대로 유지',
+               f'· 새로 담을 종목 → 각 {100/N_TOP:.0f}% 매수',
+               f'{_trade_when(kdt)} 개장 때 매매하시면 됩니다.']
     else:
         # ★2026-07-31 (2차 수정): 보유 종목을 메시지에 쓰지 않는다.
         #   시스템은 '자기가 무엇을 추천했는지'만 알 뿐 사용자의 실제 계좌를 모른다.
