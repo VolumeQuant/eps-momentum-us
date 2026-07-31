@@ -980,6 +980,21 @@ def _ai_stock_briefs(entries):
 
         out = {}
         need = {d['ticker'] for d in entries[:10]}
+        _topn = {d['ticker'] for d in entries[:N_TOP]}
+
+        def _incomplete(cur):
+            """★2026-07-31: 구 커버리지 검사는 '티커가 응답에 있는가'만 봤다.
+            Gemini가 소개 한 문장만 뱉어도 통과돼 '왜 지금 뜨거운가요'·'위험 요인'
+            섹션이 통째로 빈 카드가 발송됐다(사용자 관측: NXPI). → 완결성으로 판정.
+            상위 N(매수 대상)은 3요소 전부, 대기 후보는 소개+이유까지 요구."""
+            bad = set()
+            for tk in need:
+                v = cur.get(tk) or {}
+                if not (v.get('biz') and v.get('why')):
+                    bad.add(tk)
+                elif tk in _topn and not v.get('risk'):
+                    bad.add(tk)
+            return bad
         # 모델 폴백 체인 (2026-07-10 실측): flash 무료 20회/일(KR 16:00 시스템과 키 공유,
         # 당일 소진 실발생) → flash-lite 폴백. lite는 형식 이탈이 잦아 flash 우선 2회.
         attempts = [('gemini-2.5-flash', 1), ('gemini-2.5-flash', 2),
@@ -990,13 +1005,19 @@ def _ai_stock_briefs(entries):
                     model=model, contents=prompt,
                     config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
                 cand = _parse(resp.text or '')
-                out.update({k: v for k, v in cand.items() if k not in out or not out[k]})
-                # 10종목 전원 파싱됐으면 성공 — 아니면 재시도 (브리핑 누락 발송 방지)
-                if len(need - set(out)) == 0:
+                # 더 완결한 응답으로만 덮어쓴다(부분 응답이 완전 응답을 밀어내지 않게).
+                for k, v in cand.items():
+                    old = out.get(k) or {}
+                    if sum(1 for f in ('biz', 'why', 'risk') if v.get(f)) > \
+                       sum(1 for f in ('biz', 'why', 'risk') if old.get(f)):
+                        out[k] = v
+                bad = _incomplete(out)
+                if not bad:
                     if model != 'gemini-2.5-flash':
                         print(f'[브리핑: {model} 폴백 사용]')
                     break
-                print('[브리핑 시도 %d(%s): 10종목 중 %d개 누락 → 재시도]' % (_i, model, len(need - set(out))))
+                print('[브리핑 시도 %d(%s): 미완결 %d종목(%s) → 재시도]'
+                      % (_i, model, len(bad), ','.join(sorted(bad)[:5])))
             except Exception as _e:
                 print('[브리핑 시도 %d(%s) 실패: %s]' % (_i, model, str(_e)[:120]))
                 import time as _t
