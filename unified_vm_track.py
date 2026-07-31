@@ -66,6 +66,16 @@ KR_IND_BLOCK = {'010950.KS', '096770.KS'}  # S-Oil·SK이노베이션(정유) �
 # 병기 변형: 메모리 테마 캡2 (6월 그리드서 유일 유효 손잡이 — 급락창 1회라 채택 아닌 병기 관찰)
 MEMORY_THEME = {'SNDK', 'MU', 'WDC', 'STX', '005930.KS', '000660.KS'}
 _MEM_ALERT_ON = False  # 메모리 주의보 상태 (카드 라벨용, _compose_and_send에서 설정)
+# ★2026-07-31 메시지 노출 제거 (사용자 결정 '안 따를 건데 왜 넣냐').
+#   경보 자체는 진짜다 — 같은 기간·같은 구조로 랜덤 현금(300회) Calmar 0.75 vs 경보 1.22,
+#   랜덤 분포 상위 3%(MDD 96%·Calmar 97% 우세). 타이밍에 실력 있음.
+#   ★그러나 그 1.22는 '발동 시 실제로 메모리를 판다'는 전제에서만 나온다.
+#   우리는 매매 적용을 하지 않기로 했으므로(정밀도 17%·검증구간 발동 1회) 표시만 남기면
+#   이득은 0이고 혼란만 생긴다 — 시스템이 SNDK를 3위로 추천하면서 동시에 '주의' 라벨이 붙어
+#   고객이 취할 합리적 행동이 없다. => 노출 제거.
+#   참고 정직 수치: 안 씀 Calmar 1.15 / 따름 1.22 (구 보고 1.05->1.61은 look-ahead 허수).
+#   되살리려면 MEM_ALERT_SHOW='1'. 계산 모듈(memory_cycle_alert.py)·연구는 그대로 보존.
+MEM_ALERT_SHOW = os.environ.get('MEM_ALERT_SHOW', '') == '1'
 THEME_CAP = 2
 
 # ── 전략 스위치 (2026-07-31, 기본 OFF = 현행 동작 100% 동일) ────────────────────
@@ -1088,7 +1098,7 @@ def _stock_card(rank, d, brief, cards_map, first=False):
         L.append('<b>왜 지금 뜨거운가요?</b>')
         L += _split_sents(b['why'])
         L.append('')
-    if _MEM_ALERT_ON and d['ticker'] in MEMORY_THEME:
+    if _MEM_ALERT_ON and MEM_ALERT_SHOW and d['ticker'] in MEMORY_THEME:
         L.append('⚠️ 메모리 업황 주의보 해당 종목')
     L.append('<b>숫자로 확인하기</b>')
     mk = '미국' if d['market'] == 'US' else '한국'
@@ -1334,7 +1344,7 @@ def _compose_and_send(merged, meta=None):
             m1.append('🇰🇷 한국 국면: 🛑 약세 (참고 — 한국 종목 주의)')
         else:
             m1.append(f"🇰🇷 한국 약세 전환 진행 {krr['pending_days']}/5일 (참고)")
-    if alert_head:
+    if alert_head and MEM_ALERT_SHOW:
         m1.append(alert_head)
     m1.append('')
     if meta.get('warnings'):
@@ -1348,7 +1358,7 @@ def _compose_and_send(merged, meta=None):
     #   '위기엔 항상 켜지지만 켜졌다고 위기는 아닌' 신호 → 명령으로 쓰면 10년간 29회 왕복매매.
     #   게다가 시스템이 SNDK를 3위로 추천하는데 경보가 "메모리 전량 매도"를 지시해 자기모순이었음.
     #   정보 가치는 유지(ON 구간 메모리 연율 −4.3% vs OFF +81.4%) → 해당 종목에 ⚠️ 라벨만.
-    if fired:
+    if fired and MEM_ALERT_SHOW:
         _mem = [d['ticker'] for d in top5 if d['ticker'] in MEMORY_THEME]
         import memory_cycle_alert as _mca
         m1 += ['⚠️ <b>메모리 업황 주의보</b>',
@@ -1498,7 +1508,8 @@ def _compose_and_send(merged, meta=None):
     el = _earnings_lines([d['ticker'] for d in top5])
     if el:
         m3 += ['', '📅 <b>보유종목 일정 (14일 내)</b>'] + el
-    m3 += ['', amsg]
+    if MEM_ALERT_SHOW:            # 메모리 감시등 상세 (기본 미노출, 2026-07-31)
+        m3 += ['', amsg]
     _sha = _git_sha()
     if _sha:
         m3 += ['', f'<i>sys {_sha} · {today}</i>']  # 코드버전 — 낡은 코드 발송 식별용 (감사수리 3)
