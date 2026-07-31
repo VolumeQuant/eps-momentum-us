@@ -169,6 +169,8 @@ def _dedup_dual_class(merged):
 #   ⚠️거래대금은 값별로 12.0/21.5/15.4/13.0/16.0/14.5로 들쭉날쭉(고원 없음) → 손대지 않음.
 #   research/_gate_sweep_lag1_2026_07_31.py
 MIN_SEG_THR = float(os.environ.get('VM_MIN_SEG_THR', '-2.0'))
+# 최근 30일 전망 상향 애널 최소 인원 (0 = 해제). 근거는 us_candidates 게이트 주석 참조.
+REV_UP30_MIN = int(os.environ.get('VM_REV_UP30_MIN', '3'))
 VM_STRATEGY = os.environ.get('VM_STRATEGY', 'rev90')
 VM_US_ONLY = os.environ.get('VM_US_ONLY', '0') == '1'
 _GAP_MODE = (VM_STRATEGY == 'gap')
@@ -287,9 +289,10 @@ def us_candidates():
     cf = _carry_forward_windows(conn, last)  # 글리치 0값 → 직전 유효값 대체 (재발 방지)
     AGM = _adj_gap_map(conn, last)           # 괴리율(gap 모드 순위 기준)
     out = []
-    for tk, p, nc, n7, n30, n60, n90, dv, na, m120 in c.execute(
+    for tk, p, nc, n7, n30, n60, n90, dv, na, m120, ru30 in c.execute(
             'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,dollar_volume_30d,'
-            'num_analysts,ma120 FROM ntm_screening WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)):
+            'num_analysts,ma120,rev_up30 FROM ntm_screening '
+            'WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)):
         n7, n30 = _cf(n7, tk, 'ntm_7d', cf), _cf(n30, tk, 'ntm_30d', cf)
         n60, n90 = _cf(n60, tk, 'ntm_60d', cf), _cf(n90, tk, 'ntm_90d', cf)
         if not ind_ok(tk):
@@ -316,6 +319,19 @@ def us_candidates():
         if not _GAP_MODE and g is not None and g < GAP_MIN:
             continue
         # A군 안전필터 (production _vm_pick 패리티): 동전주·저커버·마진<5%·FCF/ROE 동시음수·rev90>0
+        # ★rev_up30 게이트 (2026-07-31 복원). 최근 30일 전망을 올린 애널이 REV_UP30_MIN명 미만이면 제외.
+        #   계기: 사용자 "NXPI는 정보부족이면서 뭘 5등을 추천해?" — 실측 TOP5 중 NXPI만 상향 0명
+        #   (VRT 2·STX 5·SNDK 6·GOOGL 4). 기존 체인은 '애널 커버 수'만 보고 '최근 상향 활동'은 안 봤다.
+        #   구시스템 v80.8에 있던 필터('단일 분석가 의존 종목 차단', WELL 사례)를 되살린 것.
+        #   스윕(exec_lag=1·괴리율·N5·R5·위상평균, research/_revup30_gate_2026_07_31.py):
+        #     미적용 Cal 14.28 / >=1 14.28 / >=2 16.99 / >=3 17.21 / >=5 17.09  (2~5가 고원)
+        #     ★>=1은 무의미하고 >=2부터 계단 — 2·3·5가 평평해 뾰족한 봉우리가 아님.
+        #     LOWO 5/5 전승(예: ex-MU 11.21 -> 14.87), 랜덤 진입일 MDD 승률 79%.
+        #     MDD -19.7% -> -15.8%, 수익 -2.2%p. 후보 풀 58 -> 36종목.
+        #   ★3 채택 이유: 헤드라인 최고 + 고원 중심 + 구시스템이 독립적으로 도달한 값과 일치.
+        #   env VM_REV_UP30_MIN(0이면 해제).
+        if (ru30 or 0) < REV_UP30_MIN:
+            continue
         if p < 10 or (na or 0) < 3 or _seg(nc, n90) <= 0:
             continue
         om, fcf, roe = fund.get(tk, (None, None, None))
