@@ -42,7 +42,13 @@ LOG = os.path.join(HERE, 'data_cache', 'unified_vm_log.csv')
 #   US 프로덕션과 패리티 유지가 이 트랙의 존재 이유(같은 게이트를 양국에). in_top4 컬럼명은 로그 연속성
 #   위해 유지(의미 = topN 멤버십). ⚠️gap 1.5로 낮추며 KR에 US 업종제외 등가 필터 신설(정유 등 —
 #   구 2.5에선 gap이 우연히 걸렀지만 1.5에선 S-Oil이 상위 진입, US 규칙이면 원자재/정유 제외 대상).
-N_TOP, REBAL = 5, 5
+N_TOP = 5
+# 교체 주기(영업일). ★2026-07-31 스윕(production 정확 게이트, research/_prod_faithful_bt):
+#   rev90은 주기 무관(R1 11.66 ~ R3 12.91 ~ R5 11.60 = 평평) — 분기 실적 기반이라 느리게 변함.
+#   괴리율은 주기가 결정적(R1 29.03 / R2 27.94 / R3 21.66 / R5 16.97) — 매일 주가로 변하는
+#   신호라 5일 기다리면 괴리가 이미 메워짐. 비용 40bp까지 넣으면 R2(17.52)가 R1(14.79)보다
+#   강건(회전 절반: 월 17.5건 vs 24.9건) → gap 전략 채택 시 R2~R3 권장.
+REBAL = int(os.environ.get('VM_REBAL', '5'))
 PE_MAX, GAP_MIN, DV_MIN_MUSD = 30.0, 1.5, 1000.0
 # ★KR 하한 = 백분위 등가. 스펙은 하나("각 시장 거래대금 상위 ~10%", 2026-07-09 사용자 승인),
 #   환율만 시장별 — 과거 $100M '특례' 폐지 사유(자의적 숫자)를 해소한 원칙.
@@ -60,6 +66,57 @@ KR_IND_BLOCK = {'010950.KS', '096770.KS'}  # S-Oil·SK이노베이션(정유) �
 # 병기 변형: 메모리 테마 캡2 (6월 그리드서 유일 유효 손잡이 — 급락창 1회라 채택 아닌 병기 관찰)
 MEMORY_THEME = {'SNDK', 'MU', 'WDC', 'STX', '005930.KS', '000660.KS'}
 THEME_CAP = 2
+
+# ── 전략 스위치 (2026-07-31, 기본 OFF = 현행 동작 100% 동일) ────────────────────
+# VM_STRATEGY='gap'  : 순위 기준을 rev90(90일 전망 상향폭) → adj_gap(EPS 대비 가격 괴리율,
+#                      낮을수록 좋음)으로 교체 + gap/min_seg 게이트 해제.
+#   근거: 미국 단독 5.5개월 BT(research/_calmar_summary_2026_07_31.py) Calmar 9.67→18.61
+#   (수익 +87.9→+88.3 동일, MDD −31.4→−16.4). 검증 = 기간 5/5·LOWO 4/4·게이트 16조합
+#   MDD 16/16·유니버스편향 0(rev90을 adj_gap 보유 유니버스로 제한해도 수치 불변).
+#   ★gap/min_seg를 반드시 함께 해제해야 함 — 지표만 바꾸면 Calmar 9.11로 오히려 악화
+#   (adj_gap 공식이 eps_quality=min_seg를 이미 내포 + 자체가 밸류 척도 → 이중 적용).
+#   한계: 5.5개월 단일 강세장(진짜 약세장 미검증), 상승 구간(~5/15·6/15·7/15)은 rev90 우위,
+#   회전율 2.6배(리밸당 0.90→2.31종목, 20bp 반영 후에도 Calmar 16.14>9.15 유지).
+# VM_US_ONLY='1'     : KR 다리 제외(미국 종목만). 통합 BT는 KR DB가 40일·유니버스 3회 급변
+#   (73→390→535)이라 측정 불가 → KR 백분위 보정을 adj_gap으로 검증할 방법이 없음.
+#   미국만이면 그 미검증 의존이 사라져 위 5.5개월 BT가 곧 실제 나갈 물건이 됨.
+#   (KR 노출은 별도 KR 시스템 48%가 담당 — 이 트랙에서 빼도 노출 소멸 아님 +
+#    CLAUDE.md 통합 도입 시 명시한 대가 '메모리 테마 이중집중' 해소)
+# 롤백 = env 제거. 원장은 strategy 컬럼으로 자기기술(과거 행 소급 재작성 없음).
+# 이중상장(동일 기업 복수 클래스) — 같은 회사에 2슬롯(=40%) 나가는 것 방지. 상위 1개만 남김.
+#  2026-07-31 발견: gap 모드 첫 시행에서 GOOGL·GOOG가 4·5위 동시 진입(BT 23회 리밸에선 0회라
+#  기존 결과 오염은 없으나, 라이브 재발 시 분산 파괴 → 지표와 무관한 구조 가드로 상시 적용).
+DUAL_CLASS = {'GOOG': 'GOOGL', 'FOXA': 'FOX', 'NWSA': 'NWS', 'UAA': 'UA',
+              'BRK-B': 'BRK-A', 'LEN-B': 'LEN', 'HEI-A': 'HEI', 'BF-B': 'BF-A'}
+
+
+def _dedup_dual_class(merged):
+    seen, out, dropped = set(), [], []
+    for d in merged:
+        key = DUAL_CLASS.get(d['ticker'], d['ticker'])
+        if key in seen:
+            dropped.append(d['ticker']); continue
+        seen.add(key); out.append(d)
+    return out, dropped
+
+
+VM_STRATEGY = os.environ.get('VM_STRATEGY', 'rev90')
+VM_US_ONLY = os.environ.get('VM_US_ONLY', '0') == '1'
+_GAP_MODE = (VM_STRATEGY == 'gap')
+
+
+def _adj_gap_map(conn, date):
+    """해당 일자 {ticker: adj_gap}. adj_gap = fwd_pe_chg×(1+dir)×eps_quality (낮을수록 좋음)."""
+    return {tk: float(v) for tk, v in conn.execute(
+        'SELECT ticker, adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL', (date,))}
+
+
+def _score(d):
+    """순위 점수 — 항상 '클수록 좋음'으로 통일 (하류 정렬 로직 무변경)."""
+    if _GAP_MODE:
+        a = d.get('adj_gap')
+        return None if a is None else -a
+    return d['rev90']
 
 
 def _seg(a, b):
@@ -159,6 +216,7 @@ def us_candidates():
         if fcf is not None: e[1] = fcf
         if roe is not None: e[2] = roe
     cf = _carry_forward_windows(conn, last)  # 글리치 0값 → 직전 유효값 대체 (재발 방지)
+    AGM = _adj_gap_map(conn, last)           # 괴리율(gap 모드 순위 기준)
     out = []
     for tk, p, nc, n7, n30, n60, n90, dv, na, m120 in c.execute(
             'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,dollar_volume_30d,'
@@ -169,7 +227,9 @@ def us_candidates():
             continue
         if dv is None or dv < DV_MIN_MUSD:
             continue
-        if min(_seg(nc, n7), _seg(n7, n30), _seg(n30, n60), _seg(n60, n90)) < 0:
+        # min_seg·gap 게이트: gap 모드에선 해제 (adj_gap이 eps_quality=min_seg를 이미 내포하고
+        # 자체가 밸류 척도 → 이중 적용이 Calmar를 18.61→9.11로 깎음, 2026-07-31 BT)
+        if not _GAP_MODE and min(_seg(nc, n7), _seg(n7, n30), _seg(n30, n60), _seg(n60, n90)) < 0:
             continue
         if nc <= 0 or (n90 or 0) <= 0.1:
             continue
@@ -178,7 +238,7 @@ def us_candidates():
         rec = TE.get(tk)
         te = rec[-1][1] if rec else None
         g = (nc / te) if (te and te > 0) else None
-        if g is not None and g < GAP_MIN:
+        if not _GAP_MODE and g is not None and g < GAP_MIN:
             continue
         # A군 안전필터 (production _vm_pick 패리티): 동전주·저커버·마진<5%·FCF/ROE 동시음수·rev90>0
         if p < 10 or (na or 0) < 3 or _seg(nc, n90) <= 0:
@@ -191,8 +251,11 @@ def us_candidates():
         # rev30/below_ma120 = 관찰 전용 원장 컬럼 (GATECHAIN_REVIEW log-stale-flag-observe, 매매 개입 0)
         out.append(dict(ticker=tk, market='US', rev90=_seg(nc, n90), fwd_per=p / nc,
                         gap=g, dv_musd=dv, price=p, rev30=_seg(nc, n30),
+                        adj_gap=AGM.get(tk),
                         below_ma120=(int(p < m120) if m120 else None)))
     conn.close()
+    if _GAP_MODE:  # 괴리율 결측 종목은 순위 산정 불가 → 후보 제외 (US 결측률 4.9%)
+        out = [d for d in out if d.get('adj_gap') is not None]
     return last, out
 
 
@@ -221,6 +284,7 @@ def kr_candidates(fx):
         if om_ is not None: e[0] = om_
         if fcf_ is not None: e[1] = fcf_
         if roe_ is not None: e[2] = roe_
+    KAGM = _adj_gap_map(kconn, last)  # 괴리율(gap 모드 순위 기준)
     kconn.close()
     pre = []
     for tk, p, nc, n7, n30, n60, n90, mc, na, m120 in rows:
@@ -230,7 +294,7 @@ def kr_candidates(fx):
             continue
         if (na or 0) < 5:
             continue
-        if min(_seg(nc, n7), _seg(n7, n30), _seg(n30, n60), _seg(n60, n90)) < 0:
+        if not _GAP_MODE and min(_seg(nc, n7), _seg(n7, n30), _seg(n30, n60), _seg(n60, n90)) < 0:
             continue
         # 저분모 가드 100원 (2026-07-10 감사수리: 구 0.1은 USD용 임계를 원화에 그대로 써 무가드)
         if nc <= 0 or (n90 or 0) <= 100:
@@ -250,10 +314,11 @@ def kr_candidates(fx):
         health['gap_reach'] += 1
         if g is not None:
             health['gap_computed'] += 1
-        if g is not None and g < GAP_MIN:
+        if not _GAP_MODE and g is not None and g < GAP_MIN:
             continue
         pre.append(dict(ticker=tk, market='KR', rev90=_seg(nc, n90), fwd_per=p / nc,
                         gap=g, dv_musd=None, price=p, mc=mc, rev30=_seg(nc, n30),
+                        adj_gap=KAGM.get(tk),
                         below_ma120=(int(p < m120) if m120 else None)))
     if health['gap_reach'] >= 3 and health['gap_computed'] == 0:
         health['warnings'].append(
@@ -289,6 +354,8 @@ def kr_candidates(fx):
             continue
         d.pop('mc', None)
         out.append(d)
+    if _GAP_MODE:  # 괴리율 결측 종목은 순위 산정 불가 → 후보 제외
+        out = [d for d in out if d.get('adj_gap') is not None]
     return last, out, health
 
 
@@ -310,18 +377,23 @@ def _universe_rev90(db, dv_min=None, n90_floor=0.1, window_days=30):
     has_dv = any(r[1] == 'dollar_volume_30d' for r in c.execute("PRAGMA table_info(ntm_screening)"))
     dv_col = ', dollar_volume_30d' if has_dv else ', NULL'
     rows = c.execute(
-        f'SELECT ticker, ntm_current, ntm_90d{dv_col} FROM ntm_screening '
+        f'SELECT ticker, ntm_current, ntm_90d{dv_col}, adj_gap FROM ntm_screening '
         'WHERE date>=date(?, ?) AND ntm_current>0 AND ntm_90d>? ORDER BY date',
         (dt, f'-{int(window_days)} day', n90_floor)).fetchall()
     c.close()
     latest = {}
-    for tk, nc, n90, dv in rows:  # ORDER BY date라 뒤 행이 최신 — 종목별 최신 행만 남김
-        latest[tk] = (nc, n90, dv)
+    for tk, nc, n90, dv, ag in rows:  # ORDER BY date라 뒤 행이 최신 — 종목별 최신 행만 남김
+        latest[tk] = (nc, n90, dv, ag)
     vals = []
-    for nc, n90, dv in latest.values():
+    for nc, n90, dv, ag in latest.values():
         if dv_min is not None and has_dv and (dv is None or dv < dv_min):
             continue
-        vals.append((nc - n90) / abs(n90) * 100)
+        if _GAP_MODE:  # gap 모드 분모도 같은 척도(괴리율)로 — 지표·분모 불일치 방지
+            if ag is None:
+                continue
+            vals.append(-float(ag))
+        else:
+            vals.append((nc - n90) / abs(n90) * 100)
     return vals
 
 
@@ -335,10 +407,19 @@ def _dist_med_mad(vals):
 def compute():
     fx = _fx_usdkrw()
     us_date, us = us_candidates()
-    kr_date, kr, kr_health = kr_candidates(fx)
-    merged = sorted(us + kr, key=lambda d: -d['rev90'])
-    meta = {'norm': 'pct', 'warnings': list(kr_health.get('warnings') or []),
+    if VM_US_ONLY:
+        # KR 다리 제외 — 통합+gap은 KR DB 40일·유니버스 3회 급변으로 검증 불가(2026-07-31).
+        kr_date, kr, kr_health = None, [], {'today_n': None, 'warnings': []}
+    else:
+        kr_date, kr, kr_health = kr_candidates(fx)
+    merged = sorted(us + kr, key=lambda d: -(_score(d) or -9e9))
+    meta = {'norm': 'pct', 'strategy': VM_STRATEGY, 'us_only': VM_US_ONLY,
+            'warnings': list(kr_health.get('warnings') or []),
             'kr_today_n': kr_health.get('today_n'), 'base_n': {}}
+    if _GAP_MODE and not VM_US_ONLY:
+        meta['warnings'].append(
+            '괴리율(gap) 전략 + KR 편입 = 미검증 조합 — KR 백분위 보정이 rev90 기준으로만 '
+            '검증됨(괴리율은 한·미 중앙값 +0.7 vs −20.4로 격차가 커 보정 의존도 급증)')
     # 백분위 결합 = 본선 (2026-07-09 사용자 승인, CROSS_MARKET_NORM 연구): rev90 절대값이
     # 아니라 자기 시장 '유동성 유니버스' 내 백분위로 환산해 결합 — KR 리비전 인플레 보정.
     # (실측: 횡단면 중앙값 US +4.3% vs KR +17.0%, MAD 3.4 vs 13.5. LG이노텍 +50.6%=KR
@@ -353,21 +434,25 @@ def compute():
     #   5위는 razor-thin(판정일 재확인 항목). 상세: research/AUDIT_FIXES_2026_07_10.md 2차.
     try:
         uus = _universe_rev90(os.path.join(HERE, 'eps_momentum_data.db'))
-        ukr = _universe_rev90(KR_DB, n90_floor=100.0)  # 원화 저분모 가드
+        ukr = _universe_rev90(KR_DB, n90_floor=100.0) if not VM_US_ONLY else []
         meta['base_n'] = {'US': len(uus), 'KR': len(ukr)}
-        if len(ukr) < 30:
+        if not VM_US_ONLY and len(ukr) < 30:
             meta['warnings'].append(f'KR 백분위 분모 {len(ukr)}종목뿐 — 순위 신뢰 낮음')
         kt = kr_health.get('today_n') or 0
         if kt and (kt < 60 or kt < 0.6 * len(ukr)):
             meta['warnings'].append(
                 f'KR 수집 부실: 오늘 {kt}종목 (최근 30일 관측 {len(ukr)}종목) — KR 순위 참고만')
         mus, dus = _dist_med_mad(uus)
-        mkr, dkr = _dist_med_mad(ukr)
+        mkr, dkr = _dist_med_mad(ukr) if ukr else (0.0, 1e-9)  # US_ONLY 시 KR 분모 없음
         for d in merged:
             base, med, mad = (uus, mus, dus) if d['market'] == 'US' else (ukr, mkr, dkr)
-            d['pct'] = sum(1 for v in base if v < d['rev90']) / len(base) * 100
-            d['rz'] = (d['rev90'] - med) / mad * 0.6745  # robust-z 병기 관찰
-        merged.sort(key=lambda d: (-d['pct'], -d['rev90']))
+            sc = _score(d)
+            d['pct'] = sum(1 for v in base if v < sc) / len(base) * 100
+            d['rz'] = (sc - med) / mad * 0.6745  # robust-z 병기 관찰
+        merged.sort(key=lambda d: (-d['pct'], -(_score(d) or -9e9)))
+        merged, _dropped = _dedup_dual_class(merged)
+        if _dropped:
+            print('[이중상장 중복 제거] %s' % ', '.join(_dropped))
     except Exception as e:
         # 2026-07-10 감사수리: 조용한 폴백 금지 — 본선 결합 방식이 바뀌면 메시지에 명시
         meta['norm'] = 'abs_fallback'
@@ -837,11 +922,12 @@ def cmd_run():
         if d['ticker'] in capped and i > N_TOP:
             mark += ' (캡2픽)'
         gap_s = f"{d['gap']:.1f}" if d['gap'] else 'pass'
-        print(f"{i:2}. [{d['market']}] {d['ticker']:10} rev90 {d['rev90']:+7.1f}%  "
+        _m = ('괴리 %+7.1f' % d['adj_gap']) if (_GAP_MODE and d.get('adj_gap') is not None)             else ('rev90 %+7.1f%%' % d['rev90'])
+        print(f"{i:2}. [{d['market']}] {d['ticker']:10} {_m}  "
               f"fwdPER {d['fwd_per']:5.1f}  gap {gap_s:>5}  dv ${(d['dv_musd'] or 0):,.0f}M{mark}")
     print('테마캡2 변형 top4:', capped)
     # 절대 rev90 결합 = 구 본선, 관찰 컬럼으로 강등 (2026-07-09 백분위 승격의 비교군)
-    abs_top = [x['ticker'] for x in sorted(merged, key=lambda z: -z['rev90'])[:N_TOP]]
+    abs_top = [x['ticker'] for x in sorted(merged, key=lambda z: -(_score(z) or -9e9))[:N_TOP]]
     print('절대결합 변형 top5(관찰):', abs_top)
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
     rz_top = [x['ticker'] for x in sorted(merged, key=lambda z: -z.get('rz', 0))[:N_TOP]]
@@ -857,7 +943,7 @@ def cmd_run():
     COLS = ['run_date', 'us_date', 'kr_date', 'rank', 'market', 'ticker',
             'rev90', 'fwd_per', 'gap', 'dv_musd', 'price', 'in_top4', 'in_top4_cap2',
             'pct', 'in_top5_abs', 'rz', 'in_top5_rz', 'pct_base_n',
-            'rev30', 'stale', 'below_ma120']
+            'rev30', 'stale', 'below_ma120', 'adj_gap', 'strategy']
     if os.path.exists(LOG):  # 구헤더(13/14컬럼) → 신헤더 마이그레이션, 과거 행은 공란 패딩
         lines = open(LOG, encoding='utf-8').read().splitlines()
         hdr = lines[0].split(',')
@@ -884,7 +970,9 @@ def cmd_run():
                         meta.get('base_n', {}).get(d['market'], ''),
                         round(d['rev30'], 2) if d.get('rev30') is not None else '',
                         int(d['rev90'] >= 20 and d['rev30'] <= 2) if d.get('rev30') is not None else '',
-                        d['below_ma120'] if d.get('below_ma120') is not None else ''])
+                        d['below_ma120'] if d.get('below_ma120') is not None else '',
+                        round(d['adj_gap'], 3) if d.get('adj_gap') is not None else '',
+                        VM_STRATEGY + ('/us' if VM_US_ONLY else '')])
     print(f'로그 append: {LOG}')
     return merged, meta
 
@@ -951,11 +1039,22 @@ def _stock_card(rank, d, brief, cards_map, first=False):
     L.append('<b>숫자로 확인하기</b>')
     mk = '미국' if d['market'] == 'US' else '한국'
     L.append(f"· 이익전망 3개월간 <b>+{d['rev90']:.0f}%</b> 상향")
-    if d.get('pct') is not None:
-        L.append(f"  ({mk} 전체에서 상위 {max(100 - d['pct'], 1):.0f}% 희소성)")
-    if first:
-        L.append('  = 전문가들이 이 회사 이익 전망치를')
-        L.append(f"    석 달 만에 {1 + d['rev90'] / 100:.1f}배로 올렸다는 뜻")
+    if _GAP_MODE:
+        # 순위 기준이 괴리율이므로 백분위를 상향폭 옆에 붙이면 "+9% 상향 = 상위 2%"라는
+        # 거짓 진술이 됨 → 백분위는 괴리율 줄에만 붙인다 (2026-07-31)
+        if d.get('adj_gap') is not None:
+            L.append(f"· 전망 대비 주가가 <b>{-d['adj_gap']:.0f}%</b> 덜 오름")
+            if d.get('pct') is not None:
+                L.append(f"  ({mk} 전체에서 상위 {max(100 - d['pct'], 1):.0f}% 희소성)")
+            if first:
+                L.append('  = 이익 전망은 올랐는데 주가가')
+                L.append('    아직 그만큼 안 따라왔다는 뜻')
+    else:
+        if d.get('pct') is not None:
+            L.append(f"  ({mk} 전체에서 상위 {max(100 - d['pct'], 1):.0f}% 희소성)")
+        if first:
+            L.append('  = 전문가들이 이 회사 이익 전망치를')
+            L.append(f"    석 달 만에 {1 + d['rev90'] / 100:.1f}배로 올렸다는 뜻")
     fx = _card_facts(d, cards_map)
     if fx.get('analysts'):
         an = fx['analysts'].replace('(↑', ' (30일 ↑').replace('/↓', ' ↓')
@@ -1157,7 +1256,8 @@ def _compose_and_send(merged, meta=None):
     kdt = _dt.now()
     wd = '월화수목금토일'[kdt.weekday()]
     alert_head = (amsg or '').split('\n')[0]  # 신호등 상태 한 줄 — 상단 노출 (상세는 메시지3)
-    m1 = [f'📬 <b>한국+미국 TOP5 신호</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
+    _title = '미국 TOP5 신호' if VM_US_ONLY else '한국+미국 TOP5 신호'
+    m1 = [f'📬 <b>{_title}</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
     if regime == 'defense':
         m1.append('국면: 🛑 방어 — 주식 0% (전량 현금)')
     elif regime == 'half_defense':
@@ -1168,7 +1268,7 @@ def _compose_and_send(merged, meta=None):
         if _db:
             m1.append(f'⚠️ 약세 신호 누적 {_db}일 (15일 확인 중 — 아직 매매 변화 없음)')
     # KR 국면은 평시 생략, 이상 신호(약세/전환 진행)일 때만 상단 노출 (상세는 메시지3)
-    if krr and (krr['mode'] == 'defense' or krr['pending_days'] > 0):
+    if (not VM_US_ONLY) and krr and (krr['mode'] == 'defense' or krr['pending_days'] > 0):
         if krr['mode'] == 'defense':
             m1.append('🇰🇷 한국 국면: 🛑 약세 (참고 — 한국 종목 주의)')
         else:
@@ -1223,19 +1323,30 @@ def _compose_and_send(merged, meta=None):
         m1 += ['✅ <b>오늘 할 일: 없음</b>',
                '보유 중인 5종목 그대로 두시면 됩니다.',
                f'다음 교체 점검: <b>{nxt_s}</b> 예정']
+    _scope = '미국 주요 상장사 약 1,400곳의' if VM_US_ONLY else '한국+미국 주요 상장사 약 1,600곳의'
     m1 += ['',
            '<b>이 서비스, 뭐 하는 건가요?</b>',
-           '한국+미국 주요 상장사 약 1,600곳의',
-           '애널리스트 이익 전망을 매일 추적해서,',
-           '"전문가들이 이익 전망을 가장 가파르게',
-           '올리는 중"인 회사 딱 5곳을 골라 담는',
-           '퀀트 신호입니다. 각 20%씩, 5거래일마다',
-           '점검해 순위에서 밀린 종목을 교체합니다.',
-           '비싼 주식(선행PER 30↑)과 전망이 꺾인',
-           '주식은 아무리 순위가 높아도 걸러냅니다.', '',
-           '한국·미국은 상향폭 눈금이 달라서(뜨는',
-           '종목 기준 한국이 약 2배 큼) 절대값 대신',
-           '"자기 시장 상위 몇 %인지"로 공정 비교.', '',
+           _scope,
+           '애널리스트 이익 전망을 매일 추적해서,']
+    if _GAP_MODE:
+        m1 += ['"이익 전망은 올랐는데 주가가 아직',
+               '안 따라온" 회사 딱 5곳을 골라 담는',
+               '퀀트 신호입니다. 각 20%씩, 5거래일마다',
+               '점검해 순위에서 밀린 종목을 교체합니다.',
+               '비싼 주식(선행PER 30↑)과 거래가 적은',
+               '주식은 아무리 순위가 높아도 걸러냅니다.', '']
+    else:
+        m1 += ['"전문가들이 이익 전망을 가장 가파르게',
+               '올리는 중"인 회사 딱 5곳을 골라 담는',
+               '퀀트 신호입니다. 각 20%씩, 5거래일마다',
+               '점검해 순위에서 밀린 종목을 교체합니다.',
+               '비싼 주식(선행PER 30↑)과 전망이 꺾인',
+               '주식은 아무리 순위가 높아도 걸러냅니다.', '']
+    if not VM_US_ONLY:
+        m1 += ['한국·미국은 상향폭 눈금이 달라서(뜨는',
+               '종목 기준 한국이 약 2배 큼) 절대값 대신',
+               '"자기 시장 상위 몇 %인지"로 공정 비교.', '']
+    m1 += [
            f"📊 전략 누적 성과: {(nav - 1) * 100:+.1f}%",
            f"({all_days[0][5:].replace('-', '/')} 모의운용 시작)" if all_days else '']
     if not any(briefs.get(d['ticker']) for d in top5):
