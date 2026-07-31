@@ -691,15 +691,36 @@ def _gemini_key():
 #   ②포트폴리오가 미국 전용이라 코스피 마감·특징업종은 행동으로 이어지지 않는다.
 #   [반도체·메모리]는 유지 — 삼성·SK하이닉스는 우리가 담는 미국 메모리주의 업황 지표라 유효.
 #   원/달러도 유지(원화 투자자의 달러자산 평가에 직결). 한국 복귀 시 자동 원복.
-_MKT_LABELS_KR = ('[미국 증시]', '[반도체·메모리]', '[한국 증시]', '[오늘 밤 체크]')
-_MKT_LABELS_US = ('[미국 증시]', '[반도체·메모리]', '[오늘 밤 체크]')
-_MKT_LABELS = _MKT_LABELS_US if VM_US_ONLY else _MKT_LABELS_KR
+def _session_words(kst_now):
+    """발송 요일에 맞는 '직전 장'·'다음 장' 표현. 아침 발송(월~토) 기준.
+
+    ★2026-07-31 사용자 지적: 토요일 아침에 '[오늘 밤 체크]'는 거짓 — 토요일 밤엔 미국
+      정규장이 없다. 같은 이유로 월요일 아침의 '지난밤 마감'도 틀리다(직전 장은 금요일).
+      미국 정규장은 월~금(KST 화~토 새벽 마감) → 요일별로 표현을 갈라준다.
+    반환: (직전장 표현, 다음장 라벨, 다음장 설명)
+    """
+    wd = kst_now.weekday()          # 0=월 … 5=토, 6=일
+    prev = '지난 금요일 미국장 마감' if wd == 0 else '지난밤 미국장 마감'
+    if wd < 5:                      # 월~금 아침 → 그날 밤 미국장 있음
+        return prev, '[오늘 밤 체크]', '오늘 밤 열리는 미국 정규장'
+    return prev, '[다음 장 체크]', '다음 미국 정규장(월요일 밤 개장)'
 
 
-def _ai_market_brief(idx_facts=None):
+def _mkt_labels(kst_now):
+    """AI 시황 단락 라벨 — 시장 범위(US단독/통합) + 요일에 따라 달라진다."""
+    _, nxt, _d = _session_words(kst_now)
+    base = ['[미국 증시]', '[반도체·메모리]']
+    if not VM_US_ONLY:
+        base.append('[한국 증시]')
+    return tuple(base + [nxt])
+
+
+def _ai_market_brief(idx_facts=None, _now=None):
     """AI 시황 — 4단락 문단형 (2026-07-10 전면 개편: 구 5문장 단문은 '기계 같다' 피드백).
     idx_facts: yf 실측 지수 문자열 리스트 — 프롬프트에 ground truth로 주입해 stale 숫자
     발송 차단(폴백 lite가 검색 없이 2024년 지수를 답한 사례 실관측). 키 없으면 None."""
+    from datetime import datetime as _dt2
+    _now = _now or _dt2.now()
     key = _gemini_key()
     if not key:
         return None
@@ -713,17 +734,19 @@ def _ai_market_brief(idx_facts=None):
             facts = ('★오늘 실측 지수(이 숫자를 그대로 써라, 다른 출처의 지수 숫자 금지): '
                      + ' / '.join(idx_facts) + '\n')
         _who = '미국 주식에 투자하는' if VM_US_ONLY else '한국+미국 주식을 함께 투자하는'
-        prompt = (f'지금 한국시간 아침이며 미국 증시가 방금 마감했다. 구글 검색으로 사실 확인 후, {_who} '
+        _labels = _mkt_labels(_now)
+        _prev, _nxt_lb, _nxt_desc = _session_words(_now)
+        prompt = (f'지금 한국시간 아침이다. 구글 검색으로 사실 확인 후, {_who} '
                   '사람을 위한 오늘의 시황 브리핑을 한국어 문어체(~습니다)로 써라. '
-                  f'아래 {len(_MKT_LABELS)}개 단락을 대괄호 라벨 그대로 시작하고, 단락 사이에 빈 줄 1개. '
+                  f'아래 {len(_labels)}개 단락을 대괄호 라벨 그대로 시작하고, 단락 사이에 빈 줄 1개. '
                   '각 단락 3~4문장, 구체 숫자 포함. 마크다운 헤더(#) 금지. '
                   '과장·투자권유·미확인 루머(상장설·인수설) 금지, 확인된 사실만.\n' + facts +
-                  '[미국 증시] 지난밤 마감 — 지수 등락과 원인, 주도 섹터와 종목.\n'
+                  f'[미국 증시] {_prev} — 지수 등락과 원인, 주도 섹터와 종목.\n'
                   '[반도체·메모리] HBM·D램·낸드 가격과 수급, 주요 기업 뉴스. '
                   '삼성전자·SK하이닉스 동향도 업황 지표로 포함.\n'
                   + ('[한국 증시] 오늘 코스피·코스닥 마감과 특징 업종, 원/달러 환율.\n'
-                     if '[한국 증시]' in _MKT_LABELS else '')
-                  + '[오늘 밤 체크] 오늘 밤 미국 정규장에서 볼 미국 경제지표·연준 발언·'
+                     if '[한국 증시]' in _labels else '')
+                  + f'{_nxt_lb} {_nxt_desc}에서 볼 미국 경제지표·연준 발언·'
                     '미국 상장기업 실적 발표 일정과 관전 포인트.'
                     '★한국 기업 실적·한국 일정은 이 단락에 넣지 마라(미국장 기준).')
         # 모델 폴백 체인 (2026-07-10 실측): 2.5-flash 무료 20회/일 — KR 16:00 시스템과
@@ -735,7 +758,7 @@ def _ai_market_brief(idx_facts=None):
                     model=model, contents=prompt,
                     config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
                 txt = (resp.text or '').strip()
-                if txt and all(lb in txt for lb in _MKT_LABELS):
+                if txt and all(lb in txt for lb in _labels):
                     if model != 'gemini-2.5-flash':
                         print(f'[AI 시황: {model} 폴백 사용]')
                     return txt
@@ -1606,7 +1629,7 @@ def _compose_and_send(merged, meta=None):
     cv = _credit_vol_lines()
     if cv:
         m3 += ['', '🏦 <b>신용·변동성</b>'] + cv
-    brief_mkt = _ai_market_brief(idx_facts=idx_lines)
+    brief_mkt = _ai_market_brief(idx_facts=idx_lines, _now=kdt)   # 요일 분기용 KST 시각 명시
     if brief_mkt:
         m3 += ['', '📰 <b>시장 동향</b>']
         for para in brief_mkt.replace('\r', '').split('\n'):
