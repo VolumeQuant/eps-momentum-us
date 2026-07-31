@@ -1,14 +1,23 @@
 # -*- coding: utf-8 -*-
-"""US+KR 통합 VM top4 — 페이퍼 병기 트랙 (2026-07-08, 사용자 지시. 매매 무관·기록 전용)
+"""미국 VM 신호 — 실매매 본선 (2026-07-08 개시, 2026-07-31 전면 개편)
 
-규칙 = US 재설계와 동일: min_seg>=0 + 거래대금 $1B + 업종제외 → fwd_PER<=30 + gap>=2.5(missing=pass)
-→ rev90 내림차순 top4 각 25%, R5(앵커 = 로그 첫날). KR 종목도 같은 게이트를 실데이터로 통과:
-  - gap: KR = yf NTM(원화) ÷ DART TTM 지배순이익 EPS(원화, fs_dart + 주식수=시총/가격 역산)
-  - 거래대금: KR = yfinance 30일 평균 거래대금 × 환율(USDKRW) — 실패 시 시총>=13조 프록시
-  - 업종: US = 기존 필터 / KR = 지주 제외 + 애널>=5(저커버 KQ 턴어라운드 artifact 차단)
-근거: research/kr_merge_universe_2026_07_08.py (6월 실측 — 메모리 쏠림 증폭 확인, 포워드 판정 대기)
-사용: --run (오늘 계산+로그 append+출력) / --nav (로그 리플레이 NAV)
-로그: data_cache/unified_vm_log.csv (append-only)
+★현재 운영 스펙 (env로 전환, 기본값은 코드 상수)
+  순위 기준 : adj_gap(괴리율) = 선행PER 압축폭 — '전망은 올랐는데 주가가 안 따라온' 순
+              (구 rev90 = 90일 전망 상향폭. VM_STRATEGY=rev90으로 복귀 가능)
+  시장      : 미국 단독 (VM_US_ONLY=1). KR 다리는 코드 보존 — 0으로 되살아남
+  포트폴리오: N_TOP=5 각 20%, REBAL=5거래일 (앵커 = US 그리드 2026-07-02)
+  게이트    : 거래대금 $1B · 선행PER<=30 · min_seg>=-2% · 안전필터 5종(동전주·애널3·
+              rev90>0·영익5%·FCF&ROE) · 업종제외.  ★gap 게이트는 해제
+              (고성장 요구조건이라 가치 순위와 충돌 — META·GOOGL 등 저변동 우량주를 34% 차단)
+  발송      : KST 월~토 아침 (미국 수집 완료 이벤트 + 백업 크론). 개인봇, 채널은 env로 개시
+  ★모든 BT는 exec_lag=1(신호 판정 다음날 체결) 기준 — lag=0 수치는 낙관 편향
+
+사용: python unified_vm_track.py       (계산 + 원장 append + 메시지 발송)
+      python unified_vm_track.py --nav (원장 리플레이 NAV만)
+원장: data_cache/unified_vm_log.csv (append-only, us_date 기준 1회 반영)
+
+연구 근거: research/_prod_faithful_bt_2026_07_31.py(정직 하네스)·_gate_sweep_lag1_*(게이트)
+          ·_slots_sweep_*(슬롯)·_lookahead_audit_*(look-ahead 감사)·_robustness_lag1_*(견고성)
 """
 import os, sys, json, csv, sqlite3
 from datetime import datetime
@@ -1037,13 +1046,23 @@ def cmd_run():
         _m = ('괴리 %+7.1f' % d['adj_gap']) if (_GAP_MODE and d.get('adj_gap') is not None)             else ('rev90 %+7.1f%%' % d['rev90'])
         print(f"{i:2}. [{d['market']}] {d['ticker']:10} {_m}  "
               f"fwdPER {d['fwd_per']:5.1f}  gap {gap_s:>5}  dv ${(d['dv_musd'] or 0):,.0f}M{mark}")
-    print('테마캡2 변형 top4:', capped)
-    # 절대 rev90 결합 = 구 본선, 관찰 컬럼으로 강등 (2026-07-09 백분위 승격의 비교군)
-    abs_top = [x['ticker'] for x in sorted(merged, key=lambda z: -(_score(z) or -9e9))[:N_TOP]]
-    print('절대결합 변형 top5(관찰):', abs_top)
+    # ★2026-07-31 관찰 변형 정리 (미국단독 전환으로 일부가 수학적으로 무의미해짐)
+    #   절대결합·robust-z는 원래 '한국과 미국을 어떻게 합칠까'(2026-07-09 백분위 승격)의 비교군이다.
+    #   시장이 하나뿐이면 백분위·절대값·robust-z가 모두 같은 값의 단조변환이라 순서가 항상 동일 —
+    #   실측 확인: 본선/절대결합/robust-z 셋 다 VRT·STX·SNDK·GOOGL·NXPI로 일치.
+    #   => 미국단독에선 계산·출력을 끄고 원장 컬럼은 본선값으로 채운다(컬럼 삭제 시 과거 행과
+    #      어긋나므로 스키마는 유지). 한국 복귀 시 자동으로 되살아난다.
+    #   테마캡2(메모리 최대 2종목)는 메모리가 2개 이상 들어오면 다시 의미가 생기므로 유지.
+    print('테마캡2 변형 top%d:' % N_TOP, capped)
+    main_top = [d['ticker'] for d in merged[:N_TOP]]
+    if VM_US_ONLY:
+        abs_top = rz_top = main_top
+    else:
+        abs_top = [x['ticker'] for x in sorted(merged, key=lambda z: -(_score(z) or -9e9))[:N_TOP]]
+        print('절대결합 변형 top%d(관찰):' % N_TOP, abs_top)
+        rz_top = [x['ticker'] for x in sorted(merged, key=lambda z: -z.get('rz', 0))[:N_TOP]]
+        print('robust-z 변형 top%d(관찰):' % N_TOP, rz_top)
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
-    rz_top = [x['ticker'] for x in sorted(merged, key=lambda z: -z.get('rz', 0))[:N_TOP]]
-    print('robust-z 변형 top5(관찰):', rz_top)
     if os.environ.get('UNIFIED_NO_LOG') == '1':
         # 2026-07-10 감사수리 2: 샘플/일회성 실행이 append-only 공식 원장을 오염시킨 사고
         # (7/9 블록 = GH Actions 샘플, KR gap 전원 공란) 재발 방지 — 원장 기록은 옵트아웃 가능.
