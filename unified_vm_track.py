@@ -677,7 +677,14 @@ def _gemini_key():
     return key
 
 
-_MKT_LABELS = ('[미국 증시]', '[반도체·메모리]', '[한국 증시]', '[오늘 밤 체크]')
+# ★2026-07-31: 아침(KST 08시) 발송 + 미국단독 전환 → [한국 증시] 섹션 제거.
+#   ①한국장은 09시 개장이라 08시 발송 시점엔 '어제 장' 얘기밖에 못 쓴다(낡은 정보).
+#   ②포트폴리오가 미국 전용이라 코스피 마감·특징업종은 행동으로 이어지지 않는다.
+#   [반도체·메모리]는 유지 — 삼성·SK하이닉스는 우리가 담는 미국 메모리주의 업황 지표라 유효.
+#   원/달러도 유지(원화 투자자의 달러자산 평가에 직결). 한국 복귀 시 자동 원복.
+_MKT_LABELS_KR = ('[미국 증시]', '[반도체·메모리]', '[한국 증시]', '[오늘 밤 체크]')
+_MKT_LABELS_US = ('[미국 증시]', '[반도체·메모리]', '[오늘 밤 체크]')
+_MKT_LABELS = _MKT_LABELS_US if VM_US_ONLY else _MKT_LABELS_KR
 
 
 def _ai_market_brief(idx_facts=None):
@@ -696,15 +703,18 @@ def _ai_market_brief(idx_facts=None):
         if idx_facts:
             facts = ('★오늘 실측 지수(이 숫자를 그대로 써라, 다른 출처의 지수 숫자 금지): '
                      + ' / '.join(idx_facts) + '\n')
-        prompt = ('지금 한국시간 아침이며 미국 증시가 방금 마감했다. 구글 검색으로 사실 확인 후, 한국+미국 주식을 함께 '
-                  '투자하는 사람을 위한 오늘의 시황 브리핑을 한국어 문어체(~습니다)로 써라. '
-                  '아래 4개 단락을 대괄호 라벨 그대로 시작하고, 단락 사이에 빈 줄 1개. '
+        _who = '미국 주식에 투자하는' if VM_US_ONLY else '한국+미국 주식을 함께 투자하는'
+        prompt = (f'지금 한국시간 아침이며 미국 증시가 방금 마감했다. 구글 검색으로 사실 확인 후, {_who} '
+                  '사람을 위한 오늘의 시황 브리핑을 한국어 문어체(~습니다)로 써라. '
+                  f'아래 {len(_MKT_LABELS)}개 단락을 대괄호 라벨 그대로 시작하고, 단락 사이에 빈 줄 1개. '
                   '각 단락 3~4문장, 구체 숫자 포함. 마크다운 헤더(#) 금지. '
                   '과장·투자권유·미확인 루머(상장설·인수설) 금지, 확인된 사실만.\n' + facts +
                   '[미국 증시] 지난밤 마감 — 지수 등락과 원인, 주도 섹터와 종목.\n'
-                  '[반도체·메모리] HBM·D램·낸드 가격과 수급, 주요 기업 뉴스.\n'
-                  '[한국 증시] 오늘 코스피·코스닥 마감과 특징 업종, 원/달러 환율.\n'
-                  '[오늘 밤 체크] 미국 경제지표·연준 발언·주요 실적 발표 일정과 관전 포인트.')
+                  '[반도체·메모리] HBM·D램·낸드 가격과 수급, 주요 기업 뉴스. '
+                  '삼성전자·SK하이닉스 동향도 업황 지표로 포함.\n'
+                  + ('[한국 증시] 오늘 코스피·코스닥 마감과 특징 업종, 원/달러 환율.\n'
+                     if '[한국 증시]' in _MKT_LABELS else '')
+                  + '[오늘 밤 체크] 미국 경제지표·연준 발언·주요 실적 발표 일정과 관전 포인트.')
         # 모델 폴백 체인 (2026-07-10 실측): 2.5-flash 무료 20회/일 — KR 16:00 시스템과
         # 키 공유라 저녁엔 쿼터 소진 잦음(당일 실발생) → flash-lite 폴백(무료 한도 큼).
         # lite는 형식 이탈이 잦아 4개 라벨 검증 후 통과분만 채택, 실패 시 1회 더.
@@ -1361,7 +1371,8 @@ def _compose_and_send(merged, meta=None):
         reg = {}
     regime = reg.get('regime', 'boost')
     reentry = (regime != 'defense') and (rp.get('ew_last', 1.0) == 0.0)  # 방어→강세 복귀 첫날
-    krr = _kr_regime()  # 표시 전용 — 매매는 US 신호 기준(시장별 스코프 반영은 검증 후)
+    # 미국단독 모드에선 KR state 파일을 읽을 이유가 없다(표시도 안 하고 매매에도 무관).
+    krr = None if VM_US_ONLY else _kr_regime()
 
     # ── 메시지 1: 상단 공통 + TOP5 카드 (2026-07-10 전면 개편) ──
     kdt = _dt.now()
@@ -1500,8 +1511,11 @@ def _compose_and_send(merged, meta=None):
     idx_lines = []
     try:
         import yfinance as yf
-        for sym, nm in [('^GSPC', 'S&P500'), ('^IXIC', '나스닥'), ('^SOX', '반도체지수'),
-                        ('^KS11', '코스피'), ('^KQ11', '코스닥'), ('KRW=X', '원/달러')]:
+        _syms = [('^GSPC', 'S&P500'), ('^IXIC', '나스닥'), ('^SOX', '반도체지수')]
+        if not VM_US_ONLY:
+            _syms += [('^KS11', '코스피'), ('^KQ11', '코스닥')]
+        _syms += [('KRW=X', '원/달러')]   # 원화 투자자의 달러자산 평가 — 미국단독에서도 유지
+        for sym, nm in _syms:
             try:
                 fi = yf.Ticker(sym).fast_info
                 px, pv = fi.last_price, fi.previous_close
@@ -1520,7 +1534,11 @@ def _compose_and_send(merged, meta=None):
         if reg.get('spx') and reg.get('ma200'):
             pos = '위' if reg['spx'] > reg['ma200'] else '아래'
             m3.append(f"  S&P500 {reg['spx']:,.0f} — 200일선({reg['ma200']:,.0f}) {pos}")
-        if krr:
+        # ★2026-07-31: 미국단독 모드에선 한국 국면 표시 제거 (메시지1은 이미 제외였으나
+        #   메시지3이 누락돼 있었음). 한국 종목을 담지 않으므로 코스피 국면은 행동으로
+        #   이어지지 않는다 — 매매 판단은 미국 신호(200일선·VIX·신용) 하나로 끝난다.
+        #   한국 복귀 시 자동 원복.
+        if krr and not VM_US_ONLY:
             kst = '🛑 약세' if krr['mode'] == 'defense' else '🟢 강세'
             m3.append(f"🇰🇷 한국: {kst} (참고 표시 · {krr['asof']} 기준"
                       + (' ⚠️스테일' if krr.get('stale') else '') + ')')
@@ -1528,10 +1546,10 @@ def _compose_and_send(merged, meta=None):
             if krr['pending_days'] > 0:
                 nm = '약세' if krr['mode'] == 'boost' else '강세'
                 m3.append(f"  ⚠️ {nm} 전환 진행 {krr['pending_days']}/5일")
-        m3 += ['매매는 미국 신호 기준: 200일선 15일 이탈·',
+        m3 += ['매매 기준: S&P500 200일선 15일 이탈·',
                '공포지수·신용경보 중 하나라도 확정되면',
-               '전량 현금으로 피합니다. 한국 국면은',
-               '참고 표시입니다 (반영 여부 검증 중).']
+               '전량 현금으로 피합니다.'] + ([] if VM_US_ONLY else
+              ['한국 국면은 참고 표시입니다 (반영 여부 검증 중).'])
     cv = _credit_vol_lines()
     if cv:
         m3 += ['', '🏦 <b>신용·변동성</b>'] + cv
