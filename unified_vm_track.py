@@ -723,7 +723,9 @@ def _ai_market_brief(idx_facts=None):
                   '삼성전자·SK하이닉스 동향도 업황 지표로 포함.\n'
                   + ('[한국 증시] 오늘 코스피·코스닥 마감과 특징 업종, 원/달러 환율.\n'
                      if '[한국 증시]' in _MKT_LABELS else '')
-                  + '[오늘 밤 체크] 미국 경제지표·연준 발언·주요 실적 발표 일정과 관전 포인트.')
+                  + '[오늘 밤 체크] 오늘 밤 미국 정규장에서 볼 미국 경제지표·연준 발언·'
+                    '미국 상장기업 실적 발표 일정과 관전 포인트.'
+                    '★한국 기업 실적·한국 일정은 이 단락에 넣지 마라(미국장 기준).')
         # 모델 폴백 체인 (2026-07-10 실측): 2.5-flash 무료 20회/일 — KR 16:00 시스템과
         # 키 공유라 저녁엔 쿼터 소진 잦음(당일 실발생) → flash-lite 폴백(무료 한도 큼).
         # lite는 형식 이탈이 잦아 4개 라벨 검증 후 통과분만 채택, 실패 시 1회 더.
@@ -1174,10 +1176,11 @@ def _stock_card(rank, d, brief, cards_map, first=False):
     nm = _display_name(d['ticker'])
     tk = d['ticker'].replace('.KS', '').replace('.KQ', '')
     sect = _industry_tag(d)
-    nation = '🇰🇷 한국' if d['market'] == 'KR' else '🇺🇸 미국'
+    # 미국단독 모드에선 모든 종목이 미국이라 국기 표기가 매 카드 반복돼 무의미 → 업종만.
+    nation = '' if VM_US_ONLY else ('🇰🇷 한국' if d['market'] == 'KR' else '🇺🇸 미국')
     L = ['━━━━━━━━━━━━━━',
          f"<b>{rank}위 {nm}</b> ({tk})",
-         f"{nation} · {sect}".replace('  ', ' ') if sect else nation, '']
+         (f"{nation} · {sect}".strip(' ·') if sect else nation), '']
     b = _brief_dict(brief)
     if b.get('biz'):
         L.append('<b>무슨 회사인가요?</b>')
@@ -1473,8 +1476,9 @@ def _compose_and_send(merged, meta=None):
     elif reentry:
         m1 += ['🟢 <b>오늘 할 일: 강세 복귀 — 재진입</b>',
                '방어 국면이 해제됐습니다.',
-               f'아래 TOP{N_TOP}을 각 {100/N_TOP:.0f}%씩 {_trade_when(kdt)}에 매수하세요.']               + ([] if VM_US_ONLY else ['(미국 종목 = 오늘 밤 개장,',
-                                        ' 한국 종목 = 내일 아침 개장)'])
+               f'아래 TOP{N_TOP}을 각 {100/N_TOP:.0f}%씩 {_trade_when(kdt)}에 매수하세요.']
+        if not VM_US_ONLY:
+            m1 += ['(미국 종목 = 오늘 밤 개장,', ' 한국 종목 = 내일 아침 개장)']
         for t in [d['ticker'] for d in top5]:
             m1.append(f'🟢 사기: {_display_name(t)} — 자산의 {100/N_TOP:.0f}%')
     elif is_rebal and diff and (diff[0] or diff[1]):
@@ -1494,9 +1498,19 @@ def _compose_and_send(merged, meta=None):
         m1 += ['✅ <b>오늘 할 일: 없음</b> (교체 점검일)',
                '점검 결과 교체 없이 그대로 갑니다.']
     else:
-        m1 += ['✅ <b>오늘 할 일: 없음</b>',
-               f'보유 중인 {N_TOP}종목 그대로 두시면 됩니다.',
-               f'다음 교체 점검: <b>{nxt_s}</b> 예정']
+        # ★2026-07-31: 아래 카드는 '오늘 순위'이지 '내 보유'가 아니다. 교체일이 아니면 둘이
+        #   갈라지는데(오늘 실측: 겹침 2/5) 구 문구는 "보유 중인 5종목 그대로"만 말해
+        #   읽는 사람이 카드=내 보유로 오인하게 만들었다 → 실제 보유를 명시한다.
+        _held = st_today.get('held_after') or []
+        m1 += ['✅ <b>오늘 할 일: 없음</b>']
+        if _held:
+            m1 += ['지금 보유: ' + ', '.join(_display_name(t) for t in _held),
+                   '그대로 두시면 됩니다.', '',
+                   f'※ 아래 카드는 <b>오늘 순위 TOP{N_TOP}</b>입니다.',
+                   '보유와 다를 수 있고, 교체는 점검일에만 합니다.']
+        else:
+            m1 += [f'보유 중인 {N_TOP}종목 그대로 두시면 됩니다.']
+        m1 += [f'다음 교체 점검: <b>{nxt_s}</b> 예정']
     _scope = '미국 주요 상장사 약 1,400곳의' if VM_US_ONLY else '한국+미국 주요 상장사 약 1,600곳의'
     m1 += ['',
            '<b>이 서비스, 뭐 하는 건가요?</b>',
@@ -1602,7 +1616,10 @@ def _compose_and_send(merged, meta=None):
                 m3.append('')
         if m3[-1] == '':
             m3.pop()
-    el = _earnings_lines([d['ticker'] for d in top5])
+    # ★2026-07-31: 라벨은 '보유종목'인데 실제로는 top5(=오늘 순위) 일정을 넣고 있었다.
+    #   보유와 순위가 갈리면 거짓 표시 → 실제 보유 기준으로 교정.
+    _hold_now = (st_today.get('held_after') or []) or [d['ticker'] for d in top5]
+    el = _earnings_lines(_hold_now)
     if el:
         m3 += ['', '📅 <b>보유종목 일정 (14일 내)</b>'] + el
     if MEM_ALERT_SHOW:            # 메모리 감시등 상세 (기본 미노출, 2026-07-31)
