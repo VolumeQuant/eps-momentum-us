@@ -73,8 +73,21 @@ THEME_CAP = 2
 #   근거: 미국 단독 5.5개월 BT(research/_calmar_summary_2026_07_31.py) Calmar 9.67→18.61
 #   (수익 +87.9→+88.3 동일, MDD −31.4→−16.4). 검증 = 기간 5/5·LOWO 4/4·게이트 16조합
 #   MDD 16/16·유니버스편향 0(rev90을 adj_gap 보유 유니버스로 제한해도 수치 불변).
-#   ★gap/min_seg를 반드시 함께 해제해야 함 — 지표만 바꾸면 Calmar 9.11로 오히려 악화
-#   (adj_gap 공식이 eps_quality=min_seg를 이미 내포 + 자체가 밸류 척도 → 이중 적용).
+#   ★gap/min_seg를 반드시 함께 해제해야 함 — 지표만 바꾸면 Calmar가 오히려 악화.
+#   ⚠️2026-07-31 정정: 초기 설명 "adj_gap이 min_seg를 이미 내포 → 중복"은 틀렸음.
+#     실측 상관 adj_gap↔min_seg −0.015 / adj_gap↔gap −0.026 = 사실상 무상관(중복 아님).
+#     ★진짜 이유 = 두 게이트 모두 '모멘텀 성격의 요구조건'이라 가치 순위와 충돌:
+#       gap>=1.5  "선행EPS가 후행 1.5배 이상"(고성장 요구) — top5 슬롯의 34% 차단
+#       min_seg>=0 "4구간 전부 전망 안 꺾임"(상향 지속 요구) — 8% 차단
+#     잘리는 종목 = META·HD·ACN·GOOGL·ORCL 등 성숙 우량주(일간 변동성 2.54%),
+#     대체 투입 = MU·AVGO·MCHP 등 고성장주(5.73% = 2.3배).
+#     → 자르면 수익은 오르나(5일 +3.58% vs +2.13%) 낙폭이 더 커짐(MDD −21.1 vs −17.2).
+#     즉 '모멘텀 전략의 부품을 가치 전략에 달아둔 것'을 떼어낸 변경.
+#     production 게이트 실측(R5·위상평균): gapON/segON 8.97 → gapOFF/segON 15.52
+#       → gapON/segOFF 14.80 → 둘다OFF 16.97 (LOWO 5/5 둘다OFF 우세).
+#   ⚠️min_seg는 원래 '전망 꺾이는 종목 배제' 안전규칙 — 강세장이라 8%밖에 안 걸렸을 뿐.
+#     하락장에서 가치함정 사고 시 되살릴 1순위(아래 _GAP_MODE 조건 제거하면 복원).
+#     research/_gate_why_2026_07_31.py
 #   한계: 5.5개월 단일 강세장(진짜 약세장 미검증), 상승 구간(~5/15·6/15·7/15)은 rev90 우위,
 #   회전율 2.6배(리밸당 0.90→2.31종목, 20bp 반영 후에도 Calmar 16.14>9.15 유지).
 # VM_US_ONLY='1'     : KR 다리 제외(미국 종목만). 통합 BT는 KR DB가 40일·유니버스 3회 급변
@@ -227,8 +240,10 @@ def us_candidates():
             continue
         if dv is None or dv < DV_MIN_MUSD:
             continue
-        # min_seg·gap 게이트: gap 모드에선 해제 (adj_gap이 eps_quality=min_seg를 이미 내포하고
-        # 자체가 밸류 척도 → 이중 적용이 Calmar를 18.61→9.11로 깎음, 2026-07-31 BT)
+        # min_seg·gap 게이트: gap 모드에선 해제.
+        # 이유 = 둘 다 '전망이 강하게/꾸준히 올라야 한다'는 모멘텀 성격 조건이라, 가치 순위
+        # (괴리율)가 노리는 '주가가 안 따라온 성숙 우량주'를 성장률 미달로 잘라냄.
+        # (중복이라서가 아님 — 상관 −0.015/−0.026. 상세: 상단 VM_STRATEGY 주석)
         if not _GAP_MODE and min(_seg(nc, n7), _seg(n7, n30), _seg(n30, n60), _seg(n60, n90)) < 0:
             continue
         if nc <= 0 or (n90 or 0) <= 0.1:
