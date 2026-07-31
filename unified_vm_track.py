@@ -1252,7 +1252,9 @@ def _stock_card(rank, d, brief, cards_map, first=False):
     if b.get('risk'):
         L.append('<b>⚠️ 위험 요인</b>')
         L += _split_sents(b['risk'])
-        L.append('→ 그래서 5거래일마다 점검해 교체합니다.')
+        # ★2026-07-31 제거: 카드마다 '→ 그래서 N거래일마다 점검해 교체합니다.'를 붙여
+        #   한 메시지에 같은 문장이 10번 반복됐다. 상단 '이 서비스, 뭐 하는 건가요?' 블록에
+        #   이미 '각 20%씩, 5거래일마다 점검해 순위에서 밀린 종목을 교체합니다'가 있어 순수 중복.
         L.append('')
     return L
 
@@ -1632,11 +1634,20 @@ def _compose_and_send(merged, meta=None):
     brief_mkt = _ai_market_brief(idx_facts=idx_lines, _now=kdt)   # 요일 분기용 KST 시각 명시
     if brief_mkt:
         m3 += ['', '📰 <b>시장 동향</b>']
+        # ★2026-07-31: Gemini가 같은 대괄호 라벨을 두 번 뱉는 경우가 있어(사용자 관측
+        #   '오늘밤체크가 왜 2개야?') 라벨 중복을 렌더 단계에서 제거한다.
+        #   같은 라벨이 재등장하면 그 라벨 줄만 건너뛴다(본문은 살림).
+        _seen_lb = set()
         for para in brief_mkt.replace('\r', '').split('\n'):
             p = para.strip()
-            if p:
-                m3.append(p)
-                m3.append('')
+            if not p:
+                continue
+            if p.startswith('[') and p.endswith(']'):
+                if p in _seen_lb:
+                    continue
+                _seen_lb.add(p)
+            m3.append(p)
+            m3.append('')
         if m3[-1] == '':
             m3.pop()
     # ★2026-07-31: 라벨은 '보유종목'인데 실제로는 top5(=오늘 순위) 일정을 넣고 있었다.
