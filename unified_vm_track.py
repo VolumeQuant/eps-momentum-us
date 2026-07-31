@@ -113,9 +113,6 @@ def _dedup_dual_class(merged):
     return out, dropped
 
 
-# 전환 안내 배너 (1회성). 전략 교체 당일, 화면의 TOP5와 실제 보유가 다른 상태를
-# 설명 없이 내보내면 "새 종목이 보이는데 아무것도 하지 말라"는 모순 메시지가 됨.
-VM_TRANSITION_NOTE = os.environ.get('VM_TRANSITION_NOTE', '') == '1'
 VM_STRATEGY = os.environ.get('VM_STRATEGY', 'rev90')
 VM_US_ONLY = os.environ.get('VM_US_ONLY', '0') == '1'
 _GAP_MODE = (VM_STRATEGY == 'gap')
@@ -629,7 +626,7 @@ def _ai_market_brief(idx_facts=None):
         if idx_facts:
             facts = ('★오늘 실측 지수(이 숫자를 그대로 써라, 다른 출처의 지수 숫자 금지): '
                      + ' / '.join(idx_facts) + '\n')
-        prompt = ('지금 한국시간 저녁이다. 구글 검색으로 사실 확인 후, 한국+미국 주식을 함께 '
+        prompt = ('지금 한국시간 아침이며 미국 증시가 방금 마감했다. 구글 검색으로 사실 확인 후, 한국+미국 주식을 함께 '
                   '투자하는 사람을 위한 오늘의 시황 브리핑을 한국어 문어체(~습니다)로 써라. '
                   '아래 4개 단락을 대괄호 라벨 그대로 시작하고, 단락 사이에 빈 줄 1개. '
                   '각 단락 3~4문장, 구체 숫자 포함. 마크다운 헤더(#) 금지. '
@@ -1158,10 +1155,10 @@ def _next_msg_day(us_latest, next_in):
         cur += timedelta(days=1)
         if cur.weekday() < 5:
             cnt += 1
-    msg = cur + timedelta(days=1)
-    while msg.weekday() >= 5:
-        msg += timedelta(days=1)
-    return msg
+    # ★2026-07-31: 아침 발송 전환 — 미국장 D일 마감분은 KST D+1 아침에 계산·발송된다.
+    #   미국 거래일은 월~금이므로 발송일은 자연히 화~토. 구 로직은 저녁(월~금) 발송 기준이라
+    #   주말을 건너뛰어 금요일장 신호를 '월요일'로 표기했다(실제로는 토요일 아침 도착).
+    return cur + timedelta(days=1)
 
 
 def _earnings_lines(tickers):
@@ -1299,32 +1296,12 @@ def _compose_and_send(merged, meta=None):
         for wmsg in meta['warnings']:
             m1 += _wrap('· ' + wmsg, 44)
         m1.append('')
-    if VM_TRANSITION_NOTE:
-        m1 += ['📣 <b>전략이 바뀌었습니다</b>',
-               '',
-               '지금까지는 "전문가들이 이익 전망을',
-               '가장 많이 올린 회사"를 골랐습니다.',
-               '오늘부터는 <b>"이익 전망은 올랐는데</b>',
-               '<b>주가가 아직 안 따라온 회사"</b>를 고릅니다.',
-               '',
-               '바꾼 이유는 하나입니다. 이전 방식은',
-               '많이 벌었다가 되돌려주는 폭이 컸습니다.',
-               '최고점 대비 −27% 흔들린 반면,',
-               '새 방식은 −16%로 절반이었고',
-               '최종 수익은 거의 같았습니다.',
-               '',
-               '⚠️ <b>오늘은 아직 바꾸지 마세요.</b>',
-               '아래 5종목은 <b>다음 교체 때 담을 후보</b>이고,',
-               '실제 교체 안내는 다음 신호에서 드립니다.',
-               '',
-               '※ 발송 시각이 저녁 → 아침으로 바뀝니다',
-               '  (미국장 마감 직후 계산)', '']
     if fired:
         m1 += ['🔴 <b>메모리 위험 경보 발동!</b>',
                '시장 브리핑의 신호등 안내에 따라',
                '메모리 종목을 정리하세요.', '']
     nxt = _next_msg_day(us_latest, next_in) if us_latest else None
-    nxt_s = f"{nxt.month}/{nxt.day}({'월화수목금토일'[nxt.weekday()]}) 저녁" if nxt else f"{next_in}거래일 후"
+    nxt_s = f"{nxt.month}/{nxt.day}({'월화수목금토일'[nxt.weekday()]}) 아침" if nxt else f"{next_in}거래일 후"
     if regime == 'defense':
         m1 += ['🛑 <b>오늘 할 일: 전량 현금</b>',
                '시장 전체가 약세 국면으로 판정됐습니다',
@@ -1337,9 +1314,8 @@ def _compose_and_send(merged, meta=None):
     elif reentry:
         m1 += ['🟢 <b>오늘 할 일: 강세 복귀 — 재진입</b>',
                '방어 국면이 해제됐습니다.',
-               '아래 TOP5를 각 20%씩 한 번에 매수하세요.',
-               '(미국 종목 = 오늘 밤 개장,',
-               ' 한국 종목 = 내일 아침 개장)']
+               '아래 TOP5를 각 20%씩 한 번에 매수하세요.']               + ([] if VM_US_ONLY else ['(미국 종목 = 오늘 밤 개장,',
+                                        ' 한국 종목 = 내일 아침 개장)'])
         for t in [d['ticker'] for d in top5]:
             m1.append(f'🟢 사기: {_display_name(t)} — 자산의 20%')
     elif is_rebal and diff and (diff[0] or diff[1]):
@@ -1352,8 +1328,9 @@ def _compose_and_send(merged, meta=None):
         m1 += ['나머지 종목은 그대로 유지하세요.',
                '(이미 처리했거나 갖고 있지 않은',
                ' 종목은 건너뛰면 됩니다)',
-               '미국 종목은 오늘 밤 개장에,',
-               '한국 종목은 내일 아침 개장에 매매.']
+               '오늘 밤 미국장 개장 때 매매하시면 됩니다.'
+               if VM_US_ONLY else '미국 종목은 오늘 밤 개장에,',
+               ] + ([] if VM_US_ONLY else ['한국 종목은 내일 아침 개장에 매매.'])
     elif is_rebal:
         m1 += ['✅ <b>오늘 할 일: 없음</b> (교체 점검일)',
                '점검 결과 교체 없이 그대로 갑니다.']
