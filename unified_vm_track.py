@@ -113,6 +113,9 @@ def _dedup_dual_class(merged):
     return out, dropped
 
 
+# 전환 안내 배너 (1회성). 전략 교체 당일, 화면의 TOP5와 실제 보유가 다른 상태를
+# 설명 없이 내보내면 "새 종목이 보이는데 아무것도 하지 말라"는 모순 메시지가 됨.
+VM_TRANSITION_NOTE = os.environ.get('VM_TRANSITION_NOTE', '') == '1'
 VM_STRATEGY = os.environ.get('VM_STRATEGY', 'rev90')
 VM_US_ONLY = os.environ.get('VM_US_ONLY', '0') == '1'
 _GAP_MODE = (VM_STRATEGY == 'gap')
@@ -1296,6 +1299,26 @@ def _compose_and_send(merged, meta=None):
         for wmsg in meta['warnings']:
             m1 += _wrap('· ' + wmsg, 44)
         m1.append('')
+    if VM_TRANSITION_NOTE:
+        m1 += ['📣 <b>전략이 바뀌었습니다</b>',
+               '',
+               '지금까지는 "전문가들이 이익 전망을',
+               '가장 많이 올린 회사"를 골랐습니다.',
+               '오늘부터는 <b>"이익 전망은 올랐는데</b>',
+               '<b>주가가 아직 안 따라온 회사"</b>를 고릅니다.',
+               '',
+               '바꾼 이유는 하나입니다. 이전 방식은',
+               '많이 벌었다가 되돌려주는 폭이 컸습니다.',
+               '최고점 대비 −27% 흔들린 반면,',
+               '새 방식은 −16%로 절반이었고',
+               '최종 수익은 거의 같았습니다.',
+               '',
+               '⚠️ <b>오늘은 아직 바꾸지 마세요.</b>',
+               '아래 5종목은 <b>다음 교체 때 담을 후보</b>이고,',
+               '실제 교체 안내는 다음 신호에서 드립니다.',
+               '',
+               '※ 발송 시각이 저녁 → 아침으로 바뀝니다',
+               '  (미국장 마감 직후 계산)', '']
     if fired:
         m1 += ['🔴 <b>메모리 위험 경보 발동!</b>',
                '시장 브리핑의 신호등 안내에 따라',
