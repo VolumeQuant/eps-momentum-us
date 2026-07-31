@@ -12,15 +12,20 @@ name: Unified US+KR Evening Signal
 #   첫 성공 후 회사PC schtask(run_unified_track.bat)는 삭제할 것 (이중 기록 방지).
 
 on:
+  # ★2026-07-31 재설계: KR 다리 제외(VM_US_ONLY) → 집PC 16:30 KR 수집을 기다릴 이유가 사라짐.
+  #   구 구조는 그것 때문에 KST 18~20시(=UTC 08~11시)에 묶여 있었고, 그 구간이 GH 예약실행
+  #   최다 드롭대라 크론을 3개나 걸어야 했다(2026-07-14 기록: 스케줄 2일 연속 미발동).
+  #   → 미국 수집(daily-screening, UTC 22:05경 시작·22:12~22:50 종료 = 매일 정상)의
+  #     '완료 이벤트'에 직접 연결. 시간 추측 없이 데이터 준비 완료 시점에 실행된다.
+  #   ⚠️데이터 신선도는 동일하다(저녁 실행도 같은 날 아침 수집분을 읽었음) — 이득은 '예약 신뢰성'.
+  #   conclusion 무관하게 실행: 수집 실패 시에도 직전 데이터로 발송(신호 결번 > 스테일 발송,
+  #   run_daily._is_trading_day SPOF 수리와 동일 원칙). 스테일 여부는 메시지의 us_date로 식별.
+  workflow_run:
+    workflows: ["Daily EPS Momentum Screening"]
+    types: [completed]
+    branches: [master]
   schedule:
-    # ★2026-07-14 재설계: KR 저녁 발송(KST 18~20시)은 UTC 08~11시 = GH 예약실행 최다 드롭 구간.
-    #   08:20→09:07 이동에도 스케줄 2일 연속 미발동(수동 dispatch만 성공). daily-screening
-    #   (UTC 20:58 한산대)은 매일 정상 = 시간대가 원인 확정. 시간 조정으론 해결 불가 →
-    #   ①다중 cron(KST 18:07/19:07/20:07) + ②guard 스텝(당일 이미 원장에 블록 있으면 스킵)으로 전환.
-    #   앞 시도가 드롭돼도 뒤가 잡고, 둘 다 떠도 하나만 발송(원장 당일블록 존재로 판정). concurrency로 직렬화.
-    - cron: '7 9 * * 1-5'    # KST 18:07 (1차)
-    - cron: '7 10 * * 1-5'   # KST 19:07 (백업)
-    - cron: '7 11 * * 1-5'   # KST 20:07 (최종 백업 · UTC 11시 = 혼잡 완화)
+    - cron: '30 23 * * 1-5'  # KST 08:30 백업 (UTC 23:30 — workflow_run 미발동 대비)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -50,9 +55,9 @@ jobs:
       # 당일 중복발송 차단: 스케줄 실행인데 오늘 원장블록이 이미 있으면(앞선 cron이 성공) 이하 전부 스킵.
       # concurrency로 직렬화되므로 뒤 cron은 앞 cron의 push된 원장을 체크아웃해 여기서 걸러짐.
       # 수동 dispatch는 guard 스텝 자체가 스킵(if=schedule) → skip 출력 공란 → 항상 실행.
-      - name: Skip if already sent today (schedule only)
+      - name: Skip if already sent today (수동 dispatch 제외)
         id: guard
-        if: github.event_name == 'schedule'
+        if: github.event_name != 'workflow_dispatch'
         run: |
           TODAY=$(TZ=Asia/Seoul date +%Y-%m-%d)
           if cut -d, -f1 data_cache/unified_vm_log.csv | grep -qx "$TODAY"; then
@@ -63,8 +68,11 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # VM_US_ONLY=1이면 KR 데이터는 읽지 않음 — 체크아웃 실패가 미국 신호를 죽이지 않도록 비차단.
+      # (KR 복귀 시 그대로 되살아남)
       - name: Checkout KR data (quant_py-main, sparse)
         if: steps.guard.outputs.skip != 'true'
+        continue-on-error: true
         uses: actions/checkout@v4
         with:
           repository: VolumeQuant/quant_py-main
@@ -101,6 +109,14 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
           UNIFIED_DRY_RUN: ${{ github.event.inputs.dry_run }}
+          # ★2026-07-31 전략 전환 (commit 737aed8 검증 근거):
+          #   순위 기준 rev90(90일 전망 상향폭) → adj_gap(EPS 대비 가격 괴리율) + gap/min_seg 해제.
+          #   같은 누적수익에 낙폭 절반(고점반납 −18.6%p→−0.6%p, MDD −27.1%→−16.2%),
+          #   포트폴리오가 실제로 갈라진 6/16~ 구간은 수익도 우위(+9.4% vs −15.4%).
+          #   교체주기(VM_REBAL)는 5일 유지 — R1/R2가 수치는 좋으나 신호감쇠(IC) 미확인 = 과적합 의심.
+          #   롤백 = 아래 두 줄 삭제.
+          VM_STRATEGY: gap
+          VM_US_ONLY: '1'
         run: |
           python unified_vm_track.py
 
