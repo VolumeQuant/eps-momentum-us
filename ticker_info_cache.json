@@ -5460,8 +5460,8 @@
     "industry": "반도체"
   },
   "CSW": {
-    "shortName": "CSW",
-    "industry": "기타"
+    "shortName": "CSW Industrials, Inc.",
+    "industry": "산업기계"
   },
   "DNTH": {
     "shortName": "Dianthus Therapeutics, Inc.",
@@ -5876,8 +5876,8 @@
     "industry": "기타"
   },
   "WHD": {
-    "shortName": "WHD",
-    "industry": "기타"
+    "shortName": "Cactus, Inc. Class A Common Sto",
+    "industry": "석유장비"
   },
   "BB": {
     "shortName": "BB",
@@ -6376,11 +6376,15 @@
     "industry": "기타"
   },
   "CAKE": {
-    "shortName": "CAKE",
-    "industry": "기타"
+    "shortName": "The Cheesecake Factory Incorpor",
+    "industry": "외식"
   },
   "MMED": {
     "shortName": "MMED",
+    "industry": "기타"
+  },
+  "MMSI": {
+    "shortName": "MMSI",
     "industry": "기타"
   }
 }
