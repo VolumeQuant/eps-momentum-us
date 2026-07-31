@@ -876,19 +876,39 @@ def _brief_dict(x):
     if isinstance(x, dict):
         return x
     if isinstance(x, str) and x.strip():
+        # ★2026-07-31: 마크다운 제거. Gemini가 **볼드**를 섞어 보내 문장 끝에 '**'가
+        #   그대로 발송되고 있었음(10개 카드 전부). HTML 메시지라 마크다운은 의미 없음.
+        import re as _re
+        x = _re.sub(r'\*{1,3}', '', x).strip()
         if '||' in x:
             head, risk = x.split('||', 1)
         else:
             parts = x.split('|')
             if len(parts) >= 3:
                 head, risk = '|'.join(parts[:-1]), parts[-1]
+            elif len(parts) == 2:
+                head, risk = parts[0], parts[1]
             else:
                 head, risk = x, ''
         if '|' in head:
             biz, why = head.split('|', 1)
         else:
             biz, why = head, ''
-        return {'biz': biz.strip(' |'), 'why': why.strip(' |'), 'risk': risk.strip(' |')}
+        biz, why, risk = biz.strip(' |'), why.strip(' |'), risk.strip(' |')
+        # ★2026-07-31 폴백: 구분자를 아예 안 쓰고 산문으로 답하는 경우(실관측 — 10/10 카드가
+        #   biz 한 덩어리로 뭉쳐 '왜 지금'·'위험 요인' 섹션이 통째로 사라졌음).
+        #   프롬프트가 요구한 구성이 (a)소개 (b)이유 (c)리스크 순서라 문장 단위로 복원한다.
+        if not why and not risk:
+            sents = [s.strip() for s in _re.split(r'(?<=다\.)\s+', biz) if s.strip()]
+            if len(sents) >= 3:
+                _R = ('다만', '그러나', '하지만', '리스크', '위험', '우려', '단,')
+                if sents[-1].startswith(_R) or any(k in sents[-1] for k in _R):
+                    biz, why, risk = sents[0], ' '.join(sents[1:-1]), sents[-1]
+                else:
+                    biz, why = sents[0], ' '.join(sents[1:])
+            elif len(sents) == 2:
+                biz, why = sents[0], sents[1]
+        return {'biz': biz, 'why': why, 'risk': risk}
     return {}
 
 
