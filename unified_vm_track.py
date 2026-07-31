@@ -42,7 +42,29 @@ LOG = os.path.join(HERE, 'data_cache', 'unified_vm_log.csv')
 #   US 프로덕션과 패리티 유지가 이 트랙의 존재 이유(같은 게이트를 양국에). in_top4 컬럼명은 로그 연속성
 #   위해 유지(의미 = topN 멤버십). ⚠️gap 1.5로 낮추며 KR에 US 업종제외 등가 필터 신설(정유 등 —
 #   구 2.5에선 gap이 우연히 걸렀지만 1.5에선 S-Oil이 상위 진입, US 규칙이면 원자재/정유 제외 대상).
-N_TOP = 5
+# ★슬롯 수 (2026-07-31 재스윕, exec_lag=1 · 이중상장 가드 적용 · 위상평균).
+#   5 -> 6. 헤드라인·운뺀최악·MDD 세 지표 모두 6이 우위:
+#     N   수익%   MDD%   Calmar  최악LOWO
+#     2  +147.5  -26.3   24.41    10.82   ← 헤드라인 1위지만 LOWO에서 반토막(한 종목 50%)
+#     3  +113.1  -22.7   19.04    10.22
+#     4   +98.3  -20.5   17.26    12.12
+#     5   +83.2  -19.7   14.28    11.21   ← 구 설정. 양옆(4·6)보다 낮은 중간값
+#     6   +75.5  -16.6   14.83    12.46   ← 채택
+#    10   +57.4  -12.7   13.56    13.09
+#   ★N이 적을수록 많이 벌고 많이 빠지는 단조 관계. N=2/3의 높은 헤드라인은 SNDK(+120.8%)
+#     한 종목이 50%를 차지해 만든 착시 — LOWO에서 무너져 기각(아침에 구 2슬롯 시스템이
+#     +304% -> SNDK 제외 시 +93%로 붕괴한 것과 동일 구조).
+#   매매 부담 실측: 리밸당 새로 사는 종목 2.3개(N5) -> 2.9개(N6), 연 230회 -> 288회.
+#     슬롯 6개라고 매번 6종목을 사는 게 아니라 절반은 유지된다.
+#   ⚠️차이는 노이즈 범위(14.28 vs 14.83, 5.5개월 표본). 방향이 세 지표에서 일관될 뿐.
+#   research/_slots_sweep_2026_07_31.py
+#   ★2026-07-31 최종: 6 -> 5로 되돌림 (사용자 결정).
+#     6의 이득(Calmar 14.28->14.83, MDD -19.7->-16.6)은 5.5개월 표본에서 노이즈 범위.
+#     반면 16.7%씩 배분·리밸당 2.9종목 교체는 실행 난이도를 올린다.
+#     ★불편하면 룰을 안 지키게 되고, 그 이탈 위험이 노이즈 수준 Calmar 이득보다 크다.
+#     노이즈 이득을 얻으려 실행 난이도를 올리는 건 손해 — 5종목 20%씩 유지.
+#     (N=6으로 가려면 VM_N_TOP=6. 스윕 근거는 위 표 그대로 유효.)
+N_TOP = int(os.environ.get('VM_N_TOP', '5'))
 # 교체 주기(영업일). ★2026-07-31 스윕(production 정확 게이트, research/_prod_faithful_bt):
 #   rev90은 주기 무관(R1 11.66 ~ R3 12.91 ~ R5 11.60 = 평평) — 분기 실적 기반이라 느리게 변함.
 #   괴리율은 주기가 결정적(R1 29.03 / R2 27.94 / R3 21.66 / R5 16.97) — 매일 주가로 변하는
@@ -1345,7 +1367,7 @@ def _compose_and_send(merged, meta=None):
     kdt = _dt.now()
     wd = '월화수목금토일'[kdt.weekday()]
     alert_head = (amsg or '').split('\n')[0]  # 신호등 상태 한 줄 — 상단 노출 (상세는 메시지3)
-    _title = '미국 TOP5 신호' if VM_US_ONLY else '한국+미국 TOP5 신호'
+    _title = ('미국 TOP%d 신호' % N_TOP) if VM_US_ONLY else ('한국+미국 TOP%d 신호' % N_TOP)
     m1 = [f'📬 <b>{_title}</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
     if regime == 'defense':
         m1.append('국면: 🛑 방어 — 주식 0% (전량 현금)')
@@ -1385,7 +1407,7 @@ def _compose_and_send(merged, meta=None):
                '신호가 먼저 떴지만, 신호가 떴다고',
                '항상 하락하지는 않습니다.']
         if _mem:
-            m1.append('아래 TOP5 중 해당 종목: ' + ', '.join(_display_name(t) for t in _mem))
+            m1.append('아래 TOP%d 중 해당 종목: ' % N_TOP + ', '.join(_display_name(t) for t in _mem))
         m1 += ['매매는 평소대로 신호를 따르시고,', '이 종목들은 변동성이 클 수 있다는', '점만 감안하세요.', '']
     nxt = _next_msg_day(us_latest, next_in) if us_latest else None
     nxt_s = f"{nxt.month}/{nxt.day}({'월화수목금토일'[nxt.weekday()]}) 아침" if nxt else f"{next_in}거래일 후"
@@ -1401,17 +1423,17 @@ def _compose_and_send(merged, meta=None):
     elif reentry:
         m1 += ['🟢 <b>오늘 할 일: 강세 복귀 — 재진입</b>',
                '방어 국면이 해제됐습니다.',
-               f'아래 TOP5를 각 20%씩 {_trade_when(kdt)}에 매수하세요.']               + ([] if VM_US_ONLY else ['(미국 종목 = 오늘 밤 개장,',
+               f'아래 TOP{N_TOP}을 각 {100/N_TOP:.0f}%씩 {_trade_when(kdt)}에 매수하세요.']               + ([] if VM_US_ONLY else ['(미국 종목 = 오늘 밤 개장,',
                                         ' 한국 종목 = 내일 아침 개장)'])
         for t in [d['ticker'] for d in top5]:
-            m1.append(f'🟢 사기: {_display_name(t)} — 자산의 20%')
+            m1.append(f'🟢 사기: {_display_name(t)} — 자산의 {100/N_TOP:.0f}%')
     elif is_rebal and diff and (diff[0] or diff[1]):
         n_ch = max(len(diff[0]), len(diff[1]))
         m1.append(f'🔁 <b>오늘 할 일: 종목 {n_ch}개 교체</b>')
         for t in diff[1]:
             m1.append(f'🔴 팔기: {_display_name(t)} — 보유분 전량 매도')
         for t in diff[0]:
-            m1.append(f'🟢 사기: {_display_name(t)} — 자산의 20% 매수')
+            m1.append(f'🟢 사기: {_display_name(t)} — 자산의 {100/N_TOP:.0f}% 매수')
         m1 += ['나머지 종목은 그대로 유지하세요.',
                '(이미 처리했거나 갖고 있지 않은',
                ' 종목은 건너뛰면 됩니다)',
@@ -1423,7 +1445,7 @@ def _compose_and_send(merged, meta=None):
                '점검 결과 교체 없이 그대로 갑니다.']
     else:
         m1 += ['✅ <b>오늘 할 일: 없음</b>',
-               '보유 중인 5종목 그대로 두시면 됩니다.',
+               f'보유 중인 {N_TOP}종목 그대로 두시면 됩니다.',
                f'다음 교체 점검: <b>{nxt_s}</b> 예정']
     _scope = '미국 주요 상장사 약 1,400곳의' if VM_US_ONLY else '한국+미국 주요 상장사 약 1,600곳의'
     m1 += ['',
@@ -1432,15 +1454,15 @@ def _compose_and_send(merged, meta=None):
            '애널리스트 이익 전망을 매일 추적해서,']
     if _GAP_MODE:
         m1 += ['"이익 전망은 올랐는데 주가가 아직',
-               '안 따라온" 회사 딱 5곳을 골라 담는',
-               '퀀트 신호입니다. 각 20%씩, 5거래일마다',
+               f'안 따라온" 회사 딱 {N_TOP}곳을 골라 담는',
+               f'퀀트 신호입니다. 각 {100/N_TOP:.0f}%씩, {REBAL}거래일마다',
                '점검해 순위에서 밀린 종목을 교체합니다.',
                '비싼 주식(선행PER 30↑)과 거래가 적은',
                '주식은 아무리 순위가 높아도 걸러냅니다.', '']
     else:
         m1 += ['"전문가들이 이익 전망을 가장 가파르게',
-               '올리는 중"인 회사 딱 5곳을 골라 담는',
-               '퀀트 신호입니다. 각 20%씩, 5거래일마다',
+               f'올리는 중"인 회사 딱 {N_TOP}곳을 골라 담는',
+               f'퀀트 신호입니다. 각 {100/N_TOP:.0f}%씩, {REBAL}거래일마다',
                '점검해 순위에서 밀린 종목을 교체합니다.',
                '비싼 주식(선행PER 30↑)과 전망이 꺾인',
                '주식은 아무리 순위가 높아도 걸러냅니다.', '']
@@ -1467,9 +1489,9 @@ def _compose_and_send(merged, meta=None):
     # ── 메시지 2: 대기 후보 6~10위 — 1~5위와 동일한 풀카드 (2026-07-10 사용자 "차별하지 마") ──
     m2 = None
     if len(m10) > N_TOP:
-        m2 = [f'📋 <b>대기 후보 6~10위</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━',
+        m2 = [f'📋 <b>대기 후보 {N_TOP+1}~10위</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━',
               '<b>지금 사는 종목이 아닙니다.</b>',
-              'TOP5에서 빠지는 종목이 생기면',
+              f'TOP{N_TOP}에서 빠지는 종목이 생기면',
               '이 명단의 위쪽부터 차례로 들어옵니다.', '']
         for j, d in enumerate(m10[N_TOP:], N_TOP + 1):
             m2 += _stock_card(j, d, briefs.get(d['ticker']), cards)
