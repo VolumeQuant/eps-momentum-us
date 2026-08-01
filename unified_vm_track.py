@@ -89,8 +89,11 @@ PE_MAX, GAP_MIN = 30.0, 1.5
 #   ★어떤 하한이든 "수익에 최적"이라는 주장은 금지 — 그 주장이 불가능하다는 것이 이 게이트의 정의.
 #   구 $1B는 rev90 시절 '주도주 필터'라는 알파 명목의 유산(v117)이었고 필요치의 100배였다.
 DV_MIN_MUSD = float(os.environ.get('VM_DV_MIN', '300'))
-# 에폭: 8/3 이전 us_date는 구 $1B 유지 — 토요일 발송 지시(8/1)와 월요일 재안내의 모순 방지.
-DV_EPOCH = '2026-08-03'
+# 에폭: 이 us_date부터 $300M 적용. 최초 8/3으로 뒀으나(토요일 발송과 월요일 재안내의 모순 방지)
+# 사용자 지시(2026-08-01 "7/31 시장에 대해서도 적용해야지")로 7/31 소급 — 실제 체결은 월요일 밤이므로
+# 월요일 아침 재안내가 새 기준 TOP5로 나가면 고객 기준 모순은 없다(토요일분은 예고로 대체됨).
+# 같은 us_date 재발송이 '미체결 지시를 갱신'하는 처리는 _replay 참조.
+DV_EPOCH = '2026-07-31'
 # ★KR 하한 = 백분위 등가. 스펙은 하나("각 시장 거래대금 상위 ~10%", 2026-07-09 사용자 승인),
 #   환율만 시장별 — 과거 $100M '특례' 폐지 사유(자의적 숫자)를 해소한 원칙.
 # ★2026-07-13 재산출 $0.3B→$0.1B (사용자 "300M이 현실적인지 검증해라"): 구 $0.3B는
@@ -645,6 +648,13 @@ def _replay(rows):
         if ud is not None and ud == prev_ud:
             # 동일 us_date 재발송 — 새 가격도 새 리밸도 없음. 직전 상태를 그대로 물려줘
             # 메시지가 같은 교체 지시를 반복하게 한다(장부·NAV 불변).
+            # ★단, 아직 체결 전(pend)인 지시가 있으면 최신 블록의 TOP5로 목표를 갱신한다 —
+            #   기준 변경 소급(2026-08-01 dv 에폭 7/31) 시 고객이 실제 체결하는 지시는
+            #   마지막 발송분이므로 장부도 그걸 따라야 지시==NAV 정합이 유지된다.
+            if pend is not None:
+                _renew = [r['ticker'] for r in day if r.get('in_top4') == '1']
+                if _renew:
+                    pend = (pend[0], _renew)
             state[d] = dict(state[days[i - 1]])
             continue
         w = float(ew.get(ud, 1.0))
@@ -652,8 +662,9 @@ def _replay(rows):
             rr = [px[t] / ppx[t] - 1 for t in hold if t in px and t in ppx and ppx[t] > 0]
             if rr:
                 nav *= 1 + (sum(rr) / len(rr)) * w
-        if pend is not None and pend[0] == i:   # 지연 체결
-            hold = pend[1]; pend = None
+        if pend is not None and pend[0] <= i:   # 지연 체결 (==가 아니라 <=: 신호일과 체결일 사이에
+            hold = pend[1]; pend = None         # 재발송일이 끼면 그 날이 인덱스를 소비해 ==를 영영
+                                                # 못 만나 교체가 장부에 반영 안 되던 잠복 버그 수리)
         gi = usd.index(ud) if ud in usd else None
         is_rb = (i == 0) or (gi is not None and gi % REBAL == 0)  # 첫 로그일 = 페이퍼 개시(초기 편입)
         held_before = list(hold)
