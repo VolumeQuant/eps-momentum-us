@@ -22,7 +22,11 @@ import unified_vm_track as U
 FULL, AG, FUND = load(); TE = C._load_te('full'); AD, _, _, TC, _ = C._load()
 PX = {d: {t: v['px'] for t, v in FULL.get(d, {}).items() if v['px']} for d in AD}
 STRESS = '2026-06-15'
-MS, PE, DV = -2.0, 30.0, 1000.0
+# ★2026-08-01 정정: DV 1000 하드코드는 이 스크립트 작성 시점(dv $1B) 값 — 같은 날 dv가
+#   $300M로 재정의된 뒤에도 후속 게이트 비교들이 이 상수를 물려받아 구 유니버스에서 측정되는
+#   사고 발생(na<=5 종목이 $1B 유동주엔 없어 "na 게이트 영향 0"이라는 착시. 사용자
+#   "SNDK, MU 빼보면 되잖아" 도전으로 발견). production 패리티로 정정, env로 재현 가능.
+MS, PE, DV = -2.0, 30.0, float(__import__('os').environ.get('VM_DV_MIN', '300'))
 
 # rev_up30 / rev_down30 로드
 RU = {}
