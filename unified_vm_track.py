@@ -563,7 +563,10 @@ def compute():
     merged = sorted(us + kr, key=lambda d: -(_score(d) or -9e9))
     meta = {'norm': 'pct', 'strategy': VM_STRATEGY, 'us_only': VM_US_ONLY,
             'warnings': list(kr_health.get('warnings') or []),
-            'kr_today_n': kr_health.get('today_n'), 'base_n': {}}
+            'kr_today_n': kr_health.get('today_n'), 'base_n': {},
+            # 가치함정 게이트 활성 여부 — 메시지 소개문이 실제 필터와 어긋나지 않게(에폭 전
+            # 재안내일에 "거른다"고 말해놓고 대기조에 FN류가 보이는 자기모순 방지).
+            'trap_active': bool(_GAP_MODE and TRAP_GATE_ON and us_date >= TRAP_EPOCH)}
     if _GAP_MODE and not VM_US_ONLY:
         meta['warnings'].append(
             '괴리율(gap) 전략 + KR 편입 = 미검증 조합 — KR 백분위 보정이 rev90 기준으로만 '
@@ -1645,12 +1648,23 @@ def _compose_and_send(merged, meta=None):
            _scope,
            '애널리스트 이익 전망을 매일 추적해서,']
     if _GAP_MODE:
-        m1 += ['"이익 전망은 올랐는데 주가가 아직',
-               f'안 따라온" 회사 딱 {N_TOP}곳을 골라 담는',
-               f'퀀트 신호입니다. 각 {100/N_TOP:.0f}%씩, {REBAL}거래일마다',
-               '점검해 순위에서 밀린 종목을 교체합니다.',
-               '비싼 주식(선행PER 30↑)과 거래가 적은',
-               '주식은 아무리 순위가 높아도 걸러냅니다.', '']
+        # ★2026-08-01 문구-규칙 정합 수리 (사용자 감사): ①"최근 3개월 새"를 명시(rev90>0 게이트가
+        #   보장하는 시제 — 무기한 현재진행형 약속 금지) ②거르는 것 목록을 실제 게이트와 일치
+        #   ③교체는 5거래일에 한 번뿐임을 명시(매일 매매 서비스 오해 방지). 가치함정 항목은
+        #   에폭 전 재안내일(us_date < 8/3)엔 자동 생략 — 문구가 필터보다 앞서가지 않게.
+        m1 += ['"최근 3개월 새 이익 전망이 오른 회사',
+               f'중, 주가가 가장 덜 따라온 {N_TOP}곳"을',
+               f'골라 담는 퀀트 신호입니다. 각 {100/N_TOP:.0f}%씩.',
+               f'교체 지시는 {REBAL}거래일에 한 번 —',
+               '그 외의 날은 확인만 하시면 됩니다.',
+               '거르는 것: 비싼 주식(선행PER 30↑),',
+               '거래 적은 주식, 전망이 뚜렷이 꺾인 주식']
+        if meta.get('trap_active'):
+            m1 += ['+ 전망은 제자리인데 주가 하락으로',
+                   '싸 보이기만 하는 주식.', '']
+        else:
+            m1[-1] += '.'
+            m1 += ['']
     else:
         m1 += ['"전문가들이 이익 전망을 가장 가파르게',
                f'올리는 중"인 회사 딱 {N_TOP}곳을 골라 담는',
@@ -1662,9 +1676,13 @@ def _compose_and_send(merged, meta=None):
         m1 += ['한국·미국은 상향폭 눈금이 달라서(뜨는',
                '종목 기준 한국이 약 2배 큼) 절대값 대신',
                '"자기 시장 상위 몇 %인지"로 공정 비교.', '']
+    # ★2026-08-01 정직 고지 (사용자 감사): 성과 = 모의·비용 미반영·신생 규칙임을 명시.
     m1 += [
            f"📊 전략 누적 성과: {(nav - 1) * 100:+.1f}%",
-           f"({all_days[0][5:].replace('-', '/')} 모의운용 시작)" if all_days else '']
+           f"({all_days[0][5:].replace('-', '/')} 모의운용 시작 · 실계좌 아님)" if all_days else '',
+           '수수료·세금·환율 반영 전 숫자입니다.',
+           '현 규칙(2026-08 확정)은 신생이라',
+           '하락장 실전 검증이 아직 없습니다.']
     if not any(briefs.get(d['ticker']) for d in top5):
         m1 += ['', '⚠️ 오늘은 AI 종목 설명 생성에 실패해',
                '숫자 지표만 표시됩니다. 다음 발송에서',
