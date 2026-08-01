@@ -1066,6 +1066,15 @@ def _ai_stock_briefs(entries):
         need = {d['ticker'] for d in entries[:10]}
         _topn = {d['ticker'] for d in entries[:N_TOP]}
 
+        # ★2026-08-01 2차 수리: '존재'와 '완결' 다음은 '실질'이다 — 8/1 실발송에서 SNDK의
+        #   왜지금/위험 섹션이 "검색 결과에서 확인되지 않습니다. 제공하기 어렵습니다"라는
+        #   변명문으로 나감(비어 있지 않아 완결성 검사 통과). 정보 부재 메타 문구는 결측 취급.
+        _EXCUSE = ('확인되지 않', '찾을 수 없', '검색 결과에', '제공하기 어렵',
+                   '알 수 없습니다', '정보가 부족', '확인이 어렵', '알려진 바 없')
+
+        def _substantive(txt):
+            return bool(txt) and not any(p in txt for p in _EXCUSE)
+
         def _incomplete(cur):
             """★2026-07-31: 구 커버리지 검사는 '티커가 응답에 있는가'만 봤다.
             Gemini가 소개 한 문장만 뱉어도 통과돼 '왜 지금 뜨거운가요'·'위험 요인'
@@ -1074,9 +1083,9 @@ def _ai_stock_briefs(entries):
             bad = set()
             for tk in need:
                 v = cur.get(tk) or {}
-                if not (v.get('biz') and v.get('why')):
+                if not (_substantive(v.get('biz')) and _substantive(v.get('why'))):
                     bad.add(tk)
-                elif tk in _topn and not v.get('risk'):
+                elif tk in _topn and not _substantive(v.get('risk')):
                     bad.add(tk)
             return bad
         # 모델 폴백 체인 (2026-07-10 실측): flash 무료 20회/일(KR 16:00 시스템과 키 공유,
@@ -1090,10 +1099,11 @@ def _ai_stock_briefs(entries):
                     config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
                 cand = _parse(resp.text or '')
                 # 더 완결한 응답으로만 덮어쓴다(부분 응답이 완전 응답을 밀어내지 않게).
+                # 실질 필드만 계수 — 변명문 3개짜리가 진짜 2개짜리를 밀어내지 않게.
                 for k, v in cand.items():
                     old = out.get(k) or {}
-                    if sum(1 for f in ('biz', 'why', 'risk') if v.get(f)) > \
-                       sum(1 for f in ('biz', 'why', 'risk') if old.get(f)):
+                    if sum(1 for f in ('biz', 'why', 'risk') if _substantive(v.get(f))) > \
+                       sum(1 for f in ('biz', 'why', 'risk') if _substantive(old.get(f))):
                         out[k] = v
                 bad = _incomplete(out)
                 if not bad:
@@ -1106,6 +1116,12 @@ def _ai_stock_briefs(entries):
                 print('[브리핑 시도 %d(%s) 실패: %s]' % (_i, model, str(_e)[:120]))
                 import time as _t
                 _t.sleep(10)
+        # 최종 위생: 재시도 소진 후에도 남은 변명문 필드는 지워서 카드가 해당 섹션을
+        # 아예 생략하게 한다(변명문 발송 < 섹션 생략 — 8/1 SNDK 사고의 최후 방어선).
+        for v in out.values():
+            for f in ('biz', 'why', 'risk'):
+                if v.get(f) and not _substantive(v.get(f)):
+                    v[f] = ''
         return out
     except Exception as e:
         print('[종목 브리핑 스킵: %s]' % e)
