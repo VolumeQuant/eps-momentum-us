@@ -301,6 +301,21 @@ def us_candidates():
         if roe is not None: e[2] = roe
     cf = _carry_forward_windows(conn, last)  # 글리치 0값 → 직전 유효값 대체 (재발 방지)
     AGM = _adj_gap_map(conn, last)           # 괴리율(gap 모드 순위 기준)
+    # ★2026-08-01 관찰컬럼용 이력 (매매 개입 0, REDESIGN_DEBATE_2026_08_01.md):
+    #   px_chg20 = 20거래일 주가 변화% (약형 괴리 '주가 하락산' 판별)
+    #   crash5   = 5거래일 −18%+ 급락 & 추정 유지(−2% 이내) 플래그 (크래시셀 라이브 forward 추적)
+    #   07-13 stale/below_ma120 컬럼과 같은 선례 — 게이트 아님, 판정일 판단용 기록.
+    _hd = [r[0] for r in conn.execute(
+        'SELECT DISTINCT date FROM ntm_screening WHERE date<=? ORDER BY date DESC LIMIT 21', (last,))]
+    _d20 = _hd[-1] if len(_hd) >= 21 else None
+    _d5 = _hd[5] if len(_hd) >= 6 else None
+    PX20 = {t: p for t, p in conn.execute(
+        'SELECT ticker, price FROM ntm_screening WHERE date=? AND price IS NOT NULL', (_d20,))} if _d20 else {}
+    PX5, NC5 = {}, {}
+    if _d5:
+        for _t, _p, _n in conn.execute('SELECT ticker, price, ntm_current FROM ntm_screening WHERE date=?', (_d5,)):
+            if _p: PX5[_t] = _p
+            if _n: NC5[_t] = _n
     out = []
     for tk, p, nc, n7, n30, n60, n90, dv, na, m120, ru30 in c.execute(
             'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,dollar_volume_30d,'
@@ -361,11 +376,16 @@ def us_candidates():
             continue
         if fcf is not None and roe is not None and fcf < 0 and roe < 0:
             continue
-        # rev30/below_ma120 = 관찰 전용 원장 컬럼 (GATECHAIN_REVIEW log-stale-flag-observe, 매매 개입 0)
+        # rev30/below_ma120/px_chg20/crash5/na/up30 = 관찰 전용 원장 컬럼 (매매 개입 0)
+        _p20, _p5, _n5 = PX20.get(tk), PX5.get(tk), NC5.get(tk)
         out.append(dict(ticker=tk, market='US', rev90=_seg(nc, n90), fwd_per=p / nc,
                         gap=g, dv_musd=dv, price=p, rev30=_seg(nc, n30),
                         adj_gap=AGM.get(tk),
-                        below_ma120=(int(p < m120) if m120 else None)))
+                        below_ma120=(int(p < m120) if m120 else None),
+                        px_chg20=((p / _p20 - 1) * 100 if _p20 else None),
+                        crash5=(int((p / _p5 - 1) <= -0.18 and (nc / _n5 - 1) >= -0.02)
+                                if (_p5 and _n5 and _n5 > 0) else None),
+                        na=na, up30=(ru30 or 0)))
     conn.close()
     if _GAP_MODE:  # 괴리율 결측 종목은 순위 산정 불가 → 후보 제외 (US 결측률 4.9%)
         out = [d for d in out if d.get('adj_gap') is not None]
@@ -1183,10 +1203,13 @@ def cmd_run():
     # rev30/stale/below_ma120 = 관찰 전용 (2026-07-13, GATECHAIN_REVIEW log-stale-flag-observe,
     # 매매 개입 0): stale=rev90>=20 & rev30<=2 (106일 중 1건뿐이던 케이스의 forward 라이브 추적),
     # below_ma120=픽 시점 가격<120일선 (rev90 랭킹의 사실상 추세필터 역할 라이브 검증).
+    # ★2026-08-01 관찰컬럼 4종 추가(px_chg20/crash5/na/up30 — REDESIGN_DEBATE_2026_08_01.md):
+    #   신규 컬럼은 반드시 끝에 붙인다 — 마이그레이션이 끝-패딩이라 중간 삽입 시 구행 정렬 깨짐.
     COLS = ['run_date', 'us_date', 'kr_date', 'rank', 'market', 'ticker',
             'rev90', 'fwd_per', 'gap', 'dv_musd', 'price', 'in_top4', 'in_top4_cap2',
             'pct', 'in_top5_abs', 'rz', 'in_top5_rz', 'pct_base_n',
-            'rev30', 'stale', 'below_ma120', 'adj_gap', 'strategy']
+            'rev30', 'stale', 'below_ma120', 'adj_gap', 'strategy',
+            'px_chg20', 'crash5', 'na', 'up30']
     if os.path.exists(LOG):  # 구헤더(13/14컬럼) → 신헤더 마이그레이션, 과거 행은 공란 패딩
         lines = open(LOG, encoding='utf-8').read().splitlines()
         hdr = lines[0].split(',')
@@ -1215,7 +1238,10 @@ def cmd_run():
                         int(d['rev90'] >= 20 and d['rev30'] <= 2) if d.get('rev30') is not None else '',
                         d['below_ma120'] if d.get('below_ma120') is not None else '',
                         round(d['adj_gap'], 3) if d.get('adj_gap') is not None else '',
-                        VM_STRATEGY + ('/us' if VM_US_ONLY else '')])
+                        VM_STRATEGY + ('/us' if VM_US_ONLY else ''),
+                        round(d['px_chg20'], 2) if d.get('px_chg20') is not None else '',
+                        d['crash5'] if d.get('crash5') is not None else '',
+                        d.get('na') or '', d.get('up30') if d.get('up30') is not None else ''])
     print(f'로그 append: {LOG}')
     return merged, meta
 
