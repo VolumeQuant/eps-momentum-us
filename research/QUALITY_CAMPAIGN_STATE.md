@@ -1,6 +1,6 @@
 # 괴리율 품질기준 리서치 캠페인 — 상태 (2026-08-01 밤 시작, 15분×28틱=7시간)
 
-iteration: 26 / 28
+iteration: 27 / 28
 findings_doc: research/QUALITY_CAMPAIGN_2026_08_01.md
 
 ## 검증 의무 (매 안건 공통 — 하나라도 빠지면 그 틱 무효)
@@ -12,7 +12,6 @@ findings_doc: research/QUALITY_CAMPAIGN_2026_08_01.md
 - 에피소드 dedup·업종 내 재산출·국면 분리로 교란 자가검증 (8/1 세 번 무너진 전례)
 
 ## 백로그 (위에서부터 소진, 소진 시 새 가설 추가)
-25. 자유 탐색 예비 틱 — 잔여 아이디어 1건(없으면 기록 검토·오탈 정정)
 
 ## 규칙
 - 매 틱: 백로그 1개 연구 → findings_doc에 append(가설/방법/수치/판정[기각·관찰후보·판정일안건]/과적합 노트) → 본 파일 iteration+1·백로그 갱신 → git commit+push
