@@ -99,7 +99,16 @@ DV_MIN_MUSD = float(os.environ.get('VM_DV_MIN', '300'))
 #   죽음')의 기존 경계 재사용, 0% = 부호 경계. 에폭 8/3(미래로만 — 거버넌스 ⓐ, 7/31 재안내 불변).
 TRAP_GATE_ON = os.environ.get('VM_TRAP_GATE_DISABLE') != '1'
 TRAP_REV30 = float(os.environ.get('VM_TRAP_REV30', '2.0'))
-TRAP_EPOCH = '2026-08-03'
+# 에폭: 최초 8/3(미래로만)이었으나 사용자 승인(08-01 밤 "니 말대로 하자")으로 7/31 소급 —
+# top5(발송된 지시)는 소급 전후 동일(AMKR·CLS·MU·STX·SNDK)이라 거버넌스 ⓐ의 보호 대상
+# (지시 모순)이 침해되지 않고, 대기조(정보)만 재편됨. 재발송으로 대기조도 당일 정정 완료.
+TRAP_EPOCH = '2026-07-31'
+# ★na≥6 게이트 (2026-08-01 밤, 사용자 승인): 애널 3~5명 종목은 추정치 계단 노이즈가
+#   6명+의 2배(일간 |ΔNTM|>3% 8.4% vs 3.9%, 6~12명 고원 — 경계=실측 불연속, 성과로 안 고름).
+#   dv $1B 시절엔 na≥3이 non-binding이었으나 $300M 전환으로 하중 기둥이 됨(하중 전이).
+#   성과 영향(dv300·lag=1): 수익 −0.8%p·Cal −0.23 = 노이즈 수준(REDESIGN_DEBATE 추기 3).
+#   레거시(rev90) 모드는 구값 3 유지. env VM_NA_MIN(기본 6).
+NA_MIN = int(os.environ.get('VM_NA_MIN', '6'))
 # 에폭: 이 us_date부터 $300M 적용. 최초 8/3으로 뒀으나(토요일 발송과 월요일 재안내의 모순 방지)
 # 사용자 지시(2026-08-01 "7/31 시장에 대해서도 적용해야지")로 7/31 소급 — 실제 체결은 월요일 밤이므로
 # 월요일 아침 재안내가 새 기준 TOP5로 나가면 고객 기준 모순은 없다(토요일분은 예고로 대체됨).
@@ -380,7 +389,8 @@ def us_candidates():
         #   env VM_REV_UP30_MIN(0이면 해제).
         if (ru30 or 0) < REV_UP30_MIN:
             continue
-        if p < 10 or (na or 0) < 3 or _seg(nc, n90) <= 0:
+        _na_min = NA_MIN if (_GAP_MODE and last >= TRAP_EPOCH) else 3
+        if p < 10 or (na or 0) < _na_min or _seg(nc, n90) <= 0:
             continue
         om, fcf, roe = fund.get(tk, (None, None, None))
         if om is not None and om < 0.05:
