@@ -113,7 +113,10 @@ jobs:
           KR_FS_DIR: ${{ github.workspace }}/kr_repo/data_cache
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_PRIVATE_ID: ${{ secrets.TELEGRAM_PRIVATE_ID }}
-          UNIFIED_CHANNEL_ID: ${{ github.event.inputs.no_channel == '1' && '' || secrets.TELEGRAM_CHAT_ID }}
+          # ★2026-08-01 버그 수리: 구 표현식 `no_channel=='1' && '' || secret`은 참-분기('')가
+          #   falsy라 || 가 항상 secret으로 넘어가 no_channel=1이 무시됐음(8/1 채널 오발송 실사고).
+          #   GH 표현식의 유사-삼항은 참-분기가 falsy면 깨진다 — 빈 값을 거짓-분기에 두도록 반전.
+          UNIFIED_CHANNEL_ID: ${{ github.event.inputs.no_channel != '1' && secrets.TELEGRAM_CHAT_ID || '' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
           UNIFIED_DRY_RUN: ${{ github.event.inputs.dry_run }}
