@@ -315,6 +315,14 @@ def us_candidates():
             continue
         rec = TE.get(tk)
         te = rec[-1][1] if rec else None
+        # ★2026-08-01 TE 통화 단위 가드: TSM의 TTM EPS가 현지통화(NT$371.9)로 저장돼
+        #   있는데 NTM은 ADR 달러($19.6) → gap 0.05, 카드에 "작년의 0.1배" 발송 사고.
+        #   판별 = 묵시 트레일링PER(주가÷TTM) < 3배는 통화 불일치/데이터 오류로 간주
+        #   (실제 그런 초저PER 대형주는 존재하지 않음. TSM: 404÷371.9 = 1.1배).
+        #   해당 TE는 무효 처리 → gap=None(missing=pass 규약과 동일, '배' 표시도 자동 생략).
+        #   ⚠️같은 오류가 rev90 시절엔 gap>=1.5 게이트로 TSM류 ADR을 부당 배제하고 있었음.
+        if te and te > 0 and p / te < 3.0:
+            te = None
         g = (nc / te) if (te and te > 0) else None
         if not _GAP_MODE and g is not None and g < GAP_MIN:
             continue
@@ -1666,11 +1674,16 @@ def _compose_and_send(merged, meta=None):
     brief_mkt = _ai_market_brief(idx_facts=idx_lines, _now=kdt)   # 요일 분기용 KST 시각 명시
     if brief_mkt:
         m3 += ['', '📰 <b>시장 동향</b>']
-        # ★2026-07-31: Gemini가 같은 대괄호 라벨을 두 번 뱉는 경우가 있어(사용자 관측
-        #   '오늘밤체크가 왜 2개야?') 라벨 중복을 렌더 단계에서 제거한다.
-        #   같은 라벨이 재등장하면 그 라벨 줄만 건너뛴다(본문은 살림).
-        _seen_lb = set()
-        for para in brief_mkt.replace('\r', '').split('\n'):
+        # ★2026-08-01 강화: 8/1 실발송에서 Gemini가 전문을 한 응답에 두 번 뱉었고,
+        #   라벨 하나가 문단 끝에 붙어 나와("...예상됩니다.[미국 증시]") 줄 단위 라벨
+        #   dedup(7/31)이 못 잡았다 — 라벨만 지워지고 본문 3문단이 통째로 반복 발송됨.
+        #   방어 2겹: ①문단 중간에 붙은 라벨 앞에 개행 강제 ②본문 자체를 문단 단위로
+        #   dedup(같은 내용 재등장 시 스킵). AI 생성물은 프롬프트 부탁이 아니라 코드로 강제.
+        import re as _re2
+        _txt = _re2.sub(r'(?<!\n)\[(?=(미국 증시|반도체·메모리|한국 증시|오늘 밤 체크|다음 장 체크)\])',
+                        '\n[', brief_mkt.replace('\r', ''))
+        _seen_lb = set(); _seen_body = set()
+        for para in _txt.split('\n'):
             p = para.strip()
             if not p:
                 continue
@@ -1678,6 +1691,11 @@ def _compose_and_send(merged, meta=None):
                 if p in _seen_lb:
                     continue
                 _seen_lb.add(p)
+            else:
+                _key = p[:60]
+                if _key in _seen_body:
+                    continue
+                _seen_body.add(_key)
             m3.append(p)
             m3.append('')
         if m3[-1] == '':
