@@ -89,6 +89,17 @@ PE_MAX, GAP_MIN = 30.0, 1.5
 #   ★어떤 하한이든 "수익에 최적"이라는 주장은 금지 — 그 주장이 불가능하다는 것이 이 게이트의 정의.
 #   구 $1B는 rev90 시절 '주도주 필터'라는 알파 명목의 유산(v117)이었고 필요치의 100배였다.
 DV_MIN_MUSD = float(os.environ.get('VM_DV_MIN', '300'))
+# ★2026-08-01 가치함정(신호 전제 부재) 게이트 — 사용자 확정: "전망은 제자리인데 주가만 빠져서
+#   싸 보이는 종목"은 이 전략의 간판 전제("전망은 올랐는데 주가가 안 따라옴")를 위반한다.
+#   컷 = rev30(30일 순상향) <= +2% AND 20일 주가 하락 '동시' 충족 — 전망이 오르는 중이거나
+#   주가가 안 빠졌는데 싼 종목은 건드리지 않는다. PER30·TE통화가드와 같은 '유효영역 제약'
+#   (알파 주장 아님 — 검증 에이전트가 성과 증거를 기각했고, 6/15~ 구간엔 이 컷이 오히려
+#   성과를 깎았음을 실측·명기: REDESIGN_DEBATE_2026_08_01.md 추기 참조).
+#   임계 앵커 = 사전 등록값만(과적합 차단): 2% = 2026-07-13 stale 정의(rev30<=2 '상향 동력
+#   죽음')의 기존 경계 재사용, 0% = 부호 경계. 에폭 8/3(미래로만 — 거버넌스 ⓐ, 7/31 재안내 불변).
+TRAP_GATE_ON = os.environ.get('VM_TRAP_GATE_DISABLE') != '1'
+TRAP_REV30 = float(os.environ.get('VM_TRAP_REV30', '2.0'))
+TRAP_EPOCH = '2026-08-03'
 # 에폭: 이 us_date부터 $300M 적용. 최초 8/3으로 뒀으나(토요일 발송과 월요일 재안내의 모순 방지)
 # 사용자 지시(2026-08-01 "7/31 시장에 대해서도 적용해야지")로 7/31 소급 — 실제 체결은 월요일 밤이므로
 # 월요일 아침 재안내가 새 기준 TOP5로 나가면 고객 기준 모순은 없다(토요일분은 예고로 대체됨).
@@ -378,6 +389,10 @@ def us_candidates():
             continue
         # rev30/below_ma120/px_chg20/crash5/na/up30 = 관찰 전용 원장 컬럼 (매매 개입 0)
         _p20, _p5, _n5 = PX20.get(tk), PX5.get(tk), NC5.get(tk)
+        # 가치함정 게이트 (상단 TRAP_* 주석 참조): 괴리가 '주가 하락만'으로 만들어진 후보 컷.
+        if (_GAP_MODE and TRAP_GATE_ON and last >= TRAP_EPOCH
+                and _seg(nc, n30) <= TRAP_REV30 and _p20 is not None and p < _p20):
+            continue
         out.append(dict(ticker=tk, market='US', rev90=_seg(nc, n90), fwd_per=p / nc,
                         gap=g, dv_musd=dv, price=p, rev30=_seg(nc, n30),
                         adj_gap=AGM.get(tk),
