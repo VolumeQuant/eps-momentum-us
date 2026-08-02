@@ -123,6 +123,17 @@ NA_MIN = int(os.environ.get('VM_NA_MIN', '6'))
 #     메시지에 "처음 시작하는 분은 현금 대기" 자동 표시 — 표시 소멸 시 합류.
 DD_ENTRY_ON = os.environ.get('VM_DD_ENTRY_DISABLE') != '1'
 DD_THR = float(os.environ.get('VM_DD_THR', '-25'))
+# ★2026-08-03 dd_30_25 OFF (사용자 재확인 "이거 도입 안 하고 트레일링스탑 15%로 관리하기로 한 것").
+#   위 8/2 '사용자 확정 2안' 기록과 충돌 — 그 세션 트랜스크립트가 이 머신에 없어 검증 불가하며,
+#   1차 근거(사용자 본인 확인)가 2차 기록(커밋 메시지)에 우선한다. 급락 관리는 시스템이 아니라
+#   고객 측 트레일링 스탑 15% 안내가 담당(교체일 메시지의 TS 블록).
+#   측정(research/_stop_revg_matrix_2026_08_03.py, 매출게이트 포함): 밴드7만(dd 없음)이 전 셀 최고 —
+#   수익 +104.3%/Cal 23.17/LOWO 15.86 vs dd포함 +87.6/19.79. 비용은 스트레스 MDD −8.3→−12.3%p
+#   (7월형 크래시 직후 매수를 다시 허용하는 대가 — 고객 낙폭은 TS15%가 −15%에서 절단).
+#   거버넌스 ⓐ(발송 지시 소급 금지): 7/31 지시는 dd 포함으로 발송됨 → us_date < DD_OFF_EPOCH만
+#   dd 유지(당일 재발송 재현 정합), 이후 완전 OFF. 복원 = VM_DD_OFF_EPOCH='9999-12-31'.
+DD_OFF_EPOCH = os.environ.get('VM_DD_OFF_EPOCH', '2026-08-01')
+_DD_LIVE = False   # compute()가 당일 us_date로 갱신
 HOLD_BAND = int(os.environ.get('VM_HOLD_BAND', '7'))
 GATE2_EPOCH = '2026-07-31'
 # 에폭: 이 us_date부터 $300M 적용. 최초 8/3으로 뒀으나(토요일 발송과 월요일 재안내의 모순 방지)
@@ -771,8 +782,9 @@ def _replay(rows):
 
 
 def _dd_blocked(d):
-    """dd_30_25 진입 유예 대상 여부 (급락 소화 중 — 신규 진입만 차단)."""
-    return DD_ENTRY_ON and d.get('dd30') is not None and d['dd30'] <= DD_THR
+    """dd_30_25 진입 유예 대상 여부 (급락 소화 중 — 신규 진입만 차단).
+    ★2026-08-03부터 기본 OFF(_DD_LIVE, 상단 DD_OFF_EPOCH 주석) — 7/31 이전 us_date 재현에만 잔존."""
+    return _DD_LIVE and DD_ENTRY_ON and d.get('dd30') is not None and d['dd30'] <= DD_THR
 
 
 def _select_target(merged, held, us_date=None):
@@ -1292,6 +1304,8 @@ def cmd_run():
     run_date = datetime.now().strftime('%Y-%m-%d')
     capped = _capped_top(merged)
     held = _held_from_ledger()
+    global _DD_LIVE
+    _DD_LIVE = bool(us_date and us_date < DD_OFF_EPOCH)   # dd_30_25는 7/31 이전 재현에만
     target = _select_target(merged, held, us_date)
     meta['target'], meta['held'] = target, (held or [])
     if target != [d['ticker'] for d in merged[:N_TOP]]:
@@ -1748,8 +1762,9 @@ def _compose_and_send(merged, meta=None):
         #   → 목표 상태(오늘 TOP5)만 제시. 각자 자기 계좌를 그 목표에 맞추면 되므로
         #   시스템이 모르는 정보(누가 뭘 들고 있나)에 기대지 않는다.
         # ★2026-08-02 (사용자 확정 "차별하지 마라, 무조건 하나의 방향"): 목표 리스트는 보유자·
-        #   신규자 구분 없이 전원 동일 지시. 급락 유예 게이트는 '리스트 구성'에만 작동하고
-        #   (AMKR류 신규 편입 차단), 고객 행동 분기(⚠️·현금대기)는 두지 않는다.
+        #   신규자 구분 없이 전원 동일 지시, 고객 행동 분기(⚠️·현금대기) 없음.
+        #   (구 dd_30_25 급락 유예는 2026-08-03 OFF — "보유/신규 구분"은 시스템이 모르는
+        #    고객 보유를 아는 척하는 구조라는 사용자 지적. 급락 리스크는 TS15%가 고객 측에서 절단.)
         m1.append(f'🔁 <b>오늘 할 일: 아래 {N_TOP}종목으로 맞추세요</b>')
         for _i, _d in enumerate(top5, 1):
             m1.append(f'{_i}. {_display_name(_d["ticker"])} — {100/N_TOP:.0f}%')
@@ -1846,9 +1861,10 @@ def _compose_and_send(merged, meta=None):
         m2 = [f'📋 <b>대기 후보</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━',
               '<b>지금 사는 종목이 아닙니다.</b>',
               f'목표 {N_TOP}종목에서 빠지는 종목이 생기면',
-              '이 명단에서 차례로 들어옵니다.',
-              '⚠️(급락 소화 중) 표시 종목은 표시가',
-              '사라진 뒤에야 새로 편입됩니다.', '']
+              '이 명단에서 차례로 들어옵니다.', '']
+        if any(_dd_blocked(d) for d in m10[N_TOP:]):
+            m2 = m2[:-1] + ['⚠️(급락 소화 중) 표시 종목은 표시가',
+                            '사라진 뒤에야 새로 편입됩니다.', '']
         for j, d in enumerate(m10[N_TOP:], N_TOP + 1):
             m2 += _stock_card(j, d, briefs.get(d['ticker']), cards)
             if _dd_blocked(d):
