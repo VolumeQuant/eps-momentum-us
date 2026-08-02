@@ -109,6 +109,22 @@ TRAP_EPOCH = '2026-07-31'
 #   성과 영향(dv300·lag=1): 수익 −0.8%p·Cal −0.23 = 노이즈 수준(REDESIGN_DEBATE 추기 3).
 #   레거시(rev90) 모드는 구값 3 유지. env VM_NA_MIN(기본 6).
 NA_MIN = int(os.environ.get('VM_NA_MIN', '6'))
+# ★2026-08-02 구시스템 안전장치 복원 2종 (사용자 확정 "당연히 2안으로" — REDESIGN_DEBATE·
+#   QUALITY_CAMPAIGN 틱 17/12/19 근거. ru3·min_seg 복원과 같은 '복원' 범주, 신규 발명 아님):
+#   ①dd_30_25 진입 유예(v84 정의 그대로): 30거래일 고점 대비 -25% 이상 하락 종목은 '신규 진입'만
+#     건너뜀(기보유 불간섭 — 구시스템 게이트의 원래 의미). 7월 크래시 매수 9건 전패(평균 -15.6%)
+#     실측 + v84 독립 검증 + 휴면보험형(전반 비용 -0.7%p). 자동 해제: 회복하거나 30세션 경과 시.
+#   ②보유 유지 밴드(EXIT_RANK 원리, 구 12/10=1.2~1.4x 앵커): 진입은 top5, 보유는 순위
+#     HOLD_BAND(7)까지 유지 — 경계 동전던지기 교체(실측 17%) 제거.
+#   조합 실측(lag=1·위상평균): +86.8/-16.4/Cal 17.85 → +94.9/-12.7/Cal 26.19, 전반에도 우위
+#     (+91.4 vs +88.4 = 7월 재포장 아님·캠페인 유일 통과), LOWO 3종 전승, 교체 2.91→2.59.
+#   에폭 = us_date 2026-07-31(사용자 2안: 현 리밸부터 — AMKR 신규매수가 규칙 금지 유형이므로).
+#   ⚠️신규 고객 정합(사용자 지적): 목표에 포함된 '보유 유지형' 종목(dd 걸린 기보유 MU·SNDK)은
+#     메시지에 "처음 시작하는 분은 현금 대기" 자동 표시 — 표시 소멸 시 합류.
+DD_ENTRY_ON = os.environ.get('VM_DD_ENTRY_DISABLE') != '1'
+DD_THR = float(os.environ.get('VM_DD_THR', '-25'))
+HOLD_BAND = int(os.environ.get('VM_HOLD_BAND', '7'))
+GATE2_EPOCH = '2026-07-31'
 # 에폭: 이 us_date부터 $300M 적용. 최초 8/3으로 뒀으나(토요일 발송과 월요일 재안내의 모순 방지)
 # 사용자 지시(2026-08-01 "7/31 시장에 대해서도 적용해야지")로 7/31 소급 — 실제 체결은 월요일 밤이므로
 # 월요일 아침 재안내가 새 기준 TOP5로 나가면 고객 기준 모순은 없다(토요일분은 예고로 대체됨).
@@ -326,9 +342,15 @@ def us_candidates():
     #   crash5   = 5거래일 −18%+ 급락 & 추정 유지(−2% 이내) 플래그 (크래시셀 라이브 forward 추적)
     #   07-13 stale/below_ma120 컬럼과 같은 선례 — 게이트 아님, 판정일 판단용 기록.
     _hd = [r[0] for r in conn.execute(
-        'SELECT DISTINCT date FROM ntm_screening WHERE date<=? ORDER BY date DESC LIMIT 21', (last,))]
-    _d20 = _hd[-1] if len(_hd) >= 21 else None
+        'SELECT DISTINCT date FROM ntm_screening WHERE date<=? ORDER BY date DESC LIMIT 31', (last,))]
+    _d20 = _hd[20] if len(_hd) >= 21 else None
     _d5 = _hd[5] if len(_hd) >= 6 else None
+    # dd_30_25용 30세션 고점 (오늘 포함 30개 날짜의 최고가 — v84 high30 정의)
+    HI30 = {}
+    for _dd_ in _hd[:30]:
+        for _t, _p in conn.execute('SELECT ticker, price FROM ntm_screening WHERE date=? AND price IS NOT NULL', (_dd_,)):
+            if _p and _p > HI30.get(_t, 0):
+                HI30[_t] = _p
     PX20 = {t: p for t, p in conn.execute(
         'SELECT ticker, price FROM ntm_screening WHERE date=? AND price IS NOT NULL', (_d20,))} if _d20 else {}
     PX5, NC5 = {}, {}
@@ -410,7 +432,8 @@ def us_candidates():
                         px_chg20=((p / _p20 - 1) * 100 if _p20 else None),
                         crash5=(int((p / _p5 - 1) <= -0.18 and (nc / _n5 - 1) >= -0.02)
                                 if (_p5 and _n5 and _n5 > 0) else None),
-                        na=na, up30=(ru30 or 0)))
+                        na=na, up30=(ru30 or 0),
+                        dd30=((p / HI30[tk] - 1) * 100 if HI30.get(tk) else None)))
     conn.close()
     if _GAP_MODE:  # 괴리율 결측 종목은 순위 산정 불가 → 후보 제외 (US 결측률 4.9%)
         out = [d for d in out if d.get('adj_gap') is not None]
@@ -727,6 +750,42 @@ def _replay(rows):
         ew_last = w
         prev_ud = ud
     return {'nav': nav, 'days': days, 'state': state, 'ew_last': ew_last}
+
+
+def _dd_blocked(d):
+    """dd_30_25 진입 유예 대상 여부 (급락 소화 중 — 신규 진입만 차단)."""
+    return DD_ENTRY_ON and d.get('dd30') is not None and d['dd30'] <= DD_THR
+
+
+def _select_target(merged, held, us_date=None):
+    """목표 5종목 선택 (2026-08-02 진입/이탈 분리 — 상단 DD_/HOLD_BAND 주석 참조).
+    보유 종목은 순위<=HOLD_BAND까지 유지, 빈 슬롯은 순위순 충원하되 dd_30_25 종목은 건너뜀.
+    held가 None(보유 상태 불명)이거나 에폭 전이면 구 동작(순위 top N) 폴백."""
+    if not (_GAP_MODE and held is not None) or (us_date and us_date < GATE2_EPOCH):
+        return [d['ticker'] for d in merged[:N_TOP]]
+    rank = {d['ticker']: i + 1 for i, d in enumerate(merged)}
+    sel = [d['ticker'] for d in merged
+           if d['ticker'] in set(held) and rank[d['ticker']] <= HOLD_BAND][:N_TOP]
+    for d in merged:
+        if len(sel) >= N_TOP:
+            break
+        if d['ticker'] in sel or _dd_blocked(d):
+            continue
+        sel.append(d['ticker'])
+    return sel
+
+
+def _held_from_ledger():
+    """원장 리플레이 기준 현재 보유 (조회 실패 시 None → 선택 폴백)."""
+    try:
+        if not os.path.exists(LOG):
+            return []
+        rows = list(csv.DictReader(open(LOG, encoding='utf-8')))
+        rp = _replay(rows)
+        return rp['state'][rp['days'][-1]]['held_after'] if rp['days'] else []
+    except Exception as e:
+        print(f'[보유 상태 조회 실패 → 순위 top{N_TOP} 폴백: {e}]')
+        return None
 
 
 def _capped_top(merged):
@@ -1207,6 +1266,11 @@ def cmd_run():
     us_date, kr_date, fx, merged, meta = compute()
     run_date = datetime.now().strftime('%Y-%m-%d')
     capped = _capped_top(merged)
+    held = _held_from_ledger()
+    target = _select_target(merged, held, us_date)
+    meta['target'], meta['held'] = target, (held or [])
+    if target != [d['ticker'] for d in merged[:N_TOP]]:
+        print(f'[진입/이탈 분리] 목표 {target} (보유 유지 밴드 {HOLD_BAND}위·급락 유예 적용)')
     print(f'=== 통합 VM top{N_TOP} (US {us_date} / KR {kr_date}, USDKRW {fx:.0f}, '
           f'code {_git_sha() or "?"}) ===')
     if meta.get('base_n'):
@@ -1215,8 +1279,10 @@ def cmd_run():
     for wmsg in meta.get('warnings', []):
         print(f'[경고] {wmsg}')
     for i, d in enumerate(merged[:10], 1):
-        mark = ' ★top4' if i <= N_TOP else ''
-        if d['ticker'] in capped and i > N_TOP:
+        mark = ' ★목표' if d['ticker'] in target else ''
+        if _dd_blocked(d):
+            mark += ' [급락유예]'
+        if d['ticker'] in capped and d['ticker'] not in target:
             mark += ' (캡2픽)'
         gap_s = f"{d['gap']:.1f}" if d['gap'] else 'pass'
         _m = ('괴리 %+7.1f' % d['adj_gap']) if (_GAP_MODE and d.get('adj_gap') is not None)             else ('rev90 %+7.1f%%' % d['rev90'])
@@ -1270,11 +1336,13 @@ def cmd_run():
         if new:
             w.writerow(COLS)
         for i, d in enumerate(merged[:20], 1):
+            # in_top4 = 목표(선택) 멤버십 — 2026-08-02부터 순위 1~N이 아니라 선택 결과
+            # (보유 밴드·급락 유예 반영). _replay가 이 플래그로 보유를 재구성하므로 정합.
             w.writerow([run_date, us_date, kr_date, i, d['market'], d['ticker'],
                         round(d['rev90'], 2), round(d['fwd_per'], 2),
                         round(d['gap'], 3) if d['gap'] else '',
                         round(d['dv_musd'], 1) if d['dv_musd'] else '', d['price'],
-                        int(i <= N_TOP), int(d['ticker'] in capped),
+                        int(d['ticker'] in target), int(d['ticker'] in capped),
                         round(d.get('pct', 0), 2), int(d['ticker'] in abs_top),
                         round(d.get('rz', 0), 2), int(d['ticker'] in rz_top),
                         meta.get('base_n', {}).get(d['market'], ''),
@@ -1539,8 +1607,12 @@ def _compose_and_send(merged, meta=None):
     us_latest = trows[0]['us_date'] if trows else None
     gi = usd.index(us_latest) if us_latest in usd else len(usd) - 1
     next_in = REBAL - (gi % REBAL)
-    m10 = merged[:10]  # 2026-07-10 사용자 결정: top20은 과다 → TOP5 + 대기 6~10위만
-    top5 = m10[:N_TOP]
+    # ★2026-08-02 진입/이탈 분리: 표시도 '목표 5종목'(선택 결과) 기준 — 순위 1~5와 다를 수 있음.
+    #   meta['target'] 부재 시(구 호출 경로) 순위 top N 폴백.
+    _tgt = (meta or {}).get('target') or [d['ticker'] for d in merged[:N_TOP]]
+    top5 = [d for d in merged if d['ticker'] in set(_tgt)][:N_TOP]
+    bench = [d for d in merged if d['ticker'] not in set(_tgt)][:10 - N_TOP]
+    m10 = top5 + bench
     briefs = _ai_stock_briefs(m10)
     cards = _us_cards([d['ticker'] for d in m10 if d['market'] == 'US'])
     for d in m10:
@@ -1650,14 +1722,30 @@ def _compose_and_send(merged, meta=None):
         #   어제 '보유 단정 금지' 원칙(a55c173)을 세우고도 교체일 분기엔 남아 있었다.
         #   → 목표 상태(오늘 TOP5)만 제시. 각자 자기 계좌를 그 목표에 맞추면 되므로
         #   시스템이 모르는 정보(누가 뭘 들고 있나)에 기대지 않는다.
-        m1.append(f'🔁 <b>오늘 할 일: 아래 TOP{N_TOP}로 맞추세요</b>')
+        m1.append(f'🔁 <b>오늘 할 일: 아래 {N_TOP}종목으로 맞추세요</b>')
         for _i, _d in enumerate(top5, 1):
-            m1.append(f'{_i}. {_display_name(_d["ticker"])} — {100/N_TOP:.0f}%')
+            _tag = ' ⚠️' if _dd_blocked(_d) else ''
+            m1.append(f'{_i}. {_display_name(_d["ticker"])} — {100/N_TOP:.0f}%{_tag}')
         m1 += ['',
                '· 이 목록에 없는 보유 종목 → 전량 매도',
                '· 이미 갖고 계신 종목 → 그대로 유지',
                f'· 새로 담을 종목 → 각 {100/N_TOP:.0f}% 매수',
                f'{_trade_when(kdt)} 개장 때 매매하시면 됩니다.']
+        # ★2026-08-02 신규 고객 정합 (사용자 지적 "처음 진입하는 고객은 SNDK·MU도 폭락인데
+        #   사는 건데?"): 목표에 남아 있는 '급락 소화 중' 종목은 기보유자 유지용이다 —
+        #   시스템(원장)은 이미 들고 있어 유지하지만, 신규 시작이면 같은 종목을 새로 사는 것
+        #   = 급락 유예 규칙이 금지하는 매수. 현금 대기 안내(대체 종목 지정은 안 함 — 고객마다
+        #   포트가 갈라지면 성적 추적이 깨짐. 표시 소멸 시 자연 합류).
+        _ddh = [d for d in top5 if _dd_blocked(d)]
+        if _ddh:
+            _nm = '·'.join(_display_name(d['ticker']) for d in _ddh)
+            m1 += ['',
+                   f'⚠️ {_nm}:',
+                   '최근 급락을 소화 중인 종목입니다.',
+                   '이미 보유한 분만 유지하세요.',
+                   '처음 시작하는 분은 이 종목 몫은',
+                   '현금으로 두고, ⚠️ 표시가 사라지면',
+                   '그때 매수해 합류하시면 됩니다.']
     else:
         # ★2026-07-31 (2차 수정): 보유 종목을 메시지에 쓰지 않는다.
         #   시스템은 '자기가 무엇을 추천했는지'만 알 뿐 사용자의 실제 계좌를 모른다.
@@ -1666,7 +1754,7 @@ def _compose_and_send(merged, meta=None):
         #   → 교체일에만 매매를 지시하고, 그 외의 날은 순위만 보여준다.
         m1 += ['✅ <b>오늘 할 일: 없음</b>',
                f'다음 교체 점검: <b>{nxt_s}</b> 예정', '',
-               f'※ 아래는 <b>오늘 순위 TOP{N_TOP}</b>입니다.',
+               f'※ 아래는 <b>현재 목표 {N_TOP}종목</b>입니다.',
                '교체는 점검일에만 하니 오늘은 그대로 두세요.']
     _scope = '미국 주요 상장사 약 1,400곳의' if VM_US_ONLY else '한국+미국 주요 상장사 약 1,600곳의'
     m1 += ['',
@@ -1725,12 +1813,16 @@ def _compose_and_send(merged, meta=None):
     # ── 메시지 2: 대기 후보 6~10위 — 1~5위와 동일한 풀카드 (2026-07-10 사용자 "차별하지 마") ──
     m2 = None
     if len(m10) > N_TOP:
-        m2 = [f'📋 <b>대기 후보 {N_TOP+1}~10위</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━',
+        m2 = [f'📋 <b>대기 후보</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━',
               '<b>지금 사는 종목이 아닙니다.</b>',
-              f'TOP{N_TOP}에서 빠지는 종목이 생기면',
-              '이 명단의 위쪽부터 차례로 들어옵니다.', '']
+              f'목표 {N_TOP}종목에서 빠지는 종목이 생기면',
+              '이 명단에서 차례로 들어옵니다.',
+              '⚠️(급락 소화 중) 표시 종목은 표시가',
+              '사라진 뒤에야 새로 편입됩니다.', '']
         for j, d in enumerate(m10[N_TOP:], N_TOP + 1):
             m2 += _stock_card(j, d, briefs.get(d['ticker']), cards)
+            if _dd_blocked(d):
+                m2 += ['⚠️ 급락 소화 중 — 당분간 편입 보류', '']
     # ── 메시지 3: AI 시장 분석 (2026-07-10 개편: 단락형 시황+신용·변동성+TOP5 실적 일정) ──
     m3 = [f'🤖 <b>AI 시장 분석</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
     idx_lines = []
