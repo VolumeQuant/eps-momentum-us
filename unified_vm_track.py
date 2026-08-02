@@ -776,13 +776,20 @@ def _select_target(merged, held, us_date=None):
 
 
 def _held_from_ledger():
-    """원장 리플레이 기준 현재 보유 (조회 실패 시 None → 선택 폴백)."""
+    """원장 리플레이 기준 현재 보유. 조회 불능이면 None(선택은 구 동작 폴백).
+    ★2026-08-02 맹점 수리: 원장이 존재하는데 리플레이가 보유를 못 세우면(행은 파싱되나
+    days가 빔 = 손상 의심, 7/23 원장 유실 전례) 빈 리스트를 반환하던 것을 None으로 —
+    빈 리스트는 '보유 없음'으로 해석돼 기보유 종목이 dd 게이트에 신규로 걸리며
+    전량 매도 지시가 오발된다(실검증: held=[] 시 MU·SNDK가 목표에서 소실)."""
     try:
         if not os.path.exists(LOG):
-            return []
+            return []                      # 원장 자체가 없는 초기 상태 = 진짜 보유 없음
         rows = list(csv.DictReader(open(LOG, encoding='utf-8')))
         rp = _replay(rows)
-        return rp['state'][rp['days'][-1]]['held_after'] if rp['days'] else []
+        if not rp['days']:
+            print('[경고] 원장 행은 있으나 리플레이 불능(손상 의심) → 게이트 미적용 폴백')
+            return None
+        return rp['state'][rp['days'][-1]]['held_after']
     except Exception as e:
         print(f'[보유 상태 조회 실패 → 순위 top{N_TOP} 폴백: {e}]')
         return None
