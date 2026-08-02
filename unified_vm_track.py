@@ -220,6 +220,14 @@ def _dedup_dual_class(merged):
 MIN_SEG_THR = float(os.environ.get('VM_MIN_SEG_THR', '-2.0'))
 # 최근 30일 전망 상향 애널 최소 인원 (0 = 해제). 근거는 us_candidates 게이트 주석 참조.
 REV_UP30_MIN = int(os.environ.get('VM_REV_UP30_MIN', '1'))  # ★2026-08-02 3→1 (사용자 '수치로 증명되면 바로 적용'): 하나-빼기 실측에서 ≥3이 유일한 실측 마이너스(Cal 17.85→20.70). ≥1=≥0과 동일 성능(20.68)이면서 실패모드1(상향 0명 NXPI형) 방어는 유지 — 해로운 부분(3명 요구)만 제거
+# ★매출성장 게이트 (2026-08-03 복원, 사용자 "시스템 시작일부터 공들여 넣었던 필터를 왜 뺐어").
+#   구시스템 하드필터(rev_growth<10% 제외, v44~)가 7/5 VM 트랙 신축 때 이식 누락됐던 것 —
+#   NXT(매출 −5% 역성장인데 EPS 전망 +17%)가 top10에 들어오며 발각. 실패모드 정당성:
+#   매출 없이 EPS 전망만 오르는 건 마진 스토리 = 괴리율 신호의 유효영역 밖(PER30 캡과 같은 범주).
+#   측정(research/_stop_revg_matrix_2026_08_03.py, exec_lag=1·위상평균): 스탑 4방식 전부에서 개선
+#   (현행 체인 Cal 16.09→19.79, LOWO 8.77→10.23, 스탑없음 15.56→21.47 — 4/4 문맥 무관 유익).
+#   missing=pass(MU처럼 데이터 공백인 정당 종목 학살 방지 — SNDK gap 교훈과 동일 규약).
+REVG_MIN = float(os.environ.get('VM_REVG_MIN', '0.10'))  # 0이면 해제
 VM_STRATEGY = os.environ.get('VM_STRATEGY', 'rev90')
 VM_US_ONLY = os.environ.get('VM_US_ONLY', '0') == '1'
 _GAP_MODE = (VM_STRATEGY == 'gap')
@@ -359,9 +367,9 @@ def us_candidates():
             if _p: PX5[_t] = _p
             if _n: NC5[_t] = _n
     out = []
-    for tk, p, nc, n7, n30, n60, n90, dv, na, m120, ru30 in c.execute(
+    for tk, p, nc, n7, n30, n60, n90, dv, na, m120, ru30, rg in c.execute(
             'SELECT ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d,dollar_volume_30d,'
-            'num_analysts,ma120,rev_up30 FROM ntm_screening '
+            'num_analysts,ma120,rev_up30,rev_growth FROM ntm_screening '
             'WHERE date=? AND price IS NOT NULL AND ntm_current>0', (last,)):
         n7, n30 = _cf(n7, tk, 'ntm_7d', cf), _cf(n30, tk, 'ntm_30d', cf)
         n60, n90 = _cf(n60, tk, 'ntm_60d', cf), _cf(n90, tk, 'ntm_90d', cf)
@@ -418,6 +426,9 @@ def us_candidates():
         if om is not None and om < 0.05:
             continue
         if fcf is not None and roe is not None and fcf < 0 and roe < 0:
+            continue
+        # ★매출성장 게이트 (상단 REVG_MIN 주석 참조). missing=pass.
+        if rg is not None and rg < REVG_MIN:
             continue
         # rev30/below_ma120/px_chg20/crash5/na/up30 = 관찰 전용 원장 컬럼 (매매 개입 0)
         _p20, _p5, _n5 = PX20.get(tk), PX5.get(tk), NC5.get(tk)
