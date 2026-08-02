@@ -600,6 +600,13 @@ def compute():
             # 가치함정 게이트 활성 여부 — 메시지 소개문이 실제 필터와 어긋나지 않게(에폭 전
             # 재안내일에 "거른다"고 말해놓고 대기조에 FN류가 보이는 자기모순 방지).
             'trap_active': bool(_GAP_MODE and TRAP_GATE_ON and us_date >= TRAP_EPOCH)}
+    # ★2026-08-02 유동성 국면 가드 (사용자 "시장 유동성이 변해 dv 기준이 안 맞으면?"):
+    #   dv는 절대값(체결 산수)이라 시장 유동성이 마르면 후보 수 감소로 나타난다 — 그걸 보이게.
+    #   평시 게이트 통과 100~170개, 30 미만이면 top5 품질 저하 신호 → 데이터 품질 경고(매매 개입 0).
+    if _GAP_MODE and len(us) < 30:
+        meta['warnings'].append(
+            f'게이트 통과 후보 {len(us)}개뿐(평시 100~170) — 시장 유동성 위축 또는 수집 이상. '
+            f'거래대금 기준(${DV_MIN_MUSD:.0f}M) 재점검 필요')
     if _GAP_MODE and not VM_US_ONLY:
         meta['warnings'].append(
             '괴리율(gap) 전략 + KR 편입 = 미검증 조합 — KR 백분위 보정이 rev90 기준으로만 '
