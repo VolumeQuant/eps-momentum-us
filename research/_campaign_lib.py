@@ -58,7 +58,7 @@ def chain(d, dv_min=300.0, na_min=6, use_trap=True):
         if min(C._ms(dict(nc=nc, n7=v['n7'], n30=v['n30'], n60=v['n60'], n90=v['n90'])), 0) < -2.0:
             continue
         u30, _ = RU.get(d, {}).get(tk, (0, 0))
-        if u30 < 3:
+        if u30 < 1:   # ★2026-08-02 production 패리티: ru 3→1 완화 반영
             continue
         if use_trap and trap(d, tk):
             continue
