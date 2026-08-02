@@ -219,7 +219,7 @@ def _dedup_dual_class(merged):
 #   research/_gate_sweep_lag1_2026_07_31.py
 MIN_SEG_THR = float(os.environ.get('VM_MIN_SEG_THR', '-2.0'))
 # 최근 30일 전망 상향 애널 최소 인원 (0 = 해제). 근거는 us_candidates 게이트 주석 참조.
-REV_UP30_MIN = int(os.environ.get('VM_REV_UP30_MIN', '3'))
+REV_UP30_MIN = int(os.environ.get('VM_REV_UP30_MIN', '1'))  # ★2026-08-02 3→1 (사용자 '수치로 증명되면 바로 적용'): 하나-빼기 실측에서 ≥3이 유일한 실측 마이너스(Cal 17.85→20.70). ≥1=≥0과 동일 성능(20.68)이면서 실패모드1(상향 0명 NXPI형) 방어는 유지 — 해로운 부분(3명 요구)만 제거
 VM_STRATEGY = os.environ.get('VM_STRATEGY', 'rev90')
 VM_US_ONLY = os.environ.get('VM_US_ONLY', '0') == '1'
 _GAP_MODE = (VM_STRATEGY == 'gap')
