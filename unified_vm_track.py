@@ -842,7 +842,7 @@ def _select_target(merged, held=None, us_date=None):
     ★보유 개념 없음 (사용자 "보유종목에 대해 왈가왈부하지 마라. 너는 교체날에 top5를
     알려주는 역할만 해") — dd_30_25 진입유예·HOLD_BAND는 '이전 보유'를 전제해 방송 상품과
     양립 불가라 폐기됐다."""
-    if us_date:
+    if us_date and os.environ.get('VM_CORRECTION') != '1':
         prev = _sent_target(us_date)
         if prev:
             cur = [d['ticker'] for d in merged[:N_TOP]]
@@ -851,25 +851,6 @@ def _select_target(merged, held=None, us_date=None):
                       f'(현 규칙 재계산값 {cur}는 미적용)')
             return prev
     return [d['ticker'] for d in merged[:N_TOP]]
-
-
-def _select_target_legacy(merged, held, us_date=None):
-    """목표 5종목 선택 (2026-08-02 진입/이탈 분리 — 상단 DD_/HOLD_BAND 주석 참조).
-    보유 종목은 순위<=HOLD_BAND까지 유지, 빈 슬롯은 순위순 충원하되 dd_30_25 종목은 건너뜀.
-    held가 None(보유 상태 불명)이거나 에폭 전이면 구 동작(순위 top N) 폴백."""
-    if not (_GAP_MODE and held is not None) or (us_date and us_date < GATE2_EPOCH):
-        return [d['ticker'] for d in merged[:N_TOP]]
-    rank = {d['ticker']: i + 1 for i, d in enumerate(merged)}
-    _band = HOLD_BAND if (us_date and us_date >= BAND_OFF_EPOCH) else HOLD_BAND_LEGACY
-    sel = [d['ticker'] for d in merged
-           if d['ticker'] in set(held) and rank[d['ticker']] <= _band][:N_TOP]
-    for d in merged:
-        if len(sel) >= N_TOP:
-            break
-        if d['ticker'] in sel or _dd_blocked(d):
-            continue
-        sel.append(d['ticker'])
-    return sel
 
 
 def _held_from_ledger():
@@ -1432,11 +1413,12 @@ def cmd_run():
     us_date, kr_date, fx, merged, meta = compute()
     run_date = datetime.now().strftime('%Y-%m-%d')
     capped = _capped_top(merged)
-    held = _held_from_ledger()
     global _DD_LIVE
     _DD_LIVE = bool(us_date and us_date < DD_OFF_EPOCH)   # dd_30_25는 7/31 이전 재현에만
-    target = _select_target(merged, held, us_date)
-    meta['target'], meta['held'] = target, (held or [])
+    # ★2026-08-03 (오너 재확인 "아무 종목도 보유하지 않았다고 가정한다.
+    #   기존 보유 종목 고려해서 뭐 하려고 하지 마라"): 선택은 보유와 무관.
+    target = _select_target(merged, None, us_date)
+    meta['target'] = target
     if target != [d['ticker'] for d in merged[:N_TOP]]:
         print(f'[목표≠순위 top{N_TOP}] {target} — 발송 지시 동결분 재생')
     print(f'=== 통합 VM top{N_TOP} (US {us_date} / KR {kr_date}, USDKRW {fx:.0f}, '
@@ -1666,7 +1648,11 @@ def _stock_card(seq, d, brief, cards_map, first=False):
     tail = []
     if fx.get('analysts'):
         tail.append('애널 ' + fx['analysts'].replace('(↑', '(30일 ↑').replace('/↓', ' ↓'))
-    tail.append(f"선행PER {d['fwd_per']:.0f}배")
+    # ★2026-08-03 (오너 "버티브는 PER30 넘지 않아?"): 29.9를 '30배'로 반올림해 표시하면
+    #   게이트 상한(≤30)을 위반한 것처럼 읽힌다. 경계값은 소수 1자리로 보여준다.
+    _fp = d['fwd_per']
+    tail.append(f"선행PER {_fp:.1f}배" if abs(_fp - round(_fp)) > 0.04 and _fp >= 25
+                else f"선행PER {_fp:.0f}배")
     panel.append('  ' + ' · '.join(tail))
     if b.get('risk'):
         rw = _wrap(b['risk'].strip(), 38)
@@ -1813,6 +1799,14 @@ def _msg_ctx(merged, meta, us_latest):
     건너뛰고 목표를 새로 계산했다(원장에 남은 지시와 다른 목록이 나갈 수 있는 구멍).
     반드시 _sent_target(원장 = 고객이 실제 받은 지시)을 경유한다."""
     sent = _sent_target(us_latest) if us_latest else None
+    # ★2026-08-03 정정 발송 모드 (VM_CORRECTION=1). 동결은 '규칙이 정상 작동한 지시'를
+    #   지키는 장치지, 폐기하기로 한 필터가 만든 목록까지 보호하라는 뜻이 아니다.
+    #   오늘(8/3) 사례: 아침 발송분이 이미 제거된 밴드·급락유예로 AMKR·VRT를 걸러낸 목록이었고,
+    #   미체결 상태에서 오너가 정정을 지시했다. 남용 방지로 env 명시 + 메시지에 정정 고지 강제.
+    _corr = os.environ.get('VM_CORRECTION') == '1'
+    if _corr and sent:
+        print(f'[정정 발송] {us_latest} 동결 해제 — 원장 {sent} → 재계산값으로 교체')
+        sent = None
     tgt = (meta or {}).get('target') or sent or [d['ticker'] for d in merged[:N_TOP]]
     tset = set(tgt)
     # 표시 순서는 merged(순위) 순 — 목표 목록의 저장 순서에 의존하지 않는다.
@@ -1824,7 +1818,8 @@ def _msg_ctx(merged, meta, us_latest):
             'rank_of': {d['ticker']: i for i, d in enumerate(merged, 1)},
             'n': n,
             'weight_pct': 100.0 / n,
-            'frozen': sent is not None}
+            'frozen': sent is not None,
+            'correction': _corr}
 
 
 def _preflight(msgs, ctx, sent_prev):
@@ -1847,7 +1842,10 @@ def _preflight(msgs, ctx, sent_prev):
     #    ★sent_prev is None(= 아직 발송된 적 없는 새 us_date)이면 검사하지 않는다.
     #    여기서 불일치로 보면 모든 신규 교체일에 채널이 차단된다 — 구독자가 반드시
     #    매매해야 하는 날에만 지시가 안 가는 최악의 실패 모드(QC 설계요구).
-    if sent_prev is not None and set(sent_prev) != set(ctx['target']):
+    #   정정 발송(VM_CORRECTION=1)은 '원장과 다른 목록을 의도적으로 내보내는' 모드이므로
+    #   이 검사에서 제외한다 — 대신 메시지에 정정 고지가 강제로 들어간다.
+    if (sent_prev is not None and not ctx.get('correction')
+            and set(sent_prev) != set(ctx['target'])):
         hard.append('목표 불일치: 원장 %s vs 발송 %s'
                     % (sorted(sent_prev), sorted(ctx['target'])))
     # H2 비중 합 != 100
@@ -1947,6 +1945,11 @@ def _compose_and_send(merged, meta=None):
     # ★2026-08-03 아이콘 정리: 제목의 📬는 매 발송 고정이라 정보가 0 → 제거.
     #   국면 신호등(🟢🟠🛑)만 남긴다 — 세 값이 갈리는 상태 표시라 색 자체가 정보다.
     m1 = [f'<b>{_title}</b> · {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
+    if ctx.get('correction'):
+        m1 += ['🔔 <b>정정 안내</b>',
+               '오늘 아침 보내드린 목록에 오류가 있었습니다.',
+               '아래가 정정된 목록입니다. 아직 매매 전이시면',
+               '이 목록으로 진행해 주세요.', '']
     if regime == 'defense':
         m1.append('국면 🛑 방어 — 주식 0% (전량 현금)')
     elif regime == 'half_defense':
