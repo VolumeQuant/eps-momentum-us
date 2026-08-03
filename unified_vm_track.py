@@ -800,6 +800,18 @@ def _dd_blocked(d):
     return _DD_LIVE and DD_ENTRY_ON and d.get('dd30') is not None and d['dd30'] <= DD_THR
 
 
+def _first_us_date():
+    """원장의 첫 us_date — 누적 성과의 실제 시작 시장일(발송일 run_date와 하루 다르다)."""
+    try:
+        if not os.path.exists(LOG):
+            return None
+        ud = sorted({r['us_date'] for r in csv.DictReader(open(LOG, encoding='utf-8'))
+                     if r.get('us_date')})
+        return ud[0] if ud else None
+    except Exception:
+        return None
+
+
 def _sent_target(us_date):
     """이미 발송된 us_date의 목표를 원장에서 그대로 되읽는다 (없으면 None).
     ★2026-08-03 B1 수리: 재발송(토요일 지시 → 월요일 재안내)이 그 사이 바뀐 규칙으로
@@ -1041,6 +1053,11 @@ _NAME_SEED = {
 }
 
 
+_re_name = __import__('re').compile(
+    r'[,\s]+(Inc|LLC|Ltd|plc|PLC|Corporatio\w*|Incorporate\w*|Corp|Compan\w*|Co|Holding\w*|Group|Technologie\w*)\.?$',
+    __import__('re').I)
+
+
 def _display_name(tk):
     """종목명 표시 — 시드맵 → 캐시(ticker_names.json) → yf shortName(1회 후 캐시)."""
     if tk in _NAME_SEED:
@@ -1061,7 +1078,17 @@ def _display_name(tk):
                      ' Corporation', ' Corp.', ' Company', ' Co.', ' Holdings', ' Holding'):
             if nm.endswith(_sfx):
                 nm = nm[:-len(_sfx)]
+        # ★2026-08-03 (QC MINOR6): yf shortName은 30자에서 잘려 오는 경우가 있어
+        #   'Constellation Energy Corporatio'처럼 접미사 제거가 endswith로 안 잡힌다.
+        #   잘린 접미사 조각도 제거하고, 그래도 길면 헤더가 46칸을 넘으므로 22자에서 끊는다.
+        for _ in range(3):          # ', LLC' 제거 후 남는 ' Holdings' 같은 2단 접미사
+            _n2 = _re_name.sub('', nm).strip().rstrip(',').strip()
+            if _n2 == nm:
+                break
+            nm = _n2
         nm = nm.strip().rstrip(',').strip()
+        if len(nm) > 22:
+            nm = nm[:22].rstrip().rstrip(',') + '…'
         cache[tk] = nm
         _j.dump(cache, open(cp, 'w', encoding='utf-8'), ensure_ascii=False)
         return nm
@@ -1732,6 +1759,10 @@ def _compose_and_send(merged, meta=None):
     is_rebal = st_today.get('is_rebal', False)
     usd = _us_grid()
     us_latest = trows[0]['us_date'] if trows else None
+    # ★2026-08-03 (QC MINOR10): us_date가 그리드에 없으면 마지막 인덱스로 조용히 대체돼
+    #   '다음 교체 점검' 날짜가 무근거로 나갔다. 이제 경고를 남긴다(표시는 근사 유지).
+    if us_latest and us_latest not in usd:
+        print(f'[경고] us_date {us_latest}가 거래일 그리드에 없음 → 다음 교체일 근사 계산')
     gi = usd.index(us_latest) if us_latest in usd else len(usd) - 1
     next_in = REBAL - (gi % REBAL)
     # ★2026-08-02 진입/이탈 분리: 표시도 '목표 5종목'(선택 결과) 기준 — 순위 1~5와 다를 수 있음.
@@ -1829,13 +1860,16 @@ def _compose_and_send(merged, meta=None):
     nxt = _next_msg_day(us_latest, next_in) if us_latest else None
     nxt_s = f"{nxt.month}/{nxt.day}({'월화수목금토일'[nxt.weekday()]}) 아침" if nxt else f"{next_in}거래일 후"
     if regime == 'defense':
-        m1 += ['<b>오늘 할 일 — 전량 현금</b>',
+        # ★2026-08-03 B6 수리(QC): 교체일 분기는 8/1에 목표상태 방식으로 고쳤으나
+        #   방어 분기엔 '보유 종목을 전부 팔고'라는 옛 문구가 남아 있었다 — 시스템이
+        #   모르는 사실(구독자 보유)을 단정하는, 금지 목록의 '팔기: X'와 같은 부류.
+        m1 += ['<b>오늘 할 일 — 미국 주식 비중 0%로</b>',
                '시장 전체가 약세 국면으로 판정됐습니다',
                '(S&P500 200일선 이탈 15일 확인 또는',
                ' 공포지수·신용시장 경보).',
-               '보유 종목을 전부 팔고 현금으로',
-               '보관하세요. 이미 파셨다면 그대로 유지.',
-               '강세 복귀 알림이 올 때까지',
+               f'{_trade_when(kdt)} 개장 때 미국 주식',
+               '비중을 0%로 맞추시면 됩니다.',
+               '강세 복귀 알림이 갈 때까지',
                '신규 매수는 하지 않습니다.']
     elif reentry:
         m1 += ['<b>오늘 할 일 — 강세 복귀, 재진입</b>',
@@ -1859,8 +1893,11 @@ def _compose_and_send(merged, meta=None):
         #    고객 보유를 아는 척하는 구조라는 사용자 지적. 급락 리스크는 TS15%가 고객 측에서 절단.)
         # ★2026-08-03: 🔁·🛡️ 제거. 굵은 제목줄 + 들여쓴 번호 목록이면 '할 일'이라는 게
         #   그 자체로 읽힌다. 비중은 전 종목 동일(20%)이라 줄마다 반복하지 않고 제목에 1회만.
-        m1.append(f'<b>오늘 할 일 — 아래 {N_TOP}종목으로 맞추세요</b>')
-        m1.append(f'(각 {100/N_TOP:.0f}%씩)')
+        # ★2026-08-03 (QC MINOR5): 후보가 N_TOP 미만인 날 '5종목/각 20%'가 거짓이 된다
+        #   (목록엔 3줄만 나옴). 표기는 항상 실제 목록 길이 기준으로.
+        _n = len(top5) or N_TOP
+        m1.append(f'<b>오늘 할 일 — 아래 {_n}종목으로 맞추세요</b>')
+        m1.append(f'(각 {100/_n:.0f}%씩)')
         for _i, _d in enumerate(top5, 1):
             m1.append(f'  {_i}. {_name_tk(_d["ticker"])}')
         # ★2026-08-03 필수정보 체크리스트 F5/F7 보강 (사용자 "구멍 3개 다 메워"):
@@ -1913,7 +1950,10 @@ def _compose_and_send(merged, meta=None):
     # 누적 성과 — 한 줄이 46칸을 넘어 접히던 자리라 두 줄로 나눔(아이콘 제거).
     m1 += ['', f"<b>전략 누적 {(nav - 1) * 100:+.1f}%</b>"]
     if all_days:
-        m1.append(f"  {all_days[0][5:].replace('-', '/')}~ 모의운용 · 비용 반영 전")
+        # ★2026-08-03 (기획 지적): all_days[0]는 원장 run_date(발송일)인데 NAV가 실제로 따라간
+        #   시장 수익은 us_date 기준이다 — 07/08로 표기하던 것을 07/07(첫 us_date)로 정정.
+        _perf_from = _first_us_date() or all_days[0]
+        m1.append(f"  {_perf_from[5:].replace('-', '/')}~ 모의운용 · 비용 반영 전")
     if not any(briefs.get(d['ticker']) for d in top5):
         m1 += ['', '※ 오늘은 AI 종목 설명 생성에 실패해',
                '숫자 지표만 표시됩니다. 다음 발송에서',
@@ -1921,8 +1961,13 @@ def _compose_and_send(merged, meta=None):
     if regime == 'defense':
         m1 += ['', '아래 순위는 <b>관찰용</b>입니다.',
                '방어 국면에는 매수하지 않습니다.']
+    # ★2026-08-03 (사용자 "1위가 AMKR이라더니 거짓말이야?"): 카드 번호를 목록상 위치로
+    #   매겼더니, 발송 동결분처럼 목표≠순위 top5인 날 '1위 셀레스티카'(실제 2위)처럼
+    #   거짓 순위가 나갔다. 번호는 항상 그날 전체 순위에서 가져온다.
+    _rank_of = {d['ticker']: i for i, d in enumerate(merged, 1)}
     for i, d in enumerate(top5, 1):
-        m1 += _stock_card(i, d, briefs.get(d['ticker']), cards, first=(i == 1))
+        m1 += _stock_card(_rank_of.get(d['ticker'], i), d,
+                          briefs.get(d['ticker']), cards, first=(i == 1))
     # ── 메시지 2: 대기 후보 6~10위 — 1~5위와 동일한 풀카드 (2026-07-10 사용자 "차별하지 마") ──
     m2 = None
     if len(m10) > N_TOP:
@@ -1987,11 +2032,25 @@ def _compose_and_send(merged, meta=None):
             if krr['pending_days'] > 0:
                 nm = '약세' if krr['mode'] == 'boost' else '강세'
                 m3.append(f"  ⚠️ {nm} 전환 진행 {krr['pending_days']}/5일")
-        m3.append('약세 확정 시 전량 현금 안내가 나갑니다.')
+        # ★2026-08-03 MINOR3 수리(QC): 이미 방어 확정인 날에도 '약세 확정 시 …나갑니다'라는
+        #   미래형이 붙어 자기모순이었다. 국면별로 다음에 무엇을 기다리는지로 바꾼다.
+        if regime == 'defense':
+            m3.append('강세 복귀가 확인되면 재진입 안내가 갑니다.')
+        elif regime == 'half_defense':
+            m3.append('추가 약세 시 전량 현금 안내가 갑니다.')
+        else:
+            m3.append('약세 확정 시 전량 현금 안내가 갑니다.')
     cv = _credit_vol_lines()
     if cv:
         m3 += ['', '<b>신용·변동성</b>'] + ['  ' + x for x in cv]
     brief_mkt = _ai_market_brief(idx_facts=idx_lines, _now=kdt)   # 요일 분기용 KST 시각 명시
+    if not brief_mkt:
+        # ★2026-08-03 (QC MINOR 1 + 사용자 "신용변동성 다음줄에 한 칸 띄우고 시장 상황 나와야지"):
+        #   시황 생성이 실패하면 섹션이 통째로 사라져 메시지가 신용·변동성에서 끊겼다.
+        #   종목 브리핑에는 실패 고지가 있는데 시황엔 없었다 — 침묵보다 고지가 낫다.
+        m3 += ['', '<b>시장 동향</b>',
+               '  오늘은 AI 시황 생성에 실패했습니다.',
+               '  (다음 발송에서 자동 복구됩니다)']
     if brief_mkt:
         # ★2026-08-03: AI가 붙여 오는 [미국 증시]류 라벨을 굵은 소제목으로 승격시키므로,
         #   그 위에 '시장 동향' 굵은 제목을 또 얹으면 같은 굵기 제목이 2단으로 겹친다
@@ -2108,7 +2167,7 @@ if __name__ == '__main__':
     # 저장소에 있으면 로컬(비-Actions) 실행은 스스로 종료 — 이중 발송·이중 원장 차단.
     # 로컬 실행을 되살리려면 LOCAL_RUNNER_OFF 파일 삭제. (schtask 자체는 여유 있을 때 삭제)
     if os.path.exists(os.path.join(HERE, 'LOCAL_RUNNER_OFF')) and not os.environ.get('GITHUB_ACTIONS'):
-        print('[로컬 러너 OFF] 통합 신호는 GitHub Actions(18:15 KST)가 발송합니다 — 이 실행은 종료.')
+        print('[로컬 러너 OFF] 통합 신호는 GitHub Actions(KST 아침)가 발송합니다 — 이 실행은 종료.')
         sys.exit(0)
     if '--nav' in sys.argv:
         cmd_nav()
