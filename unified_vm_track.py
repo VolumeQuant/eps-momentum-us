@@ -130,11 +130,24 @@ DD_THR = float(os.environ.get('VM_DD_THR', '-25'))
 #   측정(research/_stop_revg_matrix_2026_08_03.py, 매출게이트 포함): 밴드7만(dd 없음)이 전 셀 최고 —
 #   수익 +104.3%/Cal 23.17/LOWO 15.86 vs dd포함 +87.6/19.79. 비용은 스트레스 MDD −8.3→−12.3%p
 #   (7월형 크래시 직후 매수를 다시 허용하는 대가 — 고객 낙폭은 TS15%가 −15%에서 절단).
-#   거버넌스 ⓐ(발송 지시 소급 금지): 7/31 지시는 dd 포함으로 발송됨 → us_date < DD_OFF_EPOCH만
-#   dd 유지(당일 재발송 재현 정합), 이후 완전 OFF. 복원 = VM_DD_OFF_EPOCH='9999-12-31'.
+#   ★에폭 = 2026-08-01 (거버넌스 ⓐ 엄수: 발송된 지시의 기준 소급 금지). 7/31분은 오늘 아침
+#   고객 채널에 CLS·MU·STX·SNDK·KNX로 이미 나갔다 → 그 us_date는 구 기준(dd ON·밴드7)으로
+#   동결해 재현하고, 새 기준은 다음 계산일(8/3~, 실제 반영은 8/7 교체)부터.
+#   ⚠️내가 "미체결이니 소급해도 된다"고 예외를 만들려다 사용자에게 저지당함 — 미체결 여부는
+#   시스템이 알 수 없고(계좌 모름), 이미 나간 지시를 바꾸는 것 자체가 신뢰 파괴다. 예외 금지.
+#   복원 = VM_DD_OFF_EPOCH='9999-12-31'.
 DD_OFF_EPOCH = os.environ.get('VM_DD_OFF_EPOCH', '2026-08-01')
 _DD_LIVE = False   # compute()가 당일 us_date로 갱신
-HOLD_BAND = int(os.environ.get('VM_HOLD_BAND', '7'))
+# ★2026-08-03 HOLD_BAND 7→5 (= 밴드 해제, 사용자 "기존 5종목 이런 거 없다니까? 새로 시작하는 건데?").
+#   dd_30_25와 동일한 병 — 목표 목록이 '이전 보유'에 의존하면 오늘 합류한 고객이 받은 목록과
+#   기존 고객의 목록이 영원히 달라진다(포트폴리오 분화). 방송 상품은 언제 들어오든 같은 한 장이어야 함.
+#   비용은 명시: 밴드7이 성능은 더 좋았다(수익 +104.3 vs +95.1 / Cal 23.17 vs 21.47 / 회전 227 vs 271).
+#   그 차이는 '보유 상태를 아는 계좌'에서만 실현 가능한 이득이라 방송에서는 못 받는 이득으로 판단.
+#   개인 계좌 운용 시에는 밴드7이 우월 — VM_HOLD_BAND=7로 복원 가능.
+#   ★에폭 = dd와 동일 2026-08-01 (7/31분은 밴드7로 이미 발송됨 → 그 us_date는 구 기준 동결).
+HOLD_BAND = int(os.environ.get('VM_HOLD_BAND', '5'))
+HOLD_BAND_LEGACY = 7
+BAND_OFF_EPOCH = os.environ.get('VM_BAND_OFF_EPOCH', '2026-08-01')
 GATE2_EPOCH = '2026-07-31'
 # 에폭: 이 us_date부터 $300M 적용. 최초 8/3으로 뒀으나(토요일 발송과 월요일 재안내의 모순 방지)
 # 사용자 지시(2026-08-01 "7/31 시장에 대해서도 적용해야지")로 7/31 소급 — 실제 체결은 월요일 밤이므로
@@ -794,8 +807,9 @@ def _select_target(merged, held, us_date=None):
     if not (_GAP_MODE and held is not None) or (us_date and us_date < GATE2_EPOCH):
         return [d['ticker'] for d in merged[:N_TOP]]
     rank = {d['ticker']: i + 1 for i, d in enumerate(merged)}
+    _band = HOLD_BAND if (us_date and us_date >= BAND_OFF_EPOCH) else HOLD_BAND_LEGACY
     sel = [d['ticker'] for d in merged
-           if d['ticker'] in set(held) and rank[d['ticker']] <= HOLD_BAND][:N_TOP]
+           if d['ticker'] in set(held) and rank[d['ticker']] <= _band][:N_TOP]
     for d in merged:
         if len(sel) >= N_TOP:
             break
