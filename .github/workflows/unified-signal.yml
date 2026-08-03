@@ -42,6 +42,9 @@ on:
       no_channel:
         description: '1이면 채널 발송 생략(개인봇만)'
         default: ''
+      correction:
+        description: '1이면 정정 발송(이미 발송된 지시 동결을 해제하고 정정 고지 포함)'
+        default: ''
 
 concurrency:
   group: yfinance-data-fetch   # 아침 수집 워크플로우와 yf rate-limit 직렬화
@@ -128,6 +131,8 @@ jobs:
           #   롤백 = 아래 두 줄 삭제.
           VM_STRATEGY: gap
           VM_US_ONLY: '1'
+          # 정정 발송 — 이미 나간 지시가 폐기된 규칙으로 만들어진 경우에만 수동 사용.
+          VM_CORRECTION: ${{ github.event.inputs.correction }}
         run: |
           python unified_vm_track.py
 

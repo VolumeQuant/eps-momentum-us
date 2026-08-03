@@ -1006,6 +1006,9 @@ def _ai_market_brief(idx_facts=None, _now=None):
                     print(f'[AI 시황 {model}: 라벨 형식 미달 → 재시도]')
             except Exception as _e:
                 print(f'[AI 시황 {model} 실패: {str(_e)[:120]}]')
+                if '429' in str(_e) or 'RESOURCE_EXHAUSTED' in str(_e):
+                    import time as _t2
+                    _t2.sleep(65)          # 분당 한도 — 다음 분까지 대기 (위와 동일 사유)
         return None
     except Exception as e:
         print(f'[AI 시황 스킵: {e}]')
@@ -1312,9 +1315,13 @@ def _ai_stock_briefs(entries):
                 print('[브리핑 시도 %d(%s): 미완결 %d종목(%s) → 재시도]'
                       % (_i, model, len(bad), ','.join(sorted(bad)[:5])))
             except Exception as _e:
-                print('[브리핑 시도 %d(%s) 실패: %s]' % (_i, model, str(_e)[:120]))
+                _msg = str(_e)
+                print('[브리핑 시도 %d(%s) 실패: %s]' % (_i, model, _msg[:120]))
                 import time as _t
-                _t.sleep(10)
+                # ★2026-08-03: 429는 분당 한도(RPM)라 10초 대기로는 안 풀린다 — 실발송에서
+                #   4회 시도가 같은 분 안에 끝나 브리핑이 통째로 빠졌다(오너 관측).
+                #   쿼터 계열이면 다음 분까지 넘긴다. 그 외 오류만 짧게 재시도.
+                _t.sleep(65 if ('429' in _msg or 'RESOURCE_EXHAUSTED' in _msg) else 10)
         # 최종 위생: 재시도 소진 후에도 남은 변명문 필드는 지워서 카드가 해당 섹션을
         # 아예 생략하게 한다(변명문 발송 < 섹션 생략 — 8/1 SNDK 사고의 최후 방어선).
         for v in out.values():
@@ -2327,6 +2334,28 @@ def _compose_and_send(merged, meta=None):
             ch_tk = ch_tk or str(getattr(_c2, 'UNIFIED_CHANNEL_BOT_TOKEN', '') or '')
         except ImportError:
             pass
+    # ★2026-08-03 채널 오발송 방지 가드 (사고: US 신호를 KR 채널 '데일리 한국 종목 브리핑'에
+    #   발송. C:/dev/config.py의 TELEGRAM_CHAT_ID를 US 채널로 착각해 env로 넘긴 것이 원인).
+    #   발송 전 getChat으로 채널 제목을 확인하고, 한국 채널이면 무조건 중단한다.
+    #   US 채널 제목이 확정되면 allowlist 방식으로 바꿀 것.
+    if ch_id:
+        try:
+            _chk = __import__('requests').get(
+                'https://api.telegram.org/bot%s/getChat' % (ch_tk or _tk),
+                params={'chat_id': ch_id}, timeout=15).json().get('result', {})
+            _title = _chk.get('title') or ''
+            if any(w in _title for w in ('한국', 'KR', 'Korea', '코리아')):
+                print('[채널 발송 중단] 대상이 한국 채널로 확인됨: %s (%s)' % (_title, ch_id))
+                _send_long(_tk, _pid,
+                           '🚨 <b>채널 발송 중단</b>\n'
+                           '대상이 한국 채널로 확인됐습니다: %s\n'
+                           'US 신호는 발송하지 않았습니다.' % _title)
+                ch_id = ''
+            else:
+                print('[채널 확인] %s (%s)' % (_title or '제목없음', ch_id))
+        except Exception as _ce:
+            print('[채널 확인 실패 → 발송 중단] %s' % str(_ce)[:80])
+            ch_id = ''
     if ch_id and _hard:
         print('[채널 발송 차단: 자기검사 실패]')
     elif ch_id:
