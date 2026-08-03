@@ -800,7 +800,48 @@ def _dd_blocked(d):
     return _DD_LIVE and DD_ENTRY_ON and d.get('dd30') is not None and d['dd30'] <= DD_THR
 
 
-def _select_target(merged, held, us_date=None):
+def _sent_target(us_date):
+    """이미 발송된 us_date의 목표를 원장에서 그대로 되읽는다 (없으면 None).
+    ★2026-08-03 B1 수리: 재발송(토요일 지시 → 월요일 재안내)이 그 사이 바뀐 규칙으로
+    재계산되어 **같은 교체일에 서로 다른 TOP5가 두 번 나가는** 사고가 실제로 발생했다
+    (7/31: 토 AMKR·CLS·MU·STX·SNDK → 월 CLS·MU·STX·SNDK·KNX). 에폭 상수로 막으려 했으나
+    그 분기가 호출되지 않는 死코드로 남아 있었음이 QC 감사에서 드러났다(내 검증은 목표
+    출력만 보고 호출 경로를 확인하지 않았다).
+    → 상수가 아니라 **사실**로 막는다: 원장은 발송 시에만 append되므로 '고객이 실제로 받은
+    지시'의 유일한 소스다. 그 us_date가 원장에 있으면 어떤 규칙이 바뀌었든 그대로 재생한다."""
+    try:
+        if not os.path.exists(LOG):
+            return None
+        rows = [r for r in csv.DictReader(open(LOG, encoding='utf-8'))
+                if r.get('us_date') == us_date]
+        if not rows:
+            return None
+        _d, blocks = _ledger_blocks(rows)          # 같은 날 중복 실행 dedup
+        last = blocks[sorted(blocks)[-1]]
+        tg = [r['ticker'] for r in last if str(r.get('in_top4')) == '1']
+        return tg or None
+    except Exception as e:
+        print(f'[원장 목표 조회 실패 → 새로 계산: {e}]')
+        return None
+
+
+def _select_target(merged, held=None, us_date=None):
+    """목표 = 그날 순위 top N. 단 이미 발송된 us_date면 원장 기록을 그대로 재생(_sent_target).
+    ★보유 개념 없음 (사용자 "보유종목에 대해 왈가왈부하지 마라. 너는 교체날에 top5를
+    알려주는 역할만 해") — dd_30_25 진입유예·HOLD_BAND는 '이전 보유'를 전제해 방송 상품과
+    양립 불가라 폐기됐다."""
+    if us_date:
+        prev = _sent_target(us_date)
+        if prev:
+            cur = [d['ticker'] for d in merged[:N_TOP]]
+            if set(prev) != set(cur):
+                print(f'[발송 지시 동결] {us_date}는 이미 발송됨 → 원장 목표 재생 {prev} '
+                      f'(현 규칙 재계산값 {cur}는 미적용)')
+            return prev
+    return [d['ticker'] for d in merged[:N_TOP]]
+
+
+def _select_target_legacy(merged, held, us_date=None):
     """목표 5종목 선택 (2026-08-02 진입/이탈 분리 — 상단 DD_/HOLD_BAND 주석 참조).
     보유 종목은 순위<=HOLD_BAND까지 유지, 빈 슬롯은 순위순 충원하되 dd_30_25 종목은 건너뜀.
     held가 None(보유 상태 불명)이거나 에폭 전이면 구 동작(순위 top N) 폴백."""
@@ -943,7 +984,7 @@ def _ai_market_brief(idx_facts=None, _now=None):
         prompt = (f'지금 한국시간 아침이다. 구글 검색으로 사실 확인 후, {_who} '
                   '사람을 위한 오늘의 시황 브리핑을 한국어 문어체(~습니다)로 써라. '
                   f'아래 {len(_labels)}개 단락을 대괄호 라벨 그대로 시작하고, 단락 사이에 빈 줄 1개. '
-                  '각 단락 3~4문장, 구체 숫자 포함. 마크다운 헤더(#) 금지. '
+                  '★각 단락 2문장 이내·80자 이내(길면 안 읽힌다). 구체 숫자 1~2개만. 마크다운 헤더(#) 금지. '
                   '과장·투자권유·미확인 루머(상장설·인수설) 금지, 확인된 사실만.\n' + facts +
                   f'[미국 증시] {_prev} — 지수 등락과 원인, 주도 섹터와 종목.\n'
                   '[반도체·메모리] HBM·D램·낸드 가격과 수급, 주요 기업 뉴스. '
@@ -988,6 +1029,12 @@ _NAME_SEED = {
     'APH': '암페놀', 'CRM': '세일즈포스', 'ADBE': '어도비', 'CSCO': '시스코',
     'SNPS': '시놉시스', 'NXPI': 'NXP반도체', 'APP': '앱러빈', 'GOOG': '알파벳',
     'IBM': 'IBM', 'MSFT': '마이크로소프트', 'JNJ': '존슨앤드존슨', 'MA': '마스터카드',
+    # ★2026-08-03: 영문 법인명 그대로 나가던 종목들(Vertiv Holdings, LLC / Amkor Technology)
+    #   — 한국 독자 기준으로 읽히는 통용 표기로 통일. 확인 안 되는 티커는 추가하지 않는다.
+    'AMKR': '앰코테크놀로지', 'VRT': '버티브', 'KNX': '나이트스위프트',
+    'TXN': '텍사스인스트루먼트', 'BKR': '베이커휴즈', 'RDDT': '레딧', 'INTC': '인텔',
+    'SANM': '산미나', 'FN': '패브리넷', 'NXT': '넥스트래커', 'BE': '블룸에너지',
+    'TTMI': 'TTM테크놀로지스', 'AMZN': '아마존', 'AAPL': '애플', 'TSLA': '테슬라',
     '000660.KS': 'SK하이닉스', '005930.KS': '삼성전자', '011070.KS': 'LG이노텍',
     '009150.KS': '삼성전기', '402340.KS': 'SK스퀘어', '066570.KS': 'LG전자',
     '051910.KS': 'LG화학', '006400.KS': '삼성SDI', 'SOFI': '소파이',
@@ -1009,7 +1056,12 @@ def _display_name(tk):
     try:
         import yfinance as yf
         nm = (yf.Ticker(tk).info or {}).get('shortName') or tk
-        nm = nm.replace(', Inc.', '').replace(' Inc.', '').replace(' Corporation', '').replace(' Corp.', '').replace(' Company', '').strip()
+        # 법인 접미사 제거 — 'Vertiv Holdings, LLC' 같은 등기명이 카드 헤더에 그대로 나가던 문제.
+        for _sfx in (', Inc.', ' Inc.', ', LLC', ' LLC', ', Ltd.', ' Ltd.', ' plc', ' PLC',
+                     ' Corporation', ' Corp.', ' Company', ' Co.', ' Holdings', ' Holding'):
+            if nm.endswith(_sfx):
+                nm = nm[:-len(_sfx)]
+        nm = nm.strip().rstrip(',').strip()
         cache[tk] = nm
         _j.dump(cache, open(cp, 'w', encoding='utf-8'), ensure_ascii=False)
         return nm
@@ -1109,6 +1161,13 @@ def _brief_dict(x):
         #   그대로 발송되고 있었음(10개 카드 전부). HTML 메시지라 마크다운은 의미 없음.
         import re as _re
         x = _re.sub(r'\*{1,3}', '', x).strip()
+        # ★2026-08-03 B5 수리 (QC 감사): AI 산문이 HTML 이스케이프 없이 삽입되고 있었다.
+        #   Gemini가 'PER<10 & 마진>30%' 같은 문장을 한 번만 써도 텔레그램 HTML 파싱이 실패하고,
+        #   _send_long의 구제 경로가 parse_mode 없이 재발송하므로 <b> 태그가 리터럴로 노출된
+        #   메시지가 통째로 나간다(주입 테스트로 재현됨). <b> 래핑은 코드가 나중에 붙이므로
+        #   여기서 이스케이프해도 안전하다.
+        import html as _html
+        x = _html.escape(x, quote=False)
         if '||' in x:
             head, risk = x.split('||', 1)
         else:
@@ -1163,10 +1222,12 @@ def _ai_stock_briefs(entries):
                   '★모든 종목은 지금 상장되어 활발히 거래 중이다. 상장폐지·인수 소멸 서술 절대 금지, '
                   '미확인 루머(상장 추진설·인수설 등) 금지, 반드시 2026년 최신 정보를 검색해 확인하라'
                   '(예: SNDK는 2025년 웨스턴디지털에서 분사 재상장한 샌디스크). '
-                  '종목당 구성: (a)무슨 사업으로 돈 버는 회사인지 1문장(제품·고객이 그려지게) '
-                  '(b)왜 지금 이익전망이 급상향되는지 2문장 — 최근 실적발표·수주·제품가격·점유율 등 '
-                  '구체 숫자를 검색으로 확인해 포함 (c)리스크 1문장(막연한 일반론 금지, 이 회사 고유의 위험). '
-                  '자연스러운 완결 문장으로, 전문용어는 한 번씩 풀어서. 과장 없이 사실만. '
+                  '★분량 엄수 — 텔레그램 카드라 길면 안 읽힌다. 종목당 구성: '
+                  '(a)무슨 사업으로 돈 버는 회사인지 **1문장 40자 이내**(제품·고객이 그려지게) '
+                  '(b)왜 지금 이익전망이 급상향되는지 **1문장 50자 이내** — 최근 실적·수주·제품가격 중 '
+                  '가장 결정적인 것 하나만, 구체 숫자 1개 포함(검색 확인) '
+                  '(c)리스크 **1문장 40자 이내**(막연한 일반론 금지, 이 회사 고유의 위험). '
+                  '수식어·배경설명·나열 금지. 과장 없이 사실만. '
                   '★형식(종목당 정확히 한 줄): "TICKER: 회사소개 문장 | 상향 이유 문장들 || 리스크 문장들" '
                   '(소개와 이유 사이 |, 리스크 앞 || 필수).\n' + '\n'.join(dl))
 
@@ -1210,8 +1271,16 @@ def _ai_stock_briefs(entries):
             return bad
         # 모델 폴백 체인 (2026-07-10 실측): flash 무료 20회/일(KR 16:00 시스템과 키 공유,
         # 당일 소진 실발생) → flash-lite 폴백. lite는 형식 이탈이 잦아 flash 우선 2회.
+        # ★2026-08-03 B3 수리 (QC 감사): lite 폴백이 **사실이 틀린 카드**를 통과시켰다 —
+        #   실측 3회 렌더 중 1회에서 CLS를 '항공우주·방산', VRT를 '고압 직류 송전'으로 서술
+        #   (실제: 데이터센터 EMS / 데이터센터 전력·냉각). 존댓말 규칙도 붕괴.
+        #   기존 검사(_incomplete/_substantive)는 '비어 있지 않고 변명문이 아님'만 보므로
+        #   이런 오서술을 못 잡는다 = 사실 검증 게이트 0.
+        #   → lite 결과는 산문으로 승격하지 않는다. 쿼터 소진 시엔 '숫자만 + 실패 고지'가
+        #     정답이다(틀린 설명 발송 < 설명 없음). flash 재시도를 4회로 늘려 흡수한다.
+        #   ⚠️같은 이유로 테스트 렌더에 실키 사용 금지(쿼터를 태우면 이 경로로 떨어진다).
         attempts = [('gemini-2.5-flash', 1), ('gemini-2.5-flash', 2),
-                    ('gemini-2.5-flash-lite', 1), ('gemini-2.5-flash-lite', 2)]
+                    ('gemini-2.5-flash', 3), ('gemini-2.5-flash', 4)]
         for _i, (model, _n) in enumerate(attempts, 1):
             try:
                 resp = client.models.generate_content(
@@ -1242,6 +1311,23 @@ def _ai_stock_briefs(entries):
             for f in ('biz', 'why', 'risk'):
                 if v.get(f) and not _substantive(v.get(f)):
                     v[f] = ''
+        # ★2026-08-03 B4 수리: 같은 날 같은 프롬프트인데 실행마다 매출성장률이 달랐다
+        #   (AMKR: +26% / +27% / '15% 성장 예상' — DB 실측 +26%). 재발송 상품이라 구독자가
+        #   두 버전을 나란히 본다. → 산문 속 '매출 N% 증가'가 DB rev_growth와 5%p 넘게
+        #   어긋나면 그 문장을 폐기한다(코드 강제, 프롬프트 부탁 아님).
+        import re as _re
+        _rg = {d['ticker']: d.get('rev_growth') for d in entries[:10]
+               if d.get('rev_growth') is not None}
+        for tk, v in out.items():
+            g = _rg.get(tk)
+            if g is None or not v.get('why'):
+                continue
+            for mm in _re.finditer(r'매출[^.]{0,20}?(\d+(?:\.\d+)?)\s*%', v['why']):
+                if abs(float(mm.group(1)) - g * 100) > 5.0:
+                    print('[브리핑 값 불일치 → 문장 폐기] %s: 산문 %s%% vs DB %.0f%%'
+                          % (tk, mm.group(1), g * 100))
+                    v['why'] = ''
+                    break
         return out
     except Exception as e:
         print('[종목 브리핑 스킵: %s]' % e)
@@ -1323,7 +1409,7 @@ def cmd_run():
     target = _select_target(merged, held, us_date)
     meta['target'], meta['held'] = target, (held or [])
     if target != [d['ticker'] for d in merged[:N_TOP]]:
-        print(f'[진입/이탈 분리] 목표 {target} (보유 유지 밴드 {HOLD_BAND}위·급락 유예 적용)')
+        print(f'[목표≠순위 top{N_TOP}] {target} — 발송 지시 동결분 재생')
     print(f'=== 통합 VM top{N_TOP} (US {us_date} / KR {kr_date}, USDKRW {fx:.0f}, '
           f'code {_git_sha() or "?"}) ===')
     if meta.get('base_n'):
@@ -1452,68 +1538,59 @@ def _card_facts(d, cards_map):
     return f
 
 
+def _name_tk(ticker):
+    """매수 목록용 표기 — ★2026-08-03 (사용자 "티커나 영문명은 넣지도 않네").
+    한글명만 있으면 증권사 앱에서 검색이 안 된다. 주문에 필요한 티커를 항상 병기."""
+    base = ticker.replace('.KS', '').replace('.KQ', '')
+    nm = _display_name(ticker)
+    return nm if nm == base else f'{nm} ({base})'
+
+
 def _stock_card(rank, d, brief, cards_map, first=False):
-    """종목 카드 (2026-07-10 개편) — 이름/티커/업종 → 무슨 회사 → 왜 뜨거운가 → 숫자 → 위험."""
+    """종목 카드 — ★2026-08-03 (2차) 아이콘 제거·타이포 위계 (사용자 "길이 줄이랬더니
+    아이콘을 덕지덕지 붙여놨네"). 카드마다 🔥📊⚠️가 똑같이 반복되면 그 아이콘은 정보가
+    0이고 소음만 된다 — 다섯 장에 15개가 찍혀 있었다.
+
+    구조를 만드는 수단을 이모지 → 활자(굵기·들여쓰기·괘선)로 교체:
+      · 카드 구분선 = 얇은 괘선(─), 메시지 제목선 = 굵은 괘선(━) → 계층이 선 굵기로 보인다.
+      · 헤더  = <b>순위 이름</b> + 티커 · 업종 (굵기가 곧 카드 시작 표시)
+      · 산문  = 왼쪽 정렬 2문단(무슨 회사 / 왜 지금) — 아이콘 없이 그냥 읽힌다.
+      · 숫자  = 3칸 들여쓴 블록. '들여쓰기 = 기계가 계산한 근거'라는 신호이고,
+                순위 근거 두 수치만 <b>로 굵혀 무엇으로 뽑았는지가 한눈에 보이게.
+      · 위험  = 같은 블록 안, 라벨만 굵게. 좋은 소식으로 오독될 유일한 줄이라 라벨을 남김.
+    46칸(한글 23자) 넘는 산문은 _wrap으로 미리 접어 모바일 강제 줄바꿈을 막는다.
+    (1차 간결화 때 지운 것 — 라벨 4줄·희소성 백분위·시총/거래대금·'N배'·용어 해설 — 은
+     그대로 두고 되살리지 않는다.)"""
     nm = _display_name(d['ticker'])
     tk = d['ticker'].replace('.KS', '').replace('.KQ', '')
     sect = _industry_tag(d)
-    # 미국단독 모드에선 모든 종목이 미국이라 국기 표기가 매 카드 반복돼 무의미 → 업종만.
-    nation = '' if VM_US_ONLY else ('🇰🇷 한국' if d['market'] == 'KR' else '🇺🇸 미국')
-    L = ['━━━━━━━━━━━━━━',
-         f"<b>{rank}위 {nm}</b> ({tk})",
-         (f"{nation} · {sect}".strip(' ·') if sect else nation), '']
+    head = f"<b>{rank}위 {nm}</b>  {tk}" + (f" · {sect}" if sect else '')
+    if not VM_US_ONLY:
+        head = ('🇰🇷 ' if d['market'] == 'KR' else '🇺🇸 ') + head
+    L = ['──────────────', head]
     b = _brief_dict(brief)
     if b.get('biz'):
-        L.append('<b>무슨 회사인가요?</b>')
-        L += _split_sents(b['biz'])
-        L.append('')
+        L += _wrap(b['biz'].strip(), 44)
     if b.get('why'):
-        L.append('<b>왜 지금 뜨거운가요?</b>')
-        L += _split_sents(b['why'])
-        L.append('')
+        L += _wrap(b['why'].strip(), 44)
     if _MEM_ALERT_ON and MEM_ALERT_SHOW and d['ticker'] in MEMORY_THEME:
-        L.append('⚠️ 메모리 업황 주의보 해당 종목')
-    L.append('<b>숫자로 확인하기</b>')
-    mk = '미국' if d['market'] == 'US' else '한국'
-    L.append(f"· 이익전망 3개월간 <b>+{d['rev90']:.0f}%</b> 상향")
-    if _GAP_MODE:
-        # 순위 기준이 괴리율이므로 백분위를 상향폭 옆에 붙이면 "+9% 상향 = 상위 2%"라는
-        # 거짓 진술이 됨 → 백분위는 괴리율 줄에만 붙인다 (2026-07-31)
-        if d.get('adj_gap') is not None:
-            L.append(f"· 전망 대비 주가가 <b>{-d['adj_gap']:.0f}%</b> 덜 오름")
-            if d.get('pct') is not None:
-                L.append(f"  ({mk} 전체에서 상위 {max(100 - d['pct'], 1):.0f}% 희소성)")
-            if first:
-                L.append('  = 이익 전망은 올랐는데 주가가')
-                L.append('    아직 그만큼 안 따라왔다는 뜻')
+        L.append('※ 메모리 업황 주의보 해당 종목')
+    if _GAP_MODE and d.get('adj_gap') is not None:
+        L.append(f"   전망 <b>+{d['rev90']:.0f}%</b> 상향 · 주가 "
+                 f"<b>{-d['adj_gap']:.0f}%</b> 덜 따라옴")
     else:
-        if d.get('pct') is not None:
-            L.append(f"  ({mk} 전체에서 상위 {max(100 - d['pct'], 1):.0f}% 희소성)")
-        if first:
-            L.append('  = 전문가들이 이 회사 이익 전망치를')
-            L.append(f"    석 달 만에 {1 + d['rev90'] / 100:.1f}배로 올렸다는 뜻")
+        L.append(f"   이익전망 3개월 <b>+{d['rev90']:.0f}%</b> 상향")
     fx = _card_facts(d, cards_map)
+    tail = []
     if fx.get('analysts'):
-        an = fx['analysts'].replace('(↑', ' (30일 ↑').replace('/↓', ' ↓')
-        L.append(f"· 애널리스트 {an}")
-    if d.get('gap'):
-        L.append(f"· 올해 예상이익 = 작년의 <b>{d['gap']:.1f}배</b>")
-    L.append(f"· 선행PER <b>{d['fwd_per']:.0f}배</b>"
-             + (f" ({PER_ANCHOR[d['market']]})" if first or d['fwd_per'] >= 20 else ''))
-    if first:
-        L.append('  = 올해 예상이익 대비 주가 배수, 낮을수록 쌈')
-    sz = ' · '.join(x for x in (fx.get('mcap'),
-                                ('하루 거래 ' + fx['dv'].replace('/일', '')) if fx.get('dv') else None) if x)
-    if sz:
-        L.append('· ' + sz)
-    L.append('')
+        tail.append('애널 ' + fx['analysts'].replace('(↑', '(30일 ↑').replace('/↓', ' ↓'))
+    tail.append(f"선행PER {d['fwd_per']:.0f}배")
+    L.append('   ' + ' · '.join(tail))
     if b.get('risk'):
-        L.append('<b>⚠️ 위험 요인</b>')
-        L += _split_sents(b['risk'])
-        # ★2026-07-31 제거: 카드마다 '→ 그래서 N거래일마다 점검해 교체합니다.'를 붙여
-        #   한 메시지에 같은 문장이 10번 반복됐다. 상단 '이 서비스, 뭐 하는 건가요?' 블록에
-        #   이미 '각 20%씩, 5거래일마다 점검해 순위에서 밀린 종목을 교체합니다'가 있어 순수 중복.
-        L.append('')
+        rw = _wrap(b['risk'].strip(), 38)
+        L.append('   <b>위험</b> ' + rw[0])
+        L += ['        ' + x for x in rw[1:]]
+    L.append('')
     return L
 
 
@@ -1636,9 +1713,6 @@ def _credit_vol_lines():
             out.append(f"변동성지수(VIX) {v:.1f} {st} (방어선 36)")
     except Exception:
         pass
-    if out:
-        out.append('→ 신용시장이 흔들리면 주식보다 먼저')
-        out.append('  움직여서, 방어 전환 신호로 씁니다.')
     return out
 
 
@@ -1708,16 +1782,19 @@ def _compose_and_send(merged, meta=None):
     wd = '월화수목금토일'[kdt.weekday()]
     alert_head = (amsg or '').split('\n')[0]  # 신호등 상태 한 줄 — 상단 노출 (상세는 메시지3)
     _title = ('미국 TOP%d 신호' % N_TOP) if VM_US_ONLY else ('한국+미국 TOP%d 신호' % N_TOP)
-    m1 = [f'📬 <b>{_title}</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
+    # ★2026-08-03 아이콘 정리: 제목의 📬는 매 발송 고정이라 정보가 0 → 제거.
+    #   국면 신호등(🟢🟠🛑)만 남긴다 — 세 값이 갈리는 상태 표시라 색 자체가 정보다.
+    m1 = [f'<b>{_title}</b> · {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
     if regime == 'defense':
-        m1.append('국면: 🛑 방어 — 주식 0% (전량 현금)')
+        m1.append('국면 🛑 방어 — 주식 0% (전량 현금)')
     elif regime == 'half_defense':
-        m1.append('국면: 🟠 부분 방어 — 주식 50%')
+        m1.append('국면 🟠 부분 방어 — 주식 50%')
     else:
-        m1.append('국면: 🟢 강세 — 주식 100%')
+        m1.append('국면 🟢 강세 — 주식 100%')
         _db = reg.get('days_below') or 0
         if _db:
-            m1.append(f'⚠️ 약세 신호 누적 {_db}일 (15일 확인 중 — 아직 매매 변화 없음)')
+            m1 += _wrap(f'약세 신호 누적 {_db}일 — 15일 확인 중이라 '
+                        '아직 매매 변화는 없습니다.', 44)
     # KR 국면은 평시 생략, 이상 신호(약세/전환 진행)일 때만 상단 노출 (상세는 메시지3)
     if (not VM_US_ONLY) and krr and (krr['mode'] == 'defense' or krr['pending_days'] > 0):
         if krr['mode'] == 'defense':
@@ -1752,22 +1829,23 @@ def _compose_and_send(merged, meta=None):
     nxt = _next_msg_day(us_latest, next_in) if us_latest else None
     nxt_s = f"{nxt.month}/{nxt.day}({'월화수목금토일'[nxt.weekday()]}) 아침" if nxt else f"{next_in}거래일 후"
     if regime == 'defense':
-        m1 += ['🛑 <b>오늘 할 일: 전량 현금</b>',
+        m1 += ['<b>오늘 할 일 — 전량 현금</b>',
                '시장 전체가 약세 국면으로 판정됐습니다',
                '(S&P500 200일선 이탈 15일 확인 또는',
                ' 공포지수·신용시장 경보).',
                '보유 종목을 전부 팔고 현금으로',
                '보관하세요. 이미 파셨다면 그대로 유지.',
-               '🟢 강세 복귀 알림이 올 때까지',
+               '강세 복귀 알림이 올 때까지',
                '신규 매수는 하지 않습니다.']
     elif reentry:
-        m1 += ['🟢 <b>오늘 할 일: 강세 복귀 — 재진입</b>',
+        m1 += ['<b>오늘 할 일 — 강세 복귀, 재진입</b>',
                '방어 국면이 해제됐습니다.',
-               f'아래 TOP{N_TOP}을 각 {100/N_TOP:.0f}%씩 {_trade_when(kdt)}에 매수하세요.']
+               f'아래 {N_TOP}종목을 각 {100/N_TOP:.0f}%씩',
+               f'{_trade_when(kdt)}에 매수하세요.']
         if not VM_US_ONLY:
             m1 += ['(미국 종목 = 오늘 밤 개장,', ' 한국 종목 = 내일 아침 개장)']
-        for t in [d['ticker'] for d in top5]:
-            m1.append(f'🟢 사기: {_display_name(t)} — 자산의 {100/N_TOP:.0f}%')
+        for _i, t in enumerate([d['ticker'] for d in top5], 1):
+            m1.append(f'  {_i}. {_name_tk(t)}')
     elif is_rebal:
         # ★2026-08-01 (사용자 지시 "교체하세요 할 때는 현재 TOP5만 보여줘야지 기존 종목
         #   들먹이지 마라"): 구 방식은 원장 보유와의 diff('팔기: 플렉스·HPE')로 지시했는데,
@@ -1779,112 +1857,97 @@ def _compose_and_send(merged, meta=None):
         #   신규자 구분 없이 전원 동일 지시, 고객 행동 분기(⚠️·현금대기) 없음.
         #   (구 dd_30_25 급락 유예는 2026-08-03 OFF — "보유/신규 구분"은 시스템이 모르는
         #    고객 보유를 아는 척하는 구조라는 사용자 지적. 급락 리스크는 TS15%가 고객 측에서 절단.)
-        m1.append(f'🔁 <b>오늘 할 일: 아래 {N_TOP}종목으로 맞추세요</b>')
+        # ★2026-08-03: 🔁·🛡️ 제거. 굵은 제목줄 + 들여쓴 번호 목록이면 '할 일'이라는 게
+        #   그 자체로 읽힌다. 비중은 전 종목 동일(20%)이라 줄마다 반복하지 않고 제목에 1회만.
+        m1.append(f'<b>오늘 할 일 — 아래 {N_TOP}종목으로 맞추세요</b>')
+        m1.append(f'(각 {100/N_TOP:.0f}%씩)')
         for _i, _d in enumerate(top5, 1):
-            m1.append(f'{_i}. {_display_name(_d["ticker"])} — {100/N_TOP:.0f}%')
+            m1.append(f'  {_i}. {_name_tk(_d["ticker"])}')
+        # ★2026-08-03 필수정보 체크리스트 F5/F7 보강 (사용자 "구멍 3개 다 메워"):
+        #   F5 = 목록 밖 종목 처리 규칙. '같아지도록'만으로는 처음 보는 사람이 못 읽는다.
+        #        단 보유 단정 금지 원칙상 '무엇을 파세요'가 아니라 규칙 문장으로 쓴다.
+        #   F7 = 다음 점검일. 평일 분기엔 있는데 정작 매수 직후인 교체일에 빠져 있었다.
         m1 += ['',
-               '· 이 목록에 없는 보유 종목 → 전량 매도',
-               '· 이미 갖고 계신 종목 → 그대로 유지',
-               f'· 새로 담을 종목 → 각 {100/N_TOP:.0f}% 매수',
-               f'{_trade_when(kdt)} 개장 때 매매하시면 됩니다.',
+               f'{_trade_when(kdt)} 개장 때 이 목록과',
+               '같아지도록 매매하시면 됩니다.',
+               '(목록에 없는 미국 주식은 정리하고,',
+               f' 없는 종목은 각 {100/N_TOP:.0f}%씩 매수하시면 됩니다)',
                '',
-               '🛡️ <b>매수할 때 같이 걸어두세요:</b>',
-               '<b>트레일링 스탑 15%</b>',
-               '= "산 뒤 최고가에서 15% 떨어지면',
-               '자동으로 파는" 예약 주문입니다.',
-               '예: 100에 사서 120까지 오르면',
-               '기준선도 102로 따라 올라가고,',
-               '102 아래로 내려오면 자동 매도.',
-               '이익은 지키고 급락 손실은 15%로 제한.',
+               '<b>트레일링 스탑 15%</b>를 함께 걸어두세요.',
+               '산 뒤 최고가 대비 15% 빠지면 자동으로',
+               '팔리는 예약 주문입니다.',
+               '(증권사 앱 → 트레일링 스탑 → 감시폭 15%)',
                '',
-               '설정: 증권사 앱에서 매수 후',
-               '"트레일링 스탑" 주문 → 감시폭 15%',
-               '(주문 기능이 없으면 하루 한 번,',
-               '산 뒤 최고가 대비 −15% 아래면 매도)',
-               '',
-               '팔렸으면 그 돈은 현금으로 두고,',
-               '다음 교체일에 그 종목이 목록에',
-               '있으면 다시 사시면 됩니다.']
+               f'다음 교체 점검: <b>{nxt_s}</b>',
+               '그때까지는 그대로 두시면 됩니다.']
     else:
         # ★2026-07-31 (2차 수정): 보유 종목을 메시지에 쓰지 않는다.
         #   시스템은 '자기가 무엇을 추천했는지'만 알 뿐 사용자의 실제 계좌를 모른다.
         #   원장 기록을 '지금 보유'로 단정하면 사용자가 한 번이라도 다르게 매매한 순간
         #   계속 거짓이 된다(실제 발생: 원장은 STX 보유로 기록했으나 사용자는 매수 안 함).
         #   → 교체일에만 매매를 지시하고, 그 외의 날은 순위만 보여준다.
-        m1 += ['✅ <b>오늘 할 일: 없음</b>',
-               f'다음 교체 점검: <b>{nxt_s}</b> 예정', '',
-               f'※ 아래는 <b>현재 목표 {N_TOP}종목</b>입니다.',
-               '교체는 점검일에만 하니 오늘은 그대로 두세요.']
-    _scope = '미국 주요 상장사 약 1,400곳의' if VM_US_ONLY else '한국+미국 주요 상장사 약 1,600곳의'
-    m1 += ['',
-           '<b>이 서비스, 뭐 하는 건가요?</b>',
-           _scope,
-           '애널리스트 이익 전망을 매일 추적해서,']
+        # ★2026-08-03 F6 보강(사용자 지시 "평일에도 스탑 안내 남겨"): 오늘 처음 받은 사람은
+        #   평일에도 이 목록을 보고 매수한다 — 그 사람에게 스탑 규칙이 닿아야 한다.
+        m1 += ['<b>오늘 할 일 — 없음</b>',
+               f'다음 교체 점검: <b>{nxt_s}</b>', '',
+               f'아래는 현재 목표 {N_TOP}종목입니다.',
+               '교체는 점검일에만 하니 오늘은',
+               '그대로 두세요.',
+               '',
+               f'새로 사실 때는 각 {100/N_TOP:.0f}%씩,',
+               '<b>트레일링 스탑 15%</b>를 함께 걸어두세요.']
+    # ★2026-08-03 간결화 (사용자 "메시지가 너무 길다"): 서비스 소개 13줄 + 용어 4줄 →
+    #   소개 4줄. 규칙(무엇을 고르나·언제 교체하나)과 정직 고지(모의·비용 전)만 남기고
+    #   게이트 나열·시장 눈금 설명·용어 사전은 삭제 — 매일 반복되는 고정 문구라 정보가 아니다.
+    _scope = '미국 상장사 1,400곳' if VM_US_ONLY else '한국+미국 상장사 1,600곳'
+    m1 += ['']
     if _GAP_MODE:
-        # ★2026-08-01 문구-규칙 정합 수리 (사용자 감사): ①"최근 3개월 새"를 명시(rev90>0 게이트가
-        #   보장하는 시제 — 무기한 현재진행형 약속 금지) ②거르는 것 목록을 실제 게이트와 일치
-        #   ③교체는 5거래일에 한 번뿐임을 명시(매일 매매 서비스 오해 방지). 가치함정 항목은
-        #   에폭 전 재안내일(us_date < 8/3)엔 자동 생략 — 문구가 필터보다 앞서가지 않게.
-        m1 += ['"최근 3개월 새 이익 전망이 오른 회사',
-               f'중, 주가가 가장 덜 따라온 {N_TOP}곳"을',
-               f'골라 담는 퀀트 신호입니다. 각 {100/N_TOP:.0f}%씩.',
-               f'교체 지시는 {REBAL}거래일에 한 번 —',
-               '그 외의 날은 확인만 하시면 됩니다.',
-               '거르는 것: 비싼 주식(선행PER 30↑),',
-               '거래 적은 주식, 전망이 뚜렷이 꺾인 주식']
-        if meta.get('trap_active'):
-            m1 += ['+ 전망은 제자리인데 주가 하락으로',
-                   '싸 보이기만 하는 주식.', '']
-        else:
-            m1[-1] += '.'
-            m1 += ['']
+        m1 += [f'<b>{_scope}</b> 중 최근 3개월',
+               '이익 전망이 오른 회사에서,',
+               f'주가가 가장 덜 따라온 {N_TOP}곳.',
+               f'교체는 {REBAL}거래일에 한 번.']
     else:
-        m1 += ['"전문가들이 이익 전망을 가장 가파르게',
-               f'올리는 중"인 회사 딱 {N_TOP}곳을 골라 담는',
-               f'퀀트 신호입니다. 각 {100/N_TOP:.0f}%씩, {REBAL}거래일마다',
-               '점검해 순위에서 밀린 종목을 교체합니다.',
-               '비싼 주식(선행PER 30↑)과 전망이 꺾인',
-               '주식은 아무리 순위가 높아도 걸러냅니다.', '']
-    if not VM_US_ONLY:
-        m1 += ['한국·미국은 상향폭 눈금이 달라서(뜨는',
-               '종목 기준 한국이 약 2배 큼) 절대값 대신',
-               '"자기 시장 상위 몇 %인지"로 공정 비교.', '']
-    # ★2026-08-01 정직 고지 (사용자 감사): 성과 = 모의·비용 미반영·신생 규칙임을 명시.
-    m1 += [
-           f"📊 전략 누적 성과: {(nav - 1) * 100:+.1f}%",
-           f"({all_days[0][5:].replace('-', '/')} 모의운용 시작 · 실계좌 아님)" if all_days else '',
-           '수수료·세금·환율 반영 전 숫자입니다.',
-           '현 규칙(2026-08 확정)은 신생이라',
-           '하락장 실전 검증이 아직 없습니다.']
+        m1 += [f'<b>{_scope}</b> 중 이익 전망이 가장',
+               f'가파르게 오르는 {N_TOP}곳.',
+               f'교체는 {REBAL}거래일에 한 번.']
+    # 누적 성과 — 한 줄이 46칸을 넘어 접히던 자리라 두 줄로 나눔(아이콘 제거).
+    m1 += ['', f"<b>전략 누적 {(nav - 1) * 100:+.1f}%</b>"]
+    if all_days:
+        m1.append(f"  {all_days[0][5:].replace('-', '/')}~ 모의운용 · 비용 반영 전")
     if not any(briefs.get(d['ticker']) for d in top5):
-        m1 += ['', '⚠️ 오늘은 AI 종목 설명 생성에 실패해',
+        m1 += ['', '※ 오늘은 AI 종목 설명 생성에 실패해',
                '숫자 지표만 표시됩니다. 다음 발송에서',
                '자동 복구됩니다.']
     if regime == 'defense':
-        m1 += ['', '📋 아래 순위는 <b>관찰용</b>입니다.',
+        m1 += ['', '아래 순위는 <b>관찰용</b>입니다.',
                '방어 국면에는 매수하지 않습니다.']
     for i, d in enumerate(top5, 1):
         m1 += _stock_card(i, d, briefs.get(d['ticker']), cards, first=(i == 1))
-    m1 += ['━━━━━━━━━━━━━━', '📖 <b>용어 한 줄 정리</b>',
-           'EPS: 주식 1주가 벌어들이는 이익',
-           'PER: 주가가 이익의 몇 배인지 (낮을수록 저렴)',
-           '선행: 과거가 아닌 "올해 예상" 기준']
     # ── 메시지 2: 대기 후보 6~10위 — 1~5위와 동일한 풀카드 (2026-07-10 사용자 "차별하지 마") ──
     m2 = None
     if len(m10) > N_TOP:
-        m2 = [f'📋 <b>대기 후보</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━',
+        # ★2026-08-03 간결화: 대기 후보는 '지금 안 사는 종목'이라 풀카드가 불필요했다.
+        #   한 줄(순위·이름·업종 + 순위 근거 숫자)로 축약 — 구 10줄/종목 → 2줄/종목.
+        # ★2026-08-03: 📋 제거 + TOP5 카드와 같은 활자 규칙(굵은 헤더 / 3칸 들여쓴 숫자줄)로
+        #   통일 — 같은 성격의 정보는 같은 모양이어야 눈이 배우는 규칙이 하나로 유지된다.
+        m2 = [f'<b>대기 후보</b> · {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━',
               '<b>지금 사는 종목이 아닙니다.</b>',
-              f'목표 {N_TOP}종목에서 빠지는 종목이 생기면',
-              '이 명단에서 차례로 들어옵니다.', '']
-        if any(_dd_blocked(d) for d in m10[N_TOP:]):
-            m2 = m2[:-1] + ['⚠️(급락 소화 중) 표시 종목은 표시가',
-                            '사라진 뒤에야 새로 편입됩니다.', '']
+              f'목표 {N_TOP}종목에서 빠지면 여기서',
+              '올라옵니다.', '']
         for j, d in enumerate(m10[N_TOP:], N_TOP + 1):
-            m2 += _stock_card(j, d, briefs.get(d['ticker']), cards)
-            if _dd_blocked(d):
-                m2 += ['⚠️ 급락 소화 중 — 당분간 편입 보류', '']
+            _nm = _display_name(d['ticker'])
+            _tk = d['ticker'].replace('.KS', '').replace('.KQ', '')
+            _sc = _industry_tag(d)
+            m2.append(f"<b>{j}위 {_nm}</b>  {_tk}" + (f" · {_sc}" if _sc else ''))
+            if _GAP_MODE and d.get('adj_gap') is not None:
+                m2.append(f"   전망 +{d['rev90']:.0f}% · 주가 {-d['adj_gap']:.0f}% 덜 따라옴"
+                          f" · PER {d['fwd_per']:.0f}배")
+            else:
+                m2.append(f"   이익전망 +{d['rev90']:.0f}% · 선행PER {d['fwd_per']:.0f}배")
     # ── 메시지 3: AI 시장 분석 (2026-07-10 개편: 단락형 시황+신용·변동성+TOP5 실적 일정) ──
-    m3 = [f'🤖 <b>AI 시장 분석</b> | {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
+    # ★2026-08-03: 섹션 아이콘(📊🧭🏦📰📅🤖) 전부 제거 — 굵은 소제목 + 앞 빈 줄이면
+    #   구획은 충분히 보인다. 상태 신호등(🟢🟡🔴)만 남긴다(값에 따라 바뀌므로 정보).
+    m3 = [f'<b>AI 시장 분석</b> · {kdt.month}월 {kdt.day}일({wd})', '━━━━━━━━━━━━━━']
     idx_lines = []
     try:
         import yfinance as yf
@@ -1901,13 +1964,14 @@ def _compose_and_send(merged, meta=None):
             except Exception:
                 pass
         if idx_lines:
-            m3 += ['', '📊 <b>주요 지수</b>'] + idx_lines
+            m3 += ['', '<b>주요 지수</b>'] + ['  ' + x for x in idx_lines]
     except Exception:
         pass
     if reg:
         st = {'defense': '🛑 방어 (주식 0%, 현금)',
               'half_defense': '🟠 부분 방어 (주식 50%)'}.get(regime, '🟢 강세 (주식 100%)')
-        m3 += ['', '🧭 <b>시장 국면</b>', '🇺🇸 미국: ' + st]
+        # 미국단독 모드에선 나라가 하나뿐이라 국기도 정보가 아니다 → 통합 모드에서만 표시.
+        m3 += ['', '<b>시장 국면</b>', ('미국 ' if VM_US_ONLY else '🇺🇸 미국: ') + st]
         if reg.get('spx') and reg.get('ma200'):
             pos = '위' if reg['spx'] > reg['ma200'] else '아래'
             m3.append(f"  S&P500 {reg['spx']:,.0f} — 200일선({reg['ma200']:,.0f}) {pos}")
@@ -1923,16 +1987,17 @@ def _compose_and_send(merged, meta=None):
             if krr['pending_days'] > 0:
                 nm = '약세' if krr['mode'] == 'boost' else '강세'
                 m3.append(f"  ⚠️ {nm} 전환 진행 {krr['pending_days']}/5일")
-        m3 += ['매매 기준: S&P500 200일선 15일 이탈·',
-               '공포지수·신용경보 중 하나라도 확정되면',
-               '전량 현금으로 피합니다.'] + ([] if VM_US_ONLY else
-              ['한국 국면은 참고 표시입니다 (반영 여부 검증 중).'])
+        m3.append('약세 확정 시 전량 현금 안내가 나갑니다.')
     cv = _credit_vol_lines()
     if cv:
-        m3 += ['', '🏦 <b>신용·변동성</b>'] + cv
+        m3 += ['', '<b>신용·변동성</b>'] + ['  ' + x for x in cv]
     brief_mkt = _ai_market_brief(idx_facts=idx_lines, _now=kdt)   # 요일 분기용 KST 시각 명시
     if brief_mkt:
-        m3 += ['', '📰 <b>시장 동향</b>']
+        # ★2026-08-03: AI가 붙여 오는 [미국 증시]류 라벨을 굵은 소제목으로 승격시키므로,
+        #   그 위에 '시장 동향' 굵은 제목을 또 얹으면 같은 굵기 제목이 2단으로 겹친다
+        #   → 라벨이 하나라도 있으면 감싸는 제목 없이 다른 섹션들과 같은 층으로 편다.
+        if '[' not in brief_mkt:
+            m3 += ['', '<b>시장 동향</b>']
         # ★2026-08-01 강화: 8/1 실발송에서 Gemini가 전문을 한 응답에 두 번 뱉었고,
         #   라벨 하나가 문단 끝에 붙어 나와("...예상됩니다.[미국 증시]") 줄 단위 라벨
         #   dedup(7/31)이 못 잡았다 — 라벨만 지워지고 본문 3문단이 통째로 반복 발송됨.
@@ -1941,6 +2006,10 @@ def _compose_and_send(merged, meta=None):
         import re as _re2
         _txt = _re2.sub(r'(?<!\n)\[(?=(미국 증시|반도체·메모리|한국 증시|오늘 밤 체크|다음 장 체크)\])',
                         '\n[', brief_mkt.replace('\r', ''))
+        # ★2026-08-03: ①대괄호 라벨([미국 증시])을 다른 소제목과 같은 굵은 글씨로 통일
+        #   — 메시지 안에 서로 다른 제목 표기가 두 종류 있을 이유가 없다.
+        #   ②AI 본문은 한 문단이 통째로 한 줄이라 모바일에서 임의 지점에 접혔다 → _wrap으로
+        #   46칸에 맞춰 미리 접는다(다른 모든 줄과 같은 폭 규칙 적용).
         _seen_lb = set(); _seen_body = set()
         for para in _txt.split('\n'):
             p = para.strip()
@@ -1950,20 +2019,22 @@ def _compose_and_send(merged, meta=None):
                 if p in _seen_lb:
                     continue
                 _seen_lb.add(p)
-            else:
-                _key = p[:60]
-                if _key in _seen_body:
-                    continue
-                _seen_body.add(_key)
-            m3.append(p)
-            m3.append('')
+                if m3 and m3[-1] != '':
+                    m3.append('')
+                m3.append('<b>' + p[1:-1].strip() + '</b>')
+                continue
+            _key = p[:60]
+            if _key in _seen_body:
+                continue
+            _seen_body.add(_key)
+            m3 += _wrap(p, 44)
         if m3[-1] == '':
             m3.pop()
     # ★2026-07-31: 구 라벨 '보유종목 일정'은 시스템이 모르는 사실(사용자 실제 보유)을
     #   단정하는 표현이었다. 표시하는 대상(오늘 순위 TOP N)에 맞춰 라벨을 정직하게 교정.
     el = _earnings_lines([d['ticker'] for d in top5])
     if el:
-        m3 += ['', f'📅 <b>TOP{N_TOP} 실적 발표 일정 (14일 내)</b>'] + el
+        m3 += ['', f'<b>TOP{N_TOP} 실적 발표 일정</b> (14일 내)'] + el
     if MEM_ALERT_SHOW:            # 메모리 감시등 상세 (기본 미노출, 2026-07-31)
         m3 += ['', amsg]
     _sha = _git_sha()
