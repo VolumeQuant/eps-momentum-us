@@ -275,9 +275,66 @@ _GAP_MODE = (VM_STRATEGY == 'gap')
 #   fwd_pe_chg 부분만 재계산해 같은 비율로 스케일한다(승수 효과 보존).
 #   킬스위치 VM_SEG_GAP_DISABLE=1 → 기존 중첩 adj_gap 사용.
 SEG_GAP_EPOCH = os.environ.get('VM_SEG_GAP_EPOCH', '2026-08-07')
-SEG_GAP_ON = os.environ.get('VM_SEG_GAP_DISABLE') != '1'
+# ★2026-08-04 되돌림(기본 OFF). 배포 당일 매매내역 검증에서 채택 근거가 무너졌다:
+#   ①사고실험 — PE가 총 -40% 압축될 때 비중첩은 '최근 7일 급락'과 '90일 전 급락'을 똑같이
+#     -10.0으로 본다(중첩은 -40.0 / -20.0으로 구분). 즉 괴리가 아직 열려 있는지 이미 메워졌는지
+#     구분하지 못한다. 중첩이 네 창 모두에서 같은 사건을 보는 건 '중복 계상'이 아니라
+#     **괴리 존속 확인**이었다 — 주가가 반등하면 짧은 창부터 부호가 뒤집혀 점수가 자동으로 식는다.
+#   ②실측 — 진폭이 1/4로 압축되어 저확신 전략이 됨. SNDK를 5일 만에 +19.5%에 매도(중첩은 55일
+#     +117.9%). 수익 +62.0% vs +118.3%, Calmar 17.0 vs 30.3, 승률 59% vs 72%.
+#     낙폭 -10.9%가 작은 건 '더 나은 신호'가 아니라 '더 약한 베팅'의 결과.
+#   내 '중복 계상' 비판이 프레이밍부터 틀렸다. 켜려면 VM_SEG_GAP_ENABLE=1.
+SEG_GAP_ON = os.environ.get('VM_SEG_GAP_ENABLE') == '1'
 _SEG_KEYS = ('ntm_7d', 'ntm_30d', 'ntm_60d', 'ntm_90d')
 _SEG_LAG = {'ntm_7d': 5, 'ntm_30d': 21, 'ntm_60d': 42, 'ntm_90d': 63}
+
+
+# ★2026-08-04 창 가중치 r=0.85 (감쇠 프로파일). 에폭 2026-08-07 = 8/8 교체 지시부터.
+#   현행 .30/.10/.10/.50은 2026-05 v80.10에서 84조합 그리드서치로 고른 값이고 금융공학적
+#   논거가 없었다. 재구성해보니 **중첩 가중치는 구간 나이별 감쇠 프로파일과 1:1 대응**한다:
+#     구간 실효가중 = 자기를 포함하는 창들의 가중치 합
+#       7→현재 = w7+w30+w60+w90 / 30→7 = w30+w60+w90 / 60→30 = w60+w90 / 90→60 = w90
+#     현행 .3/.1/.1/.5 → (1.00, 0.70, 0.60, 0.50) = '나이 들수록 감쇠'
+#     90일 단독      → (1,1,1,1) = 감쇠 없음  /  7일 단독 → (0,0,0,1) = 최근만
+#   ★이론: 추정치 수정에 대한 가격 반영은 수개월에 걸쳐 진행되고 시간이 갈수록 반영률이
+#     오른다(PEAD·추정치 드리프트). 방금 벌어진 괴리 = 미반영 → 기대수익↑ / 오래 열려 있는
+#     괴리 = 시장이 알고도 안 메움 → 가치함정 의심. 따라서 **단조 감쇠가 기본형**이고
+#     감쇠 0이나 역감쇠는 근거가 없다. 다만 '얼마나 가파르게'는 이론이 답하지 않는다.
+#   ★실측: 자유도 3개를 117일에 태우지 않으려고 기하감쇠 1파라미터 r로 축소
+#     (구간가중 = r³,r²,r,1 → w90=r³, w60=r²−r³, w30=r−r², w7=1−r).
+#     r 0.30~1.00 스윕 = 매끄러운 언덕, 고원 0.80~0.95, 꼭대기 0.90. 현행은 r≈0.80(고원 왼쪽 끝).
+#     r=0.85 검증: 워크포워드 4분할 전부 상위(3~4위/15) · LOWO 3/3 우위(ex-둘다 13.7→14.2)
+#     · 전 구간 Calmar 13.7→16.2 · 랜덤창 150회 수익 57%/낙폭 70%(무승부 제외).
+#     꼭대기 0.90 대신 0.85를 쓰는 이유 = 꼭대기는 노이즈일 수 있고 0.85가 LOWO 최고.
+#   ⚠️변화는 작다 — top5 겹침 4.7/5, 교체당 0.3종목. 성과 급변을 기대할 값이 아니다.
+#   킬스위치 VM_DECAY_R=0.80 (구값 복원) 또는 VM_DECAY_EPOCH='9999-12-31'.
+DECAY_R = float(os.environ.get('VM_DECAY_R', '0.85'))
+DECAY_EPOCH = os.environ.get('VM_DECAY_EPOCH', '2026-08-07')
+_LEGACY_W = {'ntm_7d': .30, 'ntm_30d': .10, 'ntm_60d': .10, 'ntm_90d': .50}
+
+
+def _decay_weights(r):
+    """기하감쇠 r → 창 가중치. r=1이면 90일 단독, r→0이면 7일 단독."""
+    return {'ntm_90d': r ** 3, 'ntm_60d': r ** 2 - r ** 3,
+            'ntm_30d': r - r ** 2, 'ntm_7d': 1 - r}
+
+
+def _decayed_gap_map(conn, date):
+    """창 가중치만 r 감쇠형으로 바꾼 괴리율. 구조(중첩)·보조승수는 현행 그대로.
+    보조승수는 DB에 중간값이 없으므로 기존 가중치로 fwd_pe_chg를 재계산해 비율로 보존한다."""
+    base = {tk: float(v) for tk, v in conn.execute(
+        'SELECT ticker, adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL', (date,))}
+    new = _fpc_map(conn, date, _decay_weights(DECAY_R))
+    old = _fpc_map(conn, date, _LEGACY_W)
+    if not new or not old:
+        print('[경고] 감쇠 가중치 계산 실패 → 기존 가중치 사용')
+        return base
+    out = {}
+    for tk, nv in new.items():
+        f, a = old.get(tk), base.get(tk)
+        out[tk] = nv * (a / f) if (f and a is not None and abs(f) > 1e-9) else nv
+    print('[괴리율] 창 가중치 r=%.2f 적용 (%s) — %d종목' % (DECAY_R, date, len(out)))
+    return out
 
 
 def _seg_gap_map(conn, date):
@@ -334,6 +391,48 @@ def _seg_gap_map(conn, date):
     return out
 
 
+def _fpc_map(conn, date, W):
+    """임의 창 가중치 W로 중첩 fwd_pe_chg 계산. W 키는 ntm_7d/30d/60d/90d."""
+    dates = [r[0] for r in conn.execute(
+        'SELECT DISTINCT date FROM ntm_screening WHERE date<=? ORDER BY date', (date,))]
+    di = {d: i for i, d in enumerate(dates)}
+    if date not in di:
+        return {}
+    i_now = di[date]
+    px, ntm = {}, {}
+    for d, tk, p, nc, n7, n30, n60, n90 in conn.execute(
+            'SELECT date,ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d '
+            'FROM ntm_screening WHERE price IS NOT NULL'):
+        px.setdefault(tk, {})[d] = p
+        ntm.setdefault(tk, {})[d] = (nc, n7, n30, n60, n90)
+    out = {}
+    for tk, v in ntm.items():
+        cur = v.get(date)
+        p_now = px.get(tk, {}).get(date)
+        if not cur or not cur[0] or cur[0] <= 0 or not p_now:
+            continue
+        pe_now = p_now / cur[0]
+        s = w = 0.0
+        for idx, k in enumerate(_SEG_KEYS):
+            ww = W.get(k, 0.0)
+            if ww <= 0:
+                continue
+            j = i_now - _SEG_LAG[k]
+            if j < 0:
+                continue
+            p_then, e_then = px.get(tk, {}).get(dates[j]), cur[idx + 1]
+            if not p_then or not e_then or e_then <= 0:
+                continue
+            pe_then = p_then / e_then
+            if pe_then <= 0:
+                continue
+            s += ww * (pe_now - pe_then) / pe_then * 100.0
+            w += ww
+        if w:
+            out[tk] = s / w
+    return out
+
+
 def _overlap_fpc_map(conn, date):
     """기존(중첩) fwd_pe_chg 재계산 — 보조 승수 비율 M = adj_gap/fwd_pe_chg 산출용.
     가중치는 v80.10 운영값 7d .30 / 30d .10 / 60d .10 / 90d .50."""
@@ -381,6 +480,8 @@ def _adj_gap_map(conn, date):
     base = {tk: float(v) for tk, v in conn.execute(
         'SELECT ticker, adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL', (date,))}
     if not (SEG_GAP_ON and date >= SEG_GAP_EPOCH):
+        if DECAY_R != 0.80 and date >= DECAY_EPOCH:
+            return _decayed_gap_map(conn, date)
         return base
     seg = _seg_gap_map(conn, date)
     if not seg:
