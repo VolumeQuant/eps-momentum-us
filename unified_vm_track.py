@@ -1098,11 +1098,35 @@ def _sent_target(us_date):
         return None
 
 
+# ★2026-08-04 보유 유지 밴드 재도입 (에폭 2026-08-07 = 8/8 지시부터). HOLD_BAND=7.
+#   규칙: 직전 목표에 있던 종목은 순위 7위까지 유지, 8위 밖이면 교체. 빈 자리는 순위순 충원.
+#   ⚠️8/3에 같은 장치를 "신규 고객과 기존 고객이 다른 목록을 받는다"는 이유로 폐기했는데
+#     그 논리가 틀렸다. 밴드는 **시스템 자신의 직전 목표**(원장)에 의존하지 고객 보유에
+#     의존하지 않는다. 그리고 우리는 그 결과 목표 한 장만 방송하므로, 신규 구독자도 밴드로
+#     남은 6위 종목을 함께 산다 → 전원 동일 포트폴리오. 8/3에 문제였던 건 밴드가 아니라
+#     급락유예에 붙어 있던 "기존 보유자는 유지, 신규자는 현금 대기" 2분류 문구였다.
+#   근거(r0.85+급락컷 체인 · N5 · R5 · 위상평균):
+#     Calmar 21.56→23.44 · 수익 +75.7→+82.2% · 승률 59→73% · 거래당 +2.9→+5.4%
+#     · 회전 347→311건/년(덜 판다) · 워크포워드 4분할 전부 우위(58/45/48/48 vs 51/37/42/45)
+#   ★신호 수명 실측이 밴드를 뒷받침한다: 편입 후 하루당 초과수익이 25일까지 0.29~0.39%로
+#     평평(신호는 오래 산다)한데 순위는 5일 뒤 top5 유지 28%/top7 이내 36%로 빠르게 흩어진다.
+#     즉 파는 이유가 '신호가 죽어서'가 아니라 '순위가 흔들려서'이고, 그 흔들림의 상당 부분은
+#     5위와 6위를 가르는 노이즈다. 밴드가 그 헛교체를 막는다.
+#   ★밴드 도입 후 R 재스윕: R6 이상이 명확히 붕괴(WF R7 29/21/23/15, R8 29/19/20/10) —
+#     밴드가 이미 '덜 판다'를 담당하므로 주기까지 늘리면 이중으로 느려진다. R3~5가 남고
+#     비용 10bp 반영 시 셋 다 동률(20.8~21.0), 워크포워드가 R5를 가리켜 R5 유지.
+#   ⚠️정직한 한계: 우위가 6~8월에 집중된다(Calmar 48.2→59.2). 2~5월은 사실상 동률이고
+#     (22.9→23.3) LOWO는 오히려 하락(15.8→15.0), 2~3월 구간만 보면 열위(-0.2→-0.8%).
+#     워크포워드 test 구간이 곧 6~8월이라 '4/4 통과'와 '우위가 한 구간에 집중'이 같은 사실일
+#     수 있다. 사용자 승인 사항("하락장도 반영해야지").
+#   킬스위치 VM_HOLD_BAND=5 (밴드 없음) 또는 VM_BAND_EPOCH='9999-12-31'.
+HOLD_BAND = int(os.environ.get('VM_HOLD_BAND', '7'))
+BAND_EPOCH = os.environ.get('VM_BAND_EPOCH', '2026-08-07')
+
+
 def _select_target(merged, held=None, us_date=None):
-    """목표 = 그날 순위 top N. 단 이미 발송된 us_date면 원장 기록을 그대로 재생(_sent_target).
-    ★보유 개념 없음 (사용자 "보유종목에 대해 왈가왈부하지 마라. 너는 교체날에 top5를
-    알려주는 역할만 해") — dd_30_25 진입유예·HOLD_BAND는 '이전 보유'를 전제해 방송 상품과
-    양립 불가라 폐기됐다."""
+    """목표 = 순위 top N + 보유 유지 밴드. 이미 발송된 us_date면 원장 기록 재생(_sent_target).
+    held = 시스템 직전 목표(원장 리플레이). 고객 보유가 아니다 — 상단 주석 참조."""
     if us_date and os.environ.get('VM_CORRECTION') != '1':
         prev = _sent_target(us_date)
         if prev:
@@ -1111,7 +1135,21 @@ def _select_target(merged, held=None, us_date=None):
                 print(f'[발송 지시 동결] {us_date}는 이미 발송됨 → 원장 목표 재생 {prev} '
                       f'(현 규칙 재계산값 {cur}는 미적용)')
             return prev
-    return [d['ticker'] for d in merged[:N_TOP]]
+    top = [d['ticker'] for d in merged[:N_TOP]]
+    if not (held and us_date and us_date >= BAND_EPOCH and HOLD_BAND > N_TOP):
+        return top
+    rank = {d['ticker']: i + 1 for i, d in enumerate(merged)}
+    keep = [t for t in held if rank.get(t, 10 ** 9) <= HOLD_BAND][:N_TOP]
+    out = list(keep)
+    for d in merged:
+        if len(out) >= N_TOP:
+            break
+        if d['ticker'] not in out:
+            out.append(d['ticker'])
+    if set(out) != set(top):
+        _kept = [t for t in keep if t not in top]
+        print(f'[보유 유지 밴드 {HOLD_BAND}위] {_kept} 유지 → 목표 {out} (순위 top{N_TOP}: {top})')
+    return out
 
 
 def _held_from_ledger():
@@ -1685,7 +1723,7 @@ def cmd_run():
     _DD_LIVE = bool(us_date and us_date < DD_OFF_EPOCH)   # dd_30_25는 7/31 이전 재현에만
     # ★2026-08-03 (오너 재확인 "아무 종목도 보유하지 않았다고 가정한다.
     #   기존 보유 종목 고려해서 뭐 하려고 하지 마라"): 선택은 보유와 무관.
-    target = _select_target(merged, None, us_date)
+    target = _select_target(merged, _held_from_ledger(), us_date)
     meta['target'] = target
     if target != [d['ticker'] for d in merged[:N_TOP]]:
         print(f'[목표≠순위 top{N_TOP}] {target} — 발송 지시 동결분 재생')
