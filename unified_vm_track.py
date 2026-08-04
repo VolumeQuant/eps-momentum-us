@@ -963,13 +963,24 @@ def _git_sha():
         return ''
 
 
+# ★2026-08-04 그리드 앵커 재설정 2026-07-02 → 2026-08-03 (사용자 결정 "8/8 건너뛰고 오늘을
+#   새 앵커로"). 오늘 그리드 밖에서 교체 지시를 내보냈는데(VM_FORCE_REBAL, 규칙 변경으로 구
+#   목록에 급락컷 대상이 들어 있었기 때문) 앵커를 그대로 두면 3일 뒤 8/7 마감분이 또 정기
+#   교체일이 되어 한 주에 두 번 매매하게 된다. 오늘을 기점으로 다시 5거래일 간격을 잡는다.
+#   → 다음 정기 교체 기준일 = 2026-08-10 마감, 발송 2026-08-11(화) 아침.
+#   ⚠️앵커 변경은 과거 is_rebal 판정도 바꾼다. NAV 리플레이(_replay)는 원장에 기록된
+#     실제 발송 블록을 따르므로 과거 성과는 영향 없으나, 표시상 '다음 교체 점검일'만 이동한다.
+GRID_ANCHOR = os.environ.get('VM_GRID_ANCHOR', '2026-08-03')
+
+
 def _us_grid():
-    """리밸 시계의 단일 기준 = US 거래일 그리드(앵커 2026-07-02, R5).
+    """리밸 시계의 단일 기준 = US 거래일 그리드(앵커 GRID_ANCHOR, R5).
     2026-07-10 감사수리: 표시(is_rebal)는 이 그리드, NAV 리플레이는 '로그 실행일 인덱스 i%5'로
     서로 다른 시계였음(지시한 매매와 표시한 누적 성과가 다른 날 리밸) → 전부 이 그리드로 통일."""
     c = sqlite3.connect(os.path.join(HERE, 'eps_momentum_data.db'))
     usd = [x[0] for x in c.execute(
-        "SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date>='2026-07-02' ORDER BY date")]
+        "SELECT DISTINCT date FROM ntm_screening WHERE part2_rank IS NOT NULL AND date>=? ORDER BY date",
+        (GRID_ANCHOR,))]
     c.close()
     return usd
 
@@ -2200,6 +2211,13 @@ def _compose_and_send(merged, meta=None):
     trows = blocks.get(today, [])
     st_today = rp['state'].get(today, {})
     is_rebal = st_today.get('is_rebal', False)
+    # ★2026-08-04 임시 교체일 승격 (VM_FORCE_REBAL=1). 그리드 밖에서 교체 지시를 내보내는
+    #   수동 경로 — 규칙이 바뀌어 기존 목록에 새 규칙이 배제하는 종목이 들어 있을 때만 쓴다.
+    #   (이날 사례: SNDK가 20일 -26.2%로 급락컷 대상인데 구 목록에 남아 있었음)
+    #   ⚠️그리드 앵커는 건드리지 않는다 — 다음 정기 교체일은 그대로 8/7 마감분이다.
+    if os.environ.get('VM_FORCE_REBAL') == '1':
+        is_rebal = True
+        print('[임시 교체일] VM_FORCE_REBAL=1 — 그리드 밖 교체 지시로 발송')
     usd = _us_grid()
     us_latest = trows[0]['us_date'] if trows else None
     # ★2026-08-03 (QC MINOR10): us_date가 그리드에 없으면 마지막 인덱스로 조용히 대체돼
