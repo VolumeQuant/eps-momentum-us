@@ -63,3 +63,8 @@ wf_log.txt
 signal_local.txt
 research/_price_hist_cache.parquet
 research/_tmp_ud_data.json
+
+# QC 렌더 산출물(로컬 검수용, 매 실행 갱신)
+_qc_msg.txt
+# 로컬 러너 로그(집/회사PC bat — 원장 작성자는 GH Actions 단일)
+logs/unified_track.log
