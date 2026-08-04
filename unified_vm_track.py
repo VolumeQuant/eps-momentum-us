@@ -105,7 +105,7 @@ TRAP_REV30 = float(os.environ.get('VM_TRAP_REV30', '2.0'))
 TRAP_EPOCH = '2026-07-31'
 CRASH_CUT_ON = os.environ.get('VM_CRASH_CUT_DISABLE') != '1'
 CRASH_PX20 = float(os.environ.get('VM_CRASH_PX20', '-20.0'))
-CRASH_EPOCH = os.environ.get('VM_CRASH_EPOCH', '2026-08-07')
+CRASH_EPOCH = os.environ.get('VM_CRASH_EPOCH', '2026-08-03')
 # ★na≥6 게이트 (2026-08-01 밤, 사용자 승인): 애널 3~5명 종목은 추정치 계단 노이즈가
 #   6명+의 2배(일간 |ΔNTM|>3% 8.4% vs 3.9%, 6~12명 고원 — 경계=실측 불연속, 성과로 안 고름).
 #   dv $1B 시절엔 na≥3이 non-binding이었으나 $300M 전환으로 하중 기둥이 됨(하중 전이).
@@ -148,9 +148,9 @@ _DD_LIVE = False   # compute()가 당일 us_date로 갱신
 #   그 차이는 '보유 상태를 아는 계좌'에서만 실현 가능한 이득이라 방송에서는 못 받는 이득으로 판단.
 #   개인 계좌 운용 시에는 밴드7이 우월 — VM_HOLD_BAND=7로 복원 가능.
 #   ★에폭 = dd와 동일 2026-08-01 (7/31분은 밴드7로 이미 발송됨 → 그 us_date는 구 기준 동결).
-HOLD_BAND = int(os.environ.get('VM_HOLD_BAND', '5'))
-HOLD_BAND_LEGACY = 7
-BAND_OFF_EPOCH = os.environ.get('VM_BAND_OFF_EPOCH', '2026-08-01')
+# ★2026-08-04: 위 8/3 판단(밴드 폐기)은 철회됨 — 실제 정의는 _select_target 위의
+#   HOLD_BAND=7 블록이다(밴드가 고객 보유가 아니라 시스템 자기 목표에 의존한다는 점을
+#   그때 잘못 봤다). 여기 있던 중복 정의(=5)는 제거. 자세한 경위는 그 블록 주석 참조.
 GATE2_EPOCH = '2026-07-31'
 # 에폭: 이 us_date부터 $300M 적용. 최초 8/3으로 뒀으나(토요일 발송과 월요일 재안내의 모순 방지)
 # 사용자 지시(2026-08-01 "7/31 시장에 대해서도 적용해야지")로 7/31 소급 — 실제 체결은 월요일 밤이므로
@@ -292,7 +292,10 @@ _SEG_KEYS = ('ntm_7d', 'ntm_30d', 'ntm_60d', 'ntm_90d')
 _SEG_LAG = {'ntm_7d': 5, 'ntm_30d': 21, 'ntm_60d': 42, 'ntm_90d': 63}
 
 
-# ★2026-08-04 창 가중치 r=0.85 (감쇠 프로파일). 에폭 2026-08-07 = 8/8 교체 지시부터.
+# ★2026-08-04 창 가중치 r=0.85 (감쇠 프로파일). 에폭 2026-08-03.
+#   ⚠️에폭 8/7→8/3 당김 (사용자 지시): 8/3 지시는 아직 미체결(오늘 밤 미국장 개장 전)이고,
+#     구 규칙 목록에 새 규칙이 배제하는 종목(SNDK 20일 -26.2% = 급락컷 대상)이 들어 있었다.
+#     '발송 지시 소급 금지'는 체결된 지시를 보호하는 원칙이지 잘못된 규칙으로 사게 두라는 뜻이 아니다.
 #   현행 .30/.10/.10/.50은 2026-05 v80.10에서 84조합 그리드서치로 고른 값이고 금융공학적
 #   논거가 없었다. 재구성해보니 **중첩 가중치는 구간 나이별 감쇠 프로파일과 1:1 대응**한다:
 #     구간 실효가중 = 자기를 포함하는 창들의 가중치 합
@@ -312,7 +315,7 @@ _SEG_LAG = {'ntm_7d': 5, 'ntm_30d': 21, 'ntm_60d': 42, 'ntm_90d': 63}
 #   ⚠️변화는 작다 — top5 겹침 4.7/5, 교체당 0.3종목. 성과 급변을 기대할 값이 아니다.
 #   킬스위치 VM_DECAY_R=0.80 (구값 복원) 또는 VM_DECAY_EPOCH='9999-12-31'.
 DECAY_R = float(os.environ.get('VM_DECAY_R', '0.85'))
-DECAY_EPOCH = os.environ.get('VM_DECAY_EPOCH', '2026-08-07')
+DECAY_EPOCH = os.environ.get('VM_DECAY_EPOCH', '2026-08-03')
 _LEGACY_W = {'ntm_7d': .30, 'ntm_30d': .10, 'ntm_60d': .10, 'ntm_90d': .50}
 
 
@@ -1129,7 +1132,7 @@ def _sent_target(us_date):
 #   킬스위치 VM_HOLD_BAND=5 (밴드 없음) 또는 VM_BAND_EPOCH='9999-12-31'.
 #     ⚠️밴드만 끄면 위 이유로 손해 — 급락컷(VM_CRASH_CUT_DISABLE)도 같이 끌 것.
 HOLD_BAND = int(os.environ.get('VM_HOLD_BAND', '7'))
-BAND_EPOCH = os.environ.get('VM_BAND_EPOCH', '2026-08-07')
+BAND_EPOCH = os.environ.get('VM_BAND_EPOCH', '2026-08-03')
 
 
 def _select_target(merged, held=None, us_date=None):
