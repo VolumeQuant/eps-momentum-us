@@ -47,6 +47,21 @@ KR_FS_DIR = _first_existing('KR_FS_DIR', [
     'C:/dev/claude code/quant_py-main/data_cache',
 ])
 LOG = os.path.join(HERE, 'data_cache', 'unified_vm_log.csv')
+# ★2026-08-04 주간 시장 상태 벡터 로그 (관찰 전용 · 매매 개입 0 · 동결 규약의 '관찰 누적').
+#   계기: 2026-02~08 전수 EDA에서 **종목 레벨 변수는 전부 무의미**로 나왔다(주간 교체일 24개·
+#   5거래일 forward·횡단면 Spearman: 19개 변수 중 최대 |t|=1.61[시총], 나머지 |t|<1.4.
+#   현 표본의 IC 표준오차 ±0.04 = |IC|<0.08은 원리적으로 탐지 불가. 조합 탐색은 171쌍 중
+#   최고를 고르면 t≈2.5가 그냥 나오는 다중검정 함정이라 착수하지 않았다).
+#   반면 **시장 상태(레짐) 레벨은 신호처럼 보였다** — 4월(배율 11.9x·top5 반도체 2.5개·직전 목표와
+#   겹침 2.2/5, 계좌 +42.5%) vs 6월(배율 2.1x·반도체 0.2개·겹침 0.8/5, +0.4%·교체 기여 +0.1%p).
+#   ⚠️단 이 관계는 **미검증**이다: 5월이 배율 3.2x인데 +31.1%로 반례이고(그중 절반은 4월 매수분의
+#   결실), 월 단위 n=7로는 상관 자체를 계산할 수 없다. 그래서 '지금 규칙화'가 아니라 '기록만'이다.
+#   목적 = 연말 판정 시 표본을 25주 → 45주로 늘려 학습/검증 분할이 가능하게 만드는 것.
+#   기록 항목: 후보풀 크기 · top5 괴리 평균 · 후보/유니버스 괴리 중앙값 · **배율**(top5/유니버스중앙)
+#             · 유니버스 90분위 · 직전 목표와 겹침 수 · 교체 종목 수.
+#   킬스위치 VM_STATE_VEC_DISABLE=1. UNIFIED_NO_LOG=1이면 원장과 함께 생략(샘플 실행 오염 방지).
+STATE_LOG = os.path.join(HERE, 'data_cache', 'state_vector_log.csv')
+STATE_VEC_ON = os.environ.get('VM_STATE_VEC_DISABLE') != '1'
 # ★2026-07-09 프로덕션 재캘리브레이션 동기화: gap 2.5→1.5(전수검사 기준), top4→top5.
 #   US 프로덕션과 패리티 유지가 이 트랙의 존재 이유(같은 게이트를 양국에). in_top4 컬럼명은 로그 연속성
 #   위해 유지(의미 = topN 멤버십). ⚠️gap 1.5로 낮추며 KR에 US 업종제외 등가 필터 신설(정유 등 —
@@ -1248,6 +1263,51 @@ HOLD_BAND = int(os.environ.get('VM_HOLD_BAND', '7'))
 BAND_EPOCH = os.environ.get('VM_BAND_EPOCH', '2026-08-03')
 
 
+STATE_COLS = ['run_date', 'us_date', 'n_cand', 'n_univ', 'gap_top5', 'gap_med_cand',
+              'gap_med_univ', 'gap_ratio', 'gap_p90_univ', 'overlap_prev', 'turnover', 'target']
+
+
+def _log_state_vector(us_date, merged, target, held):
+    """주간 시장 상태 벡터 append (상단 STATE_LOG 주석 참조). 관찰 전용 — 실패해도 무해.
+    배율 = top5 괴리 평균 / 유니버스 괴리 중앙값. 6월 무테마 구간에서 2.1x까지 떨어졌고
+    4월 메모리 랠리에선 11.9x였다(그 관계 자체는 미검증, 기록해서 표본을 쌓는 게 목적)."""
+    if not (STATE_VEC_ON and us_date) or os.environ.get('UNIFIED_NO_LOG') == '1':
+        return
+    try:
+        med = lambda a: sorted(a)[len(a) // 2] if a else None
+        cand = [abs(d['adj_gap']) for d in merged if d.get('adj_gap') is not None]
+        top = [abs(d['adj_gap']) for d in merged[:N_TOP] if d.get('adj_gap') is not None]
+        c = sqlite3.connect(os.path.join(HERE, 'eps_momentum_data.db'))
+        uni = [abs(v) for (v,) in c.execute(
+            'SELECT adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL', (us_date,))]
+        c.close()
+        uni.sort()
+        gt = (sum(top) / len(top)) if top else None
+        mu = med(uni)
+        row = {'run_date': datetime.now().strftime('%Y-%m-%d'), 'us_date': us_date,
+               'n_cand': len(merged), 'n_univ': len(uni),
+               'gap_top5': round(gt, 2) if gt else '',
+               'gap_med_cand': round(med(cand), 2) if cand else '',
+               'gap_med_univ': round(mu, 2) if mu else '',
+               'gap_ratio': round(gt / mu, 2) if (gt and mu) else '',
+               'gap_p90_univ': round(uni[int(len(uni) * .9)], 2) if uni else '',
+               'overlap_prev': len(set(target) & set(held or [])) if held is not None else '',
+               'turnover': len([t for t in target if t not in (held or [])]) if held is not None else '',
+               'target': ' '.join(target)}
+        new = not os.path.exists(STATE_LOG)
+        os.makedirs(os.path.dirname(STATE_LOG), exist_ok=True)
+        with open(STATE_LOG, 'a', newline='', encoding='utf-8') as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(STATE_COLS)
+            w.writerow([row[k] for k in STATE_COLS])
+        print('[상태벡터] 배율 %s (top5 %s / 유니버스중앙 %s) · 후보 %d · 겹침 %s/%d'
+              % (row['gap_ratio'], row['gap_top5'], row['gap_med_univ'], len(merged),
+                 row['overlap_prev'], N_TOP))
+    except Exception as e:
+        print(f'[상태벡터 기록 실패 → 무시: {e}]')
+
+
 def _select_target(merged, held=None, us_date=None):
     """목표 = 순위 top N + 보유 유지 밴드. 이미 발송된 us_date면 원장 기록 재생(_sent_target).
     held = 시스템 직전 목표(원장 리플레이). 고객 보유가 아니다 — 상단 주석 참조."""
@@ -1847,8 +1907,10 @@ def cmd_run():
     _DD_LIVE = bool(us_date and us_date < DD_OFF_EPOCH)   # dd_30_25는 7/31 이전 재현에만
     # ★2026-08-03 (오너 재확인 "아무 종목도 보유하지 않았다고 가정한다.
     #   기존 보유 종목 고려해서 뭐 하려고 하지 마라"): 선택은 보유와 무관.
-    target = _select_target(merged, _held_from_ledger(), us_date)
+    _held_now = _held_from_ledger()
+    target = _select_target(merged, _held_now, us_date)
     meta['target'] = target
+    _log_state_vector(us_date, merged, target, _held_now)
     if target != [d['ticker'] for d in merged[:N_TOP]]:
         print(f'[목표≠순위 top{N_TOP}] {target} — 발송 지시 동결분 재생')
     print(f'=== 통합 VM top{N_TOP} (US {us_date} / KR {kr_date}, USDKRW {fx:.0f}, '
