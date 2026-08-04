@@ -5688,8 +5688,8 @@
     "industry": "인프라SW"
   },
   "BBUC": {
-    "shortName": "BBUC",
-    "industry": "기타"
+    "shortName": "Brookfield Business Corporation",
+    "industry": "복합기업"
   },
   "FROG": {
     "shortName": "FROG",
@@ -6364,8 +6364,8 @@
     "industry": "기타"
   },
   "OII": {
-    "shortName": "OII",
-    "industry": "기타"
+    "shortName": "Oceaneering International, Inc.",
+    "industry": "석유장비"
   },
   "BSP": {
     "shortName": "BSP",
@@ -6389,6 +6389,26 @@
   },
   "JMKE": {
     "shortName": "JMKE",
+    "industry": "기타"
+  },
+  "BETA": {
+    "shortName": "BETA",
+    "industry": "기타"
+  },
+  "LIF": {
+    "shortName": "LIF",
+    "industry": "기타"
+  },
+  "PAY": {
+    "shortName": "PAY",
+    "industry": "기타"
+  },
+  "PI": {
+    "shortName": "Impinj, Inc.",
+    "industry": "반도체"
+  },
+  "RNG": {
+    "shortName": "RNG",
     "industry": "기타"
   }
 }
