@@ -973,6 +973,108 @@ def _git_sha():
 GRID_ANCHOR = os.environ.get('VM_GRID_ANCHOR', '2026-08-03')
 
 
+# ★2026-08-04 그리드 방식 = 캘린더 주 단위 (구 '5거래일 인덱스'에서 교체).
+#   문제: 인덱스 그리드는 미국 휴장이 낄 때마다 기준일 요일이 +1씩 **영구** 이동한다
+#   (달력이 아니라 거래일 번호로 세기 때문). 앵커 8/3(월) 기준 실측 —
+#     8월 화 → 9/7 노동절 후 수 → 11/26 추수감사절 후 목 → 12/25 후 금 → **토요일 발송**.
+#   NYSE 달력으로 2026-08~2027-09를 돌리면 발송 요일이 화16/수22/목13/금4/**토4**로 흩어지고,
+#   그중 토요일 발송 4회(2027-01-08·01-15·06-25·07-02)는 그날 밤 미국 정규장이 없어
+#   **체결이 2.5일 뒤(월요일 밤)** 로 밀린다 = 지시가 주말 뉴스를 통째로 맞고 묵는다.
+#   (이건 2026-07-31에 이미 겪어 월요일 재안내 크론을 붙였던 그 실패모드다.)
+#   ★채택 근거는 성과가 아니다 — 117일 표본·train↔test 상관 0.27이라 성과로 고를 수 없는 사안이고,
+#     성과 스윕으로 정하면 안 되는 계열이다(창가중 r=0.85와 동일 논리). 근거는 실패모드 제거 하나.
+#   방식: 기준일 = **매주 첫 거래일**(월요일, 휴장이면 화요일…) → 발송 화요일 아침 고정.
+#     같은 구간 실측: 발송 요일 화55/수6, **토요일 0회**(구조적으로 도달 불가).
+#   비용: 60사이클 중 11회가 5거래일 대신 4거래일(평균 4.82일), 14개월 교체 59→61회.
+#     드리프트처럼 누적되지 않고 그 주 한 번으로 자기복원된다.
+#   ⚠️8월은 미국 휴장이 없어 두 방식이 **완전 동일**(8/3·10·17·24·31) = 배포 즉시 매매 변화 0.
+#     첫 차이는 9/7 노동절 주(9/8 기준일 → 9/9 수요일 발송).
+#   킬스위치 VM_GRID_MODE=index (구 5거래일 인덱스 복원).
+GRID_MODE = os.environ.get('VM_GRID_MODE', 'weekly')
+
+
+def _rebal_dates(usd):
+    """교체 기준일 집합. weekly = 매주 첫 거래일 / index = 앵커부터 REBAL 간격(구 방식)."""
+    if GRID_MODE == 'index':
+        return {d for i, d in enumerate(usd) if i % REBAL == 0}
+    seen, out = set(), set()
+    for d in usd:                      # usd는 오름차순 = 그 주 첫 등장이 곧 그 주 첫 거래일
+        k = datetime.strptime(d, '%Y-%m-%d').isocalendar()[:2]
+        if k not in seen:
+            seen.add(k)
+            out.add(d)
+    return out
+
+
+def _nyse_holidays(year):
+    """NYSE 정기 휴장일(규칙 기반, 외부 의존 0).
+    ★왜 패키지를 안 쓰나: pandas_market_calendars는 러너 requirements에 없고, 발송 경로에
+      새 의존성을 넣는 위험(설치 실패 = 신호 결번)이 규칙 구현 비용보다 크다. 규칙은 고정이고
+      로컬 pandas_market_calendars로 2020~2030 전수 대조 검증했다.
+    ⚠️임시 휴장(장례·재해·9·11류)은 예측 불가라 미포함 — 이 함수는 '다음 교체일 표시' 예측에만
+      쓰고, 실제 매매 그리드는 DB의 실거래일을 쓰므로 임시 휴장도 자동 반영된다."""
+    from datetime import date, timedelta
+
+    def nth_wd(month, weekday, n):      # n번째 weekday (n<0이면 마지막)
+        if n > 0:
+            d = date(year, month, 1)
+            d += timedelta(days=(weekday - d.weekday()) % 7)
+            return d + timedelta(days=7 * (n - 1))
+        # 마지막 weekday = 말일에서 뒤로. (구현 버그로 한 주 앞[메모리얼데이 5/24 vs 5/31]을
+        # 집던 것을 2026-08-04 mcal 2020~2030 대조에서 발견·수리)
+        d = (date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)) - timedelta(days=1)
+        return d - timedelta(days=(d.weekday() - weekday) % 7)
+
+    def observed(d, is_newyear=False):
+        # 토요일 휴일은 직전 금요일로 앞당김. 단 1월 1일이 토요일이면 NYSE는 앞당기지 않는다.
+        if d.weekday() == 5:
+            return None if is_newyear else d - timedelta(days=1)
+        if d.weekday() == 6:
+            return d + timedelta(days=1)
+        return d
+
+    # 부활절(Anonymous Gregorian) → 성금요일
+    a, b, c = year % 19, year // 100, year % 100
+    e = ((19 * a + b - b // 4 - ((b - (b + 8) // 25 + 1) // 3) + 15) % 30)
+    f = (32 + 2 * (b % 4) + 2 * (c // 4) - e - (c % 4)) % 7
+    g = a + 11 * e + 22 * f
+    easter = date(year, 3 if (e + f - 7 * (g // 451) + 114) // 31 == 3 else 4,
+                  ((e + f - 7 * (g // 451) + 114) % 31) + 1)
+
+    out = {observed(date(year, 1, 1), True), nth_wd(1, 0, 3), nth_wd(2, 0, 3),
+           easter - timedelta(days=2), nth_wd(5, 0, -1),
+           observed(date(year, 7, 4)), nth_wd(9, 0, 1), nth_wd(11, 3, 4),
+           observed(date(year, 12, 25))}
+    if year >= 2022:                    # 준틴스: NYSE 첫 휴장 2022-06-20 (2021 시행 전 오포함 수리)
+        out.add(observed(date(year, 6, 19)))
+    return {d for d in out if d is not None}
+
+
+def _next_rebal_date(us_latest):
+    """다음 교체 기준일(미국 마감). weekly = 다음 주 첫 거래일(주말·휴장 반영),
+    index = 남은 거래일 수만큼 진행. 실패 시 None(호출부가 근사 문구로 폴백)."""
+    from datetime import timedelta
+    try:
+        cur = datetime.strptime(us_latest, '%Y-%m-%d').date()
+    except Exception:
+        return None
+    hol = _nyse_holidays(cur.year) | _nyse_holidays(cur.year + 1)
+    is_open = lambda d: d.weekday() < 5 and d not in hol
+    if GRID_MODE == 'index':
+        usd = _us_grid()
+        gi = usd.index(us_latest) if us_latest in usd else len(usd) - 1
+        left, d = REBAL - (gi % REBAL), cur
+        while left > 0:
+            d += timedelta(days=1)
+            if is_open(d):
+                left -= 1
+        return d
+    d = cur + timedelta(days=(7 - cur.weekday()) or 7)   # 다음 주 월요일
+    while not is_open(d):                                 # 휴장이면 그 주 다음 거래일
+        d += timedelta(days=1)
+    return d
+
+
 def _us_grid():
     """리밸 시계의 단일 기준 = US 거래일 그리드(앵커 GRID_ANCHOR, R5).
     2026-07-10 감사수리: 표시(is_rebal)는 이 그리드, NAV 리플레이는 '로그 실행일 인덱스 i%5'로
@@ -1006,6 +1108,7 @@ def _replay(rows):
     주식비중으로 반영 — 방어일 수익 = ret×weight(0.0=현금). 지시(전량 현금)와 NAV 정합."""
     days, blocks = _ledger_blocks(rows)
     usd = _us_grid()
+    _RSET = _rebal_dates(usd)          # 교체 기준일 집합 (weekly=매주 첫 거래일 / index=구 방식)
     # 날짜별 국면 주식비중 (실패 시 전부 1.0 = 기존과 동일)
     ew = {}
     try:
@@ -1055,8 +1158,7 @@ def _replay(rows):
         if pend is not None and pend[0] <= i:   # 지연 체결 (==가 아니라 <=: 신호일과 체결일 사이에
             hold = pend[1]; pend = None         # 재발송일이 끼면 그 날이 인덱스를 소비해 ==를 영영
                                                 # 못 만나 교체가 장부에 반영 안 되던 잠복 버그 수리)
-        gi = usd.index(ud) if ud in usd else None
-        is_rb = (i == 0) or (gi is not None and gi % REBAL == 0)  # 첫 로그일 = 페이퍼 개시(초기 편입)
+        is_rb = (i == 0) or (ud in _RSET)   # 첫 로그일 = 페이퍼 개시(초기 편입)
         held_before = list(hold)
         if is_rb:
             _new = [r['ticker'] for r in day if r.get('in_top4') == '1']
@@ -2326,7 +2428,15 @@ def _compose_and_send(merged, meta=None):
         if _mem:
             m1.append('아래 목표 종목 중 해당: ' + ', '.join(_display_name(t) for t in _mem))
         m1 += ['매매는 평소대로 신호를 따르시고,', '이 종목들은 변동성이 클 수 있다는', '점만 감안하세요.', '']
-    nxt = _next_msg_day(us_latest, next_in) if us_latest else None
+    # ★2026-08-04 다음 교체일 = 미국 휴장 반영 계산(_next_rebal_date). 구 _next_msg_day는
+    #   주말만 건너뛰어 노동절·추수감사절 주에 날짜가 틀렸다(사용자 지적 "휴장일 고려해라").
+    #   기준일(미국 마감) + 1일 = KST 아침 발송. 실패 시에만 구 근사로 폴백.
+    _base = _next_rebal_date(us_latest) if us_latest else None
+    if _base is not None:
+        from datetime import timedelta as _td
+        nxt = _base + _td(days=1)
+    else:
+        nxt = _next_msg_day(us_latest, next_in) if us_latest else None
     nxt_s = f"{nxt.month}/{nxt.day}({'월화수목금토일'[nxt.weekday()]}) 아침" if nxt else f"{next_in}거래일 후"
     if regime == 'defense':
         # ★2026-08-03 B6 수리(QC): 교체일 분기는 8/1에 목표상태 방식으로 고쳤으나
