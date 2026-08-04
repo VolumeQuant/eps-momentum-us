@@ -1910,6 +1910,8 @@ def cmd_run():
                 for ln in lines[1:]:
                     cells = next(csv.reader([ln]))
                     w.writerow((cells + [''] * len(COLS))[:len(COLS)])
+    # ★보유 스냅샷은 반드시 append 前에 — 쓰고 나서 읽으면 자기 블록을 보게 된다.
+    _held_prev = _held_from_ledger() or []
     new = not os.path.exists(LOG)
     with open(LOG, 'a', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
@@ -1934,6 +1936,38 @@ def cmd_run():
                         round(d['px_chg20'], 2) if d.get('px_chg20') is not None else '',
                         d['crash5'] if d.get('crash5') is not None else '',
                         d.get('na') or '', d.get('up30') if d.get('up30') is not None else ''])
+        # ★2026-08-04 보유 종목 가격 보존 행 (표시 성과 결함 수리).
+        #   버그: 원장은 top20만 기록했다. 보유 종목이 게이트·순위로 top20 밖으로 밀리면
+        #   그 종목 가격이 원장에서 사라지고, _replay가 수익 평균에서 **조용히 누락**한다
+        #   (구멍이 난 게 아니라 분모에서 빠져 다른 종목 수익으로 대체됨).
+        #   발각: 8/4 정정 발송 때 급락컷이 SNDK를 top20 밖으로 밀어내자 표시 누적이
+        #   −15.5% → −17.65%로 2.1%p 점프. 매매 신호·목표는 무관, 표시 성과만 원장 커버리지에 의존.
+        #   수리: 직전 보유 중 top20에 없는 종목의 가격을 DB에서 읽어 행으로 남긴다.
+        #   rank/in_top4 등은 공란 — _ledger_blocks는 rank=='1'로 블록을 자르고 _replay·_sent_target은
+        #   in_top4=='1'만 보므로 블록 경계·목표 판정에 영향 0, 오직 px 사전에만 기여한다.
+        _top_tk = {d['ticker'] for d in merged[:20]}
+        _extra = [t for t in (_held_prev or []) if t not in _top_tk]
+        if _extra:
+            _pr = {}
+            try:
+                _c = sqlite3.connect(os.path.join(HERE, 'eps_momentum_data.db'))
+                _q = ','.join('?' * len(_extra))
+                _pr = dict(_c.execute(
+                    'SELECT ticker, price FROM ntm_screening WHERE date=? AND price IS NOT NULL '
+                    'AND ticker IN (%s)' % _q, [us_date] + _extra))
+                _c.close()
+            except Exception as _e:
+                print(f'[보유가격 보존 실패 → 생략: {_e}]')
+            for _t in _extra:
+                if _pr.get(_t) is None:
+                    print(f'[보유가격 없음] {_t} — 해당일 DB에 가격 없음(KR 레거시 등), 행 생략')
+                    continue
+                _row = [''] * len(COLS)
+                _row[0], _row[1], _row[2] = run_date, us_date, kr_date
+                _row[4], _row[5], _row[10] = 'US', _t, _pr[_t]
+                _row[22] = VM_STRATEGY + ('/us' if VM_US_ONLY else '') + '/held_px'
+                w.writerow(_row)
+            print(f'[보유가격 보존] {[t for t in _extra if _pr.get(t) is not None]}')
     print(f'로그 append: {LOG}')
     return merged, meta
 

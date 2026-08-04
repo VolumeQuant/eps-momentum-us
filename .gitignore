@@ -68,3 +68,5 @@ research/_tmp_ud_data.json
 _qc_msg.txt
 # 로컬 러너 로그(집/회사PC bat — 원장 작성자는 GH Actions 단일)
 logs/unified_track.log
+# 원장 백업(수리 시 생성, 로컬 보관)
+data_cache/unified_vm_log.csv.bak_*
