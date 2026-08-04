@@ -103,6 +103,9 @@ TRAP_REV30 = float(os.environ.get('VM_TRAP_REV30', '2.0'))
 # top5(발송된 지시)는 소급 전후 동일(AMKR·CLS·MU·STX·SNDK)이라 거버넌스 ⓐ의 보호 대상
 # (지시 모순)이 침해되지 않고, 대기조(정보)만 재편됨. 재발송으로 대기조도 당일 정정 완료.
 TRAP_EPOCH = '2026-07-31'
+CRASH_CUT_ON = os.environ.get('VM_CRASH_CUT_DISABLE') != '1'
+CRASH_PX20 = float(os.environ.get('VM_CRASH_PX20', '-20.0'))
+CRASH_EPOCH = os.environ.get('VM_CRASH_EPOCH', '2026-08-07')
 # ★na≥6 게이트 (2026-08-01 밤, 사용자 승인): 애널 3~5명 종목은 추정치 계단 노이즈가
 #   6명+의 2배(일간 |ΔNTM|>3% 8.4% vs 3.9%, 6~12명 고원 — 경계=실측 불연속, 성과로 안 고름).
 #   dv $1B 시절엔 na≥3이 non-binding이었으나 $300M 전환으로 하중 기둥이 됨(하중 전이).
@@ -696,6 +699,27 @@ def us_candidates():
         # 가치함정 게이트 (상단 TRAP_* 주석 참조): 괴리가 '주가 하락만'으로 만들어진 후보 컷.
         if (_GAP_MODE and TRAP_GATE_ON and last >= TRAP_EPOCH
                 and _seg(nc, n30) <= TRAP_REV30 and _p20 is not None and p < _p20):
+            continue
+        # ★2026-08-04 급락 컷 (에폭 CRASH_EPOCH = 8/8 지시부터). 20일 주가 -20% 이하 제외.
+        #   계기: 사용자 "EPS 추정치는 min_seg에 겨우 안 걸릴 정도로 부진한데 가격이 급락한 경우가
+        #   가장 위험하다" → 정조준 측정. ★가설 자체는 기각됐다: 그 코호트의 편입 5일 뒤 성과가
+        #   +4.2%/승률 71%로 전체 평균(+3.3%)보다 오히려 좋다. '떨어지는 칼날 회피'는 틀린 처방이고
+        #   실제로 EPS 쪽 가중을 올리면(가격계수 1.0→0.5) MDD가 -12.4→-16.9%로 악화된다.
+        #   ★그럼에도 이 컷이 유효한 이유는 다른 데 있다: 급락주가 5자리 중 일부를 차지하면
+        #   그다음 순위 종목이 못 들어오는데, 그 대체 종목들이 더 잘했다. 즉 '나빠서 빼는' 게
+        #   아니라 '더 나은 게 밀려서' 빼는 것 — 기회비용 문제다.
+        #   실측(r0.85 체인): Calmar 16.24→21.56 · MDD -12.3→-11.1% · LOWO 14.15→18.77
+        #     워크포워드 4분할 전부 압도(51/37/42/45 vs 25/13/20/15)
+        #     임계 반응 = 고원(-20/-22/-25/-30 전부 21.4~21.9), -12~-16%는 오히려 해로움(12.7~13.4)
+        #       → -10~-20% 구간은 승률 64%의 좋은 사냥터라 자르면 안 되고 -20% 아래만 잘라야 함
+        #     제거 24픽이 15종목에 분산(BKNG 4·INTU 4·SMCI/ORCL/SNDK 2·나머지 1회씩),
+        #     LOWO 4셀 전부 +4 이상 개선 = 특정 종목 착시 아님
+        #   ⚠️30일 고점 -25%(구 dd_30_25)는 같은 조건에서 Calmar 14.20으로 **현행보다 나쁨** —
+        #     고점에서 완만히 흘러내린 종목까지 잘라 좋은 구간(-10~-20%)을 함께 죽인다.
+        #   ⚠️min_seg 조건 병용은 결과 동일(소수점까지) → 불필요해서 넣지 않음.
+        #   킬스위치 VM_CRASH_CUT_DISABLE=1 / 임계 VM_CRASH_PX20.
+        if (_GAP_MODE and CRASH_CUT_ON and last >= CRASH_EPOCH
+                and _p20 is not None and (p / _p20 - 1) * 100 <= CRASH_PX20):
             continue
         out.append(dict(ticker=tk, market='US', rev90=_seg(nc, n90), fwd_per=p / nc,
                         gap=g, dv_musd=dv, price=p, rev30=_seg(nc, n30),
