@@ -257,10 +257,146 @@ VM_US_ONLY = os.environ.get('VM_US_ONLY', '0') == '1'
 _GAP_MODE = (VM_STRATEGY == 'gap')
 
 
+# ★2026-08-04 비중첩 구간 괴리율 (에폭 2026-08-07 = 다음 교체 기준일부터).
+#   사용자 지적: "90일과 현재, 60일과 현재… 이렇게 전부 현재와 비교하는 건 같은 데이터를
+#   중첩해서 쓰는 것 아니냐. 구간별로 딱 나눠서 비교해야지."  → 정확한 지적이다.
+#   기존 fwd_pe_chg는 네 창(7/30/60/90일)을 **전부 현재와** 비교해 가중평균한다. 그래서
+#   80일 전 사건 하나가 네 창에 동시에 들어가 **한 번 일어난 일이 네 번 계상**된다.
+#   부작용 실측: 일간 점수 변동 중앙값 1.76%p(비중첩 0.78%p), 하루 5%p 이상 급변 12.5%
+#   (비중첩 5.4%) — 사건이 창을 빠져나갈 때 충격도 네 배(7/23 하이닉스 순위 급락이 그 사례).
+#   ★내부 정합성: 이 시스템의 다른 계산은 이미 비중첩이다 — min_seg(전망 꺾임 판정)도
+#   메시지 추세 아이콘도 현재↔7일, 7일↔30일, 30일↔60일, 60일↔90일로 쪼갠다. 괴리율만 중첩이었다.
+#   ★채택 근거는 성과가 아니다. in-sample Calmar 12.3→17.0이 나오지만 그 우위는 구간 등가중이
+#   만드는 '하루당 최근 4배 가중'에서 오는 것이지 구조에서 오는 게 아니며(사용자 지적),
+#   같은 117일 표본의 성과 비교는 이날 워크포워드에서 예측력 없음이 확인됐다(상관 0.27).
+#   채택 사유는 오직 ①중복 계상 제거 ②시스템 내부 정합성 두 가지다.
+#   구간: 90→60, 60→30, 30→7, 7→현재. 각 구간의 선행PER 변화율을 등가중 평균.
+#   보조 승수(dir_factor·eps_quality)는 DB의 adj_gap에 이미 반영돼 있으므로, 여기서는
+#   fwd_pe_chg 부분만 재계산해 같은 비율로 스케일한다(승수 효과 보존).
+#   킬스위치 VM_SEG_GAP_DISABLE=1 → 기존 중첩 adj_gap 사용.
+SEG_GAP_EPOCH = os.environ.get('VM_SEG_GAP_EPOCH', '2026-08-07')
+SEG_GAP_ON = os.environ.get('VM_SEG_GAP_DISABLE') != '1'
+_SEG_KEYS = ('ntm_7d', 'ntm_30d', 'ntm_60d', 'ntm_90d')
+_SEG_LAG = {'ntm_7d': 5, 'ntm_30d': 21, 'ntm_60d': 42, 'ntm_90d': 63}
+
+
+def _seg_gap_map(conn, date):
+    """비중첩 구간 괴리율 {ticker: 값}. 낮을수록 좋음(기존 adj_gap과 부호 규약 동일).
+
+    각 구간 k의 선행PER 변화율 = (PE_b - PE_a)/PE_a x 100,
+    구간 = (90일전→60일전), (60일전→30일전), (30일전→7일전), (7일전→현재).
+    네 구간 등가중 평균. 계산 불가 구간은 제외하고 남은 구간으로 평균.
+    """
+    dates = [r[0] for r in conn.execute(
+        'SELECT DISTINCT date FROM ntm_screening WHERE date<=? ORDER BY date', (date,))]
+    di = {d: i for i, d in enumerate(dates)}
+    if date not in di:
+        return {}
+    i_now = di[date]
+    px, ntm = {}, {}
+    for d, tk, p, nc, n7, n30, n60, n90 in conn.execute(
+            'SELECT date,ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d '
+            'FROM ntm_screening WHERE price IS NOT NULL'):
+        px.setdefault(tk, {})[d] = p
+        ntm.setdefault(tk, {})[d] = (nc, n7, n30, n60, n90)
+    out = {}
+    for tk, v in ntm.items():
+        cur = v.get(date)
+        if not cur or not cur[0] or cur[0] <= 0:
+            continue
+        p_now = px.get(tk, {}).get(date)
+        if not p_now:
+            continue
+
+        def pe(idx):
+            """idx=None → 현재. 아니면 _SEG_KEYS[idx] 시점."""
+            if idx is None:
+                return p_now / cur[0]
+            k = _SEG_KEYS[idx]
+            j = i_now - _SEG_LAG[k]
+            if j < 0:
+                return None
+            p_then = px.get(tk, {}).get(dates[j])
+            e_then = cur[idx + 1]
+            if not p_then or not e_then or e_then <= 0:
+                return None
+            return p_then / e_then
+
+        s = n = 0.0
+        for a, b in ((3, 2), (2, 1), (1, 0), (0, None)):   # 90→60, 60→30, 30→7, 7→현재
+            pa, pb = pe(a), pe(b)
+            if pa is None or pb is None or pa <= 0:
+                continue
+            s += (pb - pa) / pa * 100.0
+            n += 1
+        if n:
+            out[tk] = s / n
+    return out
+
+
+def _overlap_fpc_map(conn, date):
+    """기존(중첩) fwd_pe_chg 재계산 — 보조 승수 비율 M = adj_gap/fwd_pe_chg 산출용.
+    가중치는 v80.10 운영값 7d .30 / 30d .10 / 60d .10 / 90d .50."""
+    W = {'ntm_7d': .30, 'ntm_30d': .10, 'ntm_60d': .10, 'ntm_90d': .50}
+    dates = [r[0] for r in conn.execute(
+        'SELECT DISTINCT date FROM ntm_screening WHERE date<=? ORDER BY date', (date,))]
+    di = {d: i for i, d in enumerate(dates)}
+    if date not in di:
+        return {}
+    i_now = di[date]
+    px, ntm = {}, {}
+    for d, tk, p, nc, n7, n30, n60, n90 in conn.execute(
+            'SELECT date,ticker,price,ntm_current,ntm_7d,ntm_30d,ntm_60d,ntm_90d '
+            'FROM ntm_screening WHERE price IS NOT NULL'):
+        px.setdefault(tk, {})[d] = p
+        ntm.setdefault(tk, {})[d] = (nc, n7, n30, n60, n90)
+    out = {}
+    for tk, v in ntm.items():
+        cur = v.get(date)
+        p_now = px.get(tk, {}).get(date)
+        if not cur or not cur[0] or cur[0] <= 0 or not p_now:
+            continue
+        pe_now = p_now / cur[0]
+        s = w = 0.0
+        for idx, k in enumerate(_SEG_KEYS):
+            j = i_now - _SEG_LAG[k]
+            if j < 0:
+                continue
+            p_then, e_then = px.get(tk, {}).get(dates[j]), cur[idx + 1]
+            if not p_then or not e_then or e_then <= 0:
+                continue
+            pe_then = p_then / e_then
+            if pe_then <= 0:
+                continue
+            s += W[k] * (pe_now - pe_then) / pe_then * 100.0
+            w += W[k]
+        if w:
+            out[tk] = s / w
+    return out
+
+
 def _adj_gap_map(conn, date):
-    """해당 일자 {ticker: adj_gap}. adj_gap = fwd_pe_chg×(1+dir)×eps_quality (낮을수록 좋음)."""
-    return {tk: float(v) for tk, v in conn.execute(
+    """해당 일자 {ticker: adj_gap}. adj_gap = fwd_pe_chg×(1+dir)×eps_quality (낮을수록 좋음).
+    ★date >= SEG_GAP_EPOCH면 fwd_pe_chg 부분을 비중첩 구간 방식으로 교체(위 주석 참조)."""
+    base = {tk: float(v) for tk, v in conn.execute(
         'SELECT ticker, adj_gap FROM ntm_screening WHERE date=? AND adj_gap IS NOT NULL', (date,))}
+    if not (SEG_GAP_ON and date >= SEG_GAP_EPOCH):
+        return base
+    seg = _seg_gap_map(conn, date)
+    if not seg:
+        print('[경고] 비중첩 구간 괴리율 계산 실패 → 기존 중첩 방식 사용')
+        return base
+    # 보조 승수 보존: 기존 adj_gap 대비 fwd_pe_chg 비율만큼 스케일.
+    #   adj_gap = fwd_pe_chg x M  →  M = adj_gap / fwd_pe_chg. 새 값 = seg x M.
+    #   fwd_pe_chg가 DB에 없거나 0이면 승수 없이 seg 그대로(보수적).
+    #   ⚠️fwd_pe_chg는 DB에 저장되지 않으므로(컬럼 없음) 기존 가중치로 직접 재계산해 비율을 얻는다.
+    fpc = _overlap_fpc_map(conn, date)
+    out = {}
+    for tk, sv in seg.items():
+        f, a = fpc.get(tk), base.get(tk)
+        out[tk] = sv * (a / f) if (f and a is not None and abs(f) > 1e-9) else sv
+    print('[괴리율] 비중첩 구간 방식 적용 (%s) — %d종목' % (date, len(out)))
+    return out
 
 
 def _score(d):
