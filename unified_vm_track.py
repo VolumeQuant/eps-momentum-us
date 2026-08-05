@@ -121,6 +121,13 @@ TRAP_EPOCH = '2026-07-31'
 CRASH_CUT_ON = os.environ.get('VM_CRASH_CUT_DISABLE') != '1'
 CRASH_PX20 = float(os.environ.get('VM_CRASH_PX20', '-20.0'))
 CRASH_EPOCH = os.environ.get('VM_CRASH_EPOCH', '2026-08-03')
+# ★용어 주의(2026-08-05 사용자 혼동 교정): 아래 '확인일'은 **컷에 걸릴 때**만 적용된다.
+#   컷 걸림(목록에서 빠짐) = 2일 연속 −20% 이하 필요 / 컷 풀림(목록 복귀) = −20% 위면 즉시.
+#   구 주석이 이걸 '진입/해제'로 써서 "종목이 목록에 진입"으로 읽혔다. 상세 근거는
+#   us_candidates 급락컷 블록 주석 참조.
+# 에폭 = 다음 정기 교체 기준일(2026-08-10 마감 → 8/11 아침 발송)부터. 거버넌스ⓐ: 에폭은 미래로만.
+CRASH_CONFIRM = int(os.environ.get('VM_CRASH_CONFIRM', '2'))
+CRASH_CONFIRM_EPOCH = os.environ.get('VM_CRASH_CONFIRM_EPOCH', '2026-08-10')
 # ★na≥6 게이트 (2026-08-01 밤, 사용자 승인): 애널 3~5명 종목은 추정치 계단 노이즈가
 #   6명+의 2배(일간 |ΔNTM|>3% 8.4% vs 3.9%, 6~12명 고원 — 경계=실측 불연속, 성과로 안 고름).
 #   dv $1B 시절엔 na≥3이 non-binding이었으나 $300M 전환으로 하중 기둥이 됨(하중 전이).
@@ -643,6 +650,14 @@ def us_candidates():
                 HI30[_t] = _p
     PX20 = {t: p for t, p in conn.execute(
         'SELECT ticker, price FROM ntm_screening WHERE date=? AND price IS NOT NULL', (_d20,))} if _d20 else {}
+    # ★2026-08-05 급락컷 진입 확인 2일용 — 어제 기준 20일 변화율을 재려면 어제 종가(_d1)와
+    #   21거래일 전 종가(_d21)가 필요하다. 없으면 빈 dict → 확인 조건이 자동 무효(=현행 동작).
+    _d1 = _hd[1] if len(_hd) > 1 else None
+    _d21 = _hd[21] if len(_hd) > 21 else None
+    PX1 = {t: p for t, p in conn.execute(
+        'SELECT ticker, price FROM ntm_screening WHERE date=? AND price IS NOT NULL', (_d1,))} if _d1 else {}
+    PX21 = {t: p for t, p in conn.execute(
+        'SELECT ticker, price FROM ntm_screening WHERE date=? AND price IS NOT NULL', (_d21,))} if _d21 else {}
     PX5, NC5 = {}, {}
     if _d5:
         for _t, _p, _n in conn.execute('SELECT ticker, price, ntm_current FROM ntm_screening WHERE date=?', (_d5,)):
@@ -738,9 +753,41 @@ def us_candidates():
         #   ★★보유 밴드와의 의존관계: 이 컷을 끄면 밴드7도 함께 꺼야 한다(밴드 단독은 Calmar
 #     16.24→15.61로 악화). 상단 HOLD_BAND 주석 참조.
 #   킬스위치 VM_CRASH_CUT_DISABLE=1 / 임계 VM_CRASH_PX20.
+        # ★2026-08-05 컷 걸림에만 확인 2일 (에폭 CRASH_CONFIRM_EPOCH). 컷 풀림은 즉시.
+        #   용어: '컷 걸림' = 이 종목이 후보에서 빠짐 / '컷 풀림' = 후보로 복귀.
+        #   (구 표현 '진입/해제'는 "종목이 목록에 진입"으로 읽혀 혼동을 낳았다 — 사용자 지적.)
+        #   예) RDDT: 7/31 −27.7%(1일째, 안 걸림) → 8/3 −23.0%(2일 연속, 컷) → 8/4 −19.8%(즉시 복귀).
+        #   계기: 8/5 사용자 지적 "급락컷 해제 약점 파고들어서 고쳐". 실측 결과 내가 지목한
+        #   약점(경계 왕복)은 픽에 거의 영향 없었고(유니버스 왕복 770회지만 교체 23회당 픽
+        #   왕복 3.2건), 처방으로 꺼낸 이력현상·쿨다운은 전부 악화였다.
+        #   유일한 개선 = **상태 추정을 관측 1개에서 2개로**. 현행은 하루 종가 하나로
+        #   '급락 중'을 판정해 5.5개월간 168회 발동했는데, 그중 92회가 하루만 찍고 회복한
+        #   종목이었다(확인 2일 적용 시 112회, 3일 76회).
+        #   ★진입/해제 확인일 4×3 그리드 실측(위상평균·R5·밴드7·10bp):
+        #     진입1일 122.5/116.4/113.2 · 진입2일 128.4/126.2/123.2
+        #     진입3일 133.9/132.7/129.0 · 진입4일 129.9/129.8/123.4  (해제 1/2/3일 순)
+        #     → 세로(진입)는 2~3일 고원, **가로(해제)는 4개 행 전부 1일이 최고·단조 감소**.
+        #     임계 이력현상(해제 −10/−15%)도 +109.5/+107.0으로 열위 = 두 방식 모두 같은 결론.
+        #   ★비대칭의 근거: 진입 오판은 '좋은 후보를 버리는' 비용, 해제 지연은 '회복한 종목을
+        #     계속 배제하는' 비용. 급락컷 채택 근거 자체가 기회비용이었으므로 해제를 늦추면
+        #     그 근거를 반대편에서 위반한다. 양쪽 다 "빨리 풀어주는 게 이득"으로 일치.
+        #   ★2일 채택(3일 아님): +5.5%p 차이는 표본 5.5개월·교체 23회에서 구분 불가.
+        #     2일 = 고원 왼쪽 어깨 + 현행에서 한 칸 이동 + 컷 발동 112회로 보호가 더 살아있음.
+        #   검증: 위상 짝비교 4승1패 · LOWO 4/4 전승(−SNDK +6.5 −MU +5.6 −CLS +6.4 −AMKR +5.2)
+        #         · 확인일 2~5일 고원 · 임계 −18~−25% 고원 · MDD −8.9→−9.2%로 유지.
+        #   ⚠️표본 5.5개월 in-sample. train↔test 상관 0.27 환경이라 크기는 못 믿는다.
+        #   킬스위치 VM_CRASH_CONFIRM=1 (현행 = 당일 1회 판정으로 복귀).
         if (_GAP_MODE and CRASH_CUT_ON and last >= CRASH_EPOCH
                 and _p20 is not None and (p / _p20 - 1) * 100 <= CRASH_PX20):
-            continue
+            _need2 = CRASH_CONFIRM >= 2 and last >= CRASH_CONFIRM_EPOCH
+            _yday_bad = True
+            if _need2:
+                _y0, _y20 = PX1.get(tk), PX21.get(tk)
+                # 어제 데이터가 없으면 확인 불가 → 컷하지 않음(missing=pass 규약 준용)
+                _yday_bad = (_y0 is not None and _y20 not in (None, 0)
+                             and (_y0 / _y20 - 1) * 100 <= CRASH_PX20)
+            if _yday_bad:
+                continue
         out.append(dict(ticker=tk, market='US', rev90=_seg(nc, n90), fwd_per=p / nc,
                         gap=g, dv_musd=dv, price=p, rev30=_seg(nc, n30),
                         adj_gap=AGM.get(tk),
@@ -2590,6 +2637,8 @@ def _compose_and_send(merged, meta=None):
         # ★2026-08-03 (수직 리듬 R4): 구현은 제목 다음 줄에 '(각 20%씩)' 괄호만 있는 줄을
         #   뒀는데, 괄호 보조문이 제목 바로 아래 오면 제목의 둘째 줄처럼 읽혀 목록과 제목의
         #   경계가 사라진다 → 수치 조건은 제목 줄에 합치고, 그 아래는 곧바로 목록만 온다.
+        # ★2026-08-05: 교체일임을 명시(비교체일 '오늘의 순위'와 대비 — 라벨 수리 짝).
+        m1.append('🔁 <b>오늘은 교체 지시일</b>입니다 (5거래일마다)')
         m1.append(f'<b>오늘 할 일</b> — 아래 {_n}종목, 각 {_wpct:.0f}%씩')
         for _i, _d in enumerate(top5, 1):
             m1.append(f'  {_i}. {_name_tk(_d["ticker"])}')
@@ -2623,12 +2672,23 @@ def _compose_and_send(merged, meta=None):
         # ★2026-08-03 F6 보강(사용자 지시 "평일에도 스탑 안내 남겨"): 오늘 처음 받은 사람은
         #   평일에도 이 목록을 보고 매수한다 — 그 사람에게 스탑 규칙이 닿아야 한다.
         # R1: '할 일 없음 + 다음 점검일'은 한 덩어리(같은 대답), 아래 목록 설명은 다른 덩어리.
+        # ★2026-08-05 라벨 수리 (사용자 지적 "어제 산 JBL·TXN이 왜 사라졌냐").
+        #   구 문구 "아래는 현재 목표 N종목입니다"가 **매일 재계산된 순위**에 붙어 있었다.
+        #   교체일 사이에도 순위는 매일 움직이므로(실측: 하루 뒤 top5 잔존 3.14/5,
+        #   5.5개월 원장 22일 중 13일 목록 변경) 어제 지시와 다른 목록이 '현재 목표'로 표시돼
+        #   보유자가 팔아야 하나 혼란에 빠진다(8/5 실사고: 8/4 지시 CLS·STX·KNX·JBL·TXN →
+        #   8/5 표시 CLS·AMKR·STX·RDDT·KNX. AMKR·RDDT가 급락컷에서 해제되며 순위 복귀).
+        #   ★사용자 결정: 순위를 감추지 말고(매일 보고 싶다) **라벨만 정직하게** —
+        #   비교체일 = '오늘의 순위'(참고), 교체일 = '오늘 할 일'(지시). 정보 손실 0.
         m1 += ['<b>오늘 할 일</b> — 없음',
                f'다음 교체 점검 <b>{nxt_s}</b>',
-               '그때까지는 그대로 두시면 됩니다.',
+               '그때까지는 <b>보유 종목을 그대로</b> 두세요.',
                '',
-               f'아래는 현재 목표 {_n}종목입니다.',
-               f'새로 사실 때는 각 {_wpct:.0f}%씩,',
+               f'<b>오늘의 순위</b> {_n}종목 (참고용)',
+               '교체일이 아니라 매매 지시가 아닙니다.',
+               '순위는 매일 바뀌며, 실제 교체는',
+               f'{nxt_s}에 이 순위로 다시 정합니다.',
+               f'오늘 처음 시작하신다면 각 {_wpct:.0f}%씩,',
                '<b>트레일링 스탑 15%</b>를 함께 걸어두세요.']
     # ★2026-08-03 간결화 (사용자 "메시지가 너무 길다"): 서비스 소개 13줄 + 용어 4줄 →
     #   소개 4줄. 규칙(무엇을 고르나·언제 교체하나)과 정직 고지(모의·비용 전)만 남기고
