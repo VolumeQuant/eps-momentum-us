@@ -19,7 +19,9 @@ permissions:
 
 env:
   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+  # ★2026-08-06 사용자 지시: 채널 발송 전면 중단 — TELEGRAM_CHAT_ID 제거(개인봇만).
+  #   daily_runner는 os.environ.get이라 부재 시 채널 경로 스킵(안전). 복원 = 아래 줄 복구.
+  # TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
   TELEGRAM_PRIVATE_ID: ${{ secrets.TELEGRAM_PRIVATE_ID }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
   FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
