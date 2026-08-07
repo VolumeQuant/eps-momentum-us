@@ -6408,15 +6408,15 @@
     "industry": "반도체"
   },
   "RNG": {
-    "shortName": "RNG",
-    "industry": "기타"
+    "shortName": "Ringcentral, Inc.",
+    "industry": "응용SW"
   },
   "CAI": {
     "shortName": "CAI",
     "industry": "기타"
   },
   "WPP": {
-    "shortName": "WPP",
-    "industry": "기타"
+    "shortName": "WPP plc",
+    "industry": "광고"
   }
 }
