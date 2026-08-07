@@ -6418,5 +6418,9 @@
   "WPP": {
     "shortName": "WPP plc",
     "industry": "광고"
+  },
+  "ACAD": {
+    "shortName": "ACAD",
+    "industry": "기타"
   }
 }
