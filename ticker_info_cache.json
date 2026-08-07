@@ -4964,8 +4964,8 @@
     "industry": "자산운용"
   },
   "VIAV": {
-    "shortName": "VIAV",
-    "industry": "기타"
+    "shortName": "Viavi Solutions Inc.",
+    "industry": "통신장비"
   },
   "VICR": {
     "shortName": "Vicor Corporation",
@@ -6384,8 +6384,8 @@
     "industry": "기타"
   },
   "MMSI": {
-    "shortName": "MMSI",
-    "industry": "기타"
+    "shortName": "Merit Medical Systems, Inc.",
+    "industry": "의료용품"
   },
   "JMKE": {
     "shortName": "JMKE",
@@ -6409,6 +6409,14 @@
   },
   "RNG": {
     "shortName": "RNG",
+    "industry": "기타"
+  },
+  "CAI": {
+    "shortName": "CAI",
+    "industry": "기타"
+  },
+  "WPP": {
+    "shortName": "WPP",
     "industry": "기타"
   }
 }
