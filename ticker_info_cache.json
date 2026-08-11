@@ -6422,5 +6422,13 @@
   "ACAD": {
     "shortName": "ACAD",
     "industry": "기타"
+  },
+  "ACHR": {
+    "shortName": "ACHR",
+    "industry": "기타"
+  },
+  "WDS": {
+    "shortName": "WDS",
+    "industry": "기타"
   }
 }
