@@ -6048,8 +6048,8 @@
     "industry": "손해보험"
   },
   "TBBB": {
-    "shortName": "TBBB",
-    "industry": "기타"
+    "shortName": "BBB Foods Inc.",
+    "industry": "할인점"
   },
   "RYTM": {
     "shortName": "Rhythm Pharmaceuticals, Inc.",
@@ -6429,6 +6429,10 @@
   },
   "WDS": {
     "shortName": "WDS",
+    "industry": "기타"
+  },
+  "SFBS": {
+    "shortName": "SFBS",
     "industry": "기타"
   }
 }
