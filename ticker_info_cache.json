@@ -6434,5 +6434,13 @@
   "SFBS": {
     "shortName": "SFBS",
     "industry": "기타"
+  },
+  "BYND": {
+    "shortName": "BYND",
+    "industry": "기타"
+  },
+  "NIQ": {
+    "shortName": "NIQ Global Intelligence plc",
+    "industry": "기타"
   }
 }
