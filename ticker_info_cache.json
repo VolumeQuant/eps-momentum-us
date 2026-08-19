@@ -6442,5 +6442,13 @@
   "NIQ": {
     "shortName": "NIQ Global Intelligence plc",
     "industry": "기타"
+  },
+  "DYN": {
+    "shortName": "DYN",
+    "industry": "기타"
+  },
+  "PBLS": {
+    "shortName": "PBLS",
+    "industry": "기타"
   }
 }
