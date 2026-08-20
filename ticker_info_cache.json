@@ -5100,8 +5100,8 @@
     "industry": "의료용품"
   },
   "VG": {
-    "shortName": "VG",
-    "industry": "기타"
+    "shortName": "Venture Global, Inc.",
+    "industry": "석유미드스트림"
   },
   "AAOI": {
     "shortName": "Applied Optoelectronics, Inc.",
@@ -5184,8 +5184,8 @@
     "industry": "IT서비스"
   },
   "LLYVK": {
-    "shortName": "LLYVK",
-    "industry": "기타"
+    "shortName": "Liberty Live Holdings, Inc. - S",
+    "industry": "엔터"
   },
   "LOAR": {
     "shortName": "Loar Holdings Inc.",
@@ -5256,8 +5256,8 @@
     "industry": "렌탈리스"
   },
   "ALM": {
-    "shortName": "ALM",
-    "industry": "기타"
+    "shortName": "Almonty Industries Inc.",
+    "industry": "산업금속"
   },
   "CNR": {
     "shortName": "Core Natural Resources, Inc.",
@@ -5356,8 +5356,8 @@
     "industry": "화학"
   },
   "VFS": {
-    "shortName": "VFS",
-    "industry": "기타"
+    "shortName": "VinFast Auto Ltd.",
+    "industry": "자동차"
   },
   "APLS": {
     "shortName": "APLS",
@@ -5692,8 +5692,8 @@
     "industry": "복합기업"
   },
   "FROG": {
-    "shortName": "FROG",
-    "industry": "기타"
+    "shortName": "JFrog Ltd.",
+    "industry": "응용SW"
   },
   "LEGN": {
     "shortName": "LEGN",
@@ -5764,8 +5764,8 @@
     "industry": "기타"
   },
   "MAIR": {
-    "shortName": "MAIR",
-    "industry": "기타"
+    "shortName": "Madison Air Solutions Corporati",
+    "industry": "건축자재"
   },
   "MARA": {
     "shortName": "MARA",
@@ -6392,8 +6392,8 @@
     "industry": "기타"
   },
   "BETA": {
-    "shortName": "BETA",
-    "industry": "기타"
+    "shortName": "Beta Technologies, Inc.",
+    "industry": "방산"
   },
   "LIF": {
     "shortName": "LIF",
@@ -6449,6 +6449,10 @@
   },
   "PBLS": {
     "shortName": "PBLS",
+    "industry": "기타"
+  },
+  "VMRK": {
+    "shortName": "VMRK",
     "industry": "기타"
   }
 }
