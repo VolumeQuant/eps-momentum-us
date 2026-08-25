@@ -6454,5 +6454,13 @@
   "VMRK": {
     "shortName": "VMRK",
     "industry": "기타"
+  },
+  "REAX": {
+    "shortName": "REAX",
+    "industry": "기타"
+  },
+  "RUM": {
+    "shortName": "RUM",
+    "industry": "기타"
   }
 }
