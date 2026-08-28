@@ -6462,5 +6462,9 @@
   "RUM": {
     "shortName": "RUM",
     "industry": "기타"
+  },
+  "BULL": {
+    "shortName": "BULL",
+    "industry": "기타"
   }
 }
