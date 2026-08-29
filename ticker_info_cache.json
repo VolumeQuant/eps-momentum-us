@@ -6466,5 +6466,9 @@
   "BULL": {
     "shortName": "BULL",
     "industry": "기타"
+  },
+  "WAY": {
+    "shortName": "WAY",
+    "industry": "기타"
   }
 }
