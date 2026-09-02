@@ -6470,5 +6470,17 @@
   "WAY": {
     "shortName": "WAY",
     "industry": "기타"
+  },
+  "INSW": {
+    "shortName": "INSW",
+    "industry": "기타"
+  },
+  "PTEN": {
+    "shortName": "PTEN",
+    "industry": "기타"
+  },
+  "TDW": {
+    "shortName": "TDW",
+    "industry": "기타"
   }
 }
