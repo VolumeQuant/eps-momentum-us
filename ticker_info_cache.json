@@ -5804,8 +5804,8 @@
     "industry": "기타"
   },
   "VSH": {
-    "shortName": "VSH",
-    "industry": "기타"
+    "shortName": "Vishay Intertechnology, Inc.",
+    "industry": "반도체"
   },
   "PJT": {
     "shortName": "PJT Partners Inc.",
@@ -6482,5 +6482,9 @@
   "TDW": {
     "shortName": "TDW",
     "industry": "기타"
+  },
+  "GOSS": {
+    "shortName": "Gossamer Bio, Inc.",
+    "industry": "바이오"
   }
 }
