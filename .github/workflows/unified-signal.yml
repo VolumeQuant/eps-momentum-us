@@ -116,11 +116,10 @@ jobs:
           KR_FS_DIR: ${{ github.workspace }}/kr_repo/data_cache
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_PRIVATE_ID: ${{ secrets.TELEGRAM_PRIVATE_ID }}
-          # ★2026-08-06 사용자 지시: 채널 발송 전면 중단 — 개인봇에만 전송.
-          #   UNIFIED_CHANNEL_ID 미설정 = unified_vm_track이 채널 경로를 아예 타지 않음
-          #   (config.py 폴백은 GHA 러너엔 없음). 복원 = 아래 구 줄 복구.
-          #   (구 줄, 2026-08-01 버그 수리분 — no_channel 유사삼항 반전:)
-          # UNIFIED_CHANNEL_ID: ${{ github.event.inputs.no_channel != '1' && secrets.TELEGRAM_CHAT_ID || '' }}
+          # ★2026-09-13 상품 전환(사용자 확정): 종목 브리핑 발송 종료. 이 워크플로우는
+          #   수집·원장·관찰컬럼 축적 전용으로 강등(라이브 표본 계속 — 동결 규약 유지).
+          #   지수 브리핑 발송 = index-briefing.yml(KST 6:07)이 담당.
+          VM_LEDGER_ONLY: '1'
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
           UNIFIED_DRY_RUN: ${{ github.event.inputs.dry_run }}

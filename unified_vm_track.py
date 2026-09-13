@@ -2969,8 +2969,396 @@ def _compose_and_send(merged, meta=None):
                 print('[채널 봇 토큰 무효 — 채널 발송 실패, 개인봇은 발송됨]')
 
 
+# ═══════════════ 지수 브리핑 모드 (2026-09-13 사용자 결정, 상품 전환) ═══════════════
+# 배경: 6개월 실측 — 매일 종목 브리핑이 개입 트리거로 작동(BT +44% vs 실계좌 마이너스,
+#   활동일 177일 중 131일 수동 변경). 북극성 = "볼 것만 있고 할 것은 없는 메시지".
+# 매일 메시지 = VOO·QLD 상태(voo-signal 정본 재계산) + AI 시황(종목명·행동유도 금지).
+# 종목 top5 카드·대기 후보·교체 지시 발송 종료. 데이터 수집·원장·관찰컬럼은 계속
+#   (동결 규약의 라이브 표본 누적 — 신호 계산 레이어 무변경, 메시지 레이어만 교체).
+# 켜기: VM_INDEX_MSG=1 (unified-signal.yml). 전환 배너 상태는 이 레포가 자체 보관
+#   (voo-signal의 last_state는 그쪽 07:37 워크플로우가 먼저 갱신해 배너를 삼킬 수 있음).
+# 테스트: python unified_vm_track.py --index-test  (개인봇만, 원장·채널·상태파일 불간섭)
+#         python unified_vm_track.py --index-dry   (발송 없이 출력, AI 생략)
+
+VOO_STATE = os.path.join(HERE, 'data_cache', 'voo_state_unified.json')
+
+
+def _load_py(name, path):
+    """파일 경로로 모듈 로드 — sys.path 'config' 이름충돌(quant_py vs C:/dev) 회피."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def _load_voo_signal():
+    """voo-signal 정본 모듈 임포트 — 신호 로직 복제 금지(드리프트 방지)."""
+    cands = [os.environ.get('VOO_SIGNAL_DIR', ''),
+             os.path.join(HERE, 'voo-signal'),
+             r'C:\dev\claude-code\voo-signal']
+    for c in cands:
+        if c and os.path.exists(os.path.join(c, 'voo_signal.py')):
+            return _load_py('voo_signal', os.path.join(c, 'voo_signal.py'))
+    raise RuntimeError('voo-signal 저장소를 찾을 수 없음 — VOO_SIGNAL_DIR 확인')
+
+
+def _index_status(vs):
+    """voo-signal 무상태 재계산 → (compute 결과 r, cur_state, prev_state).
+    전환 배너의 prev는 이 레포 보관 상태(VOO_STATE) 기준 — 채널 구독자에게 배너 1회 보장."""
+    import json as _j
+    idx_map = {k: vs.fetch_index(sym) for k, _, sym, _ in vs.SLEEVES}
+    hy = vs.fetch_hy()
+    r = vs.compute(idx_map, hy)
+    prev = None
+    try:
+        prev = _j.load(open(VOO_STATE, encoding='utf-8')).get('state')
+    except Exception:
+        pass
+    cur = {k: ('defense' if r[k]['defense'] else 'boost') for k, _, _, _ in vs.SLEEVES}
+    return r, cur, prev
+
+
+def _dw(t):
+    """텔레그램 표시폭 (한글 2칸)."""
+    return sum(2 if ord(c) > 0x2E7F else 1 for c in str(t))
+
+
+def _padw(s, w):
+    return str(s) + ' ' * max(0, w - _dw(s))
+
+
+def _rjw(s, w):
+    return ' ' * max(0, w - _dw(s)) + str(s)
+
+
+def _etf_quotes(names):
+    """보유 ETF (이름, 종가$, 어제%, 1년%, 52주고점대비%) — 표시 전용."""
+    out = []
+    try:
+        import yfinance as yf
+        h = yf.download(list(names), period='1y', auto_adjust=True,
+                        progress=False, threads=2)['Close']
+        for etf in names:
+            s = h[etf].dropna()
+            if len(s) >= 2:
+                last = float(s.iloc[-1])
+                out.append((etf, last, (last / float(s.iloc[-2]) - 1) * 100,
+                            (last / float(s.iloc[0]) - 1) * 100,
+                            (last / float(s.max()) - 1) * 100))
+    except Exception as e:
+        print(f'[ETF 가격 조회 실패(생략): {e}]')
+    return out
+
+
+def _us_index_quotes():
+    """주요 지수 4종 (이름, 종가, 어제%, 1년%, 52주고점대비%) — 표시 + AI facts 겸용.
+    2026-09-13 사용자 피드백: 등락 상세 + 1년·52주 상태 병기."""
+    out = []
+    try:
+        import yfinance as yf
+        syms = [('^GSPC', 'S&P500'), ('^IXIC', '나스닥'), ('^DJI', '다우'), ('^RUT', '러셀2000')]
+        h = yf.download([s for s, _ in syms], period='1y', auto_adjust=True,
+                        progress=False, threads=2)['Close']
+        for sym, nm in syms:
+            s = h[sym].dropna()
+            if len(s) >= 2:
+                last = float(s.iloc[-1])
+                out.append((nm, last, (last / float(s.iloc[-2]) - 1) * 100,
+                            (last / float(s.iloc[0]) - 1) * 100,
+                            (last / float(s.max()) - 1) * 100))
+    except Exception as e:
+        print(f'[지수 시세 조회 실패(생략): {e}]')
+    return out
+
+
+def _ai_index_brief(idx_facts, _now=None, session_date=None):
+    """지수 투자자용 AI 시황 — 구 _ai_market_brief의 상품 전환판.
+    행동 권유 금지가 핵심(북극성 = 볼 것만 있고 할 것 없는 메시지).
+    2026-09-13 3차 피드백: 기업·산업 뉴스 허용(사용자 명시 완화 — "기업 얘기 나와도 될 것
+    같은데"), 단 특정 종목 매수 아이디어·추천 표현은 여전히 금지. 단락 5개·분량 확대."""
+    from datetime import datetime as _dt2
+    _now = _now or _dt2.now()
+    key = _gemini_key()
+    if not key:
+        return None
+    try:
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=key, http_options={'timeout': 120_000})
+        tool = types.Tool(google_search=types.GoogleSearch())
+        # ★4차 피드백(09-13): 지수 등락은 메시지 상단 표에 이미 있다 — 본문이 또 읊으면 중복.
+        #   facts는 '그대로 써라'가 아니라 '나열하지 마라'로 주입(방향 착오 방지용 참고값).
+        facts = ('★참고용 어제 실측 지수(방향 파악용 — 본문에 지수 수치를 나열하지 마라. '
+                 '부득이 언급할 땐 이 숫자만 허용): '
+                 + ' / '.join(idx_facts) + '\n') if idx_facts else ''
+        # ★6차 피드백(09-13): "직전 영업일 하루를 자세히" — 프롬프트를 역할/대상 세션/검색
+        #   절차/작성 규칙/단락 구성으로 구조화. 오라클 사건(요일 착오) 재발 방지 = 대상
+        #   세션 절대날짜 앵커 + 검색 결과의 날짜 검증을 1순위 지침으로.
+        if session_date is not None:
+            _sd_wd = '월화수목금토일'[session_date.weekday()]
+            sess = f'{session_date.month}/{session_date.day}({_sd_wd})'
+            sess_en = session_date.strftime('%B %d %Y')
+        else:
+            sess, sess_en = '직전 영업일', 'the last trading day'
+        _now_wd = '월화수목금토일'[_now.weekday()]
+        labels = ['[미국 증시]', '[기업·산업]', '[금리·환율]', '[매크로 이슈]', '[이번 주 일정]']
+        prompt = (
+            '너는 미국 증시 데일리 브리핑 작가다. 독자는 미국 지수 ETF(S&P500·나스닥100)를 '
+            '장기 적립식으로 보유하는 한국인 투자자다.\n\n'
+            f'◆대상 세션: 이 브리핑은 미국 {sess} 정규장 하루를 다룬다. '
+            f'오늘은 한국시간 {_now.month}/{_now.day}({_now_wd}) 아침이다.\n'
+            '- 모든 서술의 기본 시점은 그 세션이다. 그 이전 사건(며칠 전 실적·지표)은 배경 '
+            '설명에만 쓰고 반드시 날짜를 붙여라. 마감 이후 소식은 "장 마감 후"로 구분하라.\n\n'
+            '◆검색 절차 (작성 전 구글 검색으로 순서대로 확인):\n'
+            f'1. "US stock market close {sess_en}" 등으로 그 세션의 마감 시황 기사\n'
+            f'2. 그 날 발표된 미국 경제지표 결과(예상치 대비)와 연준 인사 발언\n'
+            f'3. 그 세션에 시장을 움직인 기업·산업 뉴스\n'
+            '★검색 결과 기사가 다른 날짜 것이면 버려라 — 날짜 확인이 최우선이다.\n\n'
+            '◆작성 규칙:\n'
+            '- 한국어 문어체(~습니다). 아래 5개 단락을 대괄호 라벨 그대로 시작, 단락 사이 빈 줄 1개.\n'
+            '- 각 단락 4~6문장으로 자세히. 문장은 90자 이내로 짧게 끊어라. 마크다운 헤더(#)·불릿 금지.\n'
+            '- 지수 등락률 수치는 메시지 상단 표에 이미 있다 — 나열·반복 금지.\n'
+            '- 매수·매도·비중조절·종목 추천 등 어떤 행동 권유·시점 판단도 금지. '
+            '방향 전망 단정 금지. 미확인 루머(상장설·인수설) 금지, 확인된 사실만.\n'
+            + facts + '\n'
+            '◆단락 구성:\n'
+            f'[미국 증시] {sess} 세션이 왜 그렇게 움직였는지 — 촉발 재료, 장중 흐름'
+            '(갭·반전·마감 강도), 섹터별 강약과 그 이유, 대형주 vs 중소형주 온도차.\n'
+            f'[기업·산업] {sess} 세션을 움직인 기업·산업 뉴스 2~3개를 상세히 — 무슨 일이 '
+            '있었고, 시장이 어떻게 반응했고, 왜 지수 투자자에게 의미가 있는지.\n'
+            f'[금리·환율] {sess}의 미국 10년물·2년물 금리와 달러 인덱스, 원/달러 환율 — '
+            '수치와 그렇게 움직인 이유.\n'
+            f'[매크로 이슈] {sess}에 발표된 경제지표 결과(예상 대비 실제)와 지금 시장이 소화 '
+            '중인 거시 이슈(연준 경로·물가·고용·유가·지정학)를 깊이 있게.\n'
+            '[이번 주 일정] 앞으로 5거래일 내 미국 경제지표·연준 일정·주요 기업 실적 발표와 '
+            '각각의 관전 포인트.')
+        for model in ('gemini-2.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash'):
+            try:
+                resp = client.models.generate_content(
+                    model=model, contents=prompt,
+                    config=types.GenerateContentConfig(tools=[tool], temperature=0.2))
+                txt = (resp.text or '').strip()
+                if txt and all(lb in txt for lb in labels):
+                    return txt
+                if txt:
+                    print(f'[AI 시황 {model}: 라벨 형식 미달 → 재시도]')
+            except Exception as _e:
+                print(f'[AI 시황 {model} 실패: {str(_e)[:120]}]')
+                if '429' in str(_e) or 'RESOURCE_EXHAUSTED' in str(_e):
+                    import time as _t2
+                    _t2.sleep(65)
+        return None
+    except Exception as e:
+        print(f'[AI 시황 스킵: {e}]')
+        return None
+
+
+def _tg_personal():
+    """개인봇 (token, chat_id) — 후보 순회 + getMe 검증. 음수 id(채널)는 개인 아님 → 제외."""
+    import requests
+    import json as _j
+    cands = []
+    tk, pid = os.environ.get('TELEGRAM_BOT_TOKEN', ''), os.environ.get('TELEGRAM_PRIVATE_ID', '')
+    if tk and pid:
+        cands.append((tk, pid))
+    for p in (r'C:\dev\config.py', r'C:\dev\claude-code\quant_py-main\config.py'):
+        try:
+            if os.path.exists(p):
+                c = _load_py('_tgcfg', p)
+                cands.append((getattr(c, 'TELEGRAM_BOT_TOKEN', ''),
+                              str(getattr(c, 'TELEGRAM_PRIVATE_ID', '') or '')))
+        except Exception:
+            pass
+    try:
+        c = _j.load(open(os.path.join(HERE, 'config.json'), encoding='utf-8'))
+        cands.append((c.get('telegram_bot_token', ''),
+                      str(c.get('telegram_private_id') or c.get('telegram_chat_id') or '')))
+    except Exception:
+        pass
+    for tk, pid in cands:
+        if not (tk and pid) or str(pid).startswith('-'):
+            continue
+        try:
+            if requests.get('https://api.telegram.org/bot%s/getMe' % tk, timeout=15).json().get('ok'):
+                return tk, str(pid)
+        except Exception:
+            continue
+    raise RuntimeError('유효한 개인봇 토큰 없음 — TELEGRAM_BOT_TOKEN/PRIVATE_ID 확인')
+
+
+def _compose_index_and_send(test_only=False, dry=False):
+    """지수 브리핑 조립 — 레이아웃은 2026-09-13 텔레그램 UI 설계안:
+    구분선·장식 이모지 없음 / 데이터 줄 = <code> 정렬 블록 / 정상은 무표시,
+    이상 상황만 🟡 접두 / 🚨·✅ 밑줄 배너는 전환일에만(희소성 유지)."""
+    from datetime import datetime as _dt
+    import json as _j
+    import html as _html
+    vs = _load_voo_signal()
+    r, cur, prev = _index_status(vs)
+    kdt = _dt.now()
+    wd = '월화수목금토일'[kdt.weekday()]
+    m = []
+    # ── 전환 배너 (드문 날만 — 이 메시지의 유일한 행동 지시) ──
+    for k, nm, _, idxn in vs.SLEEVES:
+        pv = (prev or {}).get(k)
+        if pv and cur[k] != pv:
+            if cur[k] == 'defense':
+                why = []
+                if r[k]['ma_def']:
+                    why.append(f'{idxn} 200일선 이탈 15일 확정')
+                if r['hy_def']:
+                    why.append('신용 스프레드 경보 확정')
+                m += [f'🚨 <b><u>{nm} 방어 전환 — 행동 필요</u></b>',
+                      f'<b>다음 거래일 {nm} 전량 매도 → 현금(발행어음·RP)</b>',
+                      '사유: ' + ' + '.join(why), '']
+            else:
+                m += [f'✅ <b><u>{nm} 공격 복귀</u></b>',
+                      f'<b>다음 거래일 {nm} 몫 현금 전부 매수</b>', '']
+    m += [f'<b>지수 투자 브리핑</b>  {kdt.month}월 {kdt.day}일 ({wd})', '']
+    # ── 투자 비율 (2026-09-13 피드백: "공격 유지" 표현 폐기 — 비율 자체를 말한다) ──
+    n_def = sum(1 for v in cur.values() if v == 'defense')
+    parts = [f'{nm} {vs.ALLOC[k]}' for k, nm, _, _ in vs.SLEEVES if cur[k] == 'boost']
+    cash = sum(vs.ALLOC[k] for k, _, _, _ in vs.SLEEVES if cur[k] == 'defense')
+    if cash:
+        parts.append(f'현금 {cash}')
+    icon = '🟢' if n_def == 0 else ('🔴' if n_def == len(cur) else '🟡')
+    m += [f'{icon} <b>투자 비율</b> · ' + ' / '.join(parts),
+          # 기대치 상시 표기 (2026-09-13 사용자 요청). 출처 = voo-signal v2 검증(1999-04~,
+          # 27년, 슬리브분리 신호 포함). 백테스트임을 라벨로 명시 — 보장 수익 아님.
+          '<i>연평균 기대수익 +11.3% · 최대손실 -16.1% (1999~ 백테스트)</i>', '']
+    # ── 지수 마감 (어제 / 1년 / 52주고점 대비) ──
+    iq = _us_index_quotes()
+    if iq:
+        m.append('<b>지수 마감</b> <i>어제 / 1년 / 고점대비</i>')
+        for nm, lvl, chg, yoy, dd in iq:
+            m.append('<code>%s%s %s %s %s</code>' % (
+                _padw(nm, 9), _rjw(format(lvl, ',.0f'), 6),
+                _rjw('%+.1f%%' % chg, 6), _rjw('%+.0f%%' % yoy, 5), _rjw('%+.1f%%' % dd, 6)))
+        m.append('')
+    # ── 보유 ETF (컬럼 순서 = 지수 마감과 동일) ──
+    eq = _etf_quotes([nm for _, nm, _, _ in vs.SLEEVES])
+    if eq:
+        m.append('<b>보유 ETF</b>')
+        for etf, px, chg, yoy, dd in eq:
+            m.append('<code>%s%s %s %s %s</code>' % (
+                _padw(etf, 5), _rjw('$%.0f' % px, 6),
+                _rjw('%+.1f%%' % chg, 6), _rjw('%+.0f%%' % yoy, 5), _rjw('%+.1f%%' % dd, 6)))
+        m.append('')
+    # ── 매도 신호 점검 (2026-09-13 7차: 감시선별 소제목+설명 구조. 정상=이상 없음 요약,
+    #     이상 = 해당 줄만 🟡 + 진행 카운트) ──
+    shorts = {'voo': 'S&P500', 'qqqm': '나스닥100', 'qld': '나스닥100'}
+    trend_warns = [k for k, _, _, _ in vs.SLEEVES if r[k]['ma_def'] or r[k]['below_streak'] > 0]
+    hy_warn = r['hy_def'] or r['hy_raw_streak'] > 0
+    n_warn = len(trend_warns) + (1 if hy_warn else 0)
+    head = '<i>이상 없음</i>' if n_warn == 0 else '🟡 <i>주의 %d건</i>' % n_warn
+    m += ['<b>매도 신호 점검</b> · ' + head, '']
+    m.append('① 추세선 — 지수가 200일 평균선 위인가')
+    if not trend_warns:
+        m.append('<code>' + '  '.join(
+            '%s %+.1f%%' % (shorts.get(k, k), (r[k]['px_now'] / r[k]['ma_now'] - 1) * 100)
+            for k, _, _, _ in vs.SLEEVES) + '</code>')
+    else:
+        for k, nm, _, idxn in vs.SLEEVES:
+            d = r[k]
+            base = '%s %+.1f%%' % (shorts.get(k, k), (d['px_now'] / d['ma_now'] - 1) * 100)
+            if d['ma_def']:
+                t = base + '  방어 중'
+                if d['above_streak'] > 0:
+                    t += ' · 회복 %d/%d일' % (d['above_streak'], vs.MA_CONFIRM)
+                m.append('🟡 <code>%s</code>' % t)
+            elif d['below_streak'] > 0:
+                m.append('🟡 <code>%s  이탈 %d/%d일</code>' % (base, d['below_streak'], vs.MA_CONFIRM))
+            else:
+                m.append('<code>%s</code>' % base)
+    m += ['<i>%d일 연속 아래로 마감하면 그 지수 ETF 매도</i>' % vs.MA_CONFIRM, '']
+    m.append('② 신용 — 부실채권 가산금리가 튀는가')
+    hy_gap = r['hy_now'] - r['hy_trough']
+    hy_base = '현재 %.2f%%  6개월 저점 %+.2f%%p' % (r['hy_now'], hy_gap)
+    if r['hy_def']:
+        m.append('🟡 <code>%s  방어 중 · 해제 %d/%d일</code>' % (hy_base, r['hy_clear_streak'], vs.HY_NX))
+    elif r['hy_raw_streak'] > 0:
+        m.append('🟡 <code>%s  발동 %d/%d일</code>' % (hy_base, r['hy_raw_streak'], vs.HY_NE))
+    else:
+        m.append('<code>%s</code>' % hy_base)
+    m.append('<i>저점 +%.1f%%p 위로 %d일 지속되면 전체 매도 — 위기 조기경보</i>'
+             % (vs.HY_MARGIN, vs.HY_NE))
+    # 데이터 신선도 — 이상일 때만 표시 (평시 메타정보 제로 원칙)
+    try:
+        px_age = (kdt.date() - r['voo']['px_date'].date()).days
+        hy_age = (kdt.date() - r['hy_date'].date()).days
+        if px_age > 4 or hy_age > 6:
+            m.append('🟡 <code>데이터 지연  지수 %s · HY %s</code>'
+                     % (r['voo']['px_date'].strftime('%m/%d'), r['hy_date'].strftime('%m/%d')))
+    except Exception:
+        pass
+    # ── AI 시황 (라벨 → 섹션 제목으로 승격, 별도 헤더 없음) ──
+    facts = ['%s %s (%+.2f%%)' % (nm, format(lvl, ',.0f'), chg) for nm, lvl, chg, _, _ in iq]
+    ai = None
+    if not (dry or os.environ.get('VM_INDEX_NO_AI') == '1'):
+        ai = _ai_index_brief(facts, kdt, session_date=r['voo']['px_date'])
+    if ai:
+        m.append('')
+        for p in ai.split('\n'):
+            p = p.strip()
+            if not p:
+                continue
+            if p.startswith('[') and ']' in p and _dw(p) < 30:
+                lb, rest = p[1:].split(']', 1)
+                m += ['', '<b>%s</b>' % _html.escape(lb.strip(), quote=False)]
+                if rest.strip():
+                    m += _wrap(_html.escape(rest.strip(), quote=False), 44)
+            else:
+                m += _wrap(_html.escape(p, quote=False), 44)
+        while m and m[-1] == '':
+            m.pop()
+    else:
+        m += ['', '🟡 시황 생성 실패']
+    _norm = []
+    for ln in m:                      # 연속 빈 줄 1개로 정규화
+        if ln == '' and (not _norm or _norm[-1] == ''):
+            continue
+        _norm.append(ln)
+    text = '\n'.join(_norm)
+    print('\n' + text.replace('<b>', '').replace('</b>', '').replace('<i>', '').replace('</i>', ''))
+    if dry or os.environ.get('UNIFIED_DRY_RUN') == '1':
+        print('\n[dry] 발송 생략')
+        return
+    tk, pid = _tg_personal()
+    _send_long(tk, pid, text)
+    print(f'[개인봇 발송 완료: {pid}]')
+    if test_only:
+        return
+    # 채널 — env로만 (C:/dev/config.py 폴백 없음: 로컬 오발송 방지). KR 채널 가드 유지.
+    ch_id = os.environ.get('UNIFIED_CHANNEL_ID', '')
+    ch_tk = os.environ.get('UNIFIED_CHANNEL_BOT_TOKEN', '') or tk
+    if ch_id:
+        try:
+            _chk = __import__('requests').get(
+                'https://api.telegram.org/bot%s/getChat' % ch_tk,
+                params={'chat_id': ch_id}, timeout=15).json().get('result', {})
+            _title = _chk.get('title') or ''
+            if any(x in _title for x in ('한국', 'KR', 'Korea', '코리아')):
+                print('[채널 발송 중단] 한국 채널: %s' % _title)
+            else:
+                _send_long(ch_tk, ch_id, text)
+                print(f'[채널 발송 완료: {_title or ch_id[:6]}]')
+        except Exception as _ce:
+            print('[채널 발송 실패(개인봇은 발송됨): %s]' % str(_ce)[:80])
+    # 전환 배너 상태 저장 — 실발송 후에만 (테스트/dry는 상태 불간섭)
+    try:
+        _j.dump({'state': cur, 'date': kdt.strftime('%Y-%m-%d')},
+                open(VOO_STATE, 'w', encoding='utf-8'))
+    except Exception as _se:
+        print(f'[상태 저장 실패: {_se}]')
+
+
 if __name__ == '__main__':
     sys.path.insert(0, HERE)
+    # 지수 브리핑 테스트 경로 — 원장·채널·상태파일 불간섭이라 LOCAL_RUNNER_OFF보다 앞에 둔다.
+    if '--index-test' in sys.argv or '--index-dry' in sys.argv:
+        _compose_index_and_send(test_only=True, dry='--index-dry' in sys.argv)
+        sys.exit(0)
     # ★로컬 러너 원격 킬스위치 (2026-07-10): 실행 주체가 GH Actions로 이관됨(unified-signal.yml).
     # 회사PC schtask(run_unified_track.bat)는 실행 전 git pull을 하므로, 이 깃발 파일이
     # 저장소에 있으면 로컬(비-Actions) 실행은 스스로 종료 — 이중 발송·이중 원장 차단.
@@ -2980,11 +3368,22 @@ if __name__ == '__main__':
         sys.exit(0)
     if '--nav' in sys.argv:
         cmd_nav()
+    elif '--index-send' in sys.argv:
+        # 지수 브리핑 본발송 (2026-09-13 확정) — 원장·DB와 무관한 실시간 조회만 쓰므로
+        # 별도 워크플로우(index-briefing.yml, KST 6:07)에서 단독 실행. 채널은 env로만.
+        _compose_index_and_send()
     else:
         _merged_for_msg, _meta_for_msg = cmd_run()
-        # 통합(US+KR) 신호 3종 발송 — 본선 (2026-07-09 사용자 확정)
+        # 2026-09-13 상품 전환: 종목 메시지 발송 종료. 이 경로(기존 unified-signal.yml)는
+        # VM_LEDGER_ONLY=1로 수집·원장·관찰컬럼 축적만 수행(라이브 표본 계속).
+        # 지수 브리핑 발송은 --index-send(별도 워크플로우)가 담당.
         try:
-            _compose_and_send(_merged_for_msg, _meta_for_msg)
+            if os.environ.get('VM_LEDGER_ONLY') == '1':
+                print('[VM_LEDGER_ONLY=1] 원장 기록 완료 — 메시지 발송 없음(지수 브리핑은 별도 워크플로우)')
+            elif os.environ.get('VM_INDEX_MSG') == '1':
+                _compose_index_and_send()
+            else:
+                _compose_and_send(_merged_for_msg, _meta_for_msg)
         except Exception as _e:
             import traceback
             traceback.print_exc()

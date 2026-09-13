@@ -1,0 +1,94 @@
+name: Index Briefing
+
+# 지수 투자 브리핑 (2026-09-13 상품 전환 확정) — 매일 아침 KST 6시대, 월~토.
+# 내용: VOO·QQQM 신호 상태(voo-signal 정본 재계산) + 주요 지수·ETF 시세 + AI 시황.
+# 원장·수집 DB와 무관(전부 실시간 조회) → daily-screening을 기다릴 이유가 없어
+# 기존 unified-signal(8시대, 원장 전용으로 강등)에서 발송을 분리했다.
+# 정각 회피(GH 혼잡대 미발동 교훈: unified 17:20 사건) → :07. 지연돼도 무해.
+# 중복 발송 가드 = voo_state_unified.json의 date(발송 성공 시 갱신·커밋).
+
+on:
+  schedule:
+    - cron: '7 21 * * 0-5'    # UTC 일~금 21:07 = KST 월~토 06:07
+    - cron: '47 21 * * 0-5'   # KST 월~토 06:47 (백업 — 가드가 중복 차단)
+  workflow_dispatch:
+    inputs:
+      no_channel:
+        description: '1이면 채널 발송 생략(개인봇만)'
+        default: ''
+
+concurrency:
+  group: index-briefing
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout US repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip if already sent today (수동 dispatch 제외)
+        id: guard
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          TODAY=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          if grep -q "\"date\": \"$TODAY\"" data_cache/voo_state_unified.json 2>/dev/null; then
+            echo "이미 오늘($TODAY) 발송됨 — 스킵"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout voo-signal
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: VolumeQuant/voo-signal
+          token: ${{ secrets.KR_REPO_TOKEN }}
+          path: voo-signal
+
+      - name: Set up Python
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Send index briefing
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          TZ: 'Asia/Seoul'
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_PRIVATE_ID: ${{ secrets.TELEGRAM_PRIVATE_ID }}
+          UNIFIED_CHANNEL_ID: ${{ github.event.inputs.no_channel != '1' && secrets.TELEGRAM_CHAT_ID || '' }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          VOO_SIGNAL_DIR: ${{ github.workspace }}/voo-signal
+        run: |
+          python unified_vm_track.py --index-send
+
+      - name: Commit send-state
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -f data_cache/voo_state_unified.json
+          if ! git diff --staged --quiet; then
+            git commit -m "Index briefing state: $(TZ=Asia/Seoul date +%Y-%m-%d)"
+            git pull --rebase --autostash origin master
+            git push
+          else
+            echo "상태 변경 없음"
+          fi
