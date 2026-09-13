@@ -3009,14 +3009,26 @@ def _index_status(vs):
     import json as _j
     idx_map = {k: vs.fetch_index(sym) for k, _, sym, _ in vs.SLEEVES}
     hy = vs.fetch_hy()
-    r = vs.compute(idx_map, hy)
-    prev = None
     try:
-        prev = _j.load(open(VOO_STATE, encoding='utf-8')).get('state')
+        ief = vs.fetch_index('IEF')      # v6 방어자산 추세부 — 실패 시 현금 폴백
+    except Exception as _ie:
+        print(f'[IEF 조회 실패(방어=현금 폴백): {_ie}]')
+        ief = None
+    try:
+        r = vs.compute(idx_map, hy, ief)
+    except TypeError:                    # 구버전 voo-signal 체크아웃 호환
+        r = vs.compute(idx_map, hy)
+        r.setdefault('ief_up', None)
+        r.setdefault('ief_gap', None)
+    prev, prev_asset = None, None
+    try:
+        _saved = _j.load(open(VOO_STATE, encoding='utf-8'))
+        prev = _saved.get('state')
+        prev_asset = _saved.get('def_asset')
     except Exception:
         pass
     cur = {k: ('defense' if r[k]['defense'] else 'boost') for k, _, _, _ in vs.SLEEVES}
-    return r, cur, prev
+    return r, cur, prev, prev_asset
 
 
 def _dw(t):
@@ -3195,7 +3207,10 @@ def _compose_index_and_send(test_only=False, dry=False):
     import json as _j
     import html as _html
     vs = _load_voo_signal()
-    r, cur, prev = _index_status(vs)
+    r, cur, prev, prev_asset = _index_status(vs)
+    asset_key, asset_txt = (vs.def_asset(r) if hasattr(vs, 'def_asset')
+                            else ('cash', '수시형 발행어음/RP/CMA (현금 100%)'))
+    n_def_now = sum(1 for v in cur.values() if v == 'defense')
     kdt = _dt.now()
     wd = '월화수목금토일'[kdt.weekday()]
     m = []
@@ -3210,24 +3225,31 @@ def _compose_index_and_send(test_only=False, dry=False):
                 if r['hy_def']:
                     why.append('신용 스프레드 경보 확정')
                 m += [f'🚨 <b><u>{nm} 방어 전환 — 행동 필요</u></b>',
-                      f'<b>다음 거래일 {nm} 전량 매도 → 현금(발행어음·RP)</b>',
+                      f'<b>다음 거래일 {nm} 전량 매도 → {asset_txt}</b>',
                       '사유: ' + ' + '.join(why), '']
             else:
                 m += [f'✅ <b><u>{nm} 공격 복귀</u></b>',
-                      f'<b>다음 거래일 {nm} 몫 현금 전부 매수</b>', '']
+                      f'<b>다음 거래일 {nm} 몫 방어금 전부 매수</b>', '']
+    # v6: 방어 지속 중 방어자산 전환 지시 (국채 추세 반전일 1회)
+    if n_def_now > 0 and prev_asset is not None and prev_asset != asset_key \
+            and any((prev or {}).get(k) == 'defense' for k in cur):
+        m += [f'🔔 <b><u>방어자산 전환</u></b>',
+              f'<b>다음 거래일 방어금을 {asset_txt}(으)로 이동</b>', '']
     m += [f'<b>지수 투자 브리핑</b>  {kdt.month}월 {kdt.day}일 ({wd})', '']
     # ── 투자 비율 (2026-09-13 피드백: "공격 유지" 표현 폐기 — 비율 자체를 말한다) ──
-    n_def = sum(1 for v in cur.values() if v == 'defense')
+    n_def = n_def_now
     parts = [f'{nm} {vs.ALLOC[k]}' for k, nm, _, _ in vs.SLEEVES if cur[k] == 'boost']
-    cash = sum(vs.ALLOC[k] for k, _, _, _ in vs.SLEEVES if cur[k] == 'defense')
-    if cash:
-        parts.append(f'현금 {cash}')
+    dfw = sum(vs.ALLOC[k] for k, _, _, _ in vs.SLEEVES if cur[k] == 'defense')
+    if dfw:
+        parts.append(f'방어금 {dfw}')
     icon = '🟢' if n_def == 0 else ('🔴' if n_def == len(cur) else '🟡')
-    m += [f'{icon} <b>투자 비율</b> · ' + ' / '.join(parts),
-          # 기대치 상시 표기 (2026-09-13 사용자 요청). 출처 = voo-signal v2 검증(1999-04~
-          # 27년, 슬리브분리 신호 포함). "1999~ 백테스트" 표기는 어렵다는 피드백 →
-          # 평문("지난 27년")으로. 둘째 줄 = 두 숫자의 단위 차이 설명(연복리 vs 1회 골짜기).
-          '연평균 기대수익 +12.3% · 최대손실 -15.0%',   # v5 50/50 (DECISION_5050_2026_09_13)
+    m.append(f'{icon} <b>투자 비율</b> · ' + ' / '.join(parts))
+    if n_def > 0:   # v6: 방어 중에만 방어자산 표시 (평시 무표시)
+        gap_txt = '' if r.get('ief_gap') is None else ' · IEF 200일선 %+.1f%%' % r['ief_gap']
+        m.append(f'방어자산: {asset_txt}{gap_txt}')
+    # 기대치 상시 표기 (2026-09-13 사용자 요청). 출처 = v6 검증(1999-04~ 27년, 슬리브분리
+    # 신호 + 방어자산 채권 추세부, DEEP_SIGNAL_SEARCH). 평문 표기(피드백 반영).
+    m += ['연평균 기대수익 +13.3% · 최대손실 -15.0%',   # v6 (DECISION_V6_DEFENSE_ASSET)
           '<i>수익은 매년 쌓이는 복리, 손실은 지난 27년 중 최악의 한 번</i>', '']
     # ── 지수 마감 (어제 / 1년 / 52주고점 대비) ──
     iq = _us_index_quotes()
@@ -3349,7 +3371,7 @@ def _compose_index_and_send(test_only=False, dry=False):
             print('[채널 발송 실패(개인봇은 발송됨): %s]' % str(_ce)[:80])
     # 전환 배너 상태 저장 — 실발송 후에만 (테스트/dry는 상태 불간섭)
     try:
-        _j.dump({'state': cur, 'date': kdt.strftime('%Y-%m-%d')},
+        _j.dump({'state': cur, 'def_asset': asset_key, 'date': kdt.strftime('%Y-%m-%d')},
                 open(VOO_STATE, 'w', encoding='utf-8'))
     except Exception as _se:
         print(f'[상태 저장 실패: {_se}]')
