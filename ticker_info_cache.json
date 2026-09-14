@@ -5676,8 +5676,8 @@
     "industry": "기타"
   },
   "CORT": {
-    "shortName": "CORT",
-    "industry": "기타"
+    "shortName": "Corcept Therapeutics Incorporat",
+    "industry": "바이오"
   },
   "DIOD": {
     "shortName": "Diodes Incorporated",
@@ -6486,5 +6486,9 @@
   "GOSS": {
     "shortName": "Gossamer Bio, Inc.",
     "industry": "바이오"
+  },
+  "LFST": {
+    "shortName": "LFST",
+    "industry": "기타"
   }
 }
