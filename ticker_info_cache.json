@@ -6490,5 +6490,17 @@
   "LFST": {
     "shortName": "LFST",
     "industry": "기타"
+  },
+  "CLMT": {
+    "shortName": "CLMT",
+    "industry": "기타"
+  },
+  "CRGY": {
+    "shortName": "CRGY",
+    "industry": "기타"
+  },
+  "CVI": {
+    "shortName": "CVR Energy Inc.",
+    "industry": "석유정제"
   }
 }
