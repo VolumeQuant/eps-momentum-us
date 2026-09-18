@@ -5768,8 +5768,8 @@
     "industry": "건축자재"
   },
   "MARA": {
-    "shortName": "MARA",
-    "industry": "기타"
+    "shortName": "MARA Holdings, Inc.",
+    "industry": "자본시장"
   },
   "MDA": {
     "shortName": "MDA",
@@ -6502,5 +6502,9 @@
   "CVI": {
     "shortName": "CVR Energy Inc.",
     "industry": "석유정제"
+  },
+  "HAFN": {
+    "shortName": "HAFN",
+    "industry": "기타"
   }
 }
