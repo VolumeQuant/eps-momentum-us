@@ -6506,5 +6506,9 @@
   "HAFN": {
     "shortName": "HAFN",
     "industry": "기타"
+  },
+  "GRAL": {
+    "shortName": "GRAIL, Inc.",
+    "industry": "진단연구"
   }
 }
