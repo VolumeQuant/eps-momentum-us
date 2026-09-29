@@ -4988,8 +4988,8 @@
     "industry": "통신"
   },
   "VOD": {
-    "shortName": "VOD",
-    "industry": "기타"
+    "shortName": "Vodafone Group Plc",
+    "industry": "통신"
   },
   "VRT": {
     "shortName": "Vertiv Holdings, LLC",
@@ -5964,8 +5964,8 @@
     "industry": "응용SW"
   },
   "FDXF": {
-    "shortName": "FDXF",
-    "industry": "기타"
+    "shortName": "FedEx Freight Holding Company, ",
+    "industry": "물류"
   },
   "HMC": {
     "shortName": "HMC",
@@ -6336,8 +6336,8 @@
     "industry": "인터넷"
   },
   "MBGL": {
-    "shortName": "MBGL",
-    "industry": "기타"
+    "shortName": "Mobility Global Inc.",
+    "industry": "인프라SW"
   },
   "CIGI": {
     "shortName": "Colliers International Group In",
@@ -6472,8 +6472,8 @@
     "industry": "의료정보"
   },
   "INSW": {
-    "shortName": "INSW",
-    "industry": "기타"
+    "shortName": "International Seaways, Inc.",
+    "industry": "석유미드스트림"
   },
   "PTEN": {
     "shortName": "PTEN",
@@ -6510,5 +6510,9 @@
   "GRAL": {
     "shortName": "GRAIL, Inc.",
     "industry": "진단연구"
+  },
+  "VEON": {
+    "shortName": "VEON Ltd.",
+    "industry": "통신"
   }
 }
