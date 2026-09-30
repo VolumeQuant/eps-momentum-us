@@ -6108,8 +6108,8 @@
     "industry": "바이오"
   },
   "HONA": {
-    "shortName": "HONA",
-    "industry": "기타"
+    "shortName": "Honeywell Aerospace Inc.",
+    "industry": "방산"
   },
   "INIO": {
     "shortName": "INIO",
@@ -6514,5 +6514,9 @@
   "VEON": {
     "shortName": "VEON Ltd.",
     "industry": "통신"
+  },
+  "KOD": {
+    "shortName": "KOD",
+    "industry": "기타"
   }
 }
