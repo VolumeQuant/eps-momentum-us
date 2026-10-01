@@ -6518,5 +6518,9 @@
   "KOD": {
     "shortName": "KOD",
     "industry": "기타"
+  },
+  "IOVA": {
+    "shortName": "IOVA",
+    "industry": "기타"
   }
 }
