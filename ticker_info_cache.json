@@ -6522,5 +6522,9 @@
   "IOVA": {
     "shortName": "IOVA",
     "industry": "기타"
+  },
+  "VYLR": {
+    "shortName": "VYLR",
+    "industry": "기타"
   }
 }
