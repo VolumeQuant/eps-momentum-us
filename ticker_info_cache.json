@@ -6526,5 +6526,13 @@
   "VYLR": {
     "shortName": "VYLR",
     "industry": "기타"
+  },
+  "HGTY": {
+    "shortName": "HGTY",
+    "industry": "기타"
+  },
+  "SKYD": {
+    "shortName": "SKYD",
+    "industry": "기타"
   }
 }
