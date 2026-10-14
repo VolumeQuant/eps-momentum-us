@@ -6534,5 +6534,9 @@
   "SKYD": {
     "shortName": "SKYD",
     "industry": "기타"
+  },
+  "BOX": {
+    "shortName": "BOX",
+    "industry": "기타"
   }
 }
