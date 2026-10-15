@@ -5948,8 +5948,8 @@
     "industry": "기타"
   },
   "XMTR": {
-    "shortName": "XMTR",
-    "industry": "기타"
+    "shortName": "Xometry, Inc.",
+    "industry": "산업유통"
   },
   "ZETA": {
     "shortName": "Zeta Global Holdings Corp.",
@@ -6538,5 +6538,9 @@
   "BOX": {
     "shortName": "BOX",
     "industry": "기타"
+  },
+  "NSIT": {
+    "shortName": "Insight Enterprises, Inc.",
+    "industry": "전자유통"
   }
 }
