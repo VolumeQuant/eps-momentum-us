@@ -6542,5 +6542,9 @@
   "NSIT": {
     "shortName": "Insight Enterprises, Inc.",
     "industry": "전자유통"
+  },
+  "BRZE": {
+    "shortName": "BRZE",
+    "industry": "기타"
   }
 }
