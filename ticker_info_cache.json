@@ -4680,8 +4680,8 @@
     "industry": "통신"
   },
   "RDY": {
-    "shortName": "RDY",
-    "industry": "기타"
+    "shortName": "Dr. Reddy's Laboratories Ltd",
+    "industry": "특수제약"
   },
   "REYN": {
     "shortName": "Reynolds Consumer Products Inc.",
@@ -5968,8 +5968,8 @@
     "industry": "물류"
   },
   "HMC": {
-    "shortName": "HMC",
-    "industry": "기타"
+    "shortName": "Honda Motor Company, Ltd.",
+    "industry": "자동차"
   },
   "VSXY": {
     "shortName": "Victorias Secret & Co",
@@ -6546,5 +6546,9 @@
   "BRZE": {
     "shortName": "BRZE",
     "industry": "기타"
+  },
+  "CON": {
+    "shortName": "Concentra Group Holdings Parent",
+    "industry": "의료시설"
   }
 }
