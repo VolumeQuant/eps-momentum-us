@@ -6550,5 +6550,9 @@
   "CON": {
     "shortName": "Concentra Group Holdings Parent",
     "industry": "의료시설"
+  },
+  "TENB": {
+    "shortName": "TENB",
+    "industry": "기타"
   }
 }
