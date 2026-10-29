@@ -6352,8 +6352,8 @@
     "industry": "대형제약"
   },
   "SKHY": {
-    "shortName": "SKHY",
-    "industry": "기타"
+    "shortName": "SK hynix Inc.",
+    "industry": "반도체"
   },
   "ANDG": {
     "shortName": "Andersen Group Inc.",
@@ -6553,6 +6553,14 @@
   },
   "TENB": {
     "shortName": "TENB",
+    "industry": "기타"
+  },
+  "HTFL": {
+    "shortName": "HTFL",
+    "industry": "기타"
+  },
+  "MSGK": {
+    "shortName": "MSGK",
     "industry": "기타"
   }
 }
