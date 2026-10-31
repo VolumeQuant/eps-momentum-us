@@ -5760,8 +5760,8 @@
     "industry": "렌탈리스"
   },
   "ARXS": {
-    "shortName": "ARXS",
-    "industry": "기타"
+    "shortName": "Arxis, Inc.",
+    "industry": "방산"
   },
   "MAIR": {
     "shortName": "Madison Air Solutions Corporati",
@@ -6561,6 +6561,10 @@
   },
   "MSGK": {
     "shortName": "MSGK",
+    "industry": "기타"
+  },
+  "ENHA": {
+    "shortName": "ENHA",
     "industry": "기타"
   }
 }
