@@ -6566,5 +6566,9 @@
   "ENHA": {
     "shortName": "ENHA",
     "industry": "기타"
+  },
+  "CVCO": {
+    "shortName": "Cavco Industries, Inc.",
+    "industry": "주택건설"
   }
 }
