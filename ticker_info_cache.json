@@ -5440,8 +5440,8 @@
     "industry": "대형은행"
   },
   "UHAL": {
-    "shortName": "UHAL",
-    "industry": "기타"
+    "shortName": "U-Haul Holding Company",
+    "industry": "렌탈리스"
   },
   "AIR": {
     "shortName": "AAR Corp.",
@@ -6016,8 +6016,8 @@
     "industry": "산업금속"
   },
   "SPCX": {
-    "shortName": "SPCX",
-    "industry": "기타"
+    "shortName": "Space Exploration Technologies ",
+    "industry": "방산"
   },
   "LNC": {
     "shortName": "Lincoln National Corporation",
@@ -6570,5 +6570,9 @@
   "CVCO": {
     "shortName": "Cavco Industries, Inc.",
     "industry": "주택건설"
+  },
+  "HHH": {
+    "shortName": "HHH",
+    "industry": "기타"
   }
 }
