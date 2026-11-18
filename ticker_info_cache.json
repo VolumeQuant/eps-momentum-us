@@ -6578,5 +6578,9 @@
   "SUPN": {
     "shortName": "SUPN",
     "industry": "기타"
+  },
+  "SENEA": {
+    "shortName": "SENEA",
+    "industry": "기타"
   }
 }
