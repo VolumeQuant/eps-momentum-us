@@ -6582,5 +6582,9 @@
   "SENEA": {
     "shortName": "SENEA",
     "industry": "기타"
+  },
+  "HZN": {
+    "shortName": "HZN",
+    "industry": "기타"
   }
 }
