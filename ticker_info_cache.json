@@ -6586,5 +6586,9 @@
   "HZN": {
     "shortName": "HZN",
     "industry": "기타"
+  },
+  "ANT": {
+    "shortName": "ANT",
+    "industry": "기타"
   }
 }
