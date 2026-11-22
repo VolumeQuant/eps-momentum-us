@@ -69,7 +69,11 @@ jobs:
     #   ②TSEM 페이퍼 추적: 구 시스템(rev90+gap게이트) 전제의 관찰물 — 본선 전환으로 전제 소멸.
     #   로그 누적은 유지(--send만 제거, sleeve는 상태 갱신을 위해 무발송 실행).
     #   복원 = --send 되돌리기.
+    # ★2026-11-23 실행 중단(사용자 지시): --send를 빼도 gap_sleeve.py 기본값이 '발송'(test_mode가
+    #   --test 있을 때만 켜짐)이라 개인봇에 계속 나가고 있었음. 다른 단계는 이 결과를 안 씀
+    #   (gap_sleeve_state.json 자체 상태만). 복원 = 아래 if 줄 삭제.
     - name: Run Forward-Growth Gap Sleeve (기록만, 발송 없음)
+      if: ${{ false }}
       run: |
         python gap_sleeve.py || echo "gap_sleeve 실패(무시, 메인 파이프라인 무관)"
       env:
