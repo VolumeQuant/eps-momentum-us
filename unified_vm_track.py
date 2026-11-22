@@ -2996,6 +2996,7 @@ def _load_voo_signal():
     """voo-signal 정본 모듈 임포트 — 신호 로직 복제 금지(드리프트 방지)."""
     cands = [os.environ.get('VOO_SIGNAL_DIR', ''),
              os.path.join(HERE, 'voo-signal'),
+             r'C:\dev\invest\voo-signal',
              r'C:\dev\claude-code\voo-signal']
     for c in cands:
         if c and os.path.exists(os.path.join(c, 'voo_signal.py')):
@@ -3029,6 +3030,34 @@ def _index_status(vs):
         pass
     cur = {k: ('defense' if r[k]['defense'] else 'boost') for k, _, _, _ in vs.SLEEVES}
     return r, cur, prev, prev_asset
+
+
+def _bday_lag(a_date, b_date):
+    """a 다음 날 ~ b 사이 평일 수 (= a가 b보다 몇 영업일 늦은가)."""
+    from datetime import timedelta
+    a, b = a_date.date(), b_date.date()
+    n = 0
+    while a < b:
+        a += timedelta(days=1)
+        if a.weekday() < 5:
+            n += 1
+    return n
+
+
+HY_LAG_WARN = 3   # HY가 지수보다 3영업일 이상 늦으면 경고 (평소 1일 · 연방 공휴일 다음 날 2일)
+
+
+def _expect_lines(vs):
+    """기대치 문구 — 슬리브 구성별 실측값. 구성이 표에 없으면 v6 문구."""
+    keys = tuple(k for k, _, _, _ in vs.SLEEVES)
+    table = getattr(vs, 'EXPECT_TEXT', None)
+    if table:
+        return list(table)
+    if keys == ('qqqm',):
+        return ['연평균 기대수익 +14.1% · 최대손실 -18.4%',
+                '<i>1999년부터 27년, 나스닥100 1배 기준</i>']
+    return ['연평균 기대수익 +13.3% · 최대손실 -15.0%',   # v6 (DECISION_V6_DEFENSE_ASSET)
+            '<i>수익은 매년 쌓이는 복리, 손실은 지난 27년 중 최악의 한 번</i>']
 
 
 def _dw(t):
@@ -3211,12 +3240,13 @@ def _compose_index_and_send(test_only=False, dry=False):
     asset_key, asset_txt = (vs.def_asset(r) if hasattr(vs, 'def_asset')
                             else ('cash', '수시형 발행어음/RP/CMA (현금 100%)'))
     n_def_now = sum(1 for v in cur.values() if v == 'defense')
+    px_date0 = r[vs.SLEEVES[0][0]]['px_date']   # 첫 슬리브 기준 (슬리브 1개·2개 모두)
     kdt = _dt.now()
     wd = '월화수목금토일'[kdt.weekday()]
     m = []
     # ── 전환 배너 (드문 날만 — 이 메시지의 유일한 행동 지시) ──
     for k, nm, _, idxn in vs.SLEEVES:
-        pv = (prev or {}).get(k)
+        pv = (prev or {}).get(k)   # 이전 상태에 없는 키(슬리브 구성 바뀐 첫날) = 배너 없음
         if pv and cur[k] != pv:
             if cur[k] == 'defense':
                 why = []
@@ -3249,8 +3279,7 @@ def _compose_index_and_send(test_only=False, dry=False):
         m.append(f'방어자산: {asset_txt}{gap_txt}')
     # 기대치 상시 표기 (2026-09-13 사용자 요청). 출처 = v6 검증(1999-04~ 27년, 슬리브분리
     # 신호 + 방어자산 채권 추세부, DEEP_SIGNAL_SEARCH). 평문 표기(피드백 반영).
-    m += ['연평균 기대수익 +13.3% · 최대손실 -15.0%',   # v6 (DECISION_V6_DEFENSE_ASSET)
-          '<i>수익은 매년 쌓이는 복리, 손실은 지난 27년 중 최악의 한 번</i>', '']
+    m += _expect_lines(vs) + ['']
     # ── 지수 마감 (어제 / 1년 / 52주고점 대비) ──
     iq = _us_index_quotes()
     if iq:
@@ -3309,18 +3338,20 @@ def _compose_index_and_send(test_only=False, dry=False):
              % (vs.HY_MARGIN, vs.HY_NE))
     # 데이터 신선도 — 이상일 때만 표시 (평시 메타정보 제로 원칙)
     try:
-        px_age = (kdt.date() - r['voo']['px_date'].date()).days
-        hy_age = (kdt.date() - r['hy_date'].date()).days
-        if px_age > 4 or hy_age > 6:
+        px_age = (kdt.date() - px_date0.date()).days
+        hy_lag = _bday_lag(r['hy_date'], px_date0)
+        if px_age > 4 or hy_lag >= HY_LAG_WARN:
             m.append('🟡 <code>데이터 지연  지수 %s · HY %s</code>'
-                     % (r['voo']['px_date'].strftime('%m/%d'), r['hy_date'].strftime('%m/%d')))
+                     % (px_date0.strftime('%m/%d'), r['hy_date'].strftime('%m/%d')))
+            if hy_lag >= HY_LAG_WARN:
+                m.append('<i>HY가 지수보다 %d영업일 늦음 — 신용 신호가 늦게 반영될 수 있음</i>' % hy_lag)
     except Exception:
         pass
     # ── AI 시황 (라벨 → 섹션 제목으로 승격, 별도 헤더 없음) ──
     facts = ['%s %s (%+.2f%%)' % (nm, format(lvl, ',.0f'), chg) for nm, lvl, chg, _, _ in iq]
     ai = None
     if not (dry or os.environ.get('VM_INDEX_NO_AI') == '1'):
-        ai = _ai_index_brief(facts, kdt, session_date=r['voo']['px_date'])
+        ai = _ai_index_brief(facts, kdt, session_date=px_date0)
     if ai:
         m.append('')
         for p in ai.split('\n'):
