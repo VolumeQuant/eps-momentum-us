@@ -6590,5 +6590,9 @@
   "ANT": {
     "shortName": "ANT",
     "industry": "기타"
+  },
+  "BN": {
+    "shortName": "BN",
+    "industry": "기타"
   }
 }
